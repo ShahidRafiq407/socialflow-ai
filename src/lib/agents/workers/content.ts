@@ -51,7 +51,7 @@ Do NOT output anything except the JSON.`;
 
   let parsed = null;
   try {
-    let text = res.content.toString()
+    let text = (res.content?.toString() || "")
       .replace(/```json/g, "").replace(/```/g, "").trim();
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");

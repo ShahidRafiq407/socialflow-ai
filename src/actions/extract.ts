@@ -57,7 +57,7 @@ export async function extractFromUrl(url: string) {
 
     try {
       const res = await llm.invoke([new HumanMessage(prompt)]);
-      const text = res.content.toString().trim();
+      const text = (res.content?.toString() || "").trim();
       const jsonStart = text.indexOf('{');
       const jsonEnd = text.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {

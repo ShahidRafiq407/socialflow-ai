@@ -21,6 +21,6 @@ Keep it to 2-3 sentences max. Do not output JSON.`;
   const res = await llm.invoke([new HumanMessage(prompt)]);
 
   return {
-    competitorData: res.content.toString(),
+    competitorData: (res.content?.toString() || ""),
   };
 }

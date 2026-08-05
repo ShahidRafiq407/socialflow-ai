@@ -21,7 +21,7 @@ Are there visual images/urls ready?
 Respond with exactly "APPROVED" if it is ready, or a short sentence on what needs fixing if it is completely broken.`;
 
   const res = await ceoLlm.invoke([new HumanMessage(prompt)]);
-  const reviewText = res.content.toString().trim();
+  const reviewText = (res.content?.toString() || "").trim();
 
   console.log(`[CEO Review]: ${reviewText}`);
 

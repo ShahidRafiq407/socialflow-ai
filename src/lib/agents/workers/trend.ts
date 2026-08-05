@@ -36,6 +36,6 @@ CRITICAL: You MUST explicitly mention the sources and websites you analyzed from
   const res = await llm.invoke([new HumanMessage(prompt)]);
   
   return {
-    trendData: res.content.toString(),
+    trendData: (res.content?.toString() || ""),
   };
 }
