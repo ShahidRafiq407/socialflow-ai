@@ -171,7 +171,7 @@ Output formatting rules:
     try {
       const res = await llm.invoke([new HumanMessage(prompt)]);
       return {
-        preview: res.content.toString().trim(),
+        preview: (res.content?.toString() || "").trim(),
         modelUsed: "groq-llama-3",
       };
     } catch (err: any) {
