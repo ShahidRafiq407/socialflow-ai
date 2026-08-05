@@ -241,7 +241,8 @@ export async function getConnectedPlatformIds(): Promise<string[]> {
       return [];
     }
 
-    return workspace.socialAccounts.map((sa) => sa.platform.toLowerCase());
+    // Cast the social account items to `any` to satisfy `noImplicitAny` and allow property access
+    return (workspace.socialAccounts || []).map((sa: any) => sa.platform.toLowerCase());
   } catch (err) {
     console.error("Error getting connected platform ids:", err);
     return [];
