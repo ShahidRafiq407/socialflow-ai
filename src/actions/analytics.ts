@@ -164,7 +164,7 @@ export async function getWorkspaceAnalytics(
       orderBy: { createdAt: "desc" },
     });
 
-    const posts: PostAnalyticsItem[] = dbPosts.map((post, index) => {
+    const posts: PostAnalyticsItem[] = dbPosts.map((post: any, index: number) => {
       const hash = post.id
         .split("")
         .reduce((acc, char) => acc + char.charCodeAt(0), 0);
