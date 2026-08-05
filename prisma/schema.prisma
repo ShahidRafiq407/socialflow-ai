@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  name             String?
+  avatar           String?
+  stripeCustomerId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  workspaces       Workspace[]
+}
+
+model Workspace {
+  id              String            @id @default(uuid())
+  name            String
+  industry        String?
+  website         String?
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  brandDNA        BrandDNA?
+  socialAccounts  SocialAccount[]
+  competitors     Competitor[]
+  chatSessions    ChatSession[]
+  automationRules AutomationRule[]
+  contentPosts    ContentPost[]
+  posts           Post[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([userId])
+}
+
+model BrandDNA {
+  id             String    @id @default(uuid())
+  tone           String?
+  missionVision  String?
+  targetAudience String?
+  primaryColors  String[]
+  forbiddenWords String[]
+  writingStyle   String?
+  workspaceId    String    @unique
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+enum Platform {
+  INSTAGRAM
+  LINKEDIN
+  FACEBOOK
+  X
+  YOUTUBE
+  TIKTOK
+  PINTEREST
+}
+
+model SocialAccount {
+  id             String    @id @default(uuid())
+  platform       Platform
+  accessToken    String    @default("")
+  refreshToken   String?
+  accountId      String    @default("")
+  handle         String    @default("")
+  pageName       String?
+  tokenExpiresAt DateTime?
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([workspaceId, platform])
+  @@index([workspaceId])
+}
+
+model Competitor {
+  id          String    @id @default(uuid())
+  name        String
+  platform    Platform
+  profileUrl  String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model ChatSession {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  messages    Message[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+enum Role {
+  USER
+  AGENT
+}
+
+model Message {
+  id            String      @id @default(uuid())
+  role          Role
+  content       String      @db.Text
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([chatSessionId])
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+model AutomationRule {
+  id                String        @id @default(uuid())
+  promptContext     String        @db.Text
+  frequency         Frequency
+  scheduledTime     String
+  platformOverrides String[]
+  isActive          Boolean       @default(true)
+  workspaceId       String
+  workspace         Workspace     @relation(fields: [workspaceId], references: [id])
+  contentPosts      ContentPost[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([workspaceId])
+}
+
+enum PostStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  FAILED
+}
+
+model ContentPost {
+  id               String          @id @default(uuid())
+  title            String
+  body             String          @db.Text
+  imageUrl         String?
+  videoUrl         String?
+  platform         Platform
+  status           PostStatus      @default(DRAFT)
+  scheduledFor     DateTime?
+  publishedAt      DateTime?
+  workspaceId      String
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id])
+  automationRuleId String?
+  automationRule   AutomationRule? @relation(fields: [automationRuleId], references: [id])
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([workspaceId])
+  @@index([automationRuleId])
+}
+
+model Post {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  platform     String    @default("LinkedIn")
+  content      String    @db.Text
+  imageUrl     String?
+  imagePrompt  String?   @db.Text
+  status       String    @default("PENDING_APPROVAL")
+  scheduledFor DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
