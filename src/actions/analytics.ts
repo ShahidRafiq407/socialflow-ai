@@ -167,7 +167,7 @@ export async function getWorkspaceAnalytics(
     const posts: PostAnalyticsItem[] = dbPosts.map((post: any, index: number) => {
       const hash = post.id
         .split("")
-        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
       const impressions = 1800 + ((hash * 13) % 4500) + index * 300;
       const clicks = Math.round(impressions * (0.045 + (hash % 15) * 0.003));
       const leadsGenerated = Math.max(1, Math.round(clicks * 0.12));
