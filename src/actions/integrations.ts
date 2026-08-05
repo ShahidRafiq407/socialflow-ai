@@ -59,12 +59,13 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
       }));
     }
 
-    const accountMap = new Map(
-      workspace.socialAccounts.map((sa: any) => [sa.platform.toLowerCase(), sa])
+    // Ensure TypeScript knows the map stores any-values so properties like `id` are accessible
+    const accountMap = new Map<string, any>(
+      (workspace.socialAccounts || []).map((sa: any) => [sa.platform.toLowerCase(), sa])
     );
 
     return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => {
-      const sa = accountMap.get(key);
+      const sa: any = accountMap.get(key);
       if (sa) {
         return {
           id: sa.id,
