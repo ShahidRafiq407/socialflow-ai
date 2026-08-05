@@ -3,6 +3,7 @@
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
+import type { Prisma } from "@prisma/client";
 
 export interface SocialPlatformIntegration {
   id: string;           // DB record id (or platform key if not connected)
@@ -14,6 +15,8 @@ export interface SocialPlatformIntegration {
   description: string;  // What this platform does
   color: string;        // Brand color hex
 }
+
+type SocialAccount = Prisma.SocialAccountGetPayload<{}>;
 
 const PLATFORM_DEFINITIONS: Record<string, { platform: string; color: string; description: string }> = {
   instagram: { platform: "Instagram", color: "#E4405F", description: "Publish reels, stories, carousels, and feed posts to grow your visual brand." },
@@ -59,13 +62,13 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
       }));
     }
 
-    // Ensure TypeScript knows the map stores any-values so properties like `id` are accessible
-    const accountMap = new Map<string, any>(
-      (workspace.socialAccounts || []).map((sa: any) => [sa.platform.toLowerCase(), sa])
+    // Use a properly typed SocialAccount instead of `any` so TS knows available properties
+    const accountMap = new Map<string, SocialAccount>(
+      (workspace.socialAccounts || []).map((sa: SocialAccount) => [sa.platform.toLowerCase(), sa])
     );
 
     return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => {
-      const sa: any = accountMap.get(key);
+      const sa = accountMap.get(key) as SocialAccount | undefined;
       if (sa) {
         return {
           id: sa.id,
@@ -126,7 +129,7 @@ export async function connectPlatform(
       return { success: false, error: "Workspace not found" };
     }
 
-    const platformEnumMap: Record<string, any> = {
+    const platformEnumMap: Record<string, string> = {
       instagram: "INSTAGRAM",
       linkedin: "LINKEDIN",
       facebook: "FACEBOOK",
@@ -187,7 +190,7 @@ export async function disconnectPlatform(
       return { success: false, error: "Workspace not found" };
     }
 
-    const platformEnumMap: Record<string, any> = {
+    const platformEnumMap: Record<string, string> = {
       instagram: "INSTAGRAM",
       linkedin: "LINKEDIN",
       facebook: "FACEBOOK",
@@ -241,8 +244,7 @@ export async function getConnectedPlatformIds(): Promise<string[]> {
       return [];
     }
 
-    // Cast the social account items to `any` to satisfy `noImplicitAny` and allow property access
-    return (workspace.socialAccounts || []).map((sa: any) => sa.platform.toLowerCase());
+    return (workspace.socialAccounts || []).map((sa: SocialAccount) => sa.platform.toLowerCase());
   } catch (err) {
     console.error("Error getting connected platform ids:", err);
     return [];
