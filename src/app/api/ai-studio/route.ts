@@ -73,7 +73,7 @@ export async function POST(req: Request) {
                 encoder.encode(`data: ${JSON.stringify({ 
                   type: "progress", 
                   node: nodeName,
-                  payload: chunk[nodeName]
+                  payload: (chunk as any)[nodeName]
                 })}\n\n`)
               );
             }

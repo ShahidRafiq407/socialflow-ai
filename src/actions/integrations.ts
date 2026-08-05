@@ -60,7 +60,7 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
     }
 
     const accountMap = new Map(
-      workspace.socialAccounts.map((sa) => [sa.platform.toLowerCase(), sa])
+      workspace.socialAccounts.map((sa: any) => [sa.platform.toLowerCase(), sa])
     );
 
     return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => {

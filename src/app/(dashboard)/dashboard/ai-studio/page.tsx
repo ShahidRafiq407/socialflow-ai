@@ -1228,7 +1228,7 @@ export default function AIStudioPage() {
                         <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4">
                           <div className="flex gap-3">
                             <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0 overflow-hidden">
-                              <img src={userImage} alt={userName} className="h-full w-full object-cover" />
+                              {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
                             </div>
                             <div className="flex-1">
                               <div className="flex items-center justify-between">
