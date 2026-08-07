@@ -27,7 +27,7 @@ export default async function MarketingHomePage() {
         </h1>
         
         <p className="text-xl text-slate-600 dark:text-slate-400 mb-10 max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
-          Stop managing social media manually. SocialFlow AI designs campaigns, writes viral copy, generates premium visuals, and auto-publishes across 8 platforms while you sleep.
+          Create campaigns, write viral copy, and generate premium visuals faster — built for growth teams and creators.
         </p>
         
         <div className="flex flex-col sm:flex-row gap-4 animate-in fade-in slide-in-from-bottom-10 duration-700 delay-300">
@@ -35,7 +35,7 @@ export default async function MarketingHomePage() {
             <>
               <Link href="/sign-up">
                 <Button size="lg" className="h-14 px-8 text-lg font-semibold rounded-full shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all hover:scale-105">
-                  Start for Free
+                  Sign up for free
                 </Button>
               </Link>
               <Link href="#features">
@@ -61,7 +61,7 @@ export default async function MarketingHomePage() {
           <div className="flex flex-wrap justify-center items-center gap-8 md:gap-16 opacity-70">
             <div className="flex items-center gap-2 font-bold text-xl"><span className="w-2 h-2 rounded-full bg-pink-500"></span> Instagram</div>
             <div className="flex items-center gap-2 font-bold text-xl"><span className="w-2 h-2 rounded-full bg-blue-600"></span> LinkedIn</div>
-            <div className="flex items-center gap-2 font-bold text-xl"><span className="w-2 h-2 rounded-full bg-sky-500"></span> Twitter</div>
+            <div className="flex items-center gap-2 font-bold text-xl"><span className="w-2 h-2 rounded-full bg-sky-500"></span> X</div>
             <div className="flex items-center gap-2 font-bold text-xl"><span className="w-2 h-2 rounded-full bg-red-600"></span> YouTube</div>
           </div>
         </div>
@@ -76,7 +76,7 @@ export default async function MarketingHomePage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Feature 1 */}
-          <div className="col-span-1 md:col-span-2 rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-blue-500/50 transition-all duration-300 hover:-translate-y-1 group overflow-hidden relative">
+          <div className="col-span-1 md:col-span-2 rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-blue-500/50 transition-all duration-300 group relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <Bot className="w-12 h-12 text-blue-600 mb-6" />
             <h3 className="text-2xl font-bold mb-3">Multi-Agent Workflow</h3>
@@ -86,7 +86,7 @@ export default async function MarketingHomePage() {
           </div>
 
           {/* Feature 2 */}
-          <div className="rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-indigo-500/50 transition-all duration-300 hover:-translate-y-1 group relative">
+          <div className="rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-indigo-500/50 transition-all duration-300 group relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <Zap className="w-12 h-12 text-indigo-600 mb-6" />
             <h3 className="text-2xl font-bold mb-3">Lightning Fast</h3>
@@ -96,7 +96,7 @@ export default async function MarketingHomePage() {
           </div>
 
           {/* Feature 3 */}
-          <div className="rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-pink-500/50 transition-all duration-300 hover:-translate-y-1 group relative">
+          <div className="rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-pink-500/50 transition-all duration-300 group relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <BarChart className="w-12 h-12 text-pink-600 mb-6" />
             <h3 className="text-2xl font-bold mb-3">Data-Driven Strategy</h3>
@@ -106,12 +106,12 @@ export default async function MarketingHomePage() {
           </div>
 
           {/* Feature 4 */}
-          <div className="col-span-1 md:col-span-2 rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-purple-500/50 transition-all duration-300 hover:-translate-y-1 group relative">
+          <div className="col-span-1 md:col-span-2 rounded-3xl p-8 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 backdrop-blur-xl hover:border-purple-500/50 transition-all relative overflow-hidden">
              <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             <Users className="w-12 h-12 text-purple-600 mb-6" />
             <h3 className="text-2xl font-bold mb-3">Visual Studio & Canva-Like Editor</h3>
             <p className="text-slate-600 dark:text-slate-400 max-w-md">
-              Generate stunning, brand-aligned images via Pollinations AI. Preview how your posts will look exactly as they would appear on Instagram, LinkedIn, or Twitter.
+              Generate stunning, brand-aligned images via Pollinations AI. Preview how your posts will look exactly as they would appear on Instagram, LinkedIn, or X.
             </p>
           </div>
         </div>
@@ -122,7 +122,7 @@ export default async function MarketingHomePage() {
         <div className="container mx-auto max-w-5xl">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-5xl font-bold mb-4">Simple, transparent pricing</h2>
-            <p className="text-lg text-slate-600 dark:text-slate-400">Start for free, upgrade when you need more power.</p>
+            <p className="text-lg text-slate-600 dark:text-slate-400">Sign up for free, upgrade when you need more power.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
@@ -155,7 +155,7 @@ export default async function MarketingHomePage() {
               </ul>
               <Link href="/sign-up" className="w-full block">
                 <Button variant="outline" className="w-full h-12 rounded-xl text-lg font-semibold">
-                  Get Started Free
+                  Sign up for free
                 </Button>
               </Link>
             </div>
@@ -206,7 +206,7 @@ export default async function MarketingHomePage() {
         <p className="text-xl text-slate-600 dark:text-slate-400 mb-8">Join thousands of creators saving 10+ hours a week.</p>
         <Link href="/sign-up">
           <Button size="lg" className="h-14 px-8 text-lg font-semibold rounded-full shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all hover:scale-105">
-            Create Your Free Account
+            Sign up for free
           </Button>
         </Link>
       </section>
