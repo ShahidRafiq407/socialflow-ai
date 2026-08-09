@@ -260,7 +260,7 @@ export default async function MarketingHomePage() {
                 step: "01",
                 title: "Connect Your Profiles",
                 description: "Link your Instagram, LinkedIn, X, YouTube and other social accounts in seconds.",
-                icon: Link,
+                icon: Clock,
               },
               {
                 step: "02",
@@ -278,25 +278,28 @@ export default async function MarketingHomePage() {
                 step: "04",
                 title: "Schedule & Publish",
                 description: "Preview, customize, and auto-schedule across all platforms.",
-                icon: Clock,
+                icon: CheckCircle2,
               },
-            ].map((item, index) => (
-              <div key={index} className="relative">
-                {/* Connector line */}
-                {index < 3 && (
-                  <div className="hidden md:block absolute top-24 left-[calc(100%+16px)] w-8 h-0.5 bg-gradient-to-r from-blue-500/50 to-transparent" />
-                )}
-                
-                <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 p-8">
-                  <div className="text-4xl font-black text-gray-700 mb-4">{item.step}</div>
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-blue-500/20 border border-blue-500/30 mb-6">
-                    <item.icon className="w-6 h-6 text-blue-400" />
+            ].map((item, index) => {
+              const IconComponent = item.icon;
+              return (
+                <div key={index} className="relative">
+                  {/* Connector line */}
+                  {index < 3 && (
+                    <div className="hidden md:block absolute top-24 left-[calc(100%+16px)] w-8 h-0.5 bg-gradient-to-r from-blue-500/50 to-transparent" />
+                  )}
+                  
+                  <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 p-8">
+                    <div className="text-4xl font-black text-gray-700 mb-4">{item.step}</div>
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-blue-500/20 border border-blue-500/30 mb-6">
+                      <IconComponent className="w-6 h-6 text-blue-400" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-3">{item.title}</h3>
+                    <p className="text-gray-400 text-sm leading-relaxed">{item.description}</p>
                   </div>
-                  <h3 className="text-xl font-bold mb-3">{item.title}</h3>
-                  <p className="text-gray-400 text-sm leading-relaxed">{item.description}</p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -310,15 +313,18 @@ export default async function MarketingHomePage() {
               { stat: "99.9%", label: "Uptime Guaranteed", icon: Shield },
               { stat: "10K+", label: "Active Creators", icon: Users },
               { stat: "1M+", label: "Posts This Month", icon: TrendingUp },
-            ].map((item, index) => (
-              <div key={index} className="group text-center p-8 rounded-2xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 hover:border-blue-500/50 transition-all hover:shadow-xl hover:shadow-blue-500/20">
-                <div className="inline-flex items-center justify-center w-14 h-14 rounded-lg bg-blue-500/20 border border-blue-500/30 mb-6 mx-auto group-hover:scale-110 transition-transform">
-                  <item.icon className="w-7 h-7 text-blue-400" />
+            ].map((item, index) => {
+              const IconComponent = item.icon;
+              return (
+                <div key={index} className="group text-center p-8 rounded-2xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 hover:border-blue-500/50 transition-all hover:shadow-xl hover:shadow-blue-500/20">
+                  <div className="inline-flex items-center justify-center w-14 h-14 rounded-lg bg-blue-500/20 border border-blue-500/30 mb-6 mx-auto group-hover:scale-110 transition-transform">
+                    <IconComponent className="w-7 h-7 text-blue-400" />
+                  </div>
+                  <div className="text-4xl font-black mb-2">{item.stat}</div>
+                  <div className="text-gray-400">{item.label}</div>
                 </div>
-                <div className="text-4xl font-black mb-2">{item.stat}</div>
-                <div className="text-gray-400">{item.label}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
