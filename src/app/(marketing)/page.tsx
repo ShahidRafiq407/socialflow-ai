@@ -65,25 +65,19 @@ export default async function MarketingHomePage() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
             {!userId ? (
               <>
-                <Link href="/sign-up" className="group">
-                  <Button className="h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105 w-full sm:w-auto">
-                    Start Free
-                    <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                  </Button>
+                <Link href="/sign-up" className="group inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105 w-full sm:w-auto text-white">
+                  Start Free
+                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </Link>
-                <Link href="#features" className="group">
-                  <Button variant="outline" className="h-14 px-8 text-lg font-bold rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 w-full sm:w-auto transition-all duration-300">
-                    See Demo
-                    <Sparkles className="ml-2 w-5 h-5" />
-                  </Button>
+                <Link href="#features" className="group inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 w-full sm:w-auto transition-all duration-300 text-white">
+                  See Demo
+                  <Sparkles className="ml-2 w-5 h-5" />
                 </Link>
               </>
             ) : (
-              <Link href="/dashboard" className="group">
-                <Button className="h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105 w-full sm:w-auto">
-                  Go to Dashboard
-                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
+              <Link href="/dashboard" className="group inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105 w-full sm:w-auto text-white">
+                Go to Dashboard
+                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
             )}
           </div>
@@ -357,10 +351,8 @@ export default async function MarketingHomePage() {
                   <span className="text-gray-400 ml-2">/month</span>
                 </div>
 
-                <Link href="/sign-up" className="block w-full mb-8">
-                  <Button variant="outline" className="w-full h-12 rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10">
-                    Get Started Free
-                  </Button>
+                <Link href="/sign-up" className="block w-full mb-8 inline-flex items-center justify-center h-12 rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 font-medium text-white transition-colors">
+                  Get Started Free
                 </Link>
 
                 <div className="space-y-4">
@@ -395,11 +387,9 @@ export default async function MarketingHomePage() {
                   <span className="text-blue-100 ml-2">/month</span>
                 </div>
 
-                <Link href="/sign-up" className="block w-full mb-8">
-                  <Button className="w-full h-12 rounded-lg bg-white text-blue-600 font-bold hover:bg-gray-50 transition-all">
-                    Start Free Trial
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
+                <Link href="/sign-up" className="block w-full mb-8 inline-flex items-center justify-center h-12 rounded-lg bg-white text-blue-600 font-bold hover:bg-gray-50 transition-all">
+                  Start Free Trial
+                  <ArrowRight className="w-4 h-4 ml-2" />
                 </Link>
 
                 <div className="space-y-4">
@@ -431,10 +421,8 @@ export default async function MarketingHomePage() {
                   <span className="text-5xl font-black">Custom</span>
                 </div>
 
-                <Link href="mailto:hello@socialflow.ai" className="block w-full mb-8">
-                  <Button className="w-full h-12 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-bold">
-                    Contact Sales
-                  </Button>
+                <Link href="mailto:hello@socialflow.ai" className="block w-full mb-8 inline-flex items-center justify-center h-12 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 font-bold text-white transition-all">
+                  Contact Sales
                 </Link>
 
                 <div className="space-y-4">
@@ -524,17 +512,13 @@ export default async function MarketingHomePage() {
           Join 10,000+ creators and brands automating their marketing. Start free today.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="/sign-up" className="group">
-            <Button className="h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105">
-              Get Started Free
-              <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </Button>
+          <Link href="/sign-up" className="group inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/50 hover:shadow-blue-500/75 transition-all duration-300 hover:scale-105 text-white">
+            Get Started Free
+            <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
-          <Link href="https://cal.com/your-calendar" target="_blank" className="group">
-            <Button variant="outline" className="h-14 px-8 text-lg font-bold rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10">
-              Book a Demo
-              <Sparkles className="ml-2 w-5 h-5" />
-            </Button>
+          <Link href="https://cal.com/your-calendar" target="_blank" className="group inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-lg border-2 border-gray-700 hover:border-blue-500 hover:bg-blue-500/10 transition-colors text-white">
+            Book a Demo
+            <Sparkles className="ml-2 w-5 h-5" />
           </Link>
         </div>
       </section>
