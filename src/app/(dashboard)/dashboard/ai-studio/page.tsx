@@ -3,6 +3,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { create } from "zustand";
+import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
+import InstagramPreview from "@/components/previews/InstagramPreview";
+import LinkedInPreview from "@/components/previews/LinkedInPreview";
+import XPreview from "@/components/previews/XPreview";
+import TikTokPreview from "@/components/previews/TikTokPreview";
+import YoutubePreview from "@/components/previews/YoutubePreview";
+import FacebookPreview from "@/components/previews/FacebookPreview";
+import PinterestPreview from "@/components/previews/PinterestPreview";
 import {
   Card,
   CardHeader,
@@ -90,6 +98,9 @@ import {
 } from "lucide-react";
 import { getConnectedPlatformIds } from "@/actions/integrations";
 import { useUser } from "@clerk/nextjs";
+import { DndContext, useDroppable, useDraggable, DragEndEvent } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { schedulePost as serverSchedulePost } from "@/actions/publish";
 
 // ============================================================================
 // ZUSTAND GLOBAL STORE — shared between AI Studio, Auto-Pilot, Calendar
@@ -296,6 +307,60 @@ const StatusBadge = ({ status }: { status: PostStatus }) => {
     </Badge>
   );
 };
+
+// ============================================================================
+// DND CALENDAR COMPONENTS
+// ============================================================================
+function DraggablePost({ post }: { post: Post }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: post.id, data: { post } });
+  const pDef = PLATFORMS.find(pl => pl.id === post.platform);
+  const Icon = pDef?.icon || Globe;
+  const style = transform ? { transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.5 : 1 } : undefined;
+  
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={style}
+      className={`flex items-center gap-1 px-1 py-0.5 rounded text-[10px] font-semibold truncate cursor-grab active:cursor-grabbing ${
+        post.status === "published" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" :
+        post.status === "scheduled" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+        post.status === "approved" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+        post.status === "in_review" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+        "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+      }`}
+    >
+      <Icon className="h-2.5 w-2.5 shrink-0" />
+      <span className="truncate">{post.caption.slice(0, 15) || "(no caption)"}</span>
+    </div>
+  );
+}
+
+function DroppableDay({ day, calendarMonth, isToday }: { day: { date: Date, posts: Post[] }, calendarMonth: Date, isToday: boolean }) {
+  const dateStr = day.date.toISOString().split("T")[0]; // YYYY-MM-DD
+  const { setNodeRef, isOver } = useDroppable({ id: dateStr, data: { date: day.date } });
+  const isCurrentMonth = day.date.getMonth() === calendarMonth.getMonth();
+  
+  return (
+    <div
+      ref={setNodeRef}
+      className={`aspect-square p-1 rounded-lg border text-xs transition-colors ${
+        isCurrentMonth ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" : "bg-slate-50 dark:bg-slate-900/50 border-slate-100 dark:border-slate-800 text-slate-400"
+      } ${isToday ? "ring-2 ring-primary" : ""} ${isOver ? "bg-primary/5 border-primary" : ""}`}
+    >
+      <div className="font-bold text-[11px] mb-1">{day.date.getDate()}</div>
+      <div className="space-y-0.5 overflow-y-auto max-h-[80%]">
+        {day.posts.slice(0, 3).map(p => (
+          <DraggablePost key={p.id} post={p} />
+        ))}
+        {day.posts.length > 3 && (
+          <div className="text-[10px] text-slate-500 text-center">+{day.posts.length - 3} more</div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -879,12 +944,21 @@ export default function AIStudioPage() {
     if (!post) return;
     setPublishLoading(true);
     try {
-      // Mock API call — in production: fetch("/api/posts/save-draft", ...)
-      await new Promise(r => setTimeout(r, 600));
+      const res = await apiSaveDraft({
+        platform: post.platform,
+        content: post.caption,
+        imageUrl: post.mediaUrls[0],
+        format: post.format,
+        hashtags: post.hashtags,
+        mediaType: post.mediaType,
+        source: post.source,
+      });
+      post.id = res.id;
       store.addPost(post);
       setPublishResult({ success: true, message: "Draft saved successfully" });
-    } catch (e) {
-      setPublishResult({ success: false, message: "Failed to save draft" });
+    } catch (e: any) {
+      console.error(e);
+      setPublishResult({ success: false, message: e.message || "Failed to save draft" });
     } finally {
       setPublishLoading(false);
       setTimeout(() => setPublishResult(null), 2500);
@@ -928,14 +1002,31 @@ export default function AIStudioPage() {
       setTimeout(() => setPublishResult(null), 2500);
       return;
     }
-    post.scheduledAt = new Date(scheduledAt).getTime();
+    const schedDate = new Date(scheduledAt);
+    post.scheduledAt = schedDate.getTime();
     setPublishLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-    store.addPost(post);
-    setPublishResult({ success: true, message: `Scheduled for ${new Date(scheduledAt).toLocaleString()}` });
-    setPublishModal({ type: null });
-    setPublishLoading(false);
-    setTimeout(() => setPublishResult(null), 3000);
+    try {
+      const draftRes = await apiSaveDraft({
+        platform: post.platform,
+        content: post.caption,
+        imageUrl: post.mediaUrls[0],
+        format: post.format,
+        hashtags: post.hashtags,
+        mediaType: post.mediaType,
+        source: post.source,
+      });
+      post.id = draftRes.id;
+      await apiSchedulePost(post.id, schedDate);
+      store.addPost(post);
+      setPublishResult({ success: true, message: `Scheduled for ${schedDate.toLocaleString()}` });
+      setPublishModal({ type: null });
+    } catch (e: any) {
+      console.error(e);
+      setPublishResult({ success: false, message: e.message || "Failed to schedule post" });
+    } finally {
+      setPublishLoading(false);
+      setTimeout(() => setPublishResult(null), 3000);
+    }
   };
 
   const publishNow = async () => {
@@ -951,12 +1042,27 @@ export default function AIStudioPage() {
       impressions: Math.floor(Math.random() * 15000) + 1500,
     };
     setPublishLoading(true);
-    // Mock API call
-    await new Promise(r => setTimeout(r, 900));
-    store.addPost(post);
-    setPublishResult({ success: true, message: `Published to ${getPlatformDef(activePlatformTab).label} ✓` });
-    setPublishLoading(false);
-    setTimeout(() => setPublishResult(null), 3000);
+    try {
+      const draftRes = await apiSaveDraft({
+        platform: post.platform,
+        content: post.caption,
+        imageUrl: post.mediaUrls[0],
+        format: post.format,
+        hashtags: post.hashtags,
+        mediaType: post.mediaType,
+        source: post.source,
+      });
+      post.id = draftRes.id;
+      await apiPublishNow(post.id);
+      store.addPost(post);
+      setPublishResult({ success: true, message: `Published to ${getPlatformDef(activePlatformTab).label} ✓` });
+    } catch (e: any) {
+      console.error(e);
+      setPublishResult({ success: false, message: e.message || "Failed to publish post" });
+    } finally {
+      setPublishLoading(false);
+      setTimeout(() => setPublishResult(null), 3000);
+    }
   };
 
   // ============================================================================
@@ -984,7 +1090,7 @@ export default function AIStudioPage() {
     }
   };
 
-  const createManualPost = (status: PostStatus = "draft") => {
+  const createManualPost = async (status: PostStatus = "draft") => {
     if (!manualPost.caption.trim() && !manualMedia) {
       setPublishResult({ success: false, message: "Please add caption or media" });
       setTimeout(() => setPublishResult(null), 2500);
@@ -1013,22 +1119,48 @@ export default function AIStudioPage() {
     if (status === "published") {
       post.publishedAt = Date.now();
     }
-    store.addPost(post);
-    setPublishResult({ success: true, message: `Manual post ${status === "scheduled" ? "scheduled" : status === "published" ? "published" : "saved"}` });
-    setManualPost({
-      platform: "instagram",
-      format: "Feed",
-      caption: "",
-      firstComment: "",
-      hashtags: [],
-      scheduledAt: "",
-      status: "draft",
-    });
-    if (manualMedia?.url.startsWith("blob:")) {
-      try { URL.revokeObjectURL(manualMedia.url); } catch {}
+    
+    setPublishLoading(true);
+    try {
+      const draftRes = await apiSaveDraft({
+        platform: post.platform,
+        content: post.caption,
+        imageUrl: post.mediaUrls[0],
+        format: post.format,
+        hashtags: post.hashtags,
+        mediaType: post.mediaType,
+        source: post.source,
+      });
+      post.id = draftRes.id;
+      
+      if (status === "scheduled" && manualPost.scheduledAt) {
+        await apiSchedulePost(post.id, new Date(manualPost.scheduledAt));
+      } else if (status === "published") {
+        await apiPublishNow(post.id);
+      }
+      
+      store.addPost(post);
+      setPublishResult({ success: true, message: `Manual post ${status === "scheduled" ? "scheduled" : status === "published" ? "published" : "saved"}` });
+      setManualPost({
+        platform: "instagram",
+        format: "Feed",
+        caption: "",
+        firstComment: "",
+        hashtags: [],
+        scheduledAt: "",
+        status: "draft",
+      });
+      if (manualMedia?.url.startsWith("blob:")) {
+        try { URL.revokeObjectURL(manualMedia.url); } catch {}
+      }
+      setManualMedia(null);
+    } catch (e: any) {
+      console.error(e);
+      setPublishResult({ success: false, message: e.message || "Failed to create manual post" });
+    } finally {
+      setPublishLoading(false);
+      setTimeout(() => setPublishResult(null), 2500);
     }
-    setManualMedia(null);
-    setTimeout(() => setPublishResult(null), 2500);
   };
 
   // ============================================================================
@@ -1078,6 +1210,32 @@ export default function AIStudioPage() {
     }
     return days;
   }, [calendarMonth, store.posts]);
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+    const postId = active.id as string;
+    const dateStr = over.id as string;
+    
+    const post = store.posts.find(p => p.id === postId);
+    if (!post) return;
+    
+    const targetDate = new Date(dateStr);
+    const oldDate = new Date(post.scheduledAt || post.createdAt);
+    targetDate.setHours(oldDate.getHours(), oldDate.getMinutes(), 0, 0);
+    const newScheduledAt = targetDate.getTime();
+    
+    store.updatePost(postId, { scheduledAt: newScheduledAt, status: "scheduled" });
+    
+    setPublishResult({ success: true, message: "Post rescheduled" });
+    setTimeout(() => setPublishResult(null), 2500);
+
+    try {
+      await serverSchedulePost(postId, targetDate);
+    } catch (e) {
+      console.error("Failed to schedule on server", e);
+    }
+  };
 
   // ============================================================================
   // RENDER
@@ -1700,285 +1858,19 @@ export default function AIStudioPage() {
                     (() => {
                       switch (activePlatformTab) {
                         case "instagram":
-                          if (currentFormatName === "Story" || currentFormatName === "Reel") {
-                            return (
-                              <div className="relative border-[8px] border-slate-900 dark:border-slate-800 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
-                                <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
-                                <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
-                                  <div className="flex items-center gap-2">
-                                    <div className="h-7 w-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
-                                      <div className="bg-slate-900 h-full w-full rounded-full border border-slate-900"></div>
-                                    </div>
-                                    <p className="text-xs font-bold text-white shadow-sm">smbrobotics</p>
-                                  </div>
-                                  <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
-                                </div>
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                  {displayImageUrl && <img src={displayImageUrl} alt="Reel" className="w-full h-full object-cover" />}
-                                </div>
-                                <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">
-                                  <div className="flex flex-col items-center gap-1"><Heart className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">12k</span></div>
-                                  <div className="flex flex-col items-center gap-1"><MessageCircle className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">456</span></div>
-                                  <div className="flex flex-col items-center gap-1"><Send className="h-5 w-5 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">Share</span></div>
-                                  <MoreHorizontal className="h-5 w-5 text-white drop-shadow-md mt-2" />
-                                </div>
-                                <div className="absolute bottom-0 left-0 right-16 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-12 z-20">
-                                  <p className="text-xs font-semibold text-white mb-1">smbrobotics</p>
-                                  <p className="text-[11px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
-                                </div>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="w-full max-w-[340px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md">
-                              <div className="flex items-center justify-between p-3">
-                                <div className="flex items-center gap-2.5">
-                                  <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
-                                    <div className="bg-white dark:bg-slate-900 h-full w-full rounded-full border border-white dark:border-slate-900 overflow-hidden">
-                                      {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                    </div>
-                                  </div>
-                                  <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{userHandle}</p>
-                                </div>
-                                <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
-                              </div>
-                              <div className={`w-full relative overflow-hidden bg-slate-100 dark:bg-slate-900 ${currentFormatName === 'Idea Pin' || currentFormatName === 'Carousel' ? 'aspect-[9/16]' : 'aspect-[2/3]'}`}>
-                                {displayImageUrl && <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />}
-                                {displayOverlayTexts[activeSlideIdx] && (
-                                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
-                                    <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-2 backdrop-blur-sm shadow-sm border border-white/20">
-                                      Step {activeSlideIdx + 1}
-                                    </div>
-                                    <h3 className="text-white font-extrabold text-lg sm:text-xl leading-tight mb-1.5 drop-shadow-md">
-                                      {displayOverlayTexts[activeSlideIdx].title}
-                                    </h3>
-                                    <p className="text-slate-200 text-xs sm:text-sm font-medium leading-snug drop-shadow-sm max-w-[95%]">
-                                      {displayOverlayTexts[activeSlideIdx].body}
-                                    </p>
-                                  </div>
-                                )}
-                                {displayImageUrls.length > 1 && (
-                                  <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2 py-0.5 text-[10px] text-white font-semibold z-20">
-                                    {activeSlideIdx + 1}/{displayImageUrls.length}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="p-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-4 text-slate-900 dark:text-white">
-                                    <Heart className="h-6 w-6" /><MessageCircle className="h-6 w-6" /><Send className="h-[22px] w-[22px]" />
-                                  </div>
-                                  <Bookmark className="h-6 w-6 text-slate-900 dark:text-white" />
-                                </div>
-                                <p className="text-[13px] font-semibold text-slate-900 dark:text-white mb-1">1,234 likes</p>
-                                <p className="text-[13px] text-slate-900 dark:text-white leading-snug line-clamp-3">
-                                  <span className="font-semibold mr-1.5">{userHandle}</span>
-                                  {currentCaption}
-                                </p>
-                              </div>
-                            </div>
-                          );
-
+                          return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
                         case "linkedin":
-                          return (
-                            <div className="w-full max-w-[400px] rounded-sm border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1b1f23] shadow-sm">
-                              <div className="flex items-start gap-3 p-4 pb-2">
-                                <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0 overflow-hidden">
-                                  {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                </div>
-                                <div className="flex-1">
-                                  <p className="text-[14px] font-bold text-slate-900 dark:text-white leading-tight">{userName}</p>
-                                  <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">Automating the Future of B2B SaaS</p>
-                                  <p className="text-[12px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">1h • <Globe className="h-3 w-3" /></p>
-                                </div>
-                                <MoreHorizontal className="h-5 w-5 text-slate-500" />
-                              </div>
-                              <div className="px-4 pb-3">
-                                <p className="text-[14px] text-slate-900 dark:text-slate-200 leading-relaxed whitespace-pre-wrap line-clamp-5">{currentCaption}</p>
-                              </div>
-                              {displayImageUrl && (
-                                <div className={`w-full bg-slate-100 dark:bg-slate-900 ${currentFormatName === 'Carousel' ? 'aspect-[4/5]' : 'aspect-video'}`}>
-                                  <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
-                                </div>
-                              )}
-                              <div className="px-4 py-2 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-                                <div className="flex items-center gap-1 text-[11px] text-slate-500"><ThumbsUp className="h-3 w-3 text-blue-500" /> <Heart className="h-3 w-3 text-red-500" /> 432</div>
-                                <div className="text-[11px] text-slate-500">12 comments • 5 reposts</div>
-                              </div>
-                              <div className="flex items-center justify-between px-4 py-1">
-                                {['Like', 'Comment', 'Repost', 'Send'].map(btn => (
-                                  <button key={btn} className="flex items-center gap-1.5 px-2 py-3 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-[13px] font-semibold text-slate-600 dark:text-slate-400">
-                                    {btn === 'Like' ? <ThumbsUp className="h-4 w-4" /> : btn === 'Comment' ? <MessageCircle className="h-4 w-4" /> : btn === 'Repost' ? <Repeat2 className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-                                    <span className="hidden sm:inline">{btn}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          );
-
+                          return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
                         case "x":
-                          return (
-                            <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4">
-                              <div className="flex gap-3">
-                                <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0 overflow-hidden">
-                                  {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                </div>
-                                <div className="flex-1">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[15px] font-bold text-slate-900 dark:text-white">{userName}</span>
-                                      <Check className="h-4 w-4 text-blue-400 bg-white dark:bg-black rounded-full" />
-                                      <span className="text-[15px] text-slate-500">@{userHandle}</span>
-                                      <span className="text-[15px] text-slate-500">· 2h</span>
-                                    </div>
-                                    <MoreHorizontal className="h-4 w-4 text-slate-500" />
-                                  </div>
-                                  <p className="text-[15px] text-slate-900 dark:text-white mt-1 mb-3 leading-snug whitespace-pre-wrap">{currentCaption}</p>
-                                  {displayImageUrl && (
-                                    <div className="w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mt-3 aspect-video">
-                                      <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />
-                                    </div>
-                                  )}
-                                  <div className="flex items-center justify-between mt-3 max-w-md text-slate-500">
-                                    <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><MessageCircle className="h-4 w-4" /> 12</button>
-                                    <button className="flex items-center gap-2 text-[13px] hover:text-emerald-500"><Repeat2 className="h-4 w-4" /> 45</button>
-                                    <button className="flex items-center gap-2 text-[13px] hover:text-pink-500"><Heart className="h-4 w-4" /> 392</button>
-                                    <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><Bookmark className="h-4 w-4" /></button>
-                                    <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><Share2 className="h-4 w-4" /></button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          );
-
+                          return <XPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
                         case "tiktok":
-                          return (
-                            <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-black text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
-                              <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-                                {displayImageUrl && <img src={displayImageUrl} alt="TikTok" className="w-full h-full object-cover opacity-90" />}
-                              </div>
-                              <div className="absolute right-2 bottom-20 flex flex-col items-center gap-4 z-20">
-                                <div className="h-10 w-10 rounded-full border-2 border-white bg-slate-800 overflow-hidden">
-                                  {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                </div>
-                                <div className="flex flex-col items-center gap-1"><Heart className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">45.2K</span></div>
-                                <div className="flex flex-col items-center gap-1"><MessageCircle className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">128</span></div>
-                                <div className="flex flex-col items-center gap-1"><Bookmark className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">1.2K</span></div>
-                                <div className="flex flex-col items-center gap-1"><Share2 className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">44</span></div>
-                              </div>
-                              <div className="absolute bottom-0 left-0 right-16 p-3 z-20 bg-gradient-to-t from-black/80 to-transparent">
-                                <p className="text-[14px] font-bold text-white mb-1">@{userHandle}</p>
-                                <p className="text-[13px] leading-snug line-clamp-3 text-white">{currentCaption}</p>
-                                <div className="flex items-center gap-1 mt-2 text-[12px] font-semibold text-white">
-                                  <Music className="h-3 w-3" /> <span>Original sound - {userName}</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-
+                          return <TikTokPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
                         case "youtube":
-                          return (
-                            <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
-                              <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-                                {displayImageUrl && <img src={displayImageUrl} alt="Shorts" className="w-full h-full object-cover" />}
-                              </div>
-                              <div className="absolute right-2 bottom-16 flex flex-col items-center gap-5 z-20">
-                                <div className="flex flex-col items-center gap-1"><ThumbsUp className="h-6 w-6 text-white fill-white" /><span className="text-[11px] font-bold text-white">12K</span></div>
-                                <div className="flex flex-col items-center gap-1"><ThumbsUp className="h-6 w-6 text-white rotate-180" /><span className="text-[11px] font-bold text-white">Dislike</span></div>
-                                <div className="flex flex-col items-center gap-1"><MessageCircle className="h-6 w-6 text-white fill-white" /><span className="text-[11px] font-bold text-white">45</span></div>
-                                <div className="flex flex-col items-center gap-1"><Share2 className="h-6 w-6 text-white fill-white" /><span className="text-[11px] font-bold text-white">Share</span></div>
-                                <div className="flex flex-col items-center gap-1"><RotateCcw className="h-6 w-6 text-white" /><span className="text-[11px] font-bold text-white">Remix</span></div>
-                              </div>
-                              <div className="absolute bottom-0 left-0 right-14 p-3 pb-4 z-20 bg-gradient-to-t from-black/90 to-transparent">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div className="h-8 w-8 rounded-full bg-slate-700 overflow-hidden">
-                                    {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                  </div>
-                                  <p className="text-[13px] font-bold text-white">{userName}</p>
-                                  <button className="bg-white text-black text-[11px] font-bold px-2.5 py-1 rounded-full">Subscribe</button>
-                                </div>
-                                <p className="text-[13px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
-                              </div>
-                            </div>
-                          );
-
+                          return <YoutubePreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
                         case "facebook":
-                          return (
-                            <div className="w-full max-w-[400px] rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#242526] shadow-md">
-                              <div className="flex items-center justify-between p-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                                    {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                  </div>
-                                  <div>
-                                    <p className="text-[14px] font-bold text-slate-900 dark:text-[#e4e6eb] leading-tight flex items-center gap-1">{userName} <Check className="h-3 w-3 bg-blue-500 text-white rounded-full p-[1px]" /></p>
-                                    <p className="text-[12px] text-slate-500 dark:text-[#b0b3b8] flex items-center gap-1 mt-0.5">2h • <Globe className="h-3 w-3" /></p>
-                                  </div>
-                                </div>
-                                <div className="flex gap-2 text-slate-500"><MoreHorizontal className="h-5 w-5" /><X className="h-5 w-5" /></div>
-                              </div>
-                              <div className="px-3 pb-2 text-[14px] text-slate-900 dark:text-[#e4e6eb] whitespace-pre-wrap line-clamp-4">{currentCaption}</div>
-                              {displayImageUrl && (
-                                <div className={`w-full bg-slate-100 dark:bg-[#18191a] ${isVertical ? 'aspect-[4/5]' : 'aspect-square'}`}>
-                                  <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />
-                                </div>
-                              )}
-                              <div className="px-4 py-2 border-b border-slate-200 dark:border-[#3e4042]">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-1"><div className="bg-blue-500 rounded-full p-1"><ThumbsUp className="h-3 w-3 text-white fill-white" /></div><span className="text-[13px] text-slate-500 dark:text-[#b0b3b8]">1.2K</span></div>
-                                  <div className="text-[13px] text-slate-500 dark:text-[#b0b3b8] flex gap-2"><span>120 comments</span><span>15 shares</span></div>
-                                </div>
-                              </div>
-                              <div className="flex items-center justify-between px-2 py-1">
-                                {['Like', 'Comment', 'Share'].map(btn => (
-                                  <button key={btn} className="flex-1 flex items-center justify-center gap-2 py-2 text-[14px] font-semibold text-slate-600 dark:text-[#b0b3b8] hover:bg-slate-100 dark:hover:bg-[#3a3b3c] rounded-md">
-                                    {btn === 'Like' ? <ThumbsUp className="h-5 w-5" /> : btn === 'Comment' ? <MessageCircle className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
-                                    {btn}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          );
-
+                          return <FacebookPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} isVertical={isVertical} />;
                         case "pinterest":
-                          return (
-                            <div className="w-full max-w-[250px] flex flex-col gap-2.5 mx-auto">
-                              <div className={`relative rounded-[24px] overflow-hidden bg-slate-100 dark:bg-slate-800/50 group ${currentFormatName === 'Pin' ? 'aspect-[2/3]' : 'aspect-[9/16]'}`}>
-                                {isHtmlSlideFormat ? (
-                                  isCurrentSlideLoading ? (
-                                    <div className="w-full h-full bg-slate-200 dark:bg-slate-800 animate-pulse flex items-center justify-center"><Loader2 className="h-6 w-6 text-primary animate-spin" /></div>
-                                  ) : currentHtmlSlide ? (
-                                    <iframe srcDoc={currentHtmlSlide} className="w-full h-full border-0 pointer-events-none" title="Idea Pin" sandbox="allow-same-origin" />
-                                  ) : (
-                                    <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center"><Sparkles className="h-5 w-5 text-slate-400" /></div>
-                                  )
-                                ) : displayImageUrl ? (
-                                  <img src={displayImageUrl} alt="Pin" className="w-full h-full object-cover group-hover:scale-105" />
-                                ) : (
-                                  <div className="w-full h-full bg-slate-200 dark:bg-slate-800 animate-pulse"></div>
-                                )}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col justify-between p-4 cursor-pointer">
-                                  <div className="flex justify-end w-full">
-                                    <button className="bg-[#e60023] hover:bg-[#ad081b] text-white font-bold text-[15px] px-4 py-3 rounded-full leading-none">Save</button>
-                                  </div>
-                                  <div className="flex justify-end gap-2.5">
-                                    <button className="h-9 w-9 bg-white/90 rounded-full flex items-center justify-center backdrop-blur-md"><Share2 className="h-[18px] w-[18px] text-slate-900" /></button>
-                                    <button className="h-9 w-9 bg-white/90 rounded-full flex items-center justify-center backdrop-blur-md"><MoreHorizontal className="h-[18px] w-[18px] text-slate-900" /></button>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="flex flex-col gap-1 px-1">
-                                <h3 className="text-[14px] font-bold text-slate-900 dark:text-white leading-tight line-clamp-2 pl-0.5">{campaignTopic || "Aesthetics Inspiration"}</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <div className="h-7 w-7 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0 overflow-hidden">
-                                    {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
-                                  </div>
-                                  <span className="text-[13px] text-slate-700 dark:text-slate-300 line-clamp-1">{userName}</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-
+                          return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={userName} userImage={userImage} />;
                         default:
                           return null;
                       }
@@ -2175,40 +2067,16 @@ export default function AIStudioPage() {
               <div key={d} className="text-center text-[11px] font-bold text-slate-500 py-2">{d}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
-            {calendarPosts.map((day, i) => {
-              const isCurrentMonth = day.date.getMonth() === calendarMonth.getMonth();
-              const isToday = new Date().toDateString() === day.date.toDateString();
-              return (
-                <div key={i} className={`aspect-square p-1 rounded-lg border text-xs ${
-                  isCurrentMonth ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" : "bg-slate-50 dark:bg-slate-900/50 border-slate-100 dark:border-slate-800 text-slate-400"
-                } ${isToday ? "ring-2 ring-primary" : ""}`}>
-                  <div className="font-bold text-[11px] mb-1">{day.date.getDate()}</div>
-                  <div className="space-y-0.5 overflow-y-auto max-h-[80%]">
-                    {day.posts.slice(0, 3).map(p => {
-                      const pDef = PLATFORMS.find(pl => pl.id === p.platform);
-                      const Icon = pDef?.icon || Globe;
-                      return (
-                        <div key={p.id} className={`flex items-center gap-1 px-1 py-0.5 rounded text-[10px] font-semibold truncate ${
-                          p.status === "published" ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" :
-                          p.status === "scheduled" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
-                          p.status === "approved" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
-                          p.status === "in_review" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
-                          "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                        }`}>
-                          <Icon className="h-2.5 w-2.5 shrink-0" />
-                          <span className="truncate">{p.caption.slice(0, 15) || "(no caption)"}</span>
-                        </div>
-                      );
-                    })}
-                    {day.posts.length > 3 && (
-                      <div className="text-[10px] text-slate-500 text-center">+{day.posts.length - 3} more</div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <DndContext onDragEnd={handleDragEnd}>
+            <div className="grid grid-cols-7 gap-1">
+              {calendarPosts.map((day, i) => {
+                const isToday = new Date().toDateString() === day.date.toDateString();
+                return (
+                  <DroppableDay key={i} day={day} calendarMonth={calendarMonth} isToday={isToday} />
+                );
+              })}
+            </div>
+          </DndContext>
         </Card>
       )}
 

@@ -23,12 +23,13 @@ const builder = new StateGraph(AgentState)
   .addConditionalEdges(
     "supervisor",
     (state: AgentStateType) => {
-      if (state.nextWorker === "FINISH") {
-        return END;
+      if (state.nextWorker === "contentCreator") {
+        return "contentCreator";
       }
-      return END; // For safety, we always end in this version unless we build retry loops
+      return END;
     },
     {
+      "contentCreator": "contentCreator",
       [END]: END,
     }
   );

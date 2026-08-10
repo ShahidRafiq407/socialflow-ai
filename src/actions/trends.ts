@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 export interface TrendItem {
   id: string;
@@ -22,10 +23,20 @@ export async function fetchLiveTrendingNews(
 ): Promise<{ success: boolean; trends: TrendItem[]; query: string; error?: string }> {
   try {
     const encodedQuery = encodeURIComponent(query);
+    const cacheKey = `trends:${encodedQuery}:${limit}`;
+
+    // 1. Try to get from Upstash Redis Cache first (valid for 1 hour)
+    const cachedTrends = await cacheGet<TrendItem[]>(cacheKey);
+    if (cachedTrends && cachedTrends.length > 0) {
+      console.log(`[Cache HIT] Returning cached trends for ${query}`);
+      return { success: true, trends: cachedTrends, query };
+    }
+
+    console.log(`[Cache MISS] Fetching fresh trends for ${query}`);
     const rssUrl = `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`;
 
     const res = await fetch(rssUrl, {
-      next: { revalidate: 300 }, // Cache for 5 minutes
+      next: { revalidate: 300 }, // Next.js cache for 5 minutes
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -39,7 +50,7 @@ export async function fetchLiveTrendingNews(
     const xmlText = await res.text();
 
     // Extract item blocks from XML
-    const itemRegex = /<item>([\\s\\S]*?)<\/item>/gi;
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
     const matches = Array.from(xmlText.matchAll(itemRegex));
 
     const trends: TrendItem[] = matches.slice(0, limit).map((match, index) => {
@@ -71,9 +82,16 @@ export async function fetchLiveTrendingNews(
       };
     });
 
+    const finalTrends = trends.length > 0 ? trends : getFallbackTrends(query);
+    
+    // 2. Save to Upstash Redis Cache (TTL: 3600 seconds / 1 hour)
+    if (finalTrends.length > 0) {
+      await cacheSet(cacheKey, finalTrends, 3600);
+    }
+
     return {
       success: true,
-      trends: trends.length > 0 ? trends : getFallbackTrends(query),
+      trends: finalTrends,
       query,
     };
   } catch (error: any) {

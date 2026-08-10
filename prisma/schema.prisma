@@ -32,6 +32,7 @@ model Workspace {
   contentPosts    ContentPost[]
   posts           Post[]
   mediaAssets     MediaAsset[]
+  hashtagGroups   HashtagGroup[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -218,3 +219,16 @@ model MediaAsset {
 
   @@index([workspaceId])
 }
+
+model HashtagGroup {
+  id          String    @id @default(uuid())
+  name        String
+  tags        String[]
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+

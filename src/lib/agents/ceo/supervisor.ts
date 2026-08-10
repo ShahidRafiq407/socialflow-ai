@@ -25,15 +25,21 @@ Respond with exactly "APPROVED" if it is ready, or a short sentence on what need
 
   console.log(`[CEO Review]: ${reviewText}`);
 
-  if (reviewText.includes("APPROVED")) {
+  // Prevent infinite loops by checking retry count
+  const retryCount = state.messages?.filter(m => m.content.toString().includes("CEO Feedback")).length || 0;
+
+  if (reviewText.includes("APPROVED") || retryCount >= 2) {
+    if (retryCount >= 2 && !reviewText.includes("APPROVED")) {
+      console.warn("CEO requested changes, but max retries reached. Approving.");
+    }
     return {
       nextWorker: "FINISH",
       ceoVerdict: reviewText
     };
   } else {
-    console.warn("CEO requested changes, but pushing to FINISH for preview.");
+    console.warn("CEO requested changes, pushing back to contentCreator.");
     return {
-      nextWorker: "FINISH",
+      nextWorker: "contentCreator",
       ceoVerdict: reviewText,
       messages: [new HumanMessage(`CEO Feedback: ${reviewText}`)]
     };

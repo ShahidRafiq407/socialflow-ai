@@ -8,7 +8,13 @@ export async function saveDraft(postData: any) {
   const { userId } = await auth();
   if (!userId) throw new Error('Unauthorized');
 
-  const { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook } = postData;
+  let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook } = postData;
+
+  if (!workspaceId) {
+    const workspace = await prisma.workspace.findFirst({ where: { userId } });
+    if (!workspace) throw new Error('Workspace not found');
+    workspaceId = workspace.id;
+  }
 
   const data = {
     workspaceId,
@@ -127,3 +133,36 @@ export async function publishToPlatform(post: any, account: any) {
     });
   }
 }
+
+export async function approvePost(postId: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+  });
+
+  if (!post) throw new Error('Post not found');
+
+  return await prisma.post.update({
+    where: { id: postId },
+    data: {
+      status: post.scheduledFor ? 'SCHEDULED' : 'APPROVED',
+    },
+  });
+}
+
+export async function rejectPost(postId: string, feedback?: string) {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  // If rejected, it goes back to DRAFT state, perhaps saving feedback in a notes field or publishError
+  return await prisma.post.update({
+    where: { id: postId },
+    data: {
+      status: 'DRAFT',
+      publishError: feedback || 'Rejected by manager',
+    },
+  });
+}
+

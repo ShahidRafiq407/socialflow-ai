@@ -1,0 +1,105 @@
+import React from "react";
+import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, ChevronLeft, ChevronRight } from "lucide-react";
+
+interface InstagramPreviewProps {
+  currentFormatName: string;
+  displayImageUrl: string | null;
+  displayImageUrls: string[];
+  displayOverlayTexts: any[];
+  activeSlideIdx: number;
+  userName: string;
+  userImage: string | null;
+  userHandle: string;
+  currentCaption: string;
+}
+
+export default function InstagramPreview({
+  currentFormatName,
+  displayImageUrl,
+  displayImageUrls,
+  displayOverlayTexts,
+  activeSlideIdx,
+  userName,
+  userImage,
+  userHandle,
+  currentCaption
+}: InstagramPreviewProps) {
+  if (currentFormatName === "Story" || currentFormatName === "Reel") {
+    return (
+      <div className="relative border-[8px] border-slate-900 dark:border-slate-800 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
+        <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
+              <div className="bg-slate-900 h-full w-full rounded-full border border-slate-900"></div>
+            </div>
+            <p className="text-xs font-bold text-white shadow-sm">smbrobotics</p>
+          </div>
+          <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          {displayImageUrl && <img src={displayImageUrl} alt="Reel" className="w-full h-full object-cover" />}
+        </div>
+        <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">
+          <div className="flex flex-col items-center gap-1"><Heart className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">12k</span></div>
+          <div className="flex flex-col items-center gap-1"><MessageCircle className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">456</span></div>
+          <div className="flex flex-col items-center gap-1"><Send className="h-5 w-5 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">Share</span></div>
+          <MoreHorizontal className="h-5 w-5 text-white drop-shadow-md mt-2" />
+        </div>
+        <div className="absolute bottom-0 left-0 right-16 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-12 z-20">
+          <p className="text-xs font-semibold text-white mb-1">smbrobotics</p>
+          <p className="text-[11px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full max-w-[340px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md">
+      <div className="flex items-center justify-between p-3">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
+            <div className="bg-white dark:bg-slate-900 h-full w-full rounded-full border border-white dark:border-slate-900 overflow-hidden">
+              {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
+            </div>
+          </div>
+          <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{userHandle}</p>
+        </div>
+        <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
+      </div>
+      <div className={`w-full relative overflow-hidden bg-slate-100 dark:bg-slate-900 ${currentFormatName === 'Idea Pin' || currentFormatName === 'Carousel' ? 'aspect-[9/16]' : 'aspect-[2/3]'}`}>
+        {displayImageUrl && <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />}
+        {displayOverlayTexts[activeSlideIdx] && (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
+            <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-2 backdrop-blur-sm shadow-sm border border-white/20">
+              Step {activeSlideIdx + 1}
+            </div>
+            <h3 className="text-white font-extrabold text-lg sm:text-xl leading-tight mb-1.5 drop-shadow-md">
+              {displayOverlayTexts[activeSlideIdx].title}
+            </h3>
+            <p className="text-slate-200 text-xs sm:text-sm font-medium leading-snug drop-shadow-sm max-w-[95%]">
+              {displayOverlayTexts[activeSlideIdx].body}
+            </p>
+          </div>
+        )}
+        {displayImageUrls.length > 1 && (
+          <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2 py-0.5 text-[10px] text-white font-semibold z-20">
+            {activeSlideIdx + 1}/{displayImageUrls.length}
+          </div>
+        )}
+      </div>
+      <div className="p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-4 text-slate-900 dark:text-white">
+            <Heart className="h-6 w-6" /><MessageCircle className="h-6 w-6" /><Send className="h-[22px] w-[22px]" />
+          </div>
+          <Bookmark className="h-6 w-6 text-slate-900 dark:text-white" />
+        </div>
+        <p className="text-[13px] font-semibold text-slate-900 dark:text-white mb-1">1,234 likes</p>
+        <p className="text-[13px] text-slate-900 dark:text-white leading-snug line-clamp-3">
+          <span className="font-semibold mr-1.5">{userHandle}</span>
+          {currentCaption}
+        </p>
+      </div>
+    </div>
+  );
+}
