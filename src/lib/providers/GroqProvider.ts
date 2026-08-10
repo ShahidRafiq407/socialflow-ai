@@ -1,13 +1,11 @@
 import Groq from "groq-sdk";
 
 export class GroqProvider {
-  private groq: Groq;
   private defaultModel = "llama-3.3-70b-versatile";
 
-  constructor() {
-    this.groq = new Groq({
-      apiKey: process.env.GROQ_API_KEY,
-    });
+  private getClient(): Groq {
+    const apiKey = process.env.GROQ_API_KEY || "";
+    return new Groq({ apiKey });
   }
 
   /**
@@ -59,7 +57,7 @@ export class GroqProvider {
    */
   async streamText(messages: any[], options?: any) {
     const model = options?.modelName || this.defaultModel;
-    const stream = await this.groq.chat.completions.create({
+    const stream = await this.getClient().chat.completions.create({
       messages,
       model,
       stream: true,
@@ -81,7 +79,7 @@ export class GroqProvider {
     let attempt = 0;
     while (attempt <= maxRetries) {
       try {
-        const response = await this.groq.chat.completions.create(
+        const response = await this.getClient().chat.completions.create(
           {
             messages,
             model,

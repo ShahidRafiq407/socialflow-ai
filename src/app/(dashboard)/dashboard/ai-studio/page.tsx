@@ -1177,53 +1177,59 @@ export default function AIStudioPage() {
       setTimeout(() => setPublishResult(null), 2500);
       return;
     }
+    const selectedPlats = manualPost.platforms && manualPost.platforms.length > 0 ? manualPost.platforms : [manualPost.platform];
     const mediaType: PostMediaType = manualMedia?.type === "video" ? "video" : manualMedia ? "image" : "none";
-    const post: Post = {
-      id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      platform: manualPost.platform,
-      format: manualPost.format,
-      caption: manualPost.caption,
-      firstComment: manualPost.firstComment,
-      hashtags: manualPost.hashtags,
-      mediaUrls: manualMedia ? [manualMedia.url] : [],
-      mediaType,
-      productTags: [],
-      status,
-      source: "manual",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      analytics: { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0 },
-    };
-    if (status === "scheduled" && manualPost.scheduledAt) {
-      post.scheduledAt = new Date(manualPost.scheduledAt).getTime();
-    }
-    if (status === "published") {
-      post.publishedAt = Date.now();
-    }
-    
     setPublishLoading(true);
+
     try {
-      const draftRes = await apiSaveDraft({
-        platform: post.platform,
-        content: post.caption,
-        imageUrl: post.mediaUrls[0],
-        format: post.format,
-        hashtags: post.hashtags,
-        mediaType: post.mediaType,
-        source: post.source,
-      });
-      post.id = draftRes.id;
-      
-      if (status === "scheduled" && manualPost.scheduledAt) {
-        await apiSchedulePost(post.id, new Date(manualPost.scheduledAt));
-      } else if (status === "published") {
-        await apiPublishNow(post.id);
+      for (const pId of selectedPlats) {
+        const post: Post = {
+          id: `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          platform: pId,
+          format: manualPost.format,
+          caption: manualPost.caption,
+          firstComment: manualPost.firstComment,
+          hashtags: manualPost.hashtags,
+          mediaUrls: manualMedia ? [manualMedia.url] : [],
+          mediaType,
+          productTags: [],
+          status,
+          source: "manual",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          analytics: { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0 },
+        };
+        if (status === "scheduled" && manualPost.scheduledAt) {
+          post.scheduledAt = new Date(manualPost.scheduledAt).getTime();
+        }
+        if (status === "published") {
+          post.publishedAt = Date.now();
+        }
+
+        const draftRes = await apiSaveDraft({
+          platform: post.platform,
+          content: post.caption,
+          imageUrl: post.mediaUrls[0],
+          format: post.format,
+          hashtags: post.hashtags,
+          mediaType: post.mediaType,
+          source: post.source,
+        });
+        post.id = draftRes.id;
+        
+        if (status === "scheduled" && manualPost.scheduledAt) {
+          await apiSchedulePost(post.id, new Date(manualPost.scheduledAt));
+        } else if (status === "published") {
+          await apiPublishNow(post.id);
+        }
+        
+        store.addPost(post);
       }
-      
-      store.addPost(post);
-      setPublishResult({ success: true, message: `Manual post ${status === "scheduled" ? "scheduled" : status === "published" ? "published" : "saved"}` });
+
+      setPublishResult({ success: true, message: `Manual post ${status === "scheduled" ? "scheduled" : status === "published" ? "published" : "saved"} for ${selectedPlats.length} platforms` });
       setManualPost({
         platform: "instagram",
+        platforms: ["instagram"],
         format: "Feed",
         caption: "",
         firstComment: "",
@@ -1240,7 +1246,7 @@ export default function AIStudioPage() {
       setPublishResult({ success: false, message: e.message || "Failed to create manual post" });
     } finally {
       setPublishLoading(false);
-      setTimeout(() => setPublishResult(null), 2500);
+      setTimeout(() => setPublishResult(null), 3000);
     }
   };
 
@@ -2083,28 +2089,50 @@ export default function AIStudioPage() {
       {/* ============================================================================ */}
       {viewMode === "manual" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 space-y-4 shadow-xs">
             <div className="flex items-center gap-2">
               <Plus className="h-5 w-5 text-primary" />
               <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Create Manual Post</h2>
             </div>
-            <p className="text-xs text-slate-500">No AI needed — write your caption, upload media, pick platform & publish.</p>
+            <p className="text-xs text-slate-500">Select one or multiple platforms, write your caption, attach media, and publish/schedule instantly.</p>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Platform</label>
-                <select value={manualPost.platform} onChange={(e) => setManualPost({ ...manualPost, platform: e.target.value })}
-                  className="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-1">
-                  {PLATFORMS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                </select>
+            {/* MULTI-PLATFORM SELECTOR FOR MANUAL POST */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Select Platforms (Multi-Select)</label>
+              <div className="flex flex-wrap gap-1.5">
+                {PLATFORMS.map(p => {
+                  const Icon = p.icon;
+                  const selected = (manualPost.platforms || [manualPost.platform]).includes(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        const current = manualPost.platforms || [manualPost.platform];
+                        const next = selected ? (current.length > 1 ? current.filter(id => id !== p.id) : current) : [...current, p.id];
+                        setManualPost({ ...manualPost, platforms: next, platform: next[0] });
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        selected
+                          ? "bg-primary text-white shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      <span>{p.label}</span>
+                      {selected && <Check className="h-3 w-3" />}
+                    </button>
+                  );
+                })}
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Format</label>
-                <select value={manualPost.format} onChange={(e) => setManualPost({ ...manualPost, format: e.target.value })}
-                  className="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-1">
-                  {getPlatformDef(manualPost.platform).contentTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Format</label>
+              <select value={manualPost.format} onChange={(e) => setManualPost({ ...manualPost, format: e.target.value })}
+                className="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 mt-1">
+                {getPlatformDef(manualPost.platform).contentTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
 
             <div>
@@ -2115,7 +2143,7 @@ export default function AIStudioPage() {
               <Textarea rows={6} value={manualPost.caption}
                 onChange={(e) => setManualPost({ ...manualPost, caption: e.target.value })}
                 placeholder="Write your caption..."
-                className="w-full mt-1" />
+                className="w-full mt-1 text-xs sm:text-sm" />
             </div>
 
             <div>
@@ -2126,14 +2154,14 @@ export default function AIStudioPage() {
               <Textarea rows={2} value={manualPost.firstComment}
                 onChange={(e) => setManualPost({ ...manualPost, firstComment: e.target.value })}
                 placeholder="#hashtag1 #hashtag2 ..."
-                className="w-full mt-1" />
+                className="w-full mt-1 text-xs sm:text-sm" />
             </div>
 
             <div>
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Media</label>
               <input type="file" ref={manualFileRef} onChange={handleManualFileChange} accept="image/*,video/*" className="hidden" />
-              <Button variant="outline" className="w-full mt-1" onClick={() => manualFileRef.current?.click()}>
-                <Upload className="h-4 w-4 mr-2" /> {manualMedia ? "Replace" : "Upload"} Image/Video
+              <Button variant="outline" className="w-full mt-1 text-xs font-semibold gap-2" onClick={() => manualFileRef.current?.click()}>
+                <Upload className="h-4 w-4" /> {manualMedia ? "Replace Media" : "Upload Image/Video"}
               </Button>
               {manualMedia && (
                 <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 relative">
@@ -2145,7 +2173,7 @@ export default function AIStudioPage() {
                   <button onClick={() => {
                     if (manualMedia.url.startsWith("blob:")) URL.revokeObjectURL(manualMedia.url);
                     setManualMedia(null);
-                  }} className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full">
+                  }} className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -2153,43 +2181,42 @@ export default function AIStudioPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-2 pt-2">
-              <Button variant="outline" onClick={() => createManualPost("draft")}>
-                <Save className="h-3.5 w-3.5 mr-1" /> Draft
+              <Button variant="outline" onClick={() => createManualPost("draft")} className="text-xs font-semibold">
+                <Save className="h-3.5 w-3.5 mr-1" /> Save Drafts
               </Button>
               <Button variant="outline" onClick={() => {
                 const t = new Date(); t.setDate(t.getDate() + 1);
                 setManualPost({ ...manualPost, scheduledAt: t.toISOString().slice(0, 16) });
-              }}>
+                setPublishModal({ type: "schedule" });
+              }} className="text-xs font-semibold">
                 <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
               </Button>
-              <Button onClick={() => createManualPost("published")}>
-                <Send className="h-3.5 w-3.5 mr-1" /> Publish
+              <Button onClick={() => createManualPost("published")} className="text-xs font-bold bg-primary text-white">
+                <Send className="h-3.5 w-3.5 mr-1" /> Publish All
               </Button>
             </div>
           </Card>
 
-          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-4">Preview</h3>
-            <div className="bg-slate-50 dark:bg-slate-950/50 rounded-lg p-4 min-h-[300px] flex items-center justify-center">
-              {manualPost.caption || manualMedia ? (
-                <div className="text-center">
-                  {manualMedia && (
-                    <div className="mb-3 rounded-lg overflow-hidden max-h-48 mx-auto w-fit">
-                      {manualMedia.type === "video" ? (
-                        <video src={manualMedia.url} className="max-h-48" />
-                      ) : (
-                        <img src={manualMedia.url} alt="" className="max-h-48" />
-                      )}
-                    </div>
-                  )}
-                  <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap max-w-md">{manualPost.caption || "(no caption)"}</p>
-                  <p className="text-xs text-slate-500 mt-2">on <b>{getPlatformDef(manualPost.platform).label}</b> • {manualPost.format}</p>
-                </div>
+          {/* REAL PLATFORM PREVIEW FOR MANUAL POST */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col items-center justify-center">
+            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-4 uppercase tracking-wider text-center w-full border-b pb-2 border-slate-100 dark:border-slate-800">
+              Live Mockup Preview ({getPlatformDef(manualPost.platform).label})
+            </h3>
+            <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-4 w-full flex items-center justify-center min-h-[400px]">
+              {manualPost.platform === "instagram" ? (
+                <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
+              ) : manualPost.platform === "linkedin" ? (
+                <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} />
+              ) : manualPost.platform === "x" ? (
+                <XPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
+              ) : manualPost.platform === "tiktok" ? (
+                <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
+              ) : manualPost.platform === "youtube" ? (
+                <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} />
+              ) : manualPost.platform === "facebook" ? (
+                <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} isVertical={false} />
               ) : (
-                <div className="text-center text-slate-400 text-sm">
-                  <Plus className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  Start writing to see preview
-                </div>
+                <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={userName} userImage={userImage} />
               )}
             </div>
           </Card>
