@@ -6,7 +6,7 @@ export class GroqProvider {
 
   constructor() {
     this.groq = new Groq({
-      apiKey: process.env.GROQ_API_KEY || "dummy_key_for_build_time",
+      apiKey: process.env.GROQ_API_KEY,
     });
   }
 
