@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { HumanMessage } from "@langchain/core/messages";
 import { marketingGraph } from "@/lib/agents/graph";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
