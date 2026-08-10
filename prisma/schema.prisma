@@ -31,6 +31,7 @@ model Workspace {
   automationRules AutomationRule[]
   contentPosts    ContentPost[]
   posts           Post[]
+  mediaAssets     MediaAsset[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -147,8 +148,12 @@ model AutomationRule {
 enum PostStatus {
   DRAFT
   PENDING_APPROVAL
+  APPROVED
+  SCHEDULED
+  PUBLISHING
   PUBLISHED
   FAILED
+  REJECTED
 }
 
 model ContentPost {
@@ -173,17 +178,43 @@ model ContentPost {
 }
 
 model Post {
-  id           String    @id @default(uuid())
-  workspaceId  String
-  workspace    Workspace @relation(fields: [workspaceId], references: [id])
-  platform     String    @default("LinkedIn")
-  content      String    @db.Text
-  imageUrl     String?
-  imagePrompt  String?   @db.Text
-  status       String    @default("PENDING_APPROVAL")
-  scheduledFor DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  platform       String
+  content        String    @db.Text
+  imageUrl       String?
+  imagePrompt    String?   @db.Text
+  format         String?
+  hashtags       String[]
+  mediaType      String?
+  mediaSource    String?
+  source         String?
+  status         String    @default("PENDING_APPROVAL")
+  publishError   String?   @db.Text
+  agentLogs      Json?
+  campaignTopic  String?
+  campaignHook   String?
+  captionHistory Json?
+  mediaHistory   Json?
+  publishedAt    DateTime?
+  scheduledFor   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model MediaAsset {
+  id          String    @id @default(uuid())
+  url         String
+  filename    String
+  contentType String?
+  size        Int?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
 }
