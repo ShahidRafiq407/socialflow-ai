@@ -101,6 +101,8 @@ import { useUser } from "@clerk/nextjs";
 import { DndContext, useDroppable, useDraggable, DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { schedulePost as serverSchedulePost } from "@/actions/publish";
+import { getHashtagGroups, createHashtagGroup, deleteHashtagGroup } from "@/actions/hashtags";
+import { searchStockMedia } from "@/actions/stock-media";
 
 // ============================================================================
 // ZUSTAND GLOBAL STORE — shared between AI Studio, Auto-Pilot, Calendar
@@ -396,6 +398,84 @@ export default function AIStudioPage() {
       }
     })();
   }, []);
+
+  // ============================================================================
+  // HASHTAG GROUPS DYNAMIC STATE
+  // ============================================================================
+  const [hashtagGroups, setHashtagGroups] = useState<{ id: string; name: string; tags: string[] }[]>([
+    { id: "g1", name: "E-commerce Essentials", tags: ["shopify", "ecommerce", "onlineshopping", "d2c"] },
+    { id: "g2", name: "SaaS / B2B", tags: ["saas", "b2b", "startup", "automation", "ai"] },
+    { id: "g3", name: "Tech & Robotics", tags: ["robotics", "automation", "iot", "engineering", "ai"] },
+  ]);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupTags, setNewGroupTags] = useState("");
+  const [isCreatingHashtagGroup, setIsCreatingHashtagGroup] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getHashtagGroups();
+        if (res.success && res.data && res.data.length > 0) {
+          setHashtagGroups(res.data);
+        }
+      } catch (e) {
+        console.warn("Could not fetch DB hashtag groups:", e);
+      }
+    })();
+  }, []);
+
+  const handleCreateHashtagGroup = async () => {
+    if (!newGroupName.trim() || !newGroupTags.trim()) return;
+    const tagsArray = newGroupTags.split(/[\s,]+/).map(t => t.replace(/^#/, "")).filter(Boolean);
+    try {
+      const res = await createHashtagGroup(newGroupName, tagsArray);
+      if (res.success && res.data) {
+        setHashtagGroups(prev => [res.data, ...prev]);
+        setNewGroupName("");
+        setNewGroupTags("");
+        setIsCreatingHashtagGroup(false);
+      }
+    } catch (e) {
+      console.error("Failed to create hashtag group:", e);
+    }
+  };
+
+  const handleDeleteHashtagGroup = async (groupId: string) => {
+    try {
+      await deleteHashtagGroup(groupId);
+      setHashtagGroups(prev => prev.filter(g => g.id !== groupId));
+    } catch (e) {
+      console.error("Failed to delete hashtag group:", e);
+    }
+  };
+
+  // ============================================================================
+  // STOCK MEDIA SEARCH & CUSTOM REGEN MODALS
+  // ============================================================================
+  const [stockModalOpen, setStockModalOpen] = useState(false);
+  const [stockQuery, setStockQuery] = useState("");
+  const [stockMediaType, setStockMediaType] = useState<"image" | "video">("image");
+  const [stockResults, setStockResults] = useState<any[]>([]);
+  const [searchingStock, setSearchingStock] = useState(false);
+  const [stockTargetSlideIdx, setStockTargetSlideIdx] = useState<number>(0);
+
+  const handleSearchStock = async (query: string, type: "image" | "video") => {
+    setSearchingStock(true);
+    try {
+      const res = await searchStockMedia(query, type);
+      if (res.success && res.hits) {
+        setStockResults(res.hits);
+      }
+    } catch (e) {
+      console.error("Stock search error:", e);
+    } finally {
+      setSearchingStock(false);
+    }
+  };
+
+  const [customPromptModalOpen, setCustomPromptModalOpen] = useState(false);
+  const [customPromptText, setCustomPromptText] = useState("");
+  const [customPromptSlideIdx, setCustomPromptSlideIdx] = useState<number>(0);
 
   // ============================================================================
   // PLATFORM & CONTENT TYPE SELECTION
@@ -1168,7 +1248,7 @@ export default function AIStudioPage() {
   // HASHTAG GROUP INSERTION
   // ============================================================================
   const insertHashtagGroup = (groupId: string) => {
-    const group = DEFAULT_HASHTAG_GROUPS.find(g => g.id === groupId);
+    const group = hashtagGroups.find(g => g.id === groupId);
     if (!group) return;
     const merged = Array.from(new Set([...currentHashtags, ...group.tags]));
     setGeneratedContents(prev => ({
@@ -1476,7 +1556,21 @@ export default function AIStudioPage() {
                     }
                   } else if (log.node === "trendResearcher") {
                     header = "[Trend Researcher] Fetching live Google News and extracting highly viral signals...";
-                    if (log.payload?.trendData) body = <div className="text-blue-400/90 mt-1 pl-4 border-l-2 border-slate-700 whitespace-pre-wrap">{log.payload.trendData}</div>;
+                    body = (
+                      <div className="space-y-1.5 mt-1 pl-4 border-l-2 border-slate-700">
+                        {log.payload?.trendData && <div className="text-blue-400/90 whitespace-pre-wrap">{log.payload.trendData}</div>}
+                        {log.payload?.trendSources && log.payload.trendSources.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {log.payload.trendSources.slice(0, 4).map((s: any, i: number) => (
+                              <a key={i} href={s.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 bg-blue-950 text-blue-300 hover:bg-blue-900 px-2 py-0.5 rounded text-[11px] font-sans border border-blue-800/80 transition-colors">
+                                <Globe className="h-3 w-3 text-blue-400" />
+                                <span className="truncate max-w-[160px]">{s.title || s.source}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
                   } else if (log.node === "competitorAnalyst") {
                     header = "[Competitor Analyst] Cross-referencing trends with unique competitor angle...";
                     if (log.payload?.competitorData) body = <div className="text-purple-400/90 mt-1 pl-4 border-l-2 border-slate-700">{log.payload.competitorData}</div>;
@@ -1737,13 +1831,34 @@ export default function AIStudioPage() {
                               <Tag className="h-3 w-3" /> Add group <ChevronDown className="h-3 w-3" />
                             </Button>
                             {hashtagDropdownOpen && (
-                              <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-10 p-1">
-                                {DEFAULT_HASHTAG_GROUPS.map(g => (
-                                  <button key={g.id} onClick={() => insertHashtagGroup(g.id)} className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
-                                    <div className="font-semibold">{g.name}</div>
-                                    <div className="text-[10px] text-slate-500 truncate">{g.tags.map(t => `#${t}`).join(" ")}</div>
+                              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 p-2 space-y-2">
+                                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 flex justify-between items-center">
+                                  <span>Hashtag Groups</span>
+                                  <button onClick={() => setIsCreatingHashtagGroup(!isCreatingHashtagGroup)} className="text-primary hover:underline text-[10px] font-semibold flex items-center gap-0.5">
+                                    <Plus className="h-3 w-3" /> New
                                   </button>
-                                ))}
+                                </div>
+                                {isCreatingHashtagGroup && (
+                                  <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-1.5 border border-slate-200 dark:border-slate-700">
+                                    <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Group Name (e.g. B2B SaaS)" className="h-7 text-xs" />
+                                    <Input value={newGroupTags} onChange={e => setNewGroupTags(e.target.value)} placeholder="Tags (#saas #ai #marketing)" className="h-7 text-xs" />
+                                    <div className="flex gap-1 justify-end">
+                                      <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setIsCreatingHashtagGroup(false)}>Cancel</Button>
+                                      <Button size="sm" className="h-6 text-[10px]" onClick={handleCreateHashtagGroup}>Save Group</Button>
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                  {hashtagGroups.map(g => (
+                                    <div key={g.id} className="group/item flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
+                                      <button onClick={() => insertHashtagGroup(g.id)} className="flex-1 text-left truncate pr-2">
+                                        <div className="font-semibold text-slate-800 dark:text-slate-200">{g.name}</div>
+                                        <div className="text-[10px] text-slate-500 truncate">{g.tags.map(t => (t.startsWith("#") ? t : `#${t}`)).join(" ")}</div>
+                                      </button>
+                                      <Trash2 className="h-3 w-3 text-slate-400 hover:text-red-500 cursor-pointer opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0" onClick={() => handleDeleteHashtagGroup(g.id)} />
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -1878,6 +1993,48 @@ export default function AIStudioPage() {
                     })()
                   )}
                 </CardContent>
+                {hasContent && (
+                  <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 flex items-center justify-between gap-2 flex-wrap text-xs">
+                    <span className="font-bold text-slate-500 flex items-center gap-1">
+                      <ImageIcon className="h-3.5 w-3.5" /> Media Options:
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 font-semibold"
+                        onClick={() => {
+                          setCustomPromptSlideIdx(activeSlideIdx);
+                          setCustomPromptModalOpen(true);
+                        }}
+                      >
+                        <Wand2 className="h-3 w-3 text-indigo-500" /> Custom Prompt AI
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 font-semibold"
+                        onClick={() => {
+                          setStockTargetSlideIdx(activeSlideIdx);
+                          setStockModalOpen(true);
+                        }}
+                      >
+                        <ImageIcon className="h-3 w-3 text-pink-500" /> Pixabay Stock
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 font-semibold"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="h-3 w-3 text-emerald-500" /> Upload from PC
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Card>
 
               {/* PUBLISH CARD */}
@@ -2231,6 +2388,120 @@ export default function AIStudioPage() {
               <Button onClick={schedulePost} disabled={publishLoading} className="flex-1">
                 {publishLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Calendar className="h-4 w-4 mr-1" />}
                 Confirm Schedule
+              </Button>
+            </div>
+          </div>
+        </div>
+      {/* ============================================================================ */}
+      {/* STOCK MEDIA SEARCH MODAL (Pixabay Integration) */}
+      {/* ============================================================================ */}
+      {stockModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <ImageIcon className="h-5 w-5 text-pink-500" /> Pixabay Stock Media Library
+              </h3>
+              <button onClick={() => setStockModalOpen(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={stockQuery}
+                onChange={e => setStockQuery(e.target.value)}
+                placeholder="Search stock images & videos (e.g. robotics, marketing)..."
+                onKeyDown={e => e.key === "Enter" && handleSearchStock(stockQuery, stockMediaType)}
+                className="flex-1"
+              />
+              <select
+                value={stockMediaType}
+                onChange={e => setStockMediaType(e.target.value as any)}
+                className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold bg-white dark:bg-slate-900"
+              >
+                <option value="image">Images</option>
+                <option value="video">Videos</option>
+              </select>
+              <Button onClick={() => handleSearchStock(stockQuery, stockMediaType)} disabled={searchingStock}>
+                {searchingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4 mr-1" />} Search
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-[250px] max-h-[400px]">
+              {searchingStock ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Searching Pixabay...
+                </div>
+              ) : stockResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
+                  <ImageIcon className="h-8 w-8 text-slate-300" />
+                  <p className="text-xs">Type a keyword and hit Search to browse HD royalty-free media</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {stockResults.map(item => (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        // Apply selected stock media to current format/slide
+                        const key = `${activePlatformTab}-${currentFormatName}`;
+                        setCustomMediaDict(prev => ({
+                          ...prev,
+                          [key]: { url: item.url, type: item.type }
+                        }));
+                        setStockModalOpen(false);
+                      }}
+                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all"
+                    >
+                      {item.type === "video" ? (
+                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
+                      ) : (
+                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <Badge className="text-[10px] gap-1"><Plus className="h-3 w-3" /> Select</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* CUSTOM PROMPT REGENERATION MODAL */}
+      {/* ============================================================================ */}
+      {customPromptModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <Wand2 className="h-5 w-5 text-indigo-500" /> Custom Prompt Media AI
+              </h3>
+              <button onClick={() => setCustomPromptModalOpen(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Describe the exact visual or graphic design you want for slide/media #{customPromptSlideIdx + 1}:
+            </p>
+            <Textarea
+              rows={3}
+              value={customPromptText}
+              onChange={e => setCustomPromptText(e.target.value)}
+              placeholder="e.g. Modern dark theme tech layout with glowing blue neon text 'Top 5 AI Tools' and futuristic robot arm..."
+              className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setCustomPromptModalOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => {
+                  fetchHtmlSlide(customPromptSlideIdx, customPromptText);
+                  setCustomPromptModalOpen(false);
+                }}
+              >
+                <Sparkles className="h-4 w-4 mr-1" /> Generate Custom Visual
               </Button>
             </div>
           </div>

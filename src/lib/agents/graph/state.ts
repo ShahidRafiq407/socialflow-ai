@@ -28,6 +28,10 @@ export const AgentState = Annotation.Root({
     reducer: (x, y) => y ?? x,
     default: () => null,
   }),
+  trendSources: Annotation<any>({
+    reducer: (x, y) => y ?? x,
+    default: () => [],
+  }),
   competitorData: Annotation<any>({
     reducer: (x, y) => y ?? x,
     default: () => null,

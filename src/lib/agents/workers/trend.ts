@@ -35,7 +35,16 @@ CRITICAL: You MUST explicitly mention the sources and websites you analyzed from
 
   const res = await llm.invoke([new HumanMessage(prompt)]);
   
+  let sources: { title: string; link: string; source: string }[] = [];
+  try {
+    const liveTrendsResponse = await fetchLiveTrendingNews(state.brandDNA.industry || "Marketing");
+    if (liveTrendsResponse?.trends) {
+      sources = liveTrendsResponse.trends.map((t: any) => ({ title: t.title, link: t.link, source: t.source }));
+    }
+  } catch (e) {}
+
   return {
     trendData: (res.content?.toString() || ""),
+    trendSources: sources,
   };
 }
