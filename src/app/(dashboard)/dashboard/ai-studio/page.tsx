@@ -1151,6 +1151,7 @@ export default function AIStudioPage() {
   // ============================================================================
   const [manualPost, setManualPost] = useState({
     platform: "instagram",
+    platforms: ["instagram"] as string[],
     format: "Feed",
     caption: "",
     firstComment: "",
