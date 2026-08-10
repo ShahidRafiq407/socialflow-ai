@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { HumanMessage } from "@langchain/core/messages";
-import { marketingGraph } from "@/lib/agents/graph";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +20,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Dynamic import to prevent build-time collection errors
+    const { marketingGraph } = await import("@/lib/agents/graph");
 
     // Invoke the compiled marketing supervisor graph
     const result = await marketingGraph.invoke({

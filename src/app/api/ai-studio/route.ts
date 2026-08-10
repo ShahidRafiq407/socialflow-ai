@@ -4,7 +4,6 @@ import prisma from "@/lib/db";
 import { llm } from "@/lib/agents/llm";
 import { HumanMessage } from "@langchain/core/messages";
 import { fetchLiveTrendingNews } from "@/actions/trends";
-import { marketingGraph } from "@/lib/agents/graph";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -54,6 +53,8 @@ export async function POST(req: Request) {
         campaignPayload: null,
         nextWorker: "",
       };
+
+      const { marketingGraph } = await import("@/lib/agents/graph");
 
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
