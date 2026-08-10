@@ -553,7 +553,8 @@ export default function AIStudioPage() {
                 const normalizedPlatformId = platformId.toLowerCase();
                 newContents[normalizedPlatformId] = {};
                 const validFormats = selectedContentTypes[normalizedPlatformId] || [];
-                for (const [formatName, content] of Object.entries(formats as Record<string, any>)) {
+                for (const [formatName, rawContent] of Object.entries(formats as Record<string, any>)) {
+                  const content = rawContent as any;
                   const exactFormatName = validFormats.find(f => f.toLowerCase() === formatName.toLowerCase()) || formatName;
                   const promptsArray = Array.isArray(content.visualPrompts)
                     ? content.visualPrompts
