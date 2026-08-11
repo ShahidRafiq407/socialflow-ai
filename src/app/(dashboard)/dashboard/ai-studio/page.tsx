@@ -1796,8 +1796,7 @@ export default function AIStudioPage() {
                     </div>
                   </div>
                 {/* CAPTION EDITOR */}
-                {hasAnyPlatformContent && (
-                  <div className="space-y-2.5">
+                <div className="space-y-2.5">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
