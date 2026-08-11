@@ -100,7 +100,7 @@ import {
   Settings,
   Sliders,
 } from "lucide-react";
-import { getConnectedPlatformIds } from "@/actions/integrations";
+import { getConnectedPlatformIds, getWorkspaceIntegrations } from "@/actions/integrations";
 import { useUser } from "@clerk/nextjs";
 import { DndContext, useDroppable, useDraggable, DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
