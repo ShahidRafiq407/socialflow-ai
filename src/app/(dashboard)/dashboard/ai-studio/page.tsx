@@ -3185,18 +3185,18 @@ export default function AIStudioPage() {
                       key={item.id}
                       onClick={() => {
                         setCustomMediaDict(prev => ({
-                          ...prev,
-                          [currentMediaKey]: { url: item.url, type: item.type }
-                        }));
-                        setActiveMediaModal(null);
-                      }}
-                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
-                    >
-                      {item.type === "video" ? (
-                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
-                      ) : (
-                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      )}
+              >
+                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* 1. UPLOAD PC MEDIA MODAL */}
+      {/* ============================================================================ */}
       {activeMediaModal === "upload" && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
