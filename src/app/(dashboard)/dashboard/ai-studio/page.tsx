@@ -1479,27 +1479,48 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-              <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200">
-                    Creative Editor
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {selectedPlatforms.map((pId) => {
-                      const pDef = PLATFORMS.find((p) => p.id === pId);
-                      if (!pDef) return null;
-                      const Icon = pDef.icon;
+              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                      Generate with AI or Add Your Own Content
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Select platforms and formats to edit or generate content</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {PLATFORMS.map((platform) => {
+                      const Icon = platform.icon;
+                      const isConnected = connectedPlatforms.includes(platform.id);
+                      const isSelected = selectedPlatforms.includes(platform.id);
+                      const activeFormats = selectedContentTypes[platform.id] || [];
                       return (
-                        <button key={pId} type="button"
-                          onClick={() => { setActivePlatformTab(pId); setActiveSlideIdx(0); }}
-                          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                            activePlatformTab === pId
-                              ? "bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/30 font-bold"
-                              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          <Icon className="h-3.5 w-3.5" /><span>{pDef.label}</span>
-                        </button>
+                        <div key={platform.id} className="relative group">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isSelected) {
+                                togglePlatform(platform.id);
+                              }
+                              setActivePlatformTab(platform.id);
+                              setActiveSlideIdx(0);
+                            }}
+                            disabled={!isConnected}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              !isConnected
+                                ? "bg-slate-100 dark:bg-slate-800 text-slate-400 opacity-50 cursor-not-allowed"
+                                : activePlatformTab === platform.id
+                                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md scale-105"
+                                : isSelected
+                                ? "bg-primary/10 text-primary border border-primary/30"
+                                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                            }`}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                            <span>{platform.label}</span>
+                            {isSelected && <Check className="h-3 w-3 text-emerald-500" />}
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1507,17 +1528,31 @@ export default function AIStudioPage() {
               </CardHeader>
 
               <CardContent className="p-5 space-y-5">
-                {/* FORMAT SELECTOR */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {(selectedContentTypes[activePlatformTab] || []).map((option) => (
-                    <button key={option} type="button" onClick={() => handleFormatChange(option)}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        currentFormatName === option
-                          ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm font-bold scale-105"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-                      }`}
-                    >{option}</button>
-                  ))}
+                {/* FORMAT SWITCH FOR ACTIVE PLATFORM */}
+                <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-2">Format:</span>
+                  {(getPlatformDef(activePlatformTab).contentTypes).map((option) => {
+                    const isSelectedFormat = (selectedContentTypes[activePlatformTab] || []).includes(option);
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          toggleContentType(activePlatformTab, option);
+                          handleFormatChange(option);
+                        }}
+                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                          currentFormatName === option
+                            ? "bg-primary text-white shadow-sm font-bold scale-105"
+                            : isSelectedFormat
+                            ? "bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200"
+                        }`}
+                      >
+                        {option} {isSelectedFormat ? "✓" : ""}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* VISUAL */}
