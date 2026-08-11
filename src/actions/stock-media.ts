@@ -8,20 +8,26 @@ export interface StockHit {
   type: "image" | "video";
 }
 
-export async function searchStockMedia(query: string = "business", mediaType: "image" | "video" = "image") {
+export async function searchStockMedia(
+  query: string = "business",
+  mediaType: "image" | "video" = "image",
+  page: number = 1,
+  perPage: number = 50
+) {
   try {
     const searchTerm = (query && query.trim()) ? query.trim() : "business";
     const apiKey = process.env.PIXABAY_API_KEY || "48747442-d6c1b3f9b2d9d95f6e80b2a75";
     
-    // Construct real Pixabay endpoint
+    // Construct real Pixabay endpoint with page & per_page params
     const endpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&per_page=20`
-      : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=photo&per_page=20`;
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${perPage}`
+      : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=photo&page=${page}&per_page=${perPage}`;
 
     const res = await fetch(endpoint, { cache: "no-store" });
     
     if (res.ok) {
       const data = await res.json();
+      const totalHits = data.totalHits || data.total || 0;
       if (data.hits && data.hits.length > 0) {
         if (mediaType === "video") {
           const hits: StockHit[] = data.hits
@@ -33,7 +39,7 @@ export async function searchStockMedia(query: string = "business", mediaType: "i
               tags: item.tags || "stock video",
               type: "video",
             }));
-          if (hits.length > 0) return { success: true, hits };
+          if (hits.length > 0) return { success: true, hits, totalHits };
         } else {
           const hits: StockHit[] = data.hits.map((item: any) => ({
             id: String(item.id),
@@ -42,19 +48,20 @@ export async function searchStockMedia(query: string = "business", mediaType: "i
             tags: item.tags || "stock photo",
             type: "image",
           }));
-          if (hits.length > 0) return { success: true, hits };
+          if (hits.length > 0) return { success: true, hits, totalHits };
         }
       }
     }
 
     // Fallback search with generic term if niche query yields 0 results on Pixabay
     const fallbackEndpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&per_page=16`
-      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=photo&per_page=16`;
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=30`
+      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=photo&page=1&per_page=30`;
     
     const fallbackRes = await fetch(fallbackEndpoint, { cache: "no-store" });
     if (fallbackRes.ok) {
       const fallbackData = await fallbackRes.json();
+      const totalHits = fallbackData.totalHits || fallbackData.total || 0;
       if (fallbackData.hits && fallbackData.hits.length > 0) {
         if (mediaType === "video") {
           const hits: StockHit[] = fallbackData.hits.map((item: any) => ({
@@ -64,7 +71,7 @@ export async function searchStockMedia(query: string = "business", mediaType: "i
             tags: item.tags || "video",
             type: "video",
           }));
-          return { success: true, hits };
+          return { success: true, hits, totalHits };
         } else {
           const hits: StockHit[] = fallbackData.hits.map((item: any) => ({
             id: String(item.id),
@@ -73,14 +80,14 @@ export async function searchStockMedia(query: string = "business", mediaType: "i
             tags: item.tags || "photo",
             type: "image",
           }));
-          return { success: true, hits };
+          return { success: true, hits, totalHits };
         }
       }
     }
 
-    return { success: true, hits: [] };
+    return { success: true, hits: [], totalHits: 0 };
   } catch (error: any) {
     console.error("Stock media search error:", error);
-    return { success: false, error: error.message || "Failed to fetch Pixabay stock media" };
+    return { success: false, error: error.message || "Failed to fetch Pixabay stock media", totalHits: 0 };
   }
 }
