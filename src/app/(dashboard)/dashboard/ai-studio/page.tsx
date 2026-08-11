@@ -117,6 +117,12 @@ export type PostStatus = "draft" | "in_review" | "approved" | "scheduled" | "pub
 export type PostSource = "ai_campaign" | "manual" | "autopilot";
 export type PostMediaType = "image" | "video" | "carousel" | "none";
 
+export const isVideoUrl = (url: string | null) => {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+};
+
 export interface Post {
   id: string;
   platform: string;
@@ -1830,7 +1836,11 @@ export default function AIStudioPage() {
                     <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex flex-col items-center justify-center min-h-[160px]">
                       {displayImageUrl ? (
                         <div className="relative group max-h-[220px] overflow-hidden rounded-lg">
-                          <img src={displayImageUrl} alt="Preview" className="max-h-[220px] object-cover rounded-lg shadow-sm" />
+                          {isVideoUrl(displayImageUrl) ? (
+                            <video src={displayImageUrl} autoPlay loop muted playsInline className="max-h-[220px] w-full object-cover rounded-lg shadow-sm" />
+                          ) : (
+                            <img src={displayImageUrl} alt="Preview" className="max-h-[220px] object-cover rounded-lg shadow-sm" />
+                          )}
                           <button
                             type="button"
                             onClick={() => {

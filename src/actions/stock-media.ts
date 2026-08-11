@@ -22,8 +22,9 @@ export async function searchStockMedia(
     
     // Construct real Pixabay endpoint (matching website parameters)
     const orientationParam = orientation === "all" ? "" : `&orientation=${orientation}`;
+    const videoPerPage = Math.min(200, perPage * 2); // fetch more videos to account for manual filtering
     const endpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${videoPerPage}&order=${order}&safesearch=true`
       : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=all&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`;
 
     const res = await fetch(endpoint, { cache: "no-store" });
@@ -35,15 +36,27 @@ export async function searchStockMedia(
       
       if (data.hits && data.hits.length > 0) {
         if (mediaType === "video") {
-          const hits: StockHit[] = data.hits
-            .filter((item: any) => item.videos?.medium?.url || item.videos?.small?.url || item.videos?.tiny?.url)
-            .map((item: any) => ({
-              id: String(item.id),
-              url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
-              previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || item.userImageURL || "",
-              tags: item.tags || "stock video",
-              type: "video",
-            }));
+          let filteredHits = data.hits.filter((item: any) => item.videos?.medium?.url || item.videos?.small?.url || item.videos?.tiny?.url);
+          
+          if (orientation === "horizontal") {
+            filteredHits = filteredHits.filter((item: any) => {
+              const v = item.videos?.medium || item.videos?.large || item.videos?.small;
+              return v && v.width > v.height;
+            });
+          } else if (orientation === "vertical") {
+            filteredHits = filteredHits.filter((item: any) => {
+              const v = item.videos?.medium || item.videos?.large || item.videos?.small;
+              return v && v.height > v.width;
+            });
+          }
+
+          const hits: StockHit[] = filteredHits.map((item: any) => ({
+            id: String(item.id),
+            url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
+            previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || item.userImageURL || "",
+            tags: item.tags || "stock video",
+            type: "video",
+          }));
           if (hits.length > 0) return { success: true, hits, totalHits };
         } else {
           const hits: StockHit[] = data.hits.map((item: any) => ({
@@ -60,7 +73,7 @@ export async function searchStockMedia(
 
     // Fallback search if niche query yields 0 results
     const fallbackEndpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=30&order=popular&safesearch=true${orientationParam}`
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=60&order=popular&safesearch=true`
       : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=30&order=popular&safesearch=true${orientationParam}`;
     
     const fallbackRes = await fetch(fallbackEndpoint, { cache: "no-store" });
