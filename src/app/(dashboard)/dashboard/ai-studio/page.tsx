@@ -487,6 +487,11 @@ export default function AIStudioPage() {
   const [devicePreviewMode, setDevicePreviewMode] = useState<"desktop" | "mobile">("mobile");
 
   const [editorMediaTab, setEditorMediaTab] = useState<"upload" | "stock" | "ai">("ai");
+  const [activeMediaModal, setActiveMediaModal] = useState<"upload" | "stock" | "ai" | null>(null);
+  const [selectedStockCategory, setSelectedStockCategory] = useState<string>("Business");
+  const [carouselSlideCount, setCarouselSlideCount] = useState<number>(5);
+  const [carouselCustomPrompt, setCarouselCustomPrompt] = useState<string>("");
+
   const [selectedAiImageModel, setSelectedAiImageModel] = useState<string>("pollinations");
   const [selectedAiVideoModel, setSelectedAiVideoModel] = useState<string>("veo3");
   const [videoPromptText, setVideoPromptText] = useState<string>("");
@@ -939,13 +944,13 @@ export default function AIStudioPage() {
 
   const handleRenderMedia = async () => {
     if (isHtmlSlideFormat) {
-      const prompt = customPrompt || displayOverlayTexts[activeSlideIdx]?.title || campaignTopic;
-      await fetchHtmlSlide(activeSlideIdx, customPrompt || undefined);
+      const prompt = customPrompt || carouselCustomPrompt || displayOverlayTexts[activeSlideIdx]?.title || campaignTopic;
+      await fetchHtmlSlide(activeSlideIdx, prompt || undefined);
       setCustomPrompt("");
+      setCarouselCustomPrompt("");
       return;
     }
-    const activePrompt = customPrompt || singleImagePrompt || campaignTopic;
-    if (!activePrompt) return;
+    const activePrompt = customPrompt || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
     setIsRenderingMedia(true);
     const cacheBuster = ` ${Date.now() % 100000}`;
     const url = getPollinationsAIUrl(activePrompt + cacheBuster, currentAspectRatio, Date.now() % 100000, currentFormatName);
@@ -1749,7 +1754,11 @@ export default function AIStudioPage() {
                         setAiGeneratingCaption(true);
                         const topic = campaignTopic || "Exciting new product launch and special offer for our community";
                         setTimeout(() => {
-                          const generated = `🚀 Exciting news! We're thrilled to introduce our latest breakthrough in ${topic}.\n\n✨ Key Highlights:\n- Premium quality & unmatched performance\n- Designed for maximum efficiency\n- Special early-bird access available now!\n\n👇 Drop a comment below or click the link in bio to learn more!\n#marketing #innovation #b2b #tech #growth`;
+                          const generated = activePlatformTab === "pinterest"
+                            ? `📍 ${topic.toUpperCase()} - Complete Guide & Creative Ideas\n\nLooking to elevate your ${topic}? Here are the top proven strategies, tips, and visual inspiration to get maximum results.\n\nSave this Pin for later and click the link to read full article!`
+                            : activePlatformTab === "youtube"
+                            ? `🎥 ${topic} (Complete 2026 Overview)\n\nWelcome back to our channel! In this video, we cover everything about ${topic}. Timestamps & links below:\n\n0:00 - Introduction\n1:30 - Key Strategies\n3:45 - Live Demo\n\n👍 Like, Subscribe & Hit the Bell Icon!`
+                            : `🚀 Exciting news! We're thrilled to introduce our latest breakthrough in ${topic}.\n\n✨ Key Highlights:\n- Premium quality & unmatched performance\n- Designed for maximum efficiency\n- Special early-bird access available now!\n\n👇 Drop a comment below or click the link in bio to learn more!\n#marketing #innovation #b2b #tech #growth`;
                           updateCaption(generated);
                           setAiGeneratingCaption(false);
                         }, 1000);
@@ -1757,7 +1766,11 @@ export default function AIStudioPage() {
                       className="h-7 text-xs font-semibold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-xs hover:opacity-90"
                     >
                       {aiGeneratingCaption ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      <span>{currentCaption ? "Regenerate Caption with AI" : "Generate Caption with AI"}</span>
+                      <span>
+                        {currentCaption
+                          ? `Regenerate ${activePlatformTab === "youtube" ? "Title & Description" : activePlatformTab === "pinterest" ? "Pin Title & Description" : "Caption"} with AI`
+                          : `Generate ${activePlatformTab === "youtube" ? "Title & Description" : activePlatformTab === "pinterest" ? "Pin Title & Description" : "Caption"} with AI`}
+                      </span>
                     </Button>
 
                     <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
@@ -1767,10 +1780,10 @@ export default function AIStudioPage() {
                 </div>
 
                 {/* ---------------------------------------------------------------------------- */}
-                {/* SECTION 2: FORMAT-AWARE MEDIA CREATION STUDIO (3 TABS) */}
+                {/* SECTION 2: FORMAT-AWARE MEDIA CREATION STUDIO (3 MODAL TRIGGERS) */}
                 {/* ---------------------------------------------------------------------------- */}
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 space-y-0">
-                  {/* MEDIA STUDIO HEADER & 3 TABS */}
+                  {/* MEDIA STUDIO HEADER & 3 MODAL BUTTONS */}
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-1.5">
                       <ImageIcon className="h-4 w-4 text-primary" />
@@ -1782,46 +1795,43 @@ export default function AIStudioPage() {
                       </Badge>
                     </div>
 
-                    {/* 3 TABS SELECTOR */}
-                    <div className="flex items-center gap-1 bg-slate-200/80 dark:bg-slate-900 p-0.5 rounded-lg text-xs font-semibold">
-                      <button
+                    {/* 3 POPUP MODAL BUTTONS */}
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <Button
                         type="button"
-                        onClick={() => setEditorMediaTab("upload")}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-                          editorMediaTab === "upload"
-                            ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs font-bold"
-                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                        }`}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setActiveMediaModal("upload")}
+                        className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs hover:bg-slate-100"
                       >
                         <Upload className="h-3 w-3 text-emerald-500" />
                         <span>Upload PC</span>
-                      </button>
+                      </Button>
 
-                      <button
+                      <Button
                         type="button"
-                        onClick={() => setEditorMediaTab("stock")}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-                          editorMediaTab === "stock"
-                            ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs font-bold"
-                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                        }`}
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          setActiveMediaModal("stock");
+                          const res = await searchStockMedia(selectedStockCategory, currentMediaType === "video" ? "video" : "image");
+                          if (res.success && res.hits) setStockResults(res.hits);
+                        }}
+                        className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs hover:bg-slate-100"
                       >
                         <ImageIcon className="h-3 w-3 text-pink-500" />
-                        <span>Pixabay Stock</span>
-                      </button>
+                        <span>Stock</span>
+                      </Button>
 
-                      <button
+                      <Button
                         type="button"
-                        onClick={() => setEditorMediaTab("ai")}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-all ${
-                          editorMediaTab === "ai"
-                            ? "bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs font-bold"
-                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                        }`}
+                        size="sm"
+                        onClick={() => setActiveMediaModal("ai")}
+                        className="h-7 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-2xs hover:opacity-90"
                       >
-                        <Sparkles className="h-3 w-3 text-indigo-500" />
+                        <Sparkles className="h-3 w-3 text-white" />
                         <span>AI Gen</span>
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
@@ -2855,64 +2865,197 @@ export default function AIStudioPage() {
         </div>
       )}
       {/* ============================================================================ */}
-      {/* STOCK MEDIA SEARCH MODAL (Pixabay Integration) */}
+      {/* 1. UPLOAD PC MEDIA MODAL */}
       {/* ============================================================================ */}
-      {stockModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+      {activeMediaModal === "upload" && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <ImageIcon className="h-5 w-5 text-pink-500" /> Pixabay Stock Media Library
-              </h3>
-              <button onClick={() => setStockModalOpen(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {isCarousel
+                      ? "Upload Carousel Media Slides"
+                      : currentMediaType === "video"
+                      ? "Upload Reel / Video File"
+                      : "Upload Image File"}
+                  </h3>
+                  <p className="text-xs text-slate-500">From your computer for {activePlatformTab.toUpperCase()} ({currentFormatName})</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center space-y-3 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-colors">
+              <div className="mx-auto w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                <Upload className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  {isCarousel
+                    ? "Select Image or Video Files for Carousel Slides"
+                    : currentMediaType === "video"
+                    ? "Select Video File (MP4, MOV, WEBM)"
+                    : "Select Image File (JPG, PNG, WEBP)"}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">Supports files up to 50MB</p>
+              </div>
+              <label className="inline-flex cursor-pointer">
+                <input
+                  type="file"
+                  accept={currentMediaType === "video" ? "video/*" : "image/*,video/*"}
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const url = URL.createObjectURL(file);
+                      setCustomMediaDict(prev => ({
+                        ...prev,
+                        [currentMediaKey]: { url, type: file.type.startsWith("video") ? "video" : "image" }
+                      }));
+                      setActiveMediaModal(null);
+                    }
+                  }}
+                />
+                <Button type="button" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 pointer-events-none">
+                  <Upload className="h-4 w-4" /> Choose File from Computer
+                </Button>
+              </label>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button variant="ghost" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* 2. HD STOCK MEDIA MODAL WITH BUSINESS CATEGORIES */}
+      {/* ============================================================================ */}
+      {activeMediaModal === "stock" && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500">
+                  <ImageIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">HD Stock Media Library</h3>
+                  <p className="text-xs text-slate-500">Search millions of free royalty-free photos & video clips</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* SEARCH INPUT & TYPE TOGGLE */}
             <div className="flex gap-2">
               <Input
                 value={stockQuery}
                 onChange={e => setStockQuery(e.target.value)}
-                placeholder="Search stock images & videos (e.g. robotics, marketing)..."
-                onKeyDown={e => e.key === "Enter" && handleSearchStock(stockQuery, stockMediaType)}
-                className="flex-1"
+                placeholder="Search stock media (e.g. robotics, office, software)..."
+                onKeyDown={async e => {
+                  if (e.key === "Enter") {
+                    setSearchingStock(true);
+                    const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
+                    if (res.success && res.hits) setStockResults(res.hits);
+                    setSearchingStock(false);
+                  }
+                }}
+                className="flex-1 text-xs"
               />
               <select
                 value={stockMediaType}
-                onChange={e => setStockMediaType(e.target.value as any)}
+                onChange={async e => {
+                  const type = e.target.value as any;
+                  setStockMediaType(type);
+                  setSearchingStock(true);
+                  const res = await searchStockMedia(stockQuery || selectedStockCategory, type);
+                  if (res.success && res.hits) setStockResults(res.hits);
+                  setSearchingStock(false);
+                }}
                 className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold bg-white dark:bg-slate-900"
               >
                 <option value="image">Images</option>
                 <option value="video">Videos</option>
               </select>
-              <Button onClick={() => handleSearchStock(stockQuery, stockMediaType)} disabled={searchingStock}>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  setSearchingStock(true);
+                  const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
+                  if (res.success && res.hits) setStockResults(res.hits);
+                  setSearchingStock(false);
+                }}
+                disabled={searchingStock}
+              >
                 {searchingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4 mr-1" />} Search
               </Button>
             </div>
-            <div className="flex-1 overflow-y-auto min-h-[250px] max-h-[400px]">
+
+            {/* PRE-BUILT CATEGORY PILLS */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Popular Categories</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Business", "Tech & AI", "E-Commerce", "Robotics",
+                  "Lifestyle", "Fitness", "Real Estate", "Food & Dining"
+                ].map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={async () => {
+                      setSelectedStockCategory(cat);
+                      setStockQuery(cat);
+                      setSearchingStock(true);
+                      const res = await searchStockMedia(cat, stockMediaType);
+                      if (res.success && res.hits) setStockResults(res.hits);
+                      setSearchingStock(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      selectedStockCategory === cat
+                        ? "bg-primary text-white shadow-2xs font-bold"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* RESULTS GRID */}
+            <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[420px] pt-1">
               {searchingStock ? (
                 <div className="flex items-center justify-center h-48 text-slate-400 gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Searching Pixabay...
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Fetching Stock Media...
                 </div>
               ) : stockResults.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
                   <ImageIcon className="h-8 w-8 text-slate-300" />
-                  <p className="text-xs">Type a keyword and hit Search to browse HD royalty-free media</p>
+                  <p className="text-xs">Click a category pill above or type a search term</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
                   {stockResults.map(item => (
                     <div
                       key={item.id}
                       onClick={() => {
-                        // Apply selected stock media to current format/slide
-                        const key = `${activePlatformTab}-${currentFormatName}`;
                         setCustomMediaDict(prev => ({
                           ...prev,
-                          [key]: { url: item.url, type: item.type }
+                          [currentMediaKey]: { url: item.url, type: item.type }
                         }));
-                        setStockModalOpen(false);
+                        setActiveMediaModal(null);
                       }}
-                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all"
+                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
                     >
                       {item.type === "video" ? (
                         <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
@@ -2920,12 +3063,150 @@ export default function AIStudioPage() {
                         <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <Badge className="text-[10px] gap-1"><Plus className="h-3 w-3" /> Select</Badge>
+                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* 3. AI MEDIA & CAROUSEL GENERATION MODAL */}
+      {/* ============================================================================ */}
+      {activeMediaModal === "ai" && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {isCarousel ? "AI Graphic Carousel Studio" : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
+                  </h3>
+                  <p className="text-xs text-slate-500">Format: {currentFormatName} ({activePlatformTab.toUpperCase()})</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* CAROUSEL GENERATOR CONTROLS */}
+            {isCarousel ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Number of Carousel Slides
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[3, 5, 7, 10].map(count => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setCarouselSlideCount(count)}
+                        className={`py-2 rounded-xl text-xs font-extrabold border transition-all ${
+                          carouselSlideCount === count
+                            ? "bg-primary text-white border-primary shadow-xs"
+                            : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-primary/50"
+                        }`}
+                      >
+                        {count} Slides
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Custom Carousel Instructions / Topic (Optional)
+                  </label>
+                  <Textarea
+                    rows={3}
+                    value={carouselCustomPrompt}
+                    onChange={e => setCarouselCustomPrompt(e.target.value)}
+                    placeholder="e.g. Create 5 slides showing step-by-step how SMB Robotics builds IoT automation systems..."
+                    className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
+                </div>
+              </div>
+            ) : currentMediaType === "video" ? (
+              /* AI VIDEO CONTROLS */
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Select AI Video Engine</label>
+                  <select
+                    value={selectedAiVideoModel}
+                    onChange={e => setSelectedAiVideoModel(e.target.value)}
+                    className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="veo3">Google Veo 3 AI Video (4K Motion)</option>
+                    <option value="heygen">HeyGen AI Avatar Presenter Studio</option>
+                    <option value="runway">Runway Gen-3 Alpha Cinematic</option>
+                    <option value="luma">Luma Dream Machine Realistic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Video Script / Visual Prompt</label>
+                  <Textarea
+                    rows={3}
+                    value={videoPromptText}
+                    onChange={e => setVideoPromptText(e.target.value)}
+                    placeholder="e.g. Cinematic vertical reel of high-tech automated robotic warehouse with smooth camera movement..."
+                    className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* AI IMAGE CONTROLS */
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Select AI Generator Engine</label>
+                  <select
+                    value={selectedAiImageModel}
+                    onChange={e => setSelectedAiImageModel(e.target.value)}
+                    className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="pollinations">Pollinations AI (Fast High-Res - Free)</option>
+                    <option value="flux">Flux.1 / Imagen 3 Photorealistic</option>
+                    <option value="midjourney">Midjourney v6 Artistic Style</option>
+                    <option value="dalle">DALL-E 3 / ChatGPT Image Model</option>
+                    <option value="banana">Banana SDXL Ultra Speed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Visual Prompt (Optional)</label>
+                  <Textarea
+                    rows={3}
+                    value={customPrompt}
+                    onChange={e => setCustomPrompt(e.target.value)}
+                    placeholder="e.g. Sleek modern marketing poster with vibrant purple lighting and futuristic digital interface..."
+                    className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={isRenderingMedia}
+                onClick={async () => {
+                  await handleRenderMedia();
+                  setActiveMediaModal(null);
+                }}
+                className="bg-gradient-to-r from-primary to-indigo-600 text-white font-bold gap-1.5"
+              >
+                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
+              </Button>
             </div>
           </div>
         </div>
