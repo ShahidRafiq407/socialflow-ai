@@ -3410,6 +3410,7 @@ export default function AIStudioPage() {
                         <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
                       </div>
                     </div>
+                  ))}
                 </div>
               )}
             </div>
