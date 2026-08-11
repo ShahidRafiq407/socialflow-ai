@@ -1004,8 +1004,8 @@ export default function AIStudioPage() {
   const isWidescreen = currentFormatName === "Post";
   const isPin = currentFormatName === "Pin";
 
-  const hasAnyPlatformContent = generationState === "completed" && Object.keys(generatedContents[activePlatformTab] || {}).length > 0;
-  const hasContent = hasAnyPlatformContent && !!currentCaption;
+  const hasAnyPlatformContent = Object.keys(generatedContents[activePlatformTab] || {}).length > 0;
+  const hasContent = true;
 
   // ============================================================================
   // PUBLISH / SCHEDULE / SAVE DRAFT — WIRED
@@ -2485,44 +2485,42 @@ export default function AIStudioPage() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
 
-              {/* PUBLISH CARD */}
-              {hasContent && (
-                <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 p-5 space-y-4">
-                  {currentBestTime && (
-                    <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 p-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Clock className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                            Best Time: {currentBestTime}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Optimal for {PLATFORMS.find(p => p.id === activePlatformTab)?.label}
-                          </p>
-                        </div>
+              {/* PUBLISH CARD (ALWAYS VISIBLE & ACCESSIBLE) */}
+              <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 p-4 space-y-3">
+                {currentBestTime && (
+                  <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Clock className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                          Best Time to Post: {currentBestTime}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Optimal engagement window for {PLATFORMS.find(p => p.id === activePlatformTab)?.label}
+                        </p>
                       </div>
                     </div>
-                  )}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-10 text-xs font-semibold gap-1.5">
-                      <Save className="h-3.5 w-3.5" /> Draft
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={sendForReview} disabled={publishLoading} className="h-10 text-xs font-semibold gap-1.5 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400">
-                      <Eye className="h-3.5 w-3.5" /> Review
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-10 text-xs font-semibold gap-1.5 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20">
-                      <Calendar className="h-3.5 w-3.5" /> Schedule
-                    </Button>
-                    <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-10 text-xs font-semibold gap-1.5 bg-primary hover:bg-primary/90 text-white shadow-md">
-                      <Send className="h-3.5 w-3.5" /> Publish
-                    </Button>
                   </div>
-                </Card>
-              )}
+                )}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 bg-white dark:bg-slate-800">
+                    <Save className="h-3.5 w-3.5 text-slate-500" /> Save Draft
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={sendForReview} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20">
+                    <Eye className="h-3.5 w-3.5" /> Review
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
+                    <Calendar className="h-3.5 w-3.5" /> Schedule
+                  </Button>
+                  <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 bg-primary hover:bg-primary/90 text-white shadow-md">
+                    {publishLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    <span>Publish Now</span>
+                  </Button>
+                </div>
+              </Card>
             </div>
           </div>
         </>
