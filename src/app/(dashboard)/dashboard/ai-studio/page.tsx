@@ -1482,10 +1482,10 @@ export default function AIStudioPage() {
               {/* HEADING */}
               <div>
                 <h2 className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-primary" />
-                  Content Studio
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  Generate with AI or Add Your Own Content
                 </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Create, refine, and auto-schedule multi-platform content</p>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Select target platforms & formats below, then generate with AI or write custom posts.</p>
               </div>
 
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
