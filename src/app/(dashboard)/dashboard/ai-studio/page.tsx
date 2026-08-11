@@ -1564,45 +1564,54 @@ export default function AIStudioPage() {
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
               <CardContent className="p-5 space-y-5">
-                {/* ACTIVE EDITOR PLATFORM TABS & FORMAT SWITCHER */}
-                <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {selectedPlatforms.map((pId) => {
-                      const pDef = PLATFORMS.find((p) => p.id === pId);
-                      if (!pDef) return null;
-                      const Icon = pDef.icon;
-                      const active = activePlatformTab === pId;
-                      return (
-                        <button
-                          key={pId}
-                          type="button"
-                          onClick={() => {
-                            setActivePlatformTab(pId);
-                            setActiveSlideIdx(0);
-                          }}
-                          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                            active
-                              ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm"
-                              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          <span>{pDef.label}</span>
-                        </button>
-                      );
-                    })}
+                {/* SINGLE COMPACT INLINE TOOLBAR FOR CONTENT EDITOR */}
+                <div className="bg-slate-50/90 dark:bg-slate-800/40 p-2.5 px-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 shrink-0">
+                      ✍️ Content Editor
+                    </span>
+                    
+                    <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 hidden sm:block" />
+
+                    {/* PLATFORM BUTTONS */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {selectedPlatforms.map((pId) => {
+                        const pDef = PLATFORMS.find((p) => p.id === pId);
+                        if (!pDef) return null;
+                        const Icon = pDef.icon;
+                        const active = activePlatformTab === pId;
+                        return (
+                          <button
+                            key={pId}
+                            type="button"
+                            onClick={() => {
+                              setActivePlatformTab(pId);
+                              setActiveSlideIdx(0);
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                              active
+                                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-2xs"
+                                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                            }`}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                            <span>{pDef.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  {/* ACTIVE FORMAT SWITCHER PILLS */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                  {/* FORMAT PILLS (INLINE) */}
+                  <div className="flex items-center gap-1 flex-wrap">
                     {(selectedContentTypes[activePlatformTab] || getPlatformDef(activePlatformTab).contentTypes).map((option) => (
                       <button
                         key={option}
                         type="button"
                         onClick={() => handleFormatChange(option)}
-                        className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
                           currentFormatName === option
-                            ? "bg-primary text-white shadow-xs font-bold"
+                            ? "bg-primary text-white shadow-2xs"
                             : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
                         }`}
                       >
