@@ -95,6 +95,10 @@ import {
   Grid,
   List,
   LayoutGrid,
+  Monitor,
+  Smartphone,
+  Settings,
+  Sliders,
 } from "lucide-react";
 import { getConnectedPlatformIds } from "@/actions/integrations";
 import { useUser } from "@clerk/nextjs";
@@ -478,6 +482,9 @@ export default function AIStudioPage() {
   const [customPromptModalOpen, setCustomPromptModalOpen] = useState(false);
   const [customPromptText, setCustomPromptText] = useState("");
   const [customPromptSlideIdx, setCustomPromptSlideIdx] = useState<number>(0);
+
+  const [rightPanelTab, setRightPanelTab] = useState<"preview" | "settings">("preview");
+  const [devicePreviewMode, setDevicePreviewMode] = useState<"desktop" | "mobile">("mobile");
 
   // ============================================================================
   // PLATFORM & CONTENT TYPE SELECTION
@@ -1953,8 +1960,150 @@ export default function AIStudioPage() {
               )}
             </Card>
 
-            {/* RIGHT: PUBLISH */}
+            {/* RIGHT COLUMN (40%): LIVE PREVIEW & PLATFORM SETTINGS */}
             <div className="lg:col-span-5 space-y-6">
+              <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
+                {/* TABS HEADER: PREVIEW VS SETTINGS */}
+                <CardHeader className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => setRightPanelTab("preview")}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                          rightPanelTab === "preview"
+                            ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                        }`}
+                      >
+                        <Eye className="h-3.5 w-3.5 text-primary" />
+                        <span>Live Preview</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRightPanelTab("settings")}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                          rightPanelTab === "settings"
+                            ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                        }`}
+                      >
+                        <Settings className="h-3.5 w-3.5 text-indigo-500" />
+                        <span>Settings</span>
+                      </button>
+                    </div>
+
+                    {/* IF PREVIEW TAB ACTIVE: DESKTOP VS MOBILE DEVICE TOGGLE */}
+                    {rightPanelTab === "preview" && (
+                      <div className="flex items-center gap-0.5 bg-slate-200/70 dark:bg-slate-800 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setDevicePreviewMode("mobile")}
+                          title="Mobile View"
+                          className={`p-1 rounded-md text-xs transition-all ${
+                            devicePreviewMode === "mobile"
+                              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          <Smartphone className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDevicePreviewMode("desktop")}
+                          title="Desktop View"
+                          className={`p-1 rounded-md text-xs transition-all ${
+                            devicePreviewMode === "desktop"
+                              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          <Monitor className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+
+                <CardContent className="p-4 bg-slate-50/50 dark:bg-slate-950/40 min-h-[380px] flex flex-col justify-center items-center">
+                  {rightPanelTab === "preview" ? (
+                    /* TAB 1: LIVE PREVIEW */
+                    <div className="w-full flex flex-col items-center">
+                      <div className={`transition-all duration-300 w-full flex justify-center ${
+                        devicePreviewMode === "mobile" ? "max-w-[340px]" : "max-w-[500px]"
+                      }`}>
+                        {!hasContent ? (
+                          <div className="py-16 text-center">
+                            <Sparkles className="h-8 w-8 text-slate-300 mx-auto mb-3" />
+                            <p className="text-sm text-slate-400 font-medium">
+                              No preview content yet.<br/>Type in editor or generate campaign to view live mockup.
+                            </p>
+                          </div>
+                        ) : (
+                          (() => {
+                            switch (activePlatformTab) {
+                              case "instagram":
+                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                              case "linkedin":
+                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
+                              case "x":
+                                return <XPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                              case "tiktok":
+                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                              case "youtube":
+                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
+                              case "facebook":
+                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} isVertical={isVertical} />;
+                              case "pinterest":
+                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={userName} userImage={userImage} />;
+                              default:
+                                return null;
+                            }
+                          })()
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* TAB 2: PLATFORM SETTINGS */
+                    <div className="w-full space-y-4 text-left">
+                      <div className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/30 space-y-1">
+                        <div className="flex items-center gap-2 font-bold text-xs text-indigo-900 dark:text-indigo-300">
+                          <Clock className="h-4 w-4 text-indigo-600" />
+                          <span>Optimal Posting Time</span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">
+                          {currentBestTime ? `Recommended: ${currentBestTime}` : "Best time calculated automatically based on audience engagement data."}
+                        </p>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                          {PLATFORMS.find(p => p.id === activePlatformTab)?.label} Post Settings
+                        </div>
+
+                        <div className="space-y-2.5 text-xs">
+                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                            <span>Auto-insert Hashtag Group</span>
+                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                          </label>
+
+                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                            <span>Post First Comment Automatically</span>
+                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                          </label>
+
+                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                            <span>Enable AI Smart Auto-Resizing</span>
+                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* PUBLISH CARD */}
               {hasContent && (
                 <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 p-5 space-y-4">
