@@ -1587,10 +1587,10 @@ export default function AIStudioPage() {
           {/* MAIN WORKSPACE */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
-            <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-              <CardContent className="p-3.5 sm:p-4 space-y-4">
+            <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
+              <CardContent className="p-3 space-y-3.5 !overflow-visible">
                 {/* SINGLE SLEEK 1-LINE TOOLBAR FOR CONTENT EDITOR */}
-                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-2">
                   <div className="flex items-center gap-2.5">
                     {/* HEADING WITHOUT EMOJI/LOGO */}
                     <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0">
