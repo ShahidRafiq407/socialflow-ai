@@ -19,22 +19,25 @@ export default function XPreview({
   return (
     <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4">
       <div className="flex gap-3">
-        <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0 overflow-hidden">
-          {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
+        <div className="h-10 w-10 rounded-full bg-slate-800 text-white font-bold text-sm shrink-0 overflow-hidden flex items-center justify-center">
+          {userImage ? (
+            <img src={userImage} alt={userName} className="h-full w-full object-cover" />
+          ) : (
+            (userName || "X").substring(0, 2).toUpperCase()
+          )}
         </div>
         <div className="flex-1">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[15px] font-bold text-slate-900 dark:text-white">{userName}</span>
-              <Check className="h-4 w-4 text-blue-400 bg-white dark:bg-black rounded-full" />
-              <span className="text-[15px] text-slate-500">@{userHandle}</span>
-              <span className="text-[15px] text-slate-500">· 2h</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[14px] font-bold text-slate-900 dark:text-white leading-tight">{userName}</span>
+              <Check className="h-3.5 w-3.5 text-blue-400 bg-white dark:bg-black rounded-full" />
+              <span className="text-[13px] text-slate-500">@{userHandle.replace(/^@/, '')} · 2h</span>
             </div>
-            <MoreHorizontal className="h-4 w-4 text-slate-500" />
+            <MoreHorizontal className="h-4 w-4 text-slate-500 cursor-pointer" />
           </div>
-          <p className="text-[15px] text-slate-900 dark:text-white mt-1 mb-3 leading-snug whitespace-pre-wrap">{currentCaption}</p>
+          <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 mb-2 leading-relaxed whitespace-pre-wrap">{currentCaption}</p>
           {displayImageUrl && (
-            <div className="w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mt-3 aspect-video">
+            <div className="w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mt-2 max-h-[280px] aspect-video bg-slate-900 flex items-center justify-center">
               <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />
             </div>
           )}

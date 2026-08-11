@@ -62,7 +62,7 @@ export default function FacebookPreview({
       </div>
 
       {displayImageUrl && (
-        <div className={`w-full bg-slate-900 flex items-center justify-center overflow-hidden ${isVertical ? 'aspect-[4/5]' : 'aspect-square'}`}>
+        <div className="w-full max-h-[320px] aspect-square bg-slate-900 flex items-center justify-center overflow-hidden">
           <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />
         </div>
       )}

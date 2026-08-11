@@ -54,7 +54,7 @@ export default function LinkedInPreview({
       </div>
 
       {displayImageUrl && (
-        <div className={`w-full bg-slate-900 flex items-center justify-center overflow-hidden ${currentFormatName === 'Carousel' ? 'aspect-[4/5]' : 'aspect-[1.91/1]'}`}>
+        <div className="w-full max-h-[320px] aspect-square bg-slate-900 flex items-center justify-center overflow-hidden">
           <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
         </div>
       )}

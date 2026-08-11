@@ -22,8 +22,12 @@ export default function TikTokPreview({
         {displayImageUrl && <img src={displayImageUrl} alt="TikTok" className="w-full h-full object-cover opacity-90" />}
       </div>
       <div className="absolute right-2 bottom-20 flex flex-col items-center gap-4 z-20">
-        <div className="h-10 w-10 rounded-full border-2 border-white bg-slate-800 overflow-hidden">
-          {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
+        <div className="h-10 w-10 rounded-full border-2 border-white bg-slate-800 font-bold text-xs shrink-0 overflow-hidden flex items-center justify-center text-white">
+          {userImage ? (
+            <img src={userImage} alt={userName} className="h-full w-full object-cover" />
+          ) : (
+            (userHandle || userName || "TK").substring(0, 2).toUpperCase()
+          )}
         </div>
         <div className="flex flex-col items-center gap-1"><Heart className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">45.2K</span></div>
         <div className="flex flex-col items-center gap-1"><MessageCircle className="h-7 w-7 text-white fill-white" /><span className="text-[11px] font-bold text-white">128</span></div>
