@@ -3166,7 +3166,6 @@ export default function AIStudioPage() {
                 ))}
               </div>
             </div>
-
             {/* RESULTS GRID */}
             <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[420px] pt-1">
               {searchingStock ? (
@@ -3185,10 +3184,25 @@ export default function AIStudioPage() {
                       key={item.id}
                       onClick={() => {
                         setCustomMediaDict(prev => ({
-              >
-                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
-              </Button>
+                          ...prev,
+                          [currentMediaKey]: { url: item.url, type: item.type }
+                        }));
+                        setActiveMediaModal(null);
+                      }}
+                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
+                    >
+                      {item.type === "video" ? (
+                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
+                      ) : (
+                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
