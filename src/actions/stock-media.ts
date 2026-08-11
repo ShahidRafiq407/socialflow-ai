@@ -27,29 +27,30 @@ export async function searchStockMedia(
       ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${videoPerPage}&order=${order}&safesearch=true`
       : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=all&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`;
 
-    const res = await fetch(endpoint, { cache: "no-store" });
-    
+    const filterVideosByOrientation = (rawHits: any[]) => {
+      const validHits = rawHits.filter((item: any) => item.videos?.medium?.url || item.videos?.small?.url || item.videos?.tiny?.url || item.videos?.large?.url);
+      if (orientation === "horizontal") {
+        return validHits.filter((item: any) => {
+          const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
+          return v && Number(v.width) >= Number(v.height);
+        });
+      }
+      if (orientation === "vertical") {
+        return validHits.filter((item: any) => {
+          const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
+          return v && Number(v.height) >= Number(v.width);
+        });
+      }
+      return validHits;
+    };
+
     if (res.ok) {
       const data = await res.json();
-      // data.total is the complete Pixabay database count (e.g., 10,136 on website)
       const totalHits = data.total || data.totalHits || 0;
       
       if (data.hits && data.hits.length > 0) {
         if (mediaType === "video") {
-          let filteredHits = data.hits.filter((item: any) => item.videos?.medium?.url || item.videos?.small?.url || item.videos?.tiny?.url);
-          
-          if (orientation === "horizontal") {
-            filteredHits = filteredHits.filter((item: any) => {
-              const v = item.videos?.medium || item.videos?.large || item.videos?.small;
-              return v && v.width > v.height;
-            });
-          } else if (orientation === "vertical") {
-            filteredHits = filteredHits.filter((item: any) => {
-              const v = item.videos?.medium || item.videos?.large || item.videos?.small;
-              return v && v.height > v.width;
-            });
-          }
-
+          const filteredHits = filterVideosByOrientation(data.hits);
           const hits: StockHit[] = filteredHits.map((item: any) => ({
             id: String(item.id),
             url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
@@ -57,7 +58,7 @@ export async function searchStockMedia(
             tags: item.tags || "stock video",
             type: "video",
           }));
-          if (hits.length > 0) return { success: true, hits, totalHits };
+          return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
         } else {
           const hits: StockHit[] = data.hits.map((item: any) => ({
             id: String(item.id),
@@ -66,15 +67,15 @@ export async function searchStockMedia(
             tags: item.tags || "stock photo",
             type: "image",
           }));
-          if (hits.length > 0) return { success: true, hits, totalHits };
+          return { success: true, hits, totalHits };
         }
       }
     }
 
     // Fallback search if niche query yields 0 results
     const fallbackEndpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=60&order=popular&safesearch=true`
-      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=30&order=popular&safesearch=true${orientationParam}`;
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=100&order=popular&safesearch=true`
+      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=50&order=popular&safesearch=true${orientationParam}`;
     
     const fallbackRes = await fetch(fallbackEndpoint, { cache: "no-store" });
     if (fallbackRes.ok) {
@@ -82,14 +83,15 @@ export async function searchStockMedia(
       const totalHits = fallbackData.total || fallbackData.totalHits || 0;
       if (fallbackData.hits && fallbackData.hits.length > 0) {
         if (mediaType === "video") {
-          const hits: StockHit[] = fallbackData.hits.map((item: any) => ({
+          const filteredHits = filterVideosByOrientation(fallbackData.hits);
+          const hits: StockHit[] = filteredHits.map((item: any) => ({
             id: String(item.id),
-            url: item.videos?.medium?.url || item.videos?.small?.url || "",
+            url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || "",
             previewUrl: item.videos?.tiny?.url || item.userImageURL || "",
             tags: item.tags || "video",
             type: "video",
           }));
-          return { success: true, hits, totalHits };
+          return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
         } else {
           const hits: StockHit[] = fallbackData.hits.map((item: any) => ({
             id: String(item.id),

@@ -153,7 +153,6 @@ export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType
 
   /* type toggle */
   const handleTypeSwitch = (type: "image" | "video") => {
-    if (allowedType) return;
     setMediaType(type);
     doSearch(query || activeCategory || "trending", type, order, orientation);
   };
@@ -205,18 +204,16 @@ export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType
             <div className="flex-1 max-w-2xl relative">
               <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-500 transition-all">
                 {/* Type dropdown */}
-                {!allowedType && (
-                  <div className="flex-shrink-0 border-r border-slate-200 dark:border-slate-700">
-                    <button
-                      onClick={() => handleTypeSwitch(mediaType === "image" ? "video" : "image")}
-                      className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
-                    >
-                      {mediaType === "image" ? <ImageIcon className="h-3.5 w-3.5" /> : <Film className="h-3.5 w-3.5" />}
-                      {mediaType === "image" ? "Photos" : "Videos"}
-                      <ChevronDown className="h-3 w-3 opacity-50" />
-                    </button>
-                  </div>
-                )}
+                <div className="flex-shrink-0 border-r border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => handleTypeSwitch(mediaType === "image" ? "video" : "image")}
+                    className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
+                  >
+                    {mediaType === "image" ? <ImageIcon className="h-3.5 w-3.5" /> : <Film className="h-3.5 w-3.5" />}
+                    {mediaType === "image" ? "Photos" : "Videos"}
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </button>
+                </div>
                 {/* Input */}
                 <input
                   ref={inputRef}
@@ -229,7 +226,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType
                 />
                 {/* Search button */}
                 <button
-                  onClick={() => { setActiveCategory(""); doSearch(query, mediaType, order); }}
+                  onClick={() => { setActiveCategory(""); doSearch(query, mediaType, order, orientation); }}
                   className="flex-shrink-0 m-1 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-emerald-500/20"
                 >
                   <Search className="h-3.5 w-3.5" />
@@ -240,30 +237,28 @@ export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType
 
             {/* Type tabs & Sort filter */}
             <div className="hidden md:flex items-center gap-2">
-              {!allowedType && (
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
-                  <button
-                    onClick={() => handleTypeSwitch("image")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                      mediaType === "image"
-                        ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <ImageIcon className="h-3.5 w-3.5" /> Photos
-                  </button>
-                  <button
-                    onClick={() => handleTypeSwitch("video")}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                      mediaType === "video"
-                        ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    <Film className="h-3.5 w-3.5" /> Videos
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+                <button
+                  onClick={() => handleTypeSwitch("image")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mediaType === "image"
+                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" /> Photos
+                </button>
+                <button
+                  onClick={() => handleTypeSwitch("video")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mediaType === "video"
+                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Film className="h-3.5 w-3.5" /> Videos
+                </button>
+              </div>
 
               {/* Order selector (Most relevant vs Latest) */}
               <select
