@@ -1335,57 +1335,17 @@ export default function AIStudioPage() {
       {/* TOP HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-indigo-600 text-white shadow-md shrink-0">
-            <Sparkles className="h-5 w-5" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm shrink-0 border border-slate-800 dark:border-slate-200">
+            <Layers className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
               Content Studio
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              AI-powered campaign creation, manual posts, scheduling & calendar
+              Create, refine, and auto-schedule multi-platform content
             </p>
           </div>
-        </div>
-
-        {/* MODE TABS */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl shrink-0 overflow-x-auto">
-          {[
-            { id: "ai", label: "AI Studio", icon: Sparkles },
-            { id: "manual", label: "Manual Post", icon: Plus },
-            { id: "calendar", label: "Calendar", icon: Calendar, count: store.posts.filter(p => p.status === "scheduled").length },
-            { id: "inbox", label: "Inbox", icon: Inbox, count: 3 },
-            { id: "catalog", label: "Products", icon: ShoppingBag },
-            { id: "analytics", label: "Analytics", icon: BarChart3 },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const active = viewMode === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setViewMode(tab.id as ViewMode)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                  active
-                    ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                <span>{tab.label}</span>
-                {tab.count !== undefined && tab.count > 0 && (
-                  <span className="bg-primary/15 text-primary text-[10px] font-bold px-1.5 rounded-full">{tab.count}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-          {generationState !== "idle" && viewMode === "ai" && (
-            <Button variant="ghost" size="sm" onClick={resetAll} className="h-9 text-xs font-semibold gap-1 text-slate-500">
-              <RotateCcw className="h-3.5 w-3.5" /> Reset
-            </Button>
-          )}
         </div>
       </div>
 
