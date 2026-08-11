@@ -380,6 +380,7 @@ export default function AIStudioPage() {
   const store = useContentStudioStore();
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(true);
+  const [openPlatformDropdown, setOpenPlatformDropdown] = useState<string | null>(null);
 
   const { user } = useUser();
   const userName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "SMB Robotics";
@@ -1479,47 +1480,103 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-primary" />
-                      Generate with AI or Add Your Own Content
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">Select platforms and formats to edit or generate content</p>
+              <CardHeader className="p-5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30 space-y-4">
+                {/* ROW 1: HEADING COLUMN */}
+                <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+                  <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <Sparkles className="h-4.5 w-4.5 text-primary" />
+                    Generate with AI or Add Your Own Content
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Select target platforms & formats below, then generate with AI or write custom posts.</p>
+                </div>
+
+                {/* ROW 2: TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                      Target Platforms & Formats Selection:
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={generationState === "running" || selectedPlatforms.length === 0}
+                      onClick={handleGenerateAIContent}
+                      className="h-8 px-3.5 text-xs font-extrabold gap-1.5 bg-gradient-to-r from-primary via-indigo-600 to-purple-600 hover:opacity-95 text-white shadow-sm shrink-0"
+                    >
+                      {generationState === "running" ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating AI...</>
+                      ) : (
+                        <><Rocket className="h-3.5 w-3.5 text-amber-300" /> Generate AI Content</>
+                      )}
+                    </Button>
                   </div>
+
                   <div className="flex flex-wrap items-center gap-2">
                     {PLATFORMS.map((platform) => {
                       const Icon = platform.icon;
                       const isConnected = connectedPlatforms.includes(platform.id);
                       const isSelected = selectedPlatforms.includes(platform.id);
+                      const isDropdownOpen = openPlatformDropdown === platform.id;
                       const activeFormats = selectedContentTypes[platform.id] || [];
+
                       return (
-                        <div key={platform.id} className="relative group">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!isSelected) {
-                                togglePlatform(platform.id);
-                              }
-                              setActivePlatformTab(platform.id);
-                              setActiveSlideIdx(0);
-                            }}
+                        <div key={platform.id} className="relative flex items-center gap-1.5 bg-white dark:bg-slate-900 p-1.5 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                          {/* CHECKBOX TO MULTI-SELECT/DESELECT PLATFORM */}
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
                             disabled={!isConnected}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                              !isConnected
-                                ? "bg-slate-100 dark:bg-slate-800 text-slate-400 opacity-50 cursor-not-allowed"
-                                : activePlatformTab === platform.id
-                                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md scale-105"
-                                : isSelected
-                                ? "bg-primary/10 text-primary border border-primary/30"
-                                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
-                            }`}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                            <span>{platform.label}</span>
-                            {isSelected && <Check className="h-3 w-3 text-emerald-500" />}
-                          </button>
+                            onChange={() => togglePlatform(platform.id)}
+                            className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer disabled:opacity-40"
+                            title={`Select/Deselect ${platform.label}`}
+                          />
+
+                          {/* BUTTON WITH FORMAT DROPDOWN */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              disabled={!isConnected}
+                              onClick={() => setOpenPlatformDropdown(isDropdownOpen ? null : platform.id)}
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                !isConnected
+                                  ? "text-slate-400 opacity-50 cursor-not-allowed"
+                                  : isSelected
+                                  ? "text-slate-900 dark:text-white font-extrabold"
+                                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                              }`}
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                              <span>{platform.label}</span>
+                              <ChevronDown className="h-3 w-3 opacity-60 ml-0.5" />
+                            </button>
+
+                            {/* FORMAT SELECTION DROPDOWN */}
+                            {isDropdownOpen && (
+                              <div className="absolute top-full left-0 mt-2 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-40 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                  <span>{platform.label} Formats</span>
+                                  <button type="button" onClick={() => setOpenPlatformDropdown(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+                                </div>
+                                {platform.contentTypes.map((type) => {
+                                  const isChecked = isSelected && activeFormats.includes(type);
+                                  return (
+                                    <button
+                                      key={type}
+                                      type="button"
+                                      onClick={() => {
+                                        if (!isSelected) togglePlatform(platform.id);
+                                        toggleContentType(platform.id, type);
+                                      }}
+                                      className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-left transition-colors"
+                                    >
+                                      <span>{type}</span>
+                                      {isChecked ? <span className="text-emerald-500 font-bold">✓</span> : <span className="text-slate-300">+</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1528,31 +1585,58 @@ export default function AIStudioPage() {
               </CardHeader>
 
               <CardContent className="p-5 space-y-5">
-                {/* FORMAT SWITCH FOR ACTIVE PLATFORM */}
-                <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-2">Format:</span>
-                  {(getPlatformDef(activePlatformTab).contentTypes).map((option) => {
-                    const isSelectedFormat = (selectedContentTypes[activePlatformTab] || []).includes(option);
-                    return (
+                {/* ROW 3: ACTIVE EDITOR PLATFORM TABS & FORMAT SWITCHER */}
+                <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Active Content Editor Platform:
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {selectedPlatforms.map((pId) => {
+                      const pDef = PLATFORMS.find((p) => p.id === pId);
+                      if (!pDef) return null;
+                      const Icon = pDef.icon;
+                      return (
+                        <button
+                          key={pId}
+                          type="button"
+                          onClick={() => {
+                            setActivePlatformTab(pId);
+                            setActiveSlideIdx(0);
+                          }}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            activePlatformTab === pId
+                              ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md font-extrabold scale-105"
+                              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          <span>{pDef.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* ACTIVE FORMAT SWITCHER PILLS */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                    <span className="text-[11px] font-bold text-slate-500 mr-1">Switch Format:</span>
+                    {(selectedContentTypes[activePlatformTab] || getPlatformDef(activePlatformTab).contentTypes).map((option) => (
                       <button
                         key={option}
                         type="button"
-                        onClick={() => {
-                          toggleContentType(activePlatformTab, option);
-                          handleFormatChange(option);
-                        }}
-                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                        onClick={() => handleFormatChange(option)}
+                        className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
                           currentFormatName === option
-                            ? "bg-primary text-white shadow-sm font-bold scale-105"
-                            : isSelectedFormat
-                            ? "bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200"
+                            ? "bg-primary text-white shadow-xs font-bold scale-105"
+                            : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
                         }`}
                       >
-                        {option} {isSelectedFormat ? "✓" : ""}
+                        {option}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
 
                 {/* VISUAL */}
