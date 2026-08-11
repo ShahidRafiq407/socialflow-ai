@@ -1481,11 +1481,11 @@ export default function AIStudioPage() {
             <CardContent className="p-5 space-y-4">
               {/* HEADING */}
               <div>
-                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  Generate with AI or Add Your Own Content
+                <h2 className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-primary" />
+                  Content Studio
                 </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">Select target platforms & formats below, then generate with AI or write custom posts.</p>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Create, refine, and auto-schedule multi-platform content</p>
               </div>
 
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
@@ -1572,26 +1572,15 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-              <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
-                <CardTitle className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                  Creative Content Editor
-                </CardTitle>
-              </CardHeader>
-
               <CardContent className="p-5 space-y-5">
-                {/* ROW 3: ACTIVE EDITOR PLATFORM TABS & FORMAT SWITCHER */}
-                <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                      Active Content Editor Platform:
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5">
+                {/* ACTIVE EDITOR PLATFORM TABS & FORMAT SWITCHER */}
+                <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     {selectedPlatforms.map((pId) => {
                       const pDef = PLATFORMS.find((p) => p.id === pId);
                       if (!pDef) return null;
                       const Icon = pDef.icon;
+                      const active = activePlatformTab === pId;
                       return (
                         <button
                           key={pId}
@@ -1600,9 +1589,9 @@ export default function AIStudioPage() {
                             setActivePlatformTab(pId);
                             setActiveSlideIdx(0);
                           }}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                            activePlatformTab === pId
-                              ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-md font-extrabold scale-105"
+                          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            active
+                              ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm"
                               : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
                           }`}
                         >
@@ -1615,7 +1604,6 @@ export default function AIStudioPage() {
 
                   {/* ACTIVE FORMAT SWITCHER PILLS */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-                    <span className="text-[11px] font-bold text-slate-500 mr-1">Switch Format:</span>
                     {(selectedContentTypes[activePlatformTab] || getPlatformDef(activePlatformTab).contentTypes).map((option) => (
                       <button
                         key={option}
@@ -1623,7 +1611,7 @@ export default function AIStudioPage() {
                         onClick={() => handleFormatChange(option)}
                         className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
                           currentFormatName === option
-                            ? "bg-primary text-white shadow-xs font-bold scale-105"
+                            ? "bg-primary text-white shadow-xs font-bold"
                             : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
                         }`}
                       >
