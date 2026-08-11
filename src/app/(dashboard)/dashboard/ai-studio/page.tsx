@@ -1588,9 +1588,9 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
-              <CardContent className="p-3 space-y-3.5 !overflow-visible">
+              <CardContent className="p-2.5 space-y-2.5 !overflow-visible">
                 {/* SINGLE SLEEK 1-LINE TOOLBAR FOR CONTENT EDITOR */}
-                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-2">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-1.5">
                   <div className="flex items-center gap-2.5">
                     {/* HEADING WITHOUT EMOJI/LOGO */}
                     <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0">
@@ -1599,8 +1599,12 @@ export default function AIStudioPage() {
 
                     <div className="h-3.5 w-px bg-slate-200 dark:bg-slate-700" />
 
-                    {/* SINGLE PLATFORM DROPDOWN SELECTOR */}
-                    <div className="relative" onMouseLeave={() => setOpenEditorPlatformDropdown(false)}>
+                    {/* SINGLE PLATFORM DROPDOWN SELECTOR WITH HOVER BRIDGE */}
+                    <div
+                      className="relative"
+                      onMouseLeave={() => setOpenEditorPlatformDropdown(false)}
+                      onMouseEnter={() => setOpenEditorPlatformDropdown(true)}
+                    >
                       {(() => {
                         const activeDef = PLATFORMS.find((p) => p.id === activePlatformTab) || PLATFORMS[0];
                         const Icon = activeDef.icon;
@@ -1609,7 +1613,6 @@ export default function AIStudioPage() {
                             <button
                               type="button"
                               onClick={() => setOpenEditorPlatformDropdown(!openEditorPlatformDropdown)}
-                              onMouseEnter={() => setOpenEditorPlatformDropdown(true)}
                               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs transition-all hover:bg-slate-800"
                             >
                               <Icon className="h-3.5 w-3.5" />
@@ -1618,35 +1621,37 @@ export default function AIStudioPage() {
                             </button>
 
                             {openEditorPlatformDropdown && (
-                              <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-1">
-                                <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-b border-slate-100 dark:border-slate-800">
-                                  Switch Platform
+                              <div className="absolute top-full left-0 pt-1 w-44 z-50 animate-in fade-in slide-in-from-top-1">
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 space-y-0.5">
+                                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-b border-slate-100 dark:border-slate-800">
+                                    Switch Platform
+                                  </div>
+                                  {selectedPlatforms.map((pId) => {
+                                    const pDef = PLATFORMS.find((p) => p.id === pId);
+                                    if (!pDef) return null;
+                                    const PIcon = pDef.icon;
+                                    const isCurrent = activePlatformTab === pId;
+                                    return (
+                                      <button
+                                        key={pId}
+                                        type="button"
+                                        onClick={() => {
+                                          setActivePlatformTab(pId);
+                                          setActiveSlideIdx(0);
+                                          setOpenEditorPlatformDropdown(false);
+                                        }}
+                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                                          isCurrent
+                                            ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
+                                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                        }`}
+                                      >
+                                        <PIcon className="h-3.5 w-3.5" />
+                                        <span>{pDef.label}</span>
+                                      </button>
+                                    );
+                                  })}
                                 </div>
-                                {selectedPlatforms.map((pId) => {
-                                  const pDef = PLATFORMS.find((p) => p.id === pId);
-                                  if (!pDef) return null;
-                                  const PIcon = pDef.icon;
-                                  const isCurrent = activePlatformTab === pId;
-                                  return (
-                                    <button
-                                      key={pId}
-                                      type="button"
-                                      onClick={() => {
-                                        setActivePlatformTab(pId);
-                                        setActiveSlideIdx(0);
-                                        setOpenEditorPlatformDropdown(false);
-                                      }}
-                                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
-                                        isCurrent
-                                          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
-                                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                      }`}
-                                    >
-                                      <PIcon className="h-3.5 w-3.5" />
-                                      <span>{pDef.label}</span>
-                                    </button>
-                                  );
-                                })}
                               </div>
                             )}
                           </>
