@@ -1795,8 +1795,6 @@ export default function AIStudioPage() {
                       )}
                     </div>
                   </div>
-                )}
-
                 {/* CAPTION EDITOR */}
                 {hasAnyPlatformContent && (
                   <div className="space-y-2.5">
