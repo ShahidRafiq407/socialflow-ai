@@ -827,7 +827,7 @@ export default function AIStudioPage() {
           step: (overlay?.step || slideIdx + 1),
           total: displayOverlayTexts.length || displayPrompts.length,
           theme: overlay?.theme || "gradient-purple",
-          brandName: userName,
+          brandName: defaultUserName,
           aspectRatio: currentAspectRatio,
           customPrompt: customPrompt || undefined,
           imageUrl: displayImageUrls[slideIdx],
