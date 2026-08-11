@@ -1664,19 +1664,12 @@ export default function AIStudioPage() {
 
                     {/* FORMAT PILLS (INLINE IN THE EXACT SAME 1 LINE) */}
                     <div className="flex items-center gap-1">
-                      {getPlatformDef(activePlatformTab).contentTypes.map((option) => (
+                      {validSelectedFormats.map((option) => (
                         <button
                           key={option}
                           type="button"
                           onClick={() => {
                             setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: option }));
-                            setSelectedContentTypes((prev) => {
-                              const list = prev[activePlatformTab] || [];
-                              if (!list.includes(option)) {
-                                return { ...prev, [activePlatformTab]: [...list, option] };
-                              }
-                              return prev;
-                            });
                             setActiveSlideIdx(0);
                           }}
                           className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
