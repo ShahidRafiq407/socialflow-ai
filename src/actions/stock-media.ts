@@ -13,16 +13,18 @@ export async function searchStockMedia(
   mediaType: "image" | "video" = "image",
   page: number = 1,
   perPage: number = 50,
-  order: "popular" | "latest" = "popular"
+  order: "popular" | "latest" = "popular",
+  orientation: "all" | "horizontal" | "vertical" = "all"
 ) {
   try {
     const searchTerm = (query && query.trim()) ? query.trim() : "business";
     const apiKey = process.env.PIXABAY_API_KEY || "48747442-d6c1b3f9b2d9d95f6e80b2a75";
     
     // Construct real Pixabay endpoint (matching website parameters)
+    const orientationParam = orientation === "all" ? "" : `&orientation=${orientation}`;
     const endpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${perPage}&order=${order}&safesearch=true`
-      : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=all&page=${page}&per_page=${perPage}&order=${order}&safesearch=true`;
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`
+      : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=all&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`;
 
     const res = await fetch(endpoint, { cache: "no-store" });
     
@@ -58,8 +60,8 @@ export async function searchStockMedia(
 
     // Fallback search if niche query yields 0 results
     const fallbackEndpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=30&order=popular&safesearch=true`
-      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=30&order=popular&safesearch=true`;
+      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=30&order=popular&safesearch=true${orientationParam}`
+      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=30&order=popular&safesearch=true${orientationParam}`;
     
     const fallbackRes = await fetch(fallbackEndpoint, { cache: "no-store" });
     if (fallbackRes.ok) {

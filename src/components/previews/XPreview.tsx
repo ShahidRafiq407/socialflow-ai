@@ -37,10 +37,13 @@ export default function XPreview({
           </div>
           <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 mb-2 leading-relaxed whitespace-pre-wrap">{currentCaption}</p>
           {displayImageUrl && (
-            <div className="w-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 mt-2 max-h-[280px] aspect-video bg-slate-900 flex items-center justify-center">
-              <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />
-            </div>
-          )}
+            <div className="w-full max-h-[280px] bg-slate-900 rounded-2xl overflow-hidden mt-3 border border-slate-200 dark:border-slate-800 flex items-center justify-center">
+              {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+                <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+              ) : displayImageUrl ? (
+                <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />
+              ) : null}
+            </div>)}
           <div className="flex items-center justify-between mt-3 max-w-md text-slate-500">
             <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><MessageCircle className="h-4 w-4" /> 12</button>
             <button className="flex items-center gap-2 text-[13px] hover:text-emerald-500"><Repeat2 className="h-4 w-4" /> 45</button>

@@ -34,7 +34,11 @@ export default function PinterestPreview({
             <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center"><Sparkles className="h-5 w-5 text-slate-400" /></div>
           )
         ) : displayImageUrl ? (
-          <img src={displayImageUrl} alt="Pin" className="w-full h-full object-cover group-hover:scale-105" />
+          (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          ) : (
+            <img src={displayImageUrl} alt="Pin" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          )
         ) : (
           <div className="w-full h-full bg-slate-200 dark:bg-slate-800 animate-pulse"></div>
         )}

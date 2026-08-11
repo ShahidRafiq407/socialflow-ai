@@ -14,10 +14,20 @@ export default function YoutubePreview({
   userImage,
   currentCaption
 }: YoutubePreviewProps) {
+  const isVideoUrl = (url: string | null) => {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+  };
+
   return (
     <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-        {displayImageUrl && <img src={displayImageUrl} alt="Shorts" className="w-full h-full object-cover" />}
+        {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+        ) : displayImageUrl ? (
+          <img src={displayImageUrl} alt="Shorts" className="w-full h-full object-cover" />
+        ) : null}
       </div>
       <div className="absolute right-2 bottom-16 flex flex-col items-center gap-5 z-20">
         <div className="flex flex-col items-center gap-1"><ThumbsUp className="h-6 w-6 text-white fill-white" /><span className="text-[11px] font-bold text-white">12K</span></div>

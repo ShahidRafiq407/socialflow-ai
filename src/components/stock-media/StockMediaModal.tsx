@@ -55,14 +55,16 @@ interface StockMediaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (item: StockHit) => void;
+  allowedType?: "image" | "video";
 }
 
-export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMediaModalProps) {
+export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType }: StockMediaModalProps) {
   /* state */
-  const [mediaType, setMediaType] = useState<"image" | "video">("image");
+  const [mediaType, setMediaType] = useState<"image" | "video">(allowedType || "image");
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Trending");
   const [order, setOrder] = useState<"popular" | "latest">("popular");
+  const [orientation, setOrientation] = useState<"all" | "horizontal" | "vertical">("all");
   const [results, setResults] = useState<StockHit[]>([]);
   const [totalHits, setTotalHits] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
@@ -75,13 +77,13 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   const gridRef = useRef<HTMLDivElement>(null);
 
   /* initial search helper */
-  const doSearch = useCallback(async (searchTerm: string, type: "image" | "video", sortOrder: "popular" | "latest" = "popular") => {
+  const doSearch = useCallback(async (searchTerm: string, type: "image" | "video", sortOrder: "popular" | "latest" = "popular", sortOrientation: "all" | "horizontal" | "vertical" = "all") => {
     setLoading(true);
     setHasSearched(true);
     setSelectedId(null);
     setPage(1);
     try {
-      const res = await searchStockMedia(searchTerm || "trending", type, 1, 50, sortOrder);
+      const res = await searchStockMedia(searchTerm || "trending", type, 1, 50, sortOrder, sortOrientation);
       if (res.success && res.hits) {
         setResults(res.hits);
         setTotalHits(res.totalHits || 0);
@@ -102,7 +104,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
     setLoadingMore(true);
     const nextPage = page + 1;
     try {
-      const res = await searchStockMedia(query || activeCategory || "trending", mediaType, nextPage, 50, order);
+      const res = await searchStockMedia(query || activeCategory || "trending", mediaType, nextPage, 50, order, orientation);
       if (res.success && res.hits && res.hits.length > 0) {
         setResults(prev => [...prev, ...res.hits]);
         setPage(nextPage);
@@ -117,7 +119,9 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   /* auto-fetch on open */
   useEffect(() => {
     if (isOpen) {
-      doSearch("trending", mediaType, order);
+      const type = allowedType || mediaType;
+      if (allowedType && mediaType !== allowedType) setMediaType(allowedType);
+      doSearch("trending", type, order, orientation);
       setTimeout(() => inputRef.current?.focus(), 200);
     } else {
       setResults([]);
@@ -128,14 +132,14 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
       setPage(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, allowedType]);
 
   /* search on Enter */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
       setActiveCategory("");
-      doSearch(query, mediaType, order);
+      doSearch(query, mediaType, order, orientation);
     }
   };
 
@@ -143,27 +147,34 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   const handleCategory = (cat: typeof CATEGORIES[0]) => {
     setActiveCategory(cat.label);
     setQuery(cat.query);
-    doSearch(cat.query, mediaType, order);
+    doSearch(cat.query, mediaType, order, orientation);
     gridRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   /* type toggle */
   const handleTypeSwitch = (type: "image" | "video") => {
+    if (allowedType) return;
     setMediaType(type);
-    doSearch(query || activeCategory || "trending", type, order);
+    doSearch(query || activeCategory || "trending", type, order, orientation);
   };
 
   /* order toggle */
   const handleOrderChange = (newOrder: "popular" | "latest") => {
     setOrder(newOrder);
-    doSearch(query || activeCategory || "trending", mediaType, newOrder);
+    doSearch(query || activeCategory || "trending", mediaType, newOrder, orientation);
+  };
+
+  /* orientation toggle */
+  const handleOrientationChange = (newOrientation: "all" | "horizontal" | "vertical") => {
+    setOrientation(newOrientation);
+    doSearch(query || activeCategory || "trending", mediaType, order, newOrientation);
   };
 
   /* tag click */
   const handleTagClick = (tag: string) => {
     setQuery(tag);
     setActiveCategory("");
-    doSearch(tag, mediaType, order);
+    doSearch(tag, mediaType, order, orientation);
   };
 
   if (!isOpen) return null;
@@ -194,16 +205,18 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
             <div className="flex-1 max-w-2xl relative">
               <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-emerald-500 transition-all">
                 {/* Type dropdown */}
-                <div className="flex-shrink-0 border-r border-slate-200 dark:border-slate-700">
-                  <button
-                    onClick={() => handleTypeSwitch(mediaType === "image" ? "video" : "image")}
-                    className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
-                  >
-                    {mediaType === "image" ? <ImageIcon className="h-3.5 w-3.5" /> : <Film className="h-3.5 w-3.5" />}
-                    {mediaType === "image" ? "Photos" : "Videos"}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  </button>
-                </div>
+                {!allowedType && (
+                  <div className="flex-shrink-0 border-r border-slate-200 dark:border-slate-700">
+                    <button
+                      onClick={() => handleTypeSwitch(mediaType === "image" ? "video" : "image")}
+                      className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-emerald-600 transition-colors"
+                    >
+                      {mediaType === "image" ? <ImageIcon className="h-3.5 w-3.5" /> : <Film className="h-3.5 w-3.5" />}
+                      {mediaType === "image" ? "Photos" : "Videos"}
+                      <ChevronDown className="h-3 w-3 opacity-50" />
+                    </button>
+                  </div>
+                )}
                 {/* Input */}
                 <input
                   ref={inputRef}
@@ -227,28 +240,30 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
 
             {/* Type tabs & Sort filter */}
             <div className="hidden md:flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
-                <button
-                  onClick={() => handleTypeSwitch("image")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                    mediaType === "image"
-                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <ImageIcon className="h-3.5 w-3.5" /> Photos
-                </button>
-                <button
-                  onClick={() => handleTypeSwitch("video")}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                    mediaType === "video"
-                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
-                >
-                  <Film className="h-3.5 w-3.5" /> Videos
-                </button>
-              </div>
+              {!allowedType && (
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+                  <button
+                    onClick={() => handleTypeSwitch("image")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                      mediaType === "image"
+                        ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" /> Photos
+                  </button>
+                  <button
+                    onClick={() => handleTypeSwitch("video")}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                      mediaType === "video"
+                        ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Film className="h-3.5 w-3.5" /> Videos
+                  </button>
+                </div>
+              )}
 
               {/* Order selector (Most relevant vs Latest) */}
               <select
@@ -258,6 +273,17 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
               >
                 <option value="popular">Most relevant</option>
                 <option value="latest">Latest</option>
+              </select>
+
+              {/* Orientation selector */}
+              <select
+                value={orientation}
+                onChange={e => handleOrientationChange(e.target.value as "all" | "horizontal" | "vertical")}
+                className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
+              >
+                <option value="all">Any Orientation</option>
+                <option value="horizontal">Horizontal</option>
+                <option value="vertical">Vertical</option>
               </select>
             </div>
 

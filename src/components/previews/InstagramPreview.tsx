@@ -24,6 +24,12 @@ export default function InstagramPreview({
   userHandle,
   currentCaption
 }: InstagramPreviewProps) {
+  const isVideoUrl = (url: string | null) => {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+  };
+
   if (currentFormatName === "Story" || currentFormatName === "Reel") {
     return (
       <div className="relative border-[8px] border-slate-900 dark:border-slate-800 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
@@ -40,7 +46,11 @@ export default function InstagramPreview({
           <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
-          {displayImageUrl && <img src={displayImageUrl} alt="Reel" className="w-full h-full object-cover" />}
+          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : displayImageUrl ? (
+            <img src={displayImageUrl} alt="Reel" className="w-full h-full object-cover" />
+          ) : null}
         </div>
         <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">
           <div className="flex flex-col items-center gap-1"><Heart className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">12k</span></div>
@@ -73,7 +83,11 @@ export default function InstagramPreview({
         <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
       </div>
       <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-900 flex items-center justify-center">
-        {displayImageUrl && <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />}
+        {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+        ) : displayImageUrl ? (
+          <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />
+        ) : null}
         {displayOverlayTexts[activeSlideIdx] && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
             <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-2 backdrop-blur-sm shadow-sm border border-white/20">

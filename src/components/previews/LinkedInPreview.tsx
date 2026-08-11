@@ -54,9 +54,13 @@ export default function LinkedInPreview({
       </div>
 
       {displayImageUrl && (
-        <div className="w-full max-h-[320px] aspect-square bg-slate-900 flex items-center justify-center overflow-hidden">
+        <div className="w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
+        {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+        ) : displayImageUrl ? (
           <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
-        </div>
+        ) : null}
+      </div>
       )}
 
       <div className="px-3.5 py-1.5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">

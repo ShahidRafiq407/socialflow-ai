@@ -16,10 +16,20 @@ export default function TikTokPreview({
   userHandle,
   currentCaption
 }: TikTokPreviewProps) {
+  const isVideoUrl = (url: string | null) => {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+  };
+
   return (
     <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-black text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-        {displayImageUrl && <img src={displayImageUrl} alt="TikTok" className="w-full h-full object-cover opacity-90" />}
+        {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover opacity-90" />
+        ) : displayImageUrl ? (
+          <img src={displayImageUrl} alt="TikTok" className="w-full h-full object-cover opacity-90" />
+        ) : null}
       </div>
       <div className="absolute right-2 bottom-20 flex flex-col items-center gap-4 z-20">
         <div className="h-10 w-10 rounded-full border-2 border-white bg-slate-800 font-bold text-xs shrink-0 overflow-hidden flex items-center justify-center text-white">

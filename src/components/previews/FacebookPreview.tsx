@@ -62,8 +62,12 @@ export default function FacebookPreview({
       </div>
 
       {displayImageUrl && (
-        <div className="w-full max-h-[320px] aspect-square bg-slate-900 flex items-center justify-center overflow-hidden">
-          <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />
+        <div className="w-full max-h-[300px] bg-slate-100 flex items-center justify-center overflow-hidden">
+          {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : displayImageUrl ? (
+            <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />
+          ) : null}
         </div>
       )}
 

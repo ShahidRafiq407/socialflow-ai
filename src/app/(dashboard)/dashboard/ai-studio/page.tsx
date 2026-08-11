@@ -3051,6 +3051,7 @@ export default function AIStudioPage() {
       {/* ============================================================================ */}
       <StockMediaModal
         isOpen={activeMediaModal === "stock"}
+        allowedType={currentMediaType === "video" ? "video" : currentMediaType === "image" ? "image" : undefined}
         onClose={() => setActiveMediaModal(null)}
         onSelect={(item) => {
           setCustomMediaDict(prev => ({
