@@ -11,6 +11,7 @@ import TikTokPreview from "@/components/previews/TikTokPreview";
 import YoutubePreview from "@/components/previews/YoutubePreview";
 import FacebookPreview from "@/components/previews/FacebookPreview";
 import PinterestPreview from "@/components/previews/PinterestPreview";
+import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import {
   Card,
   CardHeader,
@@ -3736,9 +3737,22 @@ export default function AIStudioPage() {
                 <Sparkles className="h-4 w-4 mr-1" /> Generate Custom Visual
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+      {/* ============================================================================ */}
+      {/* 4. FULL-FEATURED AI VIDEO CREATOR STUDIO MODAL */}
+      {/* ============================================================================ */}
+      <VideoStudioModal
+        isOpen={activeMediaModal === "ai" && currentMediaType === "video"}
+        onClose={() => setActiveMediaModal(null)}
+        onSelectVideo={(videoUrl) => {
+          setCustomMediaDict(prev => ({
+            ...prev,
+            [currentMediaKey]: { url: videoUrl, type: "video" }
+          }));
+        }}
+        platform={activePlatformTab}
+        formatName={currentFormatName}
+        defaultTopic={customPrompt || prompt}
+      />
     </div>
   );
 }
