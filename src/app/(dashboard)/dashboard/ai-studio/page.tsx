@@ -2078,26 +2078,197 @@ export default function AIStudioPage() {
                       </div>
 
                       <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
-                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                          {PLATFORMS.find(p => p.id === activePlatformTab)?.label} Post Settings
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                          <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                            <Settings className="h-3.5 w-3.5 text-primary" />
+                            {PLATFORMS.find(p => p.id === activePlatformTab)?.label} API Publishing Settings
+                          </div>
                         </div>
 
-                        <div className="space-y-2.5 text-xs">
-                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                            <span>Auto-insert Hashtag Group</span>
-                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                          </label>
+                        {/* INSTAGRAM REAL SETTINGS */}
+                        {activePlatformTab === "instagram" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Tag Location</label>
+                              <Input placeholder="e.g. San Francisco, CA" className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Alt Text (Accessibility)</label>
+                              <Textarea rows={2} placeholder="Describe image for visually impaired users..." className="text-xs p-2 bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Share to Facebook Feed</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Hide Like & View Counts</span>
+                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Turn Off Commenting</span>
+                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                            </div>
+                          </div>
+                        )}
 
-                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                            <span>Post First Comment Automatically</span>
-                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                          </label>
+                        {/* LINKEDIN REAL SETTINGS */}
+                        {activePlatformTab === "linkedin" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Post Visibility</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="public">Anyone (Public)</option>
+                                <option value="connections">Connections Only</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Target Audience</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="all">All Followers</option>
+                                <option value="targeted">Targeted Industry / Seniority</option>
+                              </select>
+                            </div>
+                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Notify Employees of New Post</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                            </div>
+                          </div>
+                        )}
 
-                          <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                            <span>Enable AI Smart Auto-Resizing</span>
-                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                          </label>
-                        </div>
+                        {/* YOUTUBE REAL SETTINGS */}
+                        {activePlatformTab === "youtube" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Video Title</label>
+                              <Input placeholder="Enter catchy title..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Visibility</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="public">Public</option>
+                                <option value="unlisted">Unlisted</option>
+                                <option value="private">Private</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Audience</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="not_kids">No, it's not made for kids</option>
+                                <option value="kids">Yes, it's made for kids</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Video Tags</label>
+                              <Input placeholder="tech, ai, tutorial..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* TIKTOK REAL SETTINGS */}
+                        {activePlatformTab === "tiktok" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Who Can View</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="everyone">Everyone</option>
+                                <option value="friends">Friends</option>
+                                <option value="private">Only Me</option>
+                              </select>
+                            </div>
+                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Allow Comments</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Allow Duet</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Allow Stitch</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Allow High-Quality Upload</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* X / TWITTER REAL SETTINGS */}
+                        {activePlatformTab === "x" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Who Can Reply?</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="everyone">Everyone</option>
+                                <option value="followed">Accounts you follow</option>
+                                <option value="mentioned">Only accounts you mention</option>
+                              </select>
+                            </div>
+                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Auto-Split Long Tweets into Thread</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Mark as Sensitive Content</span>
+                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* FACEBOOK REAL SETTINGS */}
+                        {activePlatformTab === "facebook" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Audience</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="public">Public</option>
+                                <option value="friends">Friends</option>
+                                <option value="only_me">Only Me</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Tag Location</label>
+                              <Input placeholder="Location name..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                                <span>Cross-post to Instagram Feed</span>
+                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
+                              </label>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* PINTEREST REAL SETTINGS */}
+                        {activePlatformTab === "pinterest" && (
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Destination Board</label>
+                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                                <option value="b1">Tech & Automation Ideas</option>
+                                <option value="b2">Marketing Tips 2026</option>
+                                <option value="b3">AI Tools & Workflows</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Destination Link / Website URL</label>
+                              <Input placeholder="https://yourwebsite.com/article" className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Alt Text</label>
+                              <Input placeholder="Pin visual description..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

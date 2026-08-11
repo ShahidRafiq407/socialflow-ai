@@ -31,9 +31,11 @@ export default function InstagramPreview({
         <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
           <div className="flex items-center gap-2">
             <div className="h-7 w-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
-              <div className="bg-slate-900 h-full w-full rounded-full border border-slate-900"></div>
+              <div className="bg-slate-900 h-full w-full rounded-full border border-slate-900 overflow-hidden">
+                {userImage ? <img src={userImage} alt={userHandle} className="h-full w-full object-cover" /> : <div className="h-full w-full bg-slate-700" />}
+              </div>
             </div>
-            <p className="text-xs font-bold text-white shadow-sm">smbrobotics</p>
+            <p className="text-xs font-bold text-white shadow-sm">{userHandle}</p>
           </div>
           <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
         </div>
@@ -47,7 +49,7 @@ export default function InstagramPreview({
           <MoreHorizontal className="h-5 w-5 text-white drop-shadow-md mt-2" />
         </div>
         <div className="absolute bottom-0 left-0 right-16 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-12 z-20">
-          <p className="text-xs font-semibold text-white mb-1">smbrobotics</p>
+          <p className="text-xs font-semibold text-white mb-1">{userHandle}</p>
           <p className="text-[11px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
         </div>
       </div>
