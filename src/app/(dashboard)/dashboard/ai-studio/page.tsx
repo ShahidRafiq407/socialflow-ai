@@ -480,6 +480,15 @@ export default function AIStudioPage() {
   const [customPromptSlideIdx, setCustomPromptSlideIdx] = useState<number>(0);
 
   // ============================================================================
+  // CANVA-STYLE EDITOR STATE
+  // ============================================================================
+  const [activeImageTab, setActiveImageTab] = useState<"Upload" | "Generate with AI" | "Stock">("Generate with AI");
+  const [activeVideoTab, setActiveVideoTab] = useState<"Templates" | "AI Generate" | "Upload">("Templates");
+  const [selectedImageModel, setSelectedImageModel] = useState("Imagen 3 (Google)");
+  const [selectedVideoModel, setSelectedVideoModel] = useState("HeyGen Avatar");
+  const [selectedVideoDuration, setSelectedVideoDuration] = useState("15s");
+
+  // ============================================================================
   // PLATFORM & CONTENT TYPE SELECTION
   // ============================================================================
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -1588,373 +1597,350 @@ export default function AIStudioPage() {
             </CardContent>
           </Card>
 
-          {/* MAIN WORKSPACE */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* LEFT: CREATIVE EDITOR */}
-            <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
-              {/* SINGLE SLEEK 1-LINE TOOLBAR (ULTRA THIN HEADER) */}
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl">
-                  <div className="flex items-center gap-2.5">
-                    {/* HEADING WITHOUT EMOJI/LOGO */}
-                    <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0 ml-1">
-                      Content Editor
+          {/* MAIN WORKSPACE — 2 COLUMN CANVA STYLE */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            {/* LEFT: CONTENT CONTROLS PANEL (40%) */}
+            <div className="lg:col-span-5 space-y-3 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto lg:pr-1 scrollbar-thin">
+
+              {/* ── IMAGE SECTION ── */}
+              <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible">
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <ImageIcon className="h-3.5 w-3.5 text-primary" /> Image
                     </span>
-
-                    <div className="h-3.5 w-px bg-slate-200 dark:bg-slate-700" />
-
-                    {/* SINGLE PLATFORM DROPDOWN SELECTOR WITH HOVER BRIDGE */}
-                    <div
-                      className="relative"
-                      onMouseLeave={() => setOpenEditorPlatformDropdown(false)}
-                      onMouseEnter={() => setOpenEditorPlatformDropdown(true)}
-                    >
-                      {(() => {
-                        const activeDef = PLATFORMS.find((p) => p.id === activePlatformTab) || PLATFORMS[0];
-                        const Icon = activeDef.icon;
-                        return (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => setOpenEditorPlatformDropdown(!openEditorPlatformDropdown)}
-                              className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs transition-all hover:bg-slate-800"
-                            >
-                              <Icon className="h-3.5 w-3.5" />
-                              <span>{activeDef.label}</span>
-                              <ChevronDown className="h-3 w-3 opacity-70 ml-0.5" />
-                            </button>
-
-                            {openEditorPlatformDropdown && (
-                              <div className="absolute top-full left-0 pt-1 w-44 z-50 animate-in fade-in slide-in-from-top-1">
-                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-1.5 space-y-0.5">
-                                  <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-b border-slate-100 dark:border-slate-800">
-                                    Switch Platform
-                                  </div>
-                                  {PLATFORMS.map((pDef) => {
-                                    const pId = pDef.id;
-                                    const PIcon = pDef.icon;
-                                    const isCurrent = activePlatformTab === pId;
-                                    const isPlatformSelected = selectedPlatforms.includes(pId);
-                                    
-                                    return (
-                                      <button
-                                        key={pId}
-                                        type="button"
-                                        disabled={!isPlatformSelected}
-                                        onClick={() => {
-                                          if (!isPlatformSelected) return;
-                                          setActivePlatformTab(pId);
-                                          setActiveSlideIdx(0);
-                                          setOpenEditorPlatformDropdown(false);
-                                        }}
-                                        className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors ${
-                                          !isPlatformSelected
-                                            ? "text-slate-400 opacity-50 cursor-not-allowed"
-                                            : isCurrent
-                                            ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
-                                            : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                        }`}
-                                      >
-                                        <PIcon className="h-3.5 w-3.5" />
-                                        <span>{pDef.label}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* FORMAT PILLS (INLINE IN THE EXACT SAME 1 LINE) */}
-                    <div className="flex items-center gap-1">
-                      {validSelectedFormats.map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          onClick={() => {
-                            setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: option }));
-                            setActiveSlideIdx(0);
-                          }}
-                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
-                            currentFormatName === option
-                              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
-                          }`}
-                        >
-                          {option}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {customMedia && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => {
+                      revokeMediaUrl(currentMediaKey);
+                      setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
+                    }} className="h-6 text-[10px] gap-1 px-2 text-red-500">
+                      <Trash2 className="h-3 w-3" /> Remove
+                    </Button>
+                  )}
                 </div>
+                <CardContent className="p-3 space-y-3">
+                  {/* IMAGE SOURCE TABS */}
+                  <div className="flex gap-1 border-b border-slate-100 dark:border-slate-800 pb-2">
+                    {(["Upload", "Generate with AI", "Stock"] as const).map((tab) => (
+                      <button key={tab} type="button"
+                        onClick={() => setActiveImageTab(tab)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                          activeImageTab === tab
+                            ? "bg-primary text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >{tab}</button>
+                    ))}
+                  </div>
 
-              {hasAnyPlatformContent && (
-                <CardContent className="p-2 sm:p-3 !overflow-visible">
-                  {/* VISUAL */}
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                        Visual {(!hasContent) && <span className="text-red-500 font-normal ml-2">(Not generated for this format)</span>}
-                        {currentMediaType === "video" && !customMedia && (
-                          <Badge variant="outline" className="ml-2 text-[10px] border-amber-300 text-amber-600 dark:text-amber-400">
-                            <Video className="h-2.5 w-2.5 mr-1" /> Video placeholder — real gen coming soon
-                          </Badge>
-                        )}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        {customMedia && (
-                          <Button type="button" variant="ghost" size="sm" onClick={() => {
-                            revokeMediaUrl(currentMediaKey);
-                            setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
-                          }} className="h-7 text-xs gap-1 px-2.5 text-red-500">
-                            <Trash2 className="h-3 w-3" /> Remove
-                          </Button>
-                        )}
-                        <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="h-7 text-xs gap-1 px-2.5">
-                          <Upload className="h-3 w-3" /> Upload
-                        </Button>
-                        <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-700 rounded-md overflow-hidden bg-white dark:bg-slate-900">
-                          <input
-                            type="text"
-                            value={customPrompt}
-                            onChange={(e) => setCustomPrompt(e.target.value)}
-                            placeholder="Custom prompt..."
-                            className="h-7 text-xs px-2 w-32 md:w-48 outline-none bg-transparent text-slate-700 dark:text-slate-300 placeholder:text-slate-400"
-                            onKeyDown={(e) => { if(e.key === 'Enter') handleRenderMedia(); }}
-                          />
-                          <Button type="button" size="sm" disabled={isRenderingMedia} onClick={handleRenderMedia}
-                            className="h-7 text-xs gap-1 px-3 bg-gradient-to-r from-primary to-indigo-600 text-white rounded-none border-l border-slate-200 dark:border-slate-700"
-                          >
-                            {isRenderingMedia ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                            Regen
-                          </Button>
-                        </div>
+                  {/* UPLOAD TAB */}
+                  {activeImageTab === "Upload" && (
+                    <div className="space-y-2">
+                      <div
+                        className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="h-6 w-6 text-slate-400 mx-auto mb-2" />
+                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Click to upload or drag & drop</p>
+                        <p className="text-[10px] text-slate-400 mt-1">PNG, JPG, GIF, WEBP up to 10MB</p>
                       </div>
-                    </div>
-
-                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex items-center justify-center">
-                      {isHtmlSlideFormat ? (
-                        <div className={`rounded-xl overflow-hidden shadow-lg border border-slate-700 relative group ${
-                          currentFormatName === "Idea Pin" ? "w-[220px] sm:w-[260px] aspect-[9/16]" : "w-[240px] sm:w-[280px] aspect-[4/5]"
-                        }`}>
-                          {isCurrentSlideLoading ? (
-                            <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
-                              <Loader2 className="h-8 w-8 text-primary animate-spin" />
-                            </div>
-                          ) : currentHtmlSlide ? (
-                            <iframe srcDoc={currentHtmlSlide} className="w-full h-full border-0 pointer-events-none" title={`Slide ${activeSlideIdx + 1}`} sandbox="allow-same-origin" />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
-                              <div className="text-center text-slate-400 text-xs px-4">
-                                <Sparkles className="h-6 w-6 mx-auto mb-2 text-primary" />
-                                Generating slide design...
-                              </div>
-                            </div>
-                          )}
-                          {displayOverlayTexts.length > 1 && (
-                            <>
-                              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
-                                {displayOverlayTexts.map((_, i) => (
-                                  <div key={i} className={`h-1.5 rounded-full transition-all cursor-pointer ${i === activeSlideIdx ? "w-3 bg-white" : "w-1.5 bg-white/40"}`}
-                                    onClick={() => setActiveSlideIdx(i)} />
-                                ))}
-                              </div>
-                              <button onClick={(e) => { e.stopPropagation(); setActiveSlideIdx(p => Math.max(0, p - 1)); }} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 z-20"><ChevronLeft className="h-4 w-4" /></button>
-                              <button onClick={(e) => { e.stopPropagation(); setActiveSlideIdx(p => Math.min(displayOverlayTexts.length - 1, p + 1)); }} className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 z-20"><ChevronRight className="h-4 w-4" /></button>
-                            </>
-                          )}
-                        </div>
-                      ) : displayImageUrl ? (
-                        <div className={`rounded-xl overflow-hidden shadow-lg border border-slate-700 relative group ${
-                          isVertical ? "w-[180px] aspect-[9/16]"
-                          : isSquare ? "w-[240px] aspect-square"
-                          : isPin ? "w-[200px] aspect-[2/3]"
-                          : "w-full max-w-[380px] aspect-video"
-                        }`}>
-                          {customMedia?.type === "video" ? (
-                            <video src={customMedia.url} controls className="w-full h-full object-cover" />
-                          ) : (
-                            <img src={displayImageUrl} alt={`Visual`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                          )}
-                          {currentMediaType === "video" && !customMedia && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="h-12 w-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 text-white">
-                                <Play className="h-5 w-5 fill-current ml-0.5" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="py-12 text-center text-slate-400 text-xs bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
-                          No visual content generated for {currentFormatName}.<br/>Select this format and generate.
+                      {displayImageUrl && (
+                        <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+                          <img src={displayImageUrl} alt="Preview" className="w-full h-32 object-cover" />
                         </div>
                       )}
                     </div>
-                  </div>
-                {/* CAPTION EDITOR */}
-                <div className="space-y-2.5">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                          Caption
-                        </label>
-                        <div className="flex gap-1">
-                          <button onClick={handleUndo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Undo">
-                            <Undo2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={handleRedo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Redo">
-                            <Redo2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <CharacterCounter current={currentCaption.length} max={getPlatformDef(activePlatformTab).captionLimit} />
-                    </div>
-                    <Textarea
-                      rows={7}
-                      value={currentCaption}
-                      onChange={(e) => updateCaption(e.target.value)}
-                      placeholder={hasContent ? "Your AI-generated caption..." : "Generate a campaign first to get AI-written captions..."}
-                      className="w-full text-xs sm:text-sm leading-relaxed p-4 border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
-                    />
+                  )}
 
-                    {/* FIRST COMMENT / HIDDEN HASHTAGS */}
-                    {getPlatformDef(activePlatformTab).firstCommentLimit > 0 && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <MessageSquareText className="h-3 w-3" />
-                            First Comment (hidden hashtags / call-to-action)
-                          </label>
-                          <CharacterCounter current={currentFirstComment.length} max={getPlatformDef(activePlatformTab).firstCommentLimit} />
-                        </div>
+                  {/* AI GENERATE TAB */}
+                  {activeImageTab === "Generate with AI" && (
+                    <div className="space-y-2.5">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">AI Image Model</label>
+                        <select
+                          value={selectedImageModel}
+                          onChange={(e) => setSelectedImageModel(e.target.value)}
+                          className="w-full h-8 text-xs px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-primary/20 outline-none"
+                        >
+                          {["Imagen 3 (Google)", "DALL-E 3 (OpenAI)", "Stable Diffusion XL", "Leonardo AI", "Pollinations (Free)", "Ideogram 2.0"].map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Prompt</label>
                         <Textarea
                           rows={3}
-                          value={currentFirstComment}
-                          onChange={(e) => setCurrentFirstComment(e.target.value)}
-                          placeholder="Add hashtags or CTA that posts as the first comment..."
-                          className="w-full text-xs sm:text-sm leading-relaxed p-3 border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
+                          value={customPrompt}
+                          onChange={(e) => setCustomPrompt(e.target.value)}
+                          placeholder="Describe the image you want to generate..."
+                          className="w-full text-xs p-2.5 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
                         />
                       </div>
-                    )}
+                      <Button type="button" size="sm" disabled={isRenderingMedia} onClick={handleRenderMedia}
+                        className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-md hover:shadow-lg transition-all"
+                      >
+                        {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                        Generate Image
+                      </Button>
+                    </div>
+                  )}
 
-                    {/* HASHTAGS + PRODUCT TAGS */}
-                    <div className="flex flex-col gap-2">
-                      {(currentHashtags.length > 0 || true) && (
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Hashtags:</span>
-                          <div className="relative">
-                            <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setHashtagDropdownOpen(!hashtagDropdownOpen)}>
-                              <Tag className="h-3 w-3" /> Add group <ChevronDown className="h-3 w-3" />
-                            </Button>
-                            {hashtagDropdownOpen && (
-                              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 p-2 space-y-2">
-                                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 flex justify-between items-center">
-                                  <span>Hashtag Groups</span>
-                                  <button onClick={() => setIsCreatingHashtagGroup(!isCreatingHashtagGroup)} className="text-primary hover:underline text-[10px] font-semibold flex items-center gap-0.5">
-                                    <Plus className="h-3 w-3" /> New
-                                  </button>
-                                </div>
-                                {isCreatingHashtagGroup && (
-                                  <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-1.5 border border-slate-200 dark:border-slate-700">
-                                    <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Group Name (e.g. B2B SaaS)" className="h-7 text-xs" />
-                                    <Input value={newGroupTags} onChange={e => setNewGroupTags(e.target.value)} placeholder="Tags (#saas #ai #marketing)" className="h-7 text-xs" />
-                                    <div className="flex gap-1 justify-end">
-                                      <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setIsCreatingHashtagGroup(false)}>Cancel</Button>
-                                      <Button size="sm" className="h-6 text-[10px]" onClick={handleCreateHashtagGroup}>Save Group</Button>
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="max-h-48 overflow-y-auto space-y-1">
-                                  {hashtagGroups.map(g => (
-                                    <div key={g.id} className="group/item flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                                      <button onClick={() => insertHashtagGroup(g.id)} className="flex-1 text-left truncate pr-2">
-                                        <div className="font-semibold text-slate-800 dark:text-slate-200">{g.name}</div>
-                                        <div className="text-[10px] text-slate-500 truncate">{g.tags.map(t => (t.startsWith("#") ? t : `#${t}`)).join(" ")}</div>
-                                      </button>
-                                      <Trash2 className="h-3 w-3 text-slate-400 hover:text-red-500 cursor-pointer opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0" onClick={() => handleDeleteHashtagGroup(g.id)} />
-                                    </div>
-                                  ))}
+                  {/* STOCK TAB */}
+                  {activeImageTab === "Stock" && (
+                    <div className="space-y-2">
+                      <div className="flex gap-1">
+                        <Input
+                          placeholder="Search Pixabay..."
+                          className="h-8 text-xs flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              setStockTargetSlideIdx(activeSlideIdx);
+                              setStockModalOpen(true);
+                            }
+                          }}
+                        />
+                        <Button type="button" size="sm" className="h-8 text-xs px-3" onClick={() => {
+                          setStockTargetSlideIdx(activeSlideIdx);
+                          setStockModalOpen(true);
+                        }}>
+                          <Search className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <p className="text-[10px] text-slate-400">Free HD images & videos from Pixabay</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── VIDEO SECTION ── */}
+              <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900">
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Video className="h-3.5 w-3.5 text-primary" /> Video
+                    <Badge variant="outline" className="text-[9px] ml-1 border-slate-300 text-slate-500">Optional</Badge>
+                  </span>
+                </div>
+                <CardContent className="p-3 space-y-3">
+                  <div className="flex gap-1 border-b border-slate-100 dark:border-slate-800 pb-2">
+                    {(["Templates", "AI Generate", "Upload"] as const).map((tab) => (
+                      <button key={tab} type="button"
+                        onClick={() => setActiveVideoTab(tab)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                          activeVideoTab === tab
+                            ? "bg-primary text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        }`}
+                      >{tab}</button>
+                    ))}
+                  </div>
+
+                  {activeVideoTab === "Templates" && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: "t1", label: "Product Showcase", duration: "10s" },
+                        { id: "t2", label: "Testimonial", duration: "12s" },
+                        { id: "t3", label: "Brand Intro", duration: "15s" },
+                        { id: "t4", label: "Promo Sale", duration: "15s" },
+                      ].map(t => (
+                        <div key={t.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all">
+                          <PlayCircle className="h-5 w-5 text-slate-400 mx-auto mb-1" />
+                          <p className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">{t.label}</p>
+                          <p className="text-[9px] text-slate-400">{t.duration}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {activeVideoTab === "AI Generate" && (
+                    <div className="space-y-2.5">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">AI Video Model</label>
+                        <select
+                          value={selectedVideoModel}
+                          onChange={(e) => setSelectedVideoModel(e.target.value)}
+                          className="w-full h-8 text-xs px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-primary/20 outline-none"
+                        >
+                          {["HeyGen Avatar", "Runway Gen-3", "Pika 1.0", "Luma Dream Machine", "Kling AI 1.6", "Haiper AI"].map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Prompt</label>
+                        <Textarea
+                          rows={2}
+                          placeholder="Describe the video you want to generate..."
+                          className="w-full text-xs p-2.5 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Duration</label>
+                        <div className="flex gap-1.5">
+                          {["5s", "10s", "15s", "30s"].map(d => (
+                            <button key={d} type="button"
+                              onClick={() => setSelectedVideoDuration(d)}
+                              className={`px-3 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                                selectedVideoDuration === d
+                                  ? "bg-primary text-white shadow-xs"
+                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
+                              }`}
+                            >{d}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <Button type="button" size="sm"
+                        className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md hover:shadow-lg transition-all"
+                      >
+                        <PlayCircle className="h-3.5 w-3.5" /> Generate Video
+                      </Button>
+                    </div>
+                  )}
+
+                  {activeVideoTab === "Upload" && (
+                    <div
+                      className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-6 w-6 text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Upload video from PC</p>
+                      <p className="text-[10px] text-slate-400 mt-1">MP4, MOV, WEBM up to 100MB</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── CAPTION & HASHTAGS SECTION ── */}
+              <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible">
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-primary" /> Caption
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={handleUndo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Undo">
+                      <Undo2 className="h-3 w-3" />
+                    </button>
+                    <button onClick={handleRedo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Redo">
+                      <Redo2 className="h-3 w-3" />
+                    </button>
+                    <CharacterCounter current={currentCaption.length} max={getPlatformDef(activePlatformTab).captionLimit} />
+                  </div>
+                </div>
+                <CardContent className="p-3 space-y-3 !overflow-visible">
+                  <Textarea
+                    rows={5}
+                    value={currentCaption}
+                    onChange={(e) => updateCaption(e.target.value)}
+                    placeholder={hasContent ? "Your AI-generated caption..." : "Write your caption or generate with AI..."}
+                    className="w-full text-xs sm:text-sm leading-relaxed p-3 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
+                  />
+
+                  {getPlatformDef(activePlatformTab).firstCommentLimit > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                          <MessageSquareText className="h-3 w-3" /> First Comment
+                        </label>
+                        <CharacterCounter current={currentFirstComment.length} max={getPlatformDef(activePlatformTab).firstCommentLimit} />
+                      </div>
+                      <Textarea
+                        rows={2}
+                        value={currentFirstComment}
+                        onChange={(e) => setCurrentFirstComment(e.target.value)}
+                        placeholder="Add hashtags or CTA as first comment..."
+                        className="w-full text-xs p-2.5 border-slate-200 dark:border-slate-800 rounded-lg focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Hashtags:</span>
+                      <div className="relative">
+                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setHashtagDropdownOpen(!hashtagDropdownOpen)}>
+                          <Tag className="h-3 w-3" /> Add group <ChevronDown className="h-3 w-3" />
+                        </Button>
+                        {hashtagDropdownOpen && (
+                          <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 p-2 space-y-2">
+                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 flex justify-between items-center">
+                              <span>Hashtag Groups</span>
+                              <button onClick={() => setIsCreatingHashtagGroup(!isCreatingHashtagGroup)} className="text-primary hover:underline text-[10px] font-semibold flex items-center gap-0.5">
+                                <Plus className="h-3 w-3" /> New
+                              </button>
+                            </div>
+                            {isCreatingHashtagGroup && (
+                              <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-1.5 border border-slate-200 dark:border-slate-700">
+                                <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Group Name (e.g. B2B SaaS)" className="h-7 text-xs" />
+                                <Input value={newGroupTags} onChange={e => setNewGroupTags(e.target.value)} placeholder="Tags (#saas #ai #marketing)" className="h-7 text-xs" />
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setIsCreatingHashtagGroup(false)}>Cancel</Button>
+                                  <Button size="sm" className="h-6 text-[10px]" onClick={handleCreateHashtagGroup}>Save Group</Button>
                                 </div>
                               </div>
                             )}
-                          </div>
-                          <div className="flex flex-wrap gap-1 flex-1">
-                            {currentHashtags.map((tag, i) => (
-                              <span key={i} className="text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                                {tag.startsWith("#") ? tag : `#${tag}`}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* PRODUCT TAGS */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                          <ShoppingBag className="h-3 w-3" /> Products:
-                        </span>
-                        <div className="relative">
-                          <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setProductDropdownOpen(!productDropdownOpen)}>
-                            <Plus className="h-3 w-3" /> Tag product
-                          </Button>
-                          {productDropdownOpen && (
-                            <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-10 p-1 max-h-48 overflow-y-auto">
-                              {MOCK_PRODUCTS.map(p => (
-                                <button key={p.id}
-                                  onClick={() => {
-                                    if (!selectedProducts.find(sp => sp.id === p.id)) {
-                                      setSelectedProducts([...selectedProducts, p]);
-                                    }
-                                    setProductDropdownOpen(false);
-                                  }}
-                                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between">
-                                  <span>{p.name}</span>
-                                  <span className="text-slate-500 font-mono">{p.price}</span>
-                                </button>
+                            <div className="max-h-48 overflow-y-auto space-y-1">
+                              {hashtagGroups.map(g => (
+                                <div key={g.id} className="group/item flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
+                                  <button onClick={() => insertHashtagGroup(g.id)} className="flex-1 text-left truncate pr-2">
+                                    <div className="font-semibold text-slate-800 dark:text-slate-200">{g.name}</div>
+                                    <div className="text-[10px] text-slate-500 truncate">{g.tags.map(t => (t.startsWith("#") ? t : `#${t}`)).join(" ")}</div>
+                                  </button>
+                                  <Trash2 className="h-3 w-3 text-slate-400 hover:text-red-500 cursor-pointer opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0" onClick={() => handleDeleteHashtagGroup(g.id)} />
+                                </div>
                               ))}
                             </div>
-                          )}
-                        </div>
-                        {selectedProducts.map(p => (
-                          <Badge key={p.id} variant="secondary" className="text-[10px] gap-1">
-                            {p.name} <X className="h-2.5 w-2.5 cursor-pointer" onClick={() => setSelectedProducts(selectedProducts.filter(sp => sp.id !== p.id))} />
-                          </Badge>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1 flex-1">
+                        {currentHashtags.map((tag, i) => (
+                          <span key={i} className="text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                            {tag.startsWith("#") ? tag : `#${tag}`}
+                          </span>
                         ))}
                       </div>
                     </div>
-
-                    {/* AI REFINEMENT BUTTONS */}
-                    {hasContent && (
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        {[
-                          { action: "regenerate", label: "Regenerate", icon: Wand2, color: "text-primary" },
-                          { action: "boost-hook", label: "Boost Hook", icon: Sparkles, color: "text-amber-500" },
-                          { action: "executive-tone", label: "Executive Tone", icon: RefreshCw, color: "text-indigo-500" },
-                          { action: "add-hashtags", label: "Add Hashtags", icon: Hash, color: "text-emerald-500" },
-                        ].map(({ action, label, icon: BtnIcon, color }) => (
-                          <Button key={action} type="button" variant="outline" size="sm"
-                            disabled={isRefining}
-                            onClick={() => handleAIRefine(action)}
-                            className="h-8 text-xs font-semibold gap-1.5 bg-white dark:bg-slate-800 hover:border-primary/50 shadow-2xs"
-                          >
-                            {isRefining && refiningAction === action
-                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              : <BtnIcon className={`h-3.5 w-3.5 ${color}`} />
-                            }
-                            <span>{label}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                </CardContent>
-              )}
-            </Card>
 
-            {/* RIGHT: LIVE PREVIEW + PUBLISH */}
-            <div className="lg:col-span-5 space-y-6">
+                  {hasContent && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      {[
+                        { action: "regenerate", label: "Regenerate", icon: Wand2, color: "text-primary" },
+                        { action: "boost-hook", label: "Boost Hook", icon: Sparkles, color: "text-amber-500" },
+                        { action: "executive-tone", label: "Executive", icon: RefreshCw, color: "text-indigo-500" },
+                        { action: "add-hashtags", label: "Hashtags", icon: Hash, color: "text-emerald-500" },
+                      ].map(({ action, label, icon: BtnIcon, color }) => (
+                        <Button key={action} type="button" variant="outline" size="sm"
+                          disabled={isRefining}
+                          onClick={() => handleAIRefine(action)}
+                          className="h-7 text-[10px] font-semibold gap-1 bg-white dark:bg-slate-800 hover:border-primary/50 shadow-2xs"
+                        >
+                          {isRefining && refiningAction === action
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <BtnIcon className={`h-3 w-3 ${color}`} />
+                          }
+                          <span>{label}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* ── GENERATE ALL CTA ── */}
+              <Button type="button" size="lg"
+                className="w-full h-11 text-sm font-bold gap-2 bg-gradient-to-r from-primary via-indigo-600 to-purple-600 text-white shadow-lg hover:shadow-xl transition-all rounded-xl"
+                onClick={() => {
+                  const generateBtn = document.querySelector('[data-generate-btn]') as HTMLButtonElement;
+                  if (generateBtn) generateBtn.click();
+                }}
+              >
+                <Rocket className="h-4 w-4" /> Generate All with AI
+              </Button>
+
+            </div>
+
+            {/* RIGHT: LIVE PREVIEW + PUBLISH (60%) */}
+            <div className="lg:col-span-7 space-y-4 lg:sticky lg:top-4">
               <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
                 <CardHeader className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-800/30">
                   <div className="flex flex-col gap-2.5">
