@@ -1478,10 +1478,10 @@ export default function AIStudioPage() {
 
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs !overflow-visible relative z-30">
-            <CardContent className="p-3.5 px-4 space-y-1.5 !overflow-visible">
+            <CardContent className="pt-2.5 pb-2.5 px-3.5 space-y-1 !overflow-visible">
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
-              <div className="space-y-1">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
                   Target Platforms & Formats Selection:
                 </span>
 
@@ -1505,15 +1505,20 @@ export default function AIStudioPage() {
                             : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300"
                         } ${isDropdownOpen ? "z-50 ring-2 ring-primary/40" : "z-10"}`}
                       >
-                        {/* CHECKBOX TO MULTI-SELECT/DESELECT PLATFORM */}
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
+                        {/* CUSTOM SLEEK CHECKBOX FOR PLATFORM MULTI-SELECT */}
+                        <button
+                          type="button"
                           disabled={!isConnected}
-                          onChange={() => togglePlatform(platform.id)}
-                          className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer disabled:opacity-40"
+                          onClick={() => togglePlatform(platform.id)}
+                          className={`h-3.5 w-3.5 rounded flex items-center justify-center transition-colors shrink-0 ${
+                            isSelected
+                              ? "bg-white text-slate-900 dark:bg-slate-900 dark:text-white"
+                              : "border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                          }`}
                           title={`Select/Deselect ${platform.label}`}
-                        />
+                        >
+                          {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                        </button>
 
                         {/* BUTTON WITH FORMAT DROPDOWN */}
                         <div className="relative">
