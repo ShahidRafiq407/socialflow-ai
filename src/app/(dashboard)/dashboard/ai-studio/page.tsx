@@ -1478,10 +1478,10 @@ export default function AIStudioPage() {
 
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs !overflow-visible relative z-30">
-            <CardContent className="pt-2.5 pb-2.5 px-3.5 space-y-1 !overflow-visible">
+            <CardContent className="pt-1.5 pb-2 px-3.5 space-y-0.5 !overflow-visible">
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
               <div className="space-y-0.5">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 block -mt-0.5">
                   Target Platforms & Formats Selection:
                 </span>
 
