@@ -381,6 +381,7 @@ export default function AIStudioPage() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [openPlatformDropdown, setOpenPlatformDropdown] = useState<string | null>(null);
+  const [openEditorPlatformDropdown, setOpenEditorPlatformDropdown] = useState<boolean>(false);
 
   const { user } = useUser();
   const userName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "SMB Robotics";
@@ -1588,60 +1589,88 @@ export default function AIStudioPage() {
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
               <CardContent className="p-3.5 sm:p-4 space-y-4">
-                {/* SINGLE SLEEK FLOATING TOOLBAR FOR CONTENT EDITOR */}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 shrink-0">
-                      ✍️ Content Editor
+                {/* SINGLE SLEEK 1-LINE TOOLBAR FOR CONTENT EDITOR */}
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    {/* HEADING WITHOUT EMOJI/LOGO */}
+                    <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0">
+                      Content Editor
                     </span>
-                    
-                    <div className="h-3.5 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
 
-                    {/* PLATFORM BUTTONS */}
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {selectedPlatforms.map((pId) => {
-                        const pDef = PLATFORMS.find((p) => p.id === pId);
-                        if (!pDef) return null;
-                        const Icon = pDef.icon;
-                        const active = activePlatformTab === pId;
+                    <div className="h-3.5 w-px bg-slate-200 dark:bg-slate-700" />
+
+                    {/* SINGLE PLATFORM DROPDOWN SELECTOR */}
+                    <div className="relative" onMouseLeave={() => setOpenEditorPlatformDropdown(false)}>
+                      {(() => {
+                        const activeDef = PLATFORMS.find((p) => p.id === activePlatformTab) || PLATFORMS[0];
+                        const Icon = activeDef.icon;
                         return (
-                          <button
-                            key={pId}
-                            type="button"
-                            onClick={() => {
-                              setActivePlatformTab(pId);
-                              setActiveSlideIdx(0);
-                            }}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                              active
-                                ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-2xs"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
-                            }`}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                            <span>{pDef.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setOpenEditorPlatformDropdown(!openEditorPlatformDropdown)}
+                              onMouseEnter={() => setOpenEditorPlatformDropdown(true)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs transition-all hover:bg-slate-800"
+                            >
+                              <Icon className="h-3.5 w-3.5" />
+                              <span>{activeDef.label}</span>
+                              <ChevronDown className="h-3 w-3 opacity-70 ml-0.5" />
+                            </button>
 
-                  {/* FORMAT PILLS (INLINE RIGHT) */}
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {(selectedContentTypes[activePlatformTab] || getPlatformDef(activePlatformTab).contentTypes).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => handleFormatChange(option)}
-                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
-                          currentFormatName === option
-                            ? "bg-primary text-white shadow-2xs"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
-                        }`}
-                      >
-                        {option}
-                      </button>
-                    ))}
+                            {openEditorPlatformDropdown && (
+                              <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-1.5 space-y-0.5 animate-in fade-in slide-in-from-top-1">
+                                <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-b border-slate-100 dark:border-slate-800">
+                                  Switch Platform
+                                </div>
+                                {selectedPlatforms.map((pId) => {
+                                  const pDef = PLATFORMS.find((p) => p.id === pId);
+                                  if (!pDef) return null;
+                                  const PIcon = pDef.icon;
+                                  const isCurrent = activePlatformTab === pId;
+                                  return (
+                                    <button
+                                      key={pId}
+                                      type="button"
+                                      onClick={() => {
+                                        setActivePlatformTab(pId);
+                                        setActiveSlideIdx(0);
+                                        setOpenEditorPlatformDropdown(false);
+                                      }}
+                                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-xs font-semibold transition-colors ${
+                                        isCurrent
+                                          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
+                                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                      }`}
+                                    >
+                                      <PIcon className="h-3.5 w-3.5" />
+                                      <span>{pDef.label}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    {/* FORMAT PILLS (INLINE IN THE EXACT SAME 1 LINE) */}
+                    <div className="flex items-center gap-1">
+                      {(selectedContentTypes[activePlatformTab] || getPlatformDef(activePlatformTab).contentTypes).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => handleFormatChange(option)}
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
+                            currentFormatName === option
+                              ? "bg-primary text-white shadow-2xs"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
+                          }`}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
