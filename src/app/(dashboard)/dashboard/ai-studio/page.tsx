@@ -1337,7 +1337,7 @@ export default function AIStudioPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center gap-3.5">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm shrink-0 border border-slate-800 dark:border-slate-200">
-            <Sparkles className="h-5 w-5 text-primary" />
+            <Layers className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
