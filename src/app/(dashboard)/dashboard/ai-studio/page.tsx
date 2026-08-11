@@ -684,10 +684,14 @@ export default function AIStudioPage() {
     }
   }, [selectedPlatforms, activePlatformTab]);
 
-  const validSelectedFormats = selectedContentTypes[activePlatformTab] || [];
+  const platformDef = getPlatformDef(activePlatformTab);
+  const validSelectedFormats = (selectedContentTypes[activePlatformTab] && selectedContentTypes[activePlatformTab].length > 0)
+    ? selectedContentTypes[activePlatformTab]
+    : (platformDef?.contentTypes || []);
+
   let currentFormatName = activeFormatTab[activePlatformTab];
   if (!currentFormatName || !validSelectedFormats.includes(currentFormatName)) {
-    currentFormatName = validSelectedFormats[0] || "Feed";
+    currentFormatName = validSelectedFormats[0] || platformDef?.contentTypes[0] || "Feed";
   }
 
   const currentGenerated = generatedContents[activePlatformTab]?.[currentFormatName];
@@ -1588,7 +1592,7 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
-              <CardContent className="p-2.5 space-y-2.5 !overflow-visible">
+              <CardContent className="p-2 sm:p-2.5 pb-0 space-y-2 !overflow-visible">
                 {/* SINGLE SLEEK 1-LINE TOOLBAR FOR CONTENT EDITOR */}
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-1.5">
                   <div className="flex items-center gap-2.5">
@@ -1665,10 +1669,20 @@ export default function AIStudioPage() {
                         <button
                           key={option}
                           type="button"
-                          onClick={() => handleFormatChange(option)}
+                          onClick={() => {
+                            setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: option }));
+                            setSelectedContentTypes((prev) => {
+                              const list = prev[activePlatformTab] || [];
+                              if (!list.includes(option)) {
+                                return { ...prev, [activePlatformTab]: [...list, option] };
+                              }
+                              return prev;
+                            });
+                            setActiveSlideIdx(0);
+                          }}
                           className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
                             currentFormatName === option
-                              ? "bg-primary text-white shadow-2xs"
+                              ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
                               : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
                           }`}
                         >
