@@ -1691,7 +1691,6 @@ export default function AIStudioPage() {
                     </div>
                   </div>
                 </div>
-              </div>
 
               <CardContent className="p-2 sm:p-3 !overflow-visible">
                 {/* VISUAL */}
