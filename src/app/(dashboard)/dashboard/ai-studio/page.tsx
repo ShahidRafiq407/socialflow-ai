@@ -1692,9 +1692,9 @@ export default function AIStudioPage() {
                   </div>
                 </div>
 
-              <CardContent className="p-2 sm:p-3 !overflow-visible">
-                {/* VISUAL */}
-                {hasAnyPlatformContent && (
+              {hasAnyPlatformContent && (
+                <CardContent className="p-2 sm:p-3 !overflow-visible">
+                  {/* VISUAL */}
                   <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
@@ -1954,8 +1954,8 @@ export default function AIStudioPage() {
                       </div>
                     )}
                   </div>
-                )}
-              </CardContent>
+                </CardContent>
+              )}
             </Card>
 
             {/* RIGHT: LIVE PREVIEW + PUBLISH */}
