@@ -12,6 +12,7 @@ import YoutubePreview from "@/components/previews/YoutubePreview";
 import FacebookPreview from "@/components/previews/FacebookPreview";
 import PinterestPreview from "@/components/previews/PinterestPreview";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
+import StockMediaModal from "@/components/stock-media/StockMediaModal";
 import {
   Card,
   CardHeader,
@@ -456,30 +457,6 @@ export default function AIStudioPage() {
       setHashtagGroups(prev => prev.filter(g => g.id !== groupId));
     } catch (e) {
       console.error("Failed to delete hashtag group:", e);
-    }
-  };
-
-  // ============================================================================
-  // STOCK MEDIA SEARCH & CUSTOM REGEN MODALS
-  // ============================================================================
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [stockQuery, setStockQuery] = useState("");
-  const [stockMediaType, setStockMediaType] = useState<"image" | "video">("image");
-  const [stockResults, setStockResults] = useState<any[]>([]);
-  const [searchingStock, setSearchingStock] = useState(false);
-  const [stockTargetSlideIdx, setStockTargetSlideIdx] = useState<number>(0);
-
-  const handleSearchStock = async (query: string, type: "image" | "video") => {
-    setSearchingStock(true);
-    try {
-      const res = await searchStockMedia(query, type);
-      if (res.success && res.hits) {
-        setStockResults(res.hits);
-      }
-    } catch (e) {
-      console.error("Stock search error:", e);
-    } finally {
-      setSearchingStock(false);
     }
   };
 
@@ -1829,8 +1806,6 @@ export default function AIStudioPage() {
                         size="sm"
                         onClick={async () => {
                           setActiveMediaModal("stock");
-                          const res = await searchStockMedia(selectedStockCategory, currentMediaType === "video" ? "video" : "image");
-                          if (res.success && res.hits) setStockResults(res.hits);
                         }}
                         className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs hover:bg-slate-100"
                       >
@@ -3074,140 +3049,17 @@ export default function AIStudioPage() {
       {/* ============================================================================ */}
       {/* 2. HD STOCK MEDIA MODAL WITH BUSINESS CATEGORIES */}
       {/* ============================================================================ */}
-      {activeMediaModal === "stock" && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500">
-                  <ImageIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">HD Stock Media Library</h3>
-                  <p className="text-xs text-slate-500">Search millions of free royalty-free photos & video clips</p>
-                </div>
-              </div>
-              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* SEARCH INPUT & TYPE TOGGLE */}
-            <div className="flex gap-2">
-              <Input
-                value={stockQuery}
-                onChange={e => setStockQuery(e.target.value)}
-                placeholder="Search stock media (e.g. robotics, office, software)..."
-                onKeyDown={async e => {
-                  if (e.key === "Enter") {
-                    setSearchingStock(true);
-                    const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
-                    if (res.success && res.hits) setStockResults(res.hits);
-                    setSearchingStock(false);
-                  }
-                }}
-                className="flex-1 text-xs"
-              />
-              <select
-                value={stockMediaType}
-                onChange={async e => {
-                  const type = e.target.value as any;
-                  setStockMediaType(type);
-                  setSearchingStock(true);
-                  const res = await searchStockMedia(stockQuery || selectedStockCategory, type);
-                  if (res.success && res.hits) setStockResults(res.hits);
-                  setSearchingStock(false);
-                }}
-                className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold bg-white dark:bg-slate-900"
-              >
-                <option value="image">Images</option>
-                <option value="video">Videos</option>
-              </select>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  setSearchingStock(true);
-                  const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
-                  if (res.success && res.hits) setStockResults(res.hits);
-                  setSearchingStock(false);
-                }}
-                disabled={searchingStock}
-              >
-                {searchingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4 mr-1" />} Search
-              </Button>
-            </div>
-
-            {/* PRE-BUILT CATEGORY PILLS */}
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Popular Categories</span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  "Business", "Tech & AI", "E-Commerce", "Robotics",
-                  "Lifestyle", "Fitness", "Real Estate", "Food & Dining"
-                ].map(cat => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={async () => {
-                      setSelectedStockCategory(cat);
-                      setStockQuery(cat);
-                      setSearchingStock(true);
-                      const res = await searchStockMedia(cat, stockMediaType);
-                      if (res.success && res.hits) setStockResults(res.hits);
-                      setSearchingStock(false);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      selectedStockCategory === cat
-                        ? "bg-primary text-white shadow-2xs font-bold"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* RESULTS GRID */}
-            <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[420px] pt-1">
-              {searchingStock ? (
-                <div className="flex items-center justify-center h-48 text-slate-400 gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Fetching Stock Media...
-                </div>
-              ) : stockResults.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
-                  <ImageIcon className="h-8 w-8 text-slate-300" />
-                  <p className="text-xs">Click a category pill above or type a search term</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
-                  {stockResults.map(item => (
-                    <div
-                      key={item.id}
-                      onClick={() => {
-                        setCustomMediaDict(prev => ({
-                          ...prev,
-                          [currentMediaKey]: { url: item.url, type: item.type }
-                        }));
-                        setActiveMediaModal(null);
-                      }}
-                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
-                    >
-                      {item.type === "video" ? (
-                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
-                      ) : (
-                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                      )}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <StockMediaModal
+        isOpen={activeMediaModal === "stock"}
+        onClose={() => setActiveMediaModal(null)}
+        onSelect={(item) => {
+          setCustomMediaDict(prev => ({
+            ...prev,
+            [currentMediaKey]: { url: item.url, type: item.type }
+          }));
+          setActiveMediaModal(null);
+        }}
+      />
 
       {/* ============================================================================ */}
       {/* 1. UPLOAD PC MEDIA MODAL */}
@@ -3283,159 +3135,17 @@ export default function AIStudioPage() {
       {/* ============================================================================ */}
       {/* 2. HD STOCK MEDIA MODAL WITH BUSINESS CATEGORIES */}
       {/* ============================================================================ */}
-      {activeMediaModal === "stock" && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500">
-                  <ImageIcon className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">HD Stock Media Library</h3>
-                  <p className="text-xs text-slate-500">Search millions of free royalty-free photos & video clips</p>
-                </div>
-              </div>
-              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* SEARCH INPUT & TYPE TOGGLE */}
-            <div className="flex gap-2">
-              <Input
-                value={stockQuery}
-                onChange={e => setStockQuery(e.target.value)}
-                placeholder="Search stock media (e.g. robotics, office, software)..."
-                onKeyDown={async e => {
-                  if (e.key === "Enter") {
-                    setSearchingStock(true);
-                    const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
-                    if (res.success && res.hits) setStockResults(res.hits);
-                    setSearchingStock(false);
-                  }
-                }}
-                className="flex-1 text-xs"
-              />
-              <select
-                value={stockMediaType}
-                onChange={async e => {
-                  const type = e.target.value as any;
-                  setStockMediaType(type);
-                  setSearchingStock(true);
-                  const res = await searchStockMedia(stockQuery || selectedStockCategory, type);
-                  if (res.success && res.hits) setStockResults(res.hits);
-                  setSearchingStock(false);
-                }}
-                className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold bg-white dark:bg-slate-900"
-              >
-                <option value="image">Images</option>
-                <option value="video">Videos</option>
-              </select>
-              <Button
-                size="sm"
-                onClick={async () => {
-                  setSearchingStock(true);
-                  const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
-                  if (res.success && res.hits) setStockResults(res.hits);
-                  setSearchingStock(false);
-                }}
-                disabled={searchingStock}
-              >
-                {searchingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4 mr-1" />} Search
-              </Button>
-            </div>
-
-            {/* PRE-BUILT CATEGORY PILLS */}
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Popular Categories</span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  "Business", "Tech & AI", "E-Commerce", "Robotics",
-                  "Lifestyle", "Fitness", "Real Estate", "Food & Dining"
-                ].map(cat => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={async () => {
-                      setSelectedStockCategory(cat);
-                      setStockQuery(cat);
-                      setSearchingStock(true);
-                      const res = await searchStockMedia(cat, stockMediaType);
-                      if (res.success && res.hits) setStockResults(res.hits);
-                      setSearchingStock(false);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      selectedStockCategory === cat
-                        ? "bg-primary text-white shadow-2xs font-bold"
-                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* RESULTS GRID */}
-            <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[420px] pt-1">
-              {searchingStock ? (
-                <div className="flex items-center justify-center h-48 text-slate-400 gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Fetching Stock Media...
-                </div>
-              ) : stockResults.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
-                  <ImageIcon className="h-8 w-8 text-slate-300" />
-                  <p className="text-xs">Click a category pill above or type a search term</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-1">
-                  {stockResults.map(item => (
-                    <div
-                      key={item.id}
-                      onClick={() => {
-                        setCustomMediaDict(prev => ({
-                          ...prev,
-                          [currentMediaKey]: { url: item.url, type: item.type }
-                        }));
-                        setActiveMediaModal(null);
-                      }}
-                      className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 bg-slate-900 hover:ring-2 hover:ring-primary transition-all shadow-md"
-                    >
-                      {item.type === "video" ? (
-                        <>
-                          <video
-                            src={item.url}
-                            className="w-full h-full object-cover object-center rounded-2xl pointer-events-none"
-                            muted
-                            loop
-                            autoPlay
-                            playsInline
-                          />
-                          <div className="absolute top-2 left-2 z-10">
-                            <Badge className="bg-black/70 backdrop-blur-md text-white text-[9px] font-extrabold uppercase gap-1 px-2 py-0.5 border border-white/20">
-                              <Film className="h-3 w-3 text-pink-400" /> VIDEO
-                            </Badge>
-                          </div>
-                        </>
-                      ) : (
-                        <img
-                          src={item.previewUrl}
-                          alt={item.tags}
-                          className="w-full h-full object-cover object-center rounded-2xl pointer-events-none group-hover:scale-105 transition-transform"
-                        />
-                      )}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity z-20">
-                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-extrabold shadow-md"><Plus className="h-3.5 w-3.5" /> Select Media</Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <StockMediaModal
+        isOpen={activeMediaModal === "stock"}
+        onClose={() => setActiveMediaModal(null)}
+        onSelect={(item) => {
+          setCustomMediaDict(prev => ({
+            ...prev,
+            [currentMediaKey]: { url: item.url, type: item.type }
+          }));
+          setActiveMediaModal(null);
+        }}
+      />
 
       {/* ============================================================================ */}
       {/* 3. AI MEDIA & CAROUSEL GENERATION MODAL */}
