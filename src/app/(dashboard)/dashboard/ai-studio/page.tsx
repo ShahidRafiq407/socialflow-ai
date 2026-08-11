@@ -1842,39 +1842,38 @@ export default function AIStudioPage() {
                         size="sm"
                         onClick={() => setActiveMediaModal("ai")}
                         className="h-7 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-2xs hover:opacity-90"
-                                <div className="w-full h-full bg-slate-800 flex items-center justify-center">
-                                  <Loader2 className="h-6 w-6 text-primary animate-spin" />
-                                </div>
-                              ) : currentHtmlSlide ? (
-                                <iframe srcDoc={currentHtmlSlide} className="w-full h-full border-0 pointer-events-none" title={`Slide ${activeSlideIdx + 1}`} sandbox="allow-same-origin" />
-                              ) : (
-                                <div className="w-full h-full bg-slate-800 flex items-center justify-center text-xs text-slate-400">Click generate carousel</div>
-                              )}
-                            </div>
-                          ) : displayImageUrl ? (
-                            <div className="relative group max-h-[220px] overflow-hidden rounded-lg">
-                              <img src={displayImageUrl} alt="Preview" className="max-h-[220px] object-cover rounded-lg shadow-sm" />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  revokeMediaUrl(currentMediaKey);
-                                  setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
-                                  setRenderedImageUrlsDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
-                                }}
-                                className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="py-8 text-center text-slate-400 text-xs">
-                              <ImageIcon className="h-6 w-6 mx-auto mb-1 opacity-50" />
-                              No media attached yet. Choose upload, stock, or AI generation above.
-                            </div>
-                          )}
+                      >
+                        <Sparkles className="h-3 w-3 text-white" />
+                        <span>AI Gen</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* MEDIA STUDIO WORKSPACE CONTAINER */}
+                  <div className="p-3">
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex flex-col items-center justify-center min-h-[160px]">
+                      {displayImageUrl ? (
+                        <div className="relative group max-h-[220px] overflow-hidden rounded-lg">
+                          <img src={displayImageUrl} alt="Preview" className="max-h-[220px] object-cover rounded-lg shadow-sm" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              revokeMediaUrl(currentMediaKey);
+                              setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
+                              setRenderedImageUrlsDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
+                            }}
+                            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="py-8 text-center text-slate-400 text-xs">
+                          <ImageIcon className="h-6 w-6 mx-auto mb-1 opacity-50" />
+                          No media attached yet. Click Upload PC, Stock, or AI Gen above to add media.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
