@@ -16,6 +16,7 @@ import {
   Camera,
   Check,
   ChevronRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import { searchStockMedia, type StockHit } from "@/actions/stock-media";
 
@@ -61,6 +62,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Trending");
+  const [order, setOrder] = useState<"popular" | "latest">("popular");
   const [results, setResults] = useState<StockHit[]>([]);
   const [totalHits, setTotalHits] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
@@ -73,13 +75,13 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   const gridRef = useRef<HTMLDivElement>(null);
 
   /* initial search helper */
-  const doSearch = useCallback(async (searchTerm: string, type: "image" | "video") => {
+  const doSearch = useCallback(async (searchTerm: string, type: "image" | "video", sortOrder: "popular" | "latest" = "popular") => {
     setLoading(true);
     setHasSearched(true);
     setSelectedId(null);
     setPage(1);
     try {
-      const res = await searchStockMedia(searchTerm || "trending", type, 1, 50);
+      const res = await searchStockMedia(searchTerm || "trending", type, 1, 50, sortOrder);
       if (res.success && res.hits) {
         setResults(res.hits);
         setTotalHits(res.totalHits || 0);
@@ -100,7 +102,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
     setLoadingMore(true);
     const nextPage = page + 1;
     try {
-      const res = await searchStockMedia(query || activeCategory || "trending", mediaType, nextPage, 50);
+      const res = await searchStockMedia(query || activeCategory || "trending", mediaType, nextPage, 50, order);
       if (res.success && res.hits && res.hits.length > 0) {
         setResults(prev => [...prev, ...res.hits]);
         setPage(nextPage);
@@ -115,7 +117,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   /* auto-fetch on open */
   useEffect(() => {
     if (isOpen) {
-      doSearch("trending", mediaType);
+      doSearch("trending", mediaType, order);
       setTimeout(() => inputRef.current?.focus(), 200);
     } else {
       setResults([]);
@@ -133,7 +135,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
     if (e.key === "Enter") {
       e.preventDefault();
       setActiveCategory("");
-      doSearch(query, mediaType);
+      doSearch(query, mediaType, order);
     }
   };
 
@@ -141,21 +143,27 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
   const handleCategory = (cat: typeof CATEGORIES[0]) => {
     setActiveCategory(cat.label);
     setQuery(cat.query);
-    doSearch(cat.query, mediaType);
+    doSearch(cat.query, mediaType, order);
     gridRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   /* type toggle */
   const handleTypeSwitch = (type: "image" | "video") => {
     setMediaType(type);
-    doSearch(query || activeCategory || "trending", type);
+    doSearch(query || activeCategory || "trending", type, order);
+  };
+
+  /* order toggle */
+  const handleOrderChange = (newOrder: "popular" | "latest") => {
+    setOrder(newOrder);
+    doSearch(query || activeCategory || "trending", mediaType, newOrder);
   };
 
   /* tag click */
   const handleTagClick = (tag: string) => {
     setQuery(tag);
     setActiveCategory("");
-    doSearch(tag, mediaType);
+    doSearch(tag, mediaType, order);
   };
 
   if (!isOpen) return null;
@@ -208,7 +216,7 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
                 />
                 {/* Search button */}
                 <button
-                  onClick={() => { setActiveCategory(""); doSearch(query, mediaType); }}
+                  onClick={() => { setActiveCategory(""); doSearch(query, mediaType, order); }}
                   className="flex-shrink-0 m-1 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md shadow-emerald-500/20"
                 >
                   <Search className="h-3.5 w-3.5" />
@@ -217,28 +225,40 @@ export default function StockMediaModal({ isOpen, onClose, onSelect }: StockMedi
               </div>
             </div>
 
-            {/* Type tabs */}
-            <div className="hidden md:flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
-              <button
-                onClick={() => handleTypeSwitch("image")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                  mediaType === "image"
-                    ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
+            {/* Type tabs & Sort filter */}
+            <div className="hidden md:flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+                <button
+                  onClick={() => handleTypeSwitch("image")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mediaType === "image"
+                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" /> Photos
+                </button>
+                <button
+                  onClick={() => handleTypeSwitch("video")}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    mediaType === "video"
+                      ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Film className="h-3.5 w-3.5" /> Videos
+                </button>
+              </div>
+
+              {/* Order selector (Most relevant vs Latest) */}
+              <select
+                value={order}
+                onChange={e => handleOrderChange(e.target.value as "popular" | "latest")}
+                className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer"
               >
-                <ImageIcon className="h-3.5 w-3.5" /> Photos
-              </button>
-              <button
-                onClick={() => handleTypeSwitch("video")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${
-                  mediaType === "video"
-                    ? "bg-white dark:bg-slate-700 text-emerald-600 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <Film className="h-3.5 w-3.5" /> Videos
-              </button>
+                <option value="popular">Most relevant</option>
+                <option value="latest">Latest</option>
+              </select>
             </div>
 
             {/* Close */}
