@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { MoreHorizontal, Globe, ThumbsUp, Heart, MessageCircle, Repeat2, Send } from "lucide-react";
 
 interface LinkedInPreviewProps {
@@ -16,34 +16,61 @@ export default function LinkedInPreview({
   userImage,
   currentCaption
 }: LinkedInPreviewProps) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = (currentCaption || "").length > 130;
+
   return (
-    <div className="w-full max-w-[400px] rounded-sm border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1b1f23] shadow-sm">
-      <div className="flex items-start gap-3 p-4 pb-2">
-        <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0 overflow-hidden">
-          {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
+    <div className="w-full max-w-[400px] rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1b1f23] shadow-sm overflow-hidden text-left">
+      <div className="flex items-start gap-3 p-3.5 pb-2">
+        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-sky-500 shrink-0 overflow-hidden flex items-center justify-center text-white font-bold text-sm">
+          {userImage ? (
+            <img src={userImage} alt={userName} className="h-full w-full object-cover" />
+          ) : (
+            userName.substring(0, 2).toUpperCase()
+          )}
         </div>
         <div className="flex-1">
-          <p className="text-[14px] font-bold text-slate-900 dark:text-white leading-tight">{userName}</p>
-          <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">Automating the Future of B2B SaaS</p>
-          <p className="text-[12px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">1h • <Globe className="h-3 w-3" /></p>
+          <p className="text-[13px] font-bold text-slate-900 dark:text-white leading-tight">{userName}</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">Automating the Future of B2B SaaS & Tech</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">1h • <Globe className="h-3 w-3" /></p>
         </div>
-        <MoreHorizontal className="h-5 w-5 text-slate-500" />
+        <MoreHorizontal className="h-5 w-5 text-slate-500 cursor-pointer" />
       </div>
-      <div className="px-4 pb-3">
-        <p className="text-[14px] text-slate-900 dark:text-slate-200 leading-relaxed whitespace-pre-wrap line-clamp-5">{currentCaption}</p>
+
+      <div className="px-3.5 pb-2 text-[13px] text-slate-900 dark:text-slate-200 leading-relaxed">
+        {expanded || !isLong ? (
+          <span className="whitespace-pre-wrap">{currentCaption}</span>
+        ) : (
+          <span>
+            {currentCaption.substring(0, 120)}...{" "}
+            <button
+              onClick={() => setExpanded(true)}
+              className="text-slate-500 dark:text-slate-400 font-semibold hover:underline"
+            >
+              ...see more
+            </button>
+          </span>
+        )}
       </div>
+
       {displayImageUrl && (
-        <div className={`w-full bg-slate-100 dark:bg-slate-900 ${currentFormatName === 'Carousel' ? 'aspect-[4/5]' : 'aspect-video'}`}>
+        <div className={`w-full bg-slate-900 flex items-center justify-center overflow-hidden ${currentFormatName === 'Carousel' ? 'aspect-[4/5]' : 'aspect-[1.91/1]'}`}>
           <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
         </div>
       )}
-      <div className="px-4 py-2 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
-        <div className="flex items-center gap-1 text-[11px] text-slate-500"><ThumbsUp className="h-3 w-3 text-blue-500" /> <Heart className="h-3 w-3 text-red-500" /> 432</div>
-        <div className="text-[11px] text-slate-500">12 comments • 5 reposts</div>
+
+      <div className="px-3.5 py-1.5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">
+        <div className="flex items-center gap-1">
+          <ThumbsUp className="h-3 w-3 text-blue-500 fill-blue-500" />
+          <Heart className="h-3 w-3 text-red-500 fill-red-500" />
+          <span>432</span>
+        </div>
+        <div>12 comments • 5 reposts</div>
       </div>
-      <div className="flex items-center justify-between px-4 py-1">
+
+      <div className="flex items-center justify-between px-2 py-1">
         {['Like', 'Comment', 'Repost', 'Send'].map(btn => (
-          <button key={btn} className="flex items-center gap-1.5 px-2 py-3 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-[13px] font-semibold text-slate-600 dark:text-slate-400">
+          <button key={btn} className="flex items-center justify-center gap-1 px-2 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-[12px] font-semibold text-slate-600 dark:text-slate-400 transition-colors flex-1">
             {btn === 'Like' ? <ThumbsUp className="h-4 w-4" /> : btn === 'Comment' ? <MessageCircle className="h-4 w-4" /> : btn === 'Repost' ? <Repeat2 className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             <span className="hidden sm:inline">{btn}</span>
           </button>

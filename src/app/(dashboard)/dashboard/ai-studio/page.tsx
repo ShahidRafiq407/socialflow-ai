@@ -383,20 +383,23 @@ export default function AIStudioPage() {
   // ============================================================================
   const store = useContentStudioStore();
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
+  const [integrationsList, setIntegrationsList] = useState<any[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [openPlatformDropdown, setOpenPlatformDropdown] = useState<string | null>(null);
   const [openEditorPlatformDropdown, setOpenEditorPlatformDropdown] = useState<boolean>(false);
 
   const { user } = useUser();
-  const userName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "SMB Robotics";
-  const userHandle = userName.toLowerCase().replace(/\s/g, "");
-  const userImage = user?.imageUrl || null;
+  const defaultUserName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "SMB Robotics";
+  const defaultUserHandle = defaultUserName.toLowerCase().replace(/\s/g, "");
+  const defaultUserImage = user?.imageUrl || null;
 
   useEffect(() => {
     (async () => {
       try {
         const connected = await getConnectedPlatformIds();
         setConnectedPlatforms(connected);
+        const integrations = await getWorkspaceIntegrations();
+        setIntegrationsList(integrations);
       } catch (e) {
         console.warn("Could not fetch connected platforms:", e);
       } finally {
@@ -2254,21 +2257,26 @@ export default function AIStudioPage() {
                           </div>
                         ) : (
                           (() => {
+                            const activeIntegration = integrationsList.find(i => i.platformKey === activePlatformTab);
+                            const activeName = activeIntegration?.pageName || activeIntegration?.handle || defaultUserName;
+                            const activeHandle = activeIntegration?.handle ? (activeIntegration.handle.startsWith("@") ? activeIntegration.handle : `@${activeIntegration.handle}`) : `@${defaultUserHandle}`;
+                            const activeImage = defaultUserImage;
+
                             switch (activePlatformTab) {
                               case "instagram":
-                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
                               case "linkedin":
-                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
+                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} />;
                               case "x":
-                                return <XPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                                return <XPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
                               case "tiktok":
-                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={currentCaption} />;
+                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
                               case "youtube":
-                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} />;
+                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} />;
                               case "facebook":
-                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={userName} userImage={userImage} currentCaption={currentCaption} isVertical={isVertical} />;
+                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isVertical={isVertical} />;
                               case "pinterest":
-                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={userName} userImage={userImage} />;
+                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={activeName} userImage={activeImage} />;
                               default:
                                 return null;
                             }
@@ -2506,19 +2514,22 @@ export default function AIStudioPage() {
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 bg-white dark:bg-slate-800">
-                    <Save className="h-3.5 w-3.5 text-slate-500" /> Save Draft
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-1.5">
+                  <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-white dark:bg-slate-800">
+                    <Save className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                    <span className="truncate">Save Draft</span>
                   </Button>
-                  <Button variant="outline" size="sm" onClick={sendForReview} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20">
-                    <Eye className="h-3.5 w-3.5" /> Review
+                  <Button variant="outline" size="sm" onClick={sendForReview} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/20">
+                    <Eye className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">Review</span>
                   </Button>
-                  <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <Calendar className="h-3.5 w-3.5" /> Schedule
+                  <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
+                    <Calendar className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">Schedule</span>
                   </Button>
-                  <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-9 text-xs font-bold gap-1.5 bg-primary hover:bg-primary/90 text-white shadow-md">
-                    {publishLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                    <span>Publish Now</span>
+                  <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-primary hover:bg-primary/90 text-white shadow-md">
+                    {publishLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <Send className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">Publish Now</span>
                   </Button>
                 </div>
               </Card>
