@@ -1592,9 +1592,8 @@ export default function AIStudioPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
-              <CardContent className="px-1.5 pt-1 pb-0 space-y-1 !overflow-visible">
-                {/* SINGLE SLEEK 1-LINE TOOLBAR FOR CONTENT EDITOR */}
-                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-1">
+              {/* SINGLE SLEEK 1-LINE TOOLBAR (ULTRA THIN HEADER) */}
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl">
                   <div className="flex items-center gap-2.5">
                     {/* HEADING WITHOUT EMOJI/LOGO */}
                     <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0 ml-1">
@@ -1692,7 +1691,9 @@ export default function AIStudioPage() {
                     </div>
                   </div>
                 </div>
+              </div>
 
+              <CardContent className="p-2 sm:p-3 !overflow-visible">
                 {/* VISUAL */}
                 {hasAnyPlatformContent && (
                   <div className="space-y-2.5">
