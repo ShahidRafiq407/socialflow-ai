@@ -60,25 +60,35 @@ export default function InstagramPreview({
       <div className="flex items-center justify-between p-3">
         <div className="flex items-center gap-2.5">
           <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-[2px]">
-            <div className="bg-white dark:bg-slate-900 h-full w-full rounded-full border border-white dark:border-slate-900 overflow-hidden">
-              {userImage && <img src={userImage} alt={userName} className="h-full w-full object-cover" />}
+            <div className="bg-white dark:bg-slate-900 h-full w-full rounded-full border border-white dark:border-slate-900 overflow-hidden flex items-center justify-center">
+              {userImage ? (
+                <img src={userImage} alt={userName} className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200">{userName.substring(0, 2).toUpperCase()}</span>
+              )}
             </div>
           </div>
           <p className="text-[13px] font-semibold text-slate-900 dark:text-white">{userHandle}</p>
         </div>
         <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
       </div>
-      <div className={`w-full relative overflow-hidden bg-slate-100 dark:bg-slate-900 ${currentFormatName === 'Idea Pin' || currentFormatName === 'Carousel' ? 'aspect-[9/16]' : 'aspect-[2/3]'}`}>
-        {displayImageUrl && <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />}
+      <div className={`w-full relative overflow-hidden bg-slate-900 max-h-[350px] flex items-center justify-center ${currentFormatName === 'Feed' ? 'aspect-square' : currentFormatName === 'Carousel' ? 'aspect-[4/5]' : 'aspect-square'}`}>
+        {displayImageUrl ? (
+          <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />
+        ) : (
+          <div className="flex flex-col items-center justify-center p-8 text-slate-500">
+            <span className="text-xs">No media attached</span>
+          </div>
+        )}
         {displayOverlayTexts[activeSlideIdx] && (
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
-            <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-2 backdrop-blur-sm shadow-sm border border-white/20">
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-4 z-10">
+            <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-1.5 backdrop-blur-sm shadow-sm border border-white/20">
               Step {activeSlideIdx + 1}
             </div>
-            <h3 className="text-white font-extrabold text-lg sm:text-xl leading-tight mb-1.5 drop-shadow-md">
+            <h3 className="text-white font-extrabold text-base leading-tight mb-1 drop-shadow-md">
               {displayOverlayTexts[activeSlideIdx].title}
             </h3>
-            <p className="text-slate-200 text-xs sm:text-sm font-medium leading-snug drop-shadow-sm max-w-[95%]">
+            <p className="text-slate-200 text-xs font-medium leading-snug drop-shadow-sm max-w-[95%]">
               {displayOverlayTexts[activeSlideIdx].body}
             </p>
           </div>
@@ -91,14 +101,16 @@ export default function InstagramPreview({
       </div>
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-4 text-slate-900 dark:text-white">
-            <Heart className="h-6 w-6" /><MessageCircle className="h-6 w-6" /><Send className="h-[22px] w-[22px]" />
+          <div className="flex items-center gap-3.5 text-slate-900 dark:text-white">
+            <Heart className="h-5 w-5 cursor-pointer hover:text-red-500 transition-colors" />
+            <MessageCircle className="h-5 w-5 cursor-pointer hover:text-primary transition-colors" />
+            <Send className="h-5 w-5 cursor-pointer hover:text-primary transition-colors" />
           </div>
-          <Bookmark className="h-6 w-6 text-slate-900 dark:text-white" />
+          <Bookmark className="h-5 w-5 text-slate-900 dark:text-white cursor-pointer" />
         </div>
-        <p className="text-[13px] font-semibold text-slate-900 dark:text-white mb-1">1,234 likes</p>
-        <p className="text-[13px] text-slate-900 dark:text-white leading-snug line-clamp-3">
-          <span className="font-semibold mr-1.5">{userHandle}</span>
+        <p className="text-[12px] font-bold text-slate-900 dark:text-white mb-1">1,234 likes</p>
+        <p className="text-[12px] text-slate-900 dark:text-white leading-snug line-clamp-3">
+          <span className="font-bold mr-1.5">{userHandle}</span>
           {currentCaption}
         </p>
       </div>
