@@ -3755,7 +3755,7 @@ export default function AIStudioPage() {
         }}
         platform={activePlatformTab}
         formatName={currentFormatName}
-        defaultTopic={customPrompt || prompt}
+        defaultTopic={customPrompt || ""}
       />
     </div>
   );
