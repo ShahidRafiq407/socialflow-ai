@@ -1477,7 +1477,7 @@ export default function AIStudioPage() {
           )}
 
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
-          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs relative z-30">
             <CardContent className="p-5 space-y-4">
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
               <div className="space-y-2">
@@ -1494,7 +1494,7 @@ export default function AIStudioPage() {
                     const activeFormats = selectedContentTypes[platform.id] || [];
 
                     return (
-                      <div key={platform.id} className="relative flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+                      <div key={platform.id} className={`relative flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${isDropdownOpen ? "z-50 ring-2 ring-primary/40" : "z-10"}`}>
                         {/* CHECKBOX TO MULTI-SELECT/DESELECT PLATFORM */}
                         <input
                           type="checkbox"
@@ -1526,7 +1526,7 @@ export default function AIStudioPage() {
 
                           {/* FORMAT SELECTION DROPDOWN */}
                           {isDropdownOpen && (
-                            <div className="absolute top-full left-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-40 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
+                            <div className="absolute top-full left-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-2.5 space-y-1 animate-in fade-in slide-in-from-top-1">
                               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                                 <span>{platform.label} Formats</span>
                                 <button type="button" onClick={() => setOpenPlatformDropdown(null)} className="text-slate-400 hover:text-slate-600">✕</button>
