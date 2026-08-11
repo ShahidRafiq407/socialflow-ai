@@ -1478,10 +1478,10 @@ export default function AIStudioPage() {
 
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs !overflow-visible relative z-30">
-            <CardContent className="p-5 space-y-4 !overflow-visible">
+            <CardContent className="p-3.5 px-4 space-y-1.5 !overflow-visible">
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
-              <div className="space-y-2">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+              <div className="space-y-1">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                   Target Platforms & Formats Selection:
                 </span>
 
@@ -1497,12 +1497,12 @@ export default function AIStudioPage() {
                       <div
                         key={platform.id}
                         onMouseLeave={() => setOpenPlatformDropdown(null)}
-                        className={`relative flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 p-1 px-2.5 rounded-lg border transition-all ${
+                        className={`relative flex items-center gap-1 p-0.5 px-2 rounded-lg border transition-all ${
                           !isConnected
-                            ? "border-slate-200 dark:border-slate-800 opacity-40"
+                            ? "border-slate-200 dark:border-slate-800 opacity-40 bg-slate-50"
                             : isSelected
-                            ? "border-primary/40 bg-primary/5 dark:bg-primary/10 shadow-2xs"
-                            : "border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                            ? "border-slate-900 bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                            : "border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 hover:border-slate-300"
                         } ${isDropdownOpen ? "z-50 ring-2 ring-primary/40" : "z-10"}`}
                       >
                         {/* CHECKBOX TO MULTI-SELECT/DESELECT PLATFORM */}
@@ -1524,25 +1524,24 @@ export default function AIStudioPage() {
                             onMouseEnter={() => {
                               if (isConnected) setOpenPlatformDropdown(platform.id);
                             }}
-                            className={`flex items-center gap-1.5 py-0.5 rounded text-xs font-bold transition-all ${
+                            className={`flex items-center gap-1 py-0.5 px-1 rounded text-[11px] font-bold transition-all ${
                               !isConnected
                                 ? "text-slate-400 opacity-50 cursor-not-allowed"
                                 : isSelected
-                                ? "text-slate-900 dark:text-white font-extrabold"
-                                : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                                ? "text-white dark:text-slate-900 font-extrabold"
+                                : "text-slate-700 dark:text-slate-300 hover:text-slate-900"
                             }`}
                           >
                             <Icon className="h-3.5 w-3.5" />
-                            <span className="text-[12px]">{platform.label}</span>
-                            <ChevronDown className="h-3 w-3 opacity-60 ml-0.5" />
+                            <span>{platform.label}</span>
+                            <ChevronDown className="h-3 w-3 opacity-70 ml-0.5" />
                           </button>
 
                           {/* FORMAT SELECTION DROPDOWN (EXACT ALIGNMENT & TICK BOXES) */}
                           {isDropdownOpen && (
                             <div className="absolute top-full left-0 mt-1 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
                               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                                <span>{platform.label} Formats</span>
-                                <span className="text-[9px] text-slate-400">Select formats</span>
+                                <span>Select Formats</span>
                               </div>
                               {platform.contentTypes.map((type) => {
                                 const isChecked = isSelected && activeFormats.includes(type);
