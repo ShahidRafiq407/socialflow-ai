@@ -1337,14 +1337,14 @@ export default function AIStudioPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center gap-3.5">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm shrink-0 border border-slate-800 dark:border-slate-200">
-            <Layers className="h-5 w-5" />
+            <Sparkles className="h-5 w-5 text-primary" />
           </div>
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
-              Content Studio
+              Generate with AI or Add Your Own Content
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              Create, refine, and auto-schedule multi-platform content
+              Select target platforms & formats below, then generate with AI or write custom posts.
             </p>
           </div>
         </div>
@@ -1479,17 +1479,8 @@ export default function AIStudioPage() {
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
             <CardContent className="p-5 space-y-4">
-              {/* HEADING */}
-              <div>
-                <h2 className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  Generate with AI or Add Your Own Content
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Select target platforms & formats below, then generate with AI or write custom posts.</p>
-              </div>
-
               {/* TARGET PLATFORMS & FORMAT DROPDOWNS ROW */}
-              <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="space-y-2">
                 <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
                   Target Platforms & Formats Selection:
                 </span>
