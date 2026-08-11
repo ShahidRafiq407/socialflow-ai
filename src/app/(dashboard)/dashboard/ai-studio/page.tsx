@@ -3132,20 +3132,6 @@ export default function AIStudioPage() {
         </div>
       )}
 
-      {/* ============================================================================ */}
-      {/* 2. HD STOCK MEDIA MODAL WITH BUSINESS CATEGORIES */}
-      {/* ============================================================================ */}
-      <StockMediaModal
-        isOpen={activeMediaModal === "stock"}
-        onClose={() => setActiveMediaModal(null)}
-        onSelect={(item) => {
-          setCustomMediaDict(prev => ({
-            ...prev,
-            [currentMediaKey]: { url: item.url, type: item.type }
-          }));
-          setActiveMediaModal(null);
-        }}
-      />
 
       {/* ============================================================================ */}
       {/* 3. AI MEDIA & CAROUSEL GENERATION MODAL */}
