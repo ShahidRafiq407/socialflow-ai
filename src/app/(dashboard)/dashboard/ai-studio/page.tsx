@@ -1629,22 +1629,27 @@ export default function AIStudioPage() {
                                   <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 border-b border-slate-100 dark:border-slate-800">
                                     Switch Platform
                                   </div>
-                                  {selectedPlatforms.map((pId) => {
-                                    const pDef = PLATFORMS.find((p) => p.id === pId);
-                                    if (!pDef) return null;
+                                  {PLATFORMS.map((pDef) => {
+                                    const pId = pDef.id;
                                     const PIcon = pDef.icon;
                                     const isCurrent = activePlatformTab === pId;
+                                    const isPlatformSelected = selectedPlatforms.includes(pId);
+                                    
                                     return (
                                       <button
                                         key={pId}
                                         type="button"
+                                        disabled={!isPlatformSelected}
                                         onClick={() => {
+                                          if (!isPlatformSelected) return;
                                           setActivePlatformTab(pId);
                                           setActiveSlideIdx(0);
                                           setOpenEditorPlatformDropdown(false);
                                         }}
                                         className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors ${
-                                          isCurrent
+                                          !isPlatformSelected
+                                            ? "text-slate-400 opacity-50 cursor-not-allowed"
+                                            : isCurrent
                                             ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
                                             : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                                         }`}
