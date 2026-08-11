@@ -2485,6 +2485,7 @@ export default function AIStudioPage() {
                     </div>
                   )}
                 </CardContent>
+              </Card>
 
               {/* PUBLISH CARD (ALWAYS VISIBLE & ACCESSIBLE) */}
               <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 p-4 space-y-3">
