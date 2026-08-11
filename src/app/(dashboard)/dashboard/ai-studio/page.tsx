@@ -3389,7 +3389,7 @@ export default function AIStudioPage() {
                   <p className="text-xs">Click a category pill above or type a search term</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-1">
                   {stockResults.map(item => (
                     <div
                       key={item.id}
@@ -3400,15 +3400,33 @@ export default function AIStudioPage() {
                         }));
                         setActiveMediaModal(null);
                       }}
-                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
+                      className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 bg-slate-900 hover:ring-2 hover:ring-primary transition-all shadow-md"
                     >
                       {item.type === "video" ? (
-                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
+                        <>
+                          <video
+                            src={item.url}
+                            className="w-full h-full object-cover object-center rounded-2xl pointer-events-none"
+                            muted
+                            loop
+                            autoPlay
+                            playsInline
+                          />
+                          <div className="absolute top-2 left-2 z-10">
+                            <Badge className="bg-black/70 backdrop-blur-md text-white text-[9px] font-extrabold uppercase gap-1 px-2 py-0.5 border border-white/20">
+                              <Film className="h-3 w-3 text-pink-400" /> VIDEO
+                            </Badge>
+                          </div>
+                        </>
                       ) : (
-                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <img
+                          src={item.previewUrl}
+                          alt={item.tags}
+                          className="w-full h-full object-cover object-center rounded-2xl pointer-events-none group-hover:scale-105 transition-transform"
+                        />
                       )}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity z-20">
+                        <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-extrabold shadow-md"><Plus className="h-3.5 w-3.5" /> Select Media</Badge>
                       </div>
                     </div>
                   ))}
