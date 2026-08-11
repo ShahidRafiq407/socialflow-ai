@@ -1485,7 +1485,7 @@ export default function AIStudioPage() {
                   Target Platforms & Formats Selection:
                 </span>
 
-                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                   {PLATFORMS.map((platform) => {
                     const Icon = platform.icon;
                     const isConnected = connectedPlatforms.includes(platform.id);
@@ -1494,14 +1494,24 @@ export default function AIStudioPage() {
                     const activeFormats = selectedContentTypes[platform.id] || [];
 
                     return (
-                      <div key={platform.id} className={`relative flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 p-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs ${isDropdownOpen ? "z-50 ring-2 ring-primary/40" : "z-10"}`}>
+                      <div
+                        key={platform.id}
+                        onMouseLeave={() => setOpenPlatformDropdown(null)}
+                        className={`relative flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 p-1 px-2.5 rounded-lg border transition-all ${
+                          !isConnected
+                            ? "border-slate-200 dark:border-slate-800 opacity-40"
+                            : isSelected
+                            ? "border-primary/40 bg-primary/5 dark:bg-primary/10 shadow-2xs"
+                            : "border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                        } ${isDropdownOpen ? "z-50 ring-2 ring-primary/40" : "z-10"}`}
+                      >
                         {/* CHECKBOX TO MULTI-SELECT/DESELECT PLATFORM */}
                         <input
                           type="checkbox"
                           checked={isSelected}
                           disabled={!isConnected}
                           onChange={() => togglePlatform(platform.id)}
-                          className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer disabled:opacity-40"
+                          className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer disabled:opacity-40"
                           title={`Select/Deselect ${platform.label}`}
                         />
 
@@ -1511,7 +1521,10 @@ export default function AIStudioPage() {
                             type="button"
                             disabled={!isConnected}
                             onClick={() => setOpenPlatformDropdown(isDropdownOpen ? null : platform.id)}
-                            className={`flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                            onMouseEnter={() => {
+                              if (isConnected) setOpenPlatformDropdown(platform.id);
+                            }}
+                            className={`flex items-center gap-1.5 py-0.5 rounded text-xs font-bold transition-all ${
                               !isConnected
                                 ? "text-slate-400 opacity-50 cursor-not-allowed"
                                 : isSelected
@@ -1519,17 +1532,17 @@ export default function AIStudioPage() {
                                 : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
                             }`}
                           >
-                            <Icon className="h-4 w-4" />
-                            <span>{platform.label}</span>
+                            <Icon className="h-3.5 w-3.5" />
+                            <span className="text-[12px]">{platform.label}</span>
                             <ChevronDown className="h-3 w-3 opacity-60 ml-0.5" />
                           </button>
 
-                          {/* FORMAT SELECTION DROPDOWN */}
+                          {/* FORMAT SELECTION DROPDOWN (EXACT ALIGNMENT & TICK BOXES) */}
                           {isDropdownOpen && (
-                            <div className="absolute top-full left-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-2.5 space-y-1 animate-in fade-in slide-in-from-top-1">
+                            <div className="absolute top-full left-0 mt-1 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-2 space-y-1 animate-in fade-in slide-in-from-top-1">
                               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
                                 <span>{platform.label} Formats</span>
-                                <button type="button" onClick={() => setOpenPlatformDropdown(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+                                <span className="text-[9px] text-slate-400">Select formats</span>
                               </div>
                               {platform.contentTypes.map((type) => {
                                 const isChecked = isSelected && activeFormats.includes(type);
@@ -1541,10 +1554,17 @@ export default function AIStudioPage() {
                                       if (!isSelected) togglePlatform(platform.id);
                                       toggleContentType(platform.id, type);
                                     }}
-                                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-left transition-colors"
+                                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-left transition-colors"
                                   >
-                                    <span>{type}</span>
-                                    {isChecked ? <span className="text-emerald-500 font-bold">✓</span> : <span className="text-slate-300">+</span>}
+                                    <span className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {}}
+                                        className="rounded border-slate-300 text-primary h-3.5 w-3.5 pointer-events-none"
+                                      />
+                                      <span>{type}</span>
+                                    </span>
                                   </button>
                                 );
                               })}
