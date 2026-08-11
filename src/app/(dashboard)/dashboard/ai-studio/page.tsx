@@ -3197,6 +3197,201 @@ export default function AIStudioPage() {
                       ) : (
                         <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       )}
+      {activeMediaModal === "upload" && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {isCarousel
+                      ? "Upload Carousel Media Slides"
+                      : currentMediaType === "video"
+                      ? "Upload Reel / Video File"
+                      : "Upload Image File"}
+                  </h3>
+                  <p className="text-xs text-slate-500">From your computer for {activePlatformTab.toUpperCase()} ({currentFormatName})</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center space-y-3 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-colors">
+              <div className="mx-auto w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                <Upload className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  {isCarousel
+                    ? "Select Image or Video Files for Carousel Slides"
+                    : currentMediaType === "video"
+                    ? "Select Video File (MP4, MOV, WEBM)"
+                    : "Select Image File (JPG, PNG, WEBP)"}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1">Supports files up to 50MB</p>
+              </div>
+              <label className="inline-flex cursor-pointer">
+                <input
+                  type="file"
+                  accept={currentMediaType === "video" ? "video/*" : "image/*,video/*"}
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const url = URL.createObjectURL(file);
+                      setCustomMediaDict(prev => ({
+                        ...prev,
+                        [currentMediaKey]: { url, type: file.type.startsWith("video") ? "video" : "image" }
+                      }));
+                      setActiveMediaModal(null);
+                    }
+                  }}
+                />
+                <Button type="button" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 pointer-events-none">
+                  <Upload className="h-4 w-4" /> Choose File from Computer
+                </Button>
+              </label>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button variant="ghost" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* 2. HD STOCK MEDIA MODAL WITH BUSINESS CATEGORIES */}
+      {/* ============================================================================ */}
+      {activeMediaModal === "stock" && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500">
+                  <ImageIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">HD Stock Media Library</h3>
+                  <p className="text-xs text-slate-500">Search millions of free royalty-free photos & video clips</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* SEARCH INPUT & TYPE TOGGLE */}
+            <div className="flex gap-2">
+              <Input
+                value={stockQuery}
+                onChange={e => setStockQuery(e.target.value)}
+                placeholder="Search stock media (e.g. robotics, office, software)..."
+                onKeyDown={async e => {
+                  if (e.key === "Enter") {
+                    setSearchingStock(true);
+                    const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
+                    if (res.success && res.hits) setStockResults(res.hits);
+                    setSearchingStock(false);
+                  }
+                }}
+                className="flex-1 text-xs"
+              />
+              <select
+                value={stockMediaType}
+                onChange={async e => {
+                  const type = e.target.value as any;
+                  setStockMediaType(type);
+                  setSearchingStock(true);
+                  const res = await searchStockMedia(stockQuery || selectedStockCategory, type);
+                  if (res.success && res.hits) setStockResults(res.hits);
+                  setSearchingStock(false);
+                }}
+                className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold bg-white dark:bg-slate-900"
+              >
+                <option value="image">Images</option>
+                <option value="video">Videos</option>
+              </select>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  setSearchingStock(true);
+                  const res = await searchStockMedia(stockQuery || selectedStockCategory, stockMediaType);
+                  if (res.success && res.hits) setStockResults(res.hits);
+                  setSearchingStock(false);
+                }}
+                disabled={searchingStock}
+              >
+                {searchingStock ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4 mr-1" />} Search
+              </Button>
+            </div>
+
+            {/* PRE-BUILT CATEGORY PILLS */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Popular Categories</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Business", "Tech & AI", "E-Commerce", "Robotics",
+                  "Lifestyle", "Fitness", "Real Estate", "Food & Dining"
+                ].map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={async () => {
+                      setSelectedStockCategory(cat);
+                      setStockQuery(cat);
+                      setSearchingStock(true);
+                      const res = await searchStockMedia(cat, stockMediaType);
+                      if (res.success && res.hits) setStockResults(res.hits);
+                      setSearchingStock(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      selectedStockCategory === cat
+                        ? "bg-primary text-white shadow-2xs font-bold"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* RESULTS GRID */}
+            <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[420px] pt-1">
+              {searchingStock ? (
+                <div className="flex items-center justify-center h-48 text-slate-400 gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" /> Fetching Stock Media...
+                </div>
+              ) : stockResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-slate-400 gap-2">
+                  <ImageIcon className="h-8 w-8 text-slate-300" />
+                  <p className="text-xs">Click a category pill above or type a search term</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                  {stockResults.map(item => (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        setCustomMediaDict(prev => ({
+                          ...prev,
+                          [currentMediaKey]: { url: item.url, type: item.type }
+                        }));
+                        setActiveMediaModal(null);
+                      }}
+                      className="group relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-200 dark:border-slate-800 hover:ring-2 hover:ring-primary transition-all shadow-xs"
+                    >
+                      {item.type === "video" ? (
+                        <video src={item.url} className="w-full h-full object-cover" muted loop autoPlay />
+                      ) : (
+                        <img src={item.previewUrl} alt={item.tags} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                         <Badge className="text-[10px] gap-1 bg-white text-slate-900 font-bold"><Plus className="h-3 w-3" /> Select</Badge>
                       </div>
@@ -3204,8 +3399,6 @@ export default function AIStudioPage() {
                   ))}
                 </div>
               )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -3214,8 +3407,292 @@ export default function AIStudioPage() {
       {/* ============================================================================ */}
       {activeMediaModal === "ai" && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {isCarousel ? "AI Graphic Carousel Studio" : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
+                  </h3>
+                  <p className="text-xs text-slate-500">Format: {currentFormatName} ({activePlatformTab.toUpperCase()})</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveMediaModal(null)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* MODAL CONTROLS BASED ON FORMAT */}
+            {isCarousel ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Number of Carousel Slides
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[3, 5, 7, 10].map(count => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setCarouselSlideCount(count)}
+                        className={`py-2 rounded-xl text-xs font-extrabold border transition-all ${
+                          carouselSlideCount === count
+                            ? "bg-primary text-white border-primary shadow-xs"
+                            : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-primary/50"
+                        }`}
+                      >
+                        {count} Slides
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Custom Carousel Instructions / Topic (Optional)
+                  </label>
+                  <Textarea
+                    rows={3}
+                    value={carouselCustomPrompt}
+                    onChange={e => setCarouselCustomPrompt(e.target.value)}
+                    placeholder="e.g. Create 5 slides showing step-by-step how SMB Robotics builds IoT automation systems..."
+                    className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
+                </div>
+              </div>
+            ) : currentMediaType === "video" ? (
+              /* RICH SPECIALIZED AI VIDEO GENERATION STUDIO */
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Select AI Video Engine
+                  </label>
+                  <select
+                    value={selectedAiVideoModel}
+                    onChange={e => setSelectedAiVideoModel(e.target.value)}
+                    className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-extrabold text-slate-900 dark:text-white"
+                  >
+                    <option value="template">🎨 Canva-Style Motion Template Studio</option>
+                    <option value="heygen">🗣️ HeyGen AI Digital Avatar Presenter</option>
+                    <option value="veo3">📹 Google Veo 3 AI Video (4K Cinematic)</option>
+                    <option value="runway">🎬 Runway Gen-3 Alpha Cinematic</option>
+                    <option value="luma">✨ Luma Dream Machine Photorealistic</option>
+                  </select>
+                </div>
+
+                {/* ENGINE 1: HEYGEN DIGITAL AVATAR PRESENTING STUDIO */}
+                {selectedAiVideoModel === "heygen" && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                      <span className="text-xs font-extrabold text-primary uppercase tracking-wider">HeyGen Digital Twin & Avatar Studio</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Presenter Avatar</label>
+                        <select
+                          value={heygenAvatar}
+                          onChange={e => setHeygenAvatar(e.target.value)}
+                          className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                        >
+                          <option value="sarah">Sarah (Professional Tech Lead)</option>
+                          <option value="alex">Alex (B2B Executive Host)</option>
+                          <option value="elena">Elena (Creative Marketing Lead)</option>
+                          <option value="david">David (Corporate Director)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">AI Voice & Accent</label>
+                        <select
+                          value={heygenVoice}
+                          onChange={e => setHeygenVoice(e.target.value)}
+                          className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                        >
+                          <option value="en-US-female">US English - Professional Female</option>
+                          <option value="en-US-male">US English - Energetic Male</option>
+                          <option value="en-UK-executive">UK English - Executive Formal</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Studio Background</label>
+                      <select
+                        value={heygenBg}
+                        onChange={e => setHeygenBg(e.target.value)}
+                        className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                      >
+                        <option value="office">Modern Office Tech Studio</option>
+                        <option value="cyberpunk">Cyberpunk Neon Workspace</option>
+                        <option value="gradient">Minimal Studio Gradient</option>
+                        <option value="greenscreen">Green Screen Transparent</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Avatar Spoken Script</label>
+                      <Textarea
+                        rows={3}
+                        value={videoPromptText}
+                        onChange={e => setVideoPromptText(e.target.value)}
+                        placeholder="Type the exact text script for HeyGen avatar to speak in video..."
+                        className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Est. Duration: {Math.max(5, Math.round((videoPromptText || "").split(" ").length / 2.5))} seconds</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ENGINE 2: CANVA-STYLE MOTION TEMPLATE STUDIO */}
+                {selectedAiVideoModel === "template" && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+                      <span className="text-xs font-extrabold text-indigo-500 uppercase tracking-wider">Canva Motion Template Editor</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Template Preset</label>
+                        <select
+                          value={templateCategory}
+                          onChange={e => setTemplateCategory(e.target.value)}
+                          className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                        >
+                          <option value="product">Product Launch Showcase</option>
+                          <option value="saas">SaaS Feature Spotlight</option>
+                          <option value="announcement">Tech Announcement</option>
+                          <option value="quote">Minimal Quote Reel</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Motion FX</label>
+                        <select
+                          value={templateAnimation}
+                          onChange={e => setTemplateAnimation(e.target.value)}
+                          className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                        >
+                          <option value="zoom">Smooth Zoom & Slide</option>
+                          <option value="bounce">Pop & Bounce Text</option>
+                          <option value="lift">Fade & Lift Motion</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Headline Overlay Text</label>
+                      <Input
+                        value={templateHeadline}
+                        onChange={e => setTemplateHeadline(e.target.value)}
+                        placeholder="e.g. Next-Gen AI Marketing Platform"
+                        className="h-8 text-xs bg-white dark:bg-slate-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sub-Headline / Call to Action</label>
+                      <Input
+                        value={templateSubheadline}
+                        onChange={e => setTemplateSubheadline(e.target.value)}
+                        placeholder="e.g. Automate your social channels with SMB Robotics AI"
+                        className="h-8 text-xs bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* ENGINE 3: CINEMATIC AI VIDEO GENERATORS (VEO3 / RUNWAY / LUMA) */}
+                {(selectedAiVideoModel === "veo3" || selectedAiVideoModel === "runway" || selectedAiVideoModel === "luma") && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Camera Motion & Angles</label>
+                      <select
+                        value={cameraMotion}
+                        onChange={e => setCameraMotion(e.target.value)}
+                        className="w-full h-8 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 font-semibold"
+                      >
+                        <option value="pan">Pan Left to Right</option>
+                        <option value="zoom">Dynamic Cinematic Zoom In</option>
+                        <option value="orbit">Orbit 360 Degree View</option>
+                        <option value="drone">Drone Flyover Shot</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Cinematic Video Prompt</label>
+                      <Textarea
+                        rows={3}
+                        value={videoPromptText}
+                        onChange={e => setVideoPromptText(e.target.value)}
+                        placeholder="e.g. High-tech automated robotic warehouse with sleek lighting and smooth camera motion..."
+                        className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* AI IMAGE CONTROLS */
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Select AI Generator Engine</label>
+                  <select
+                    value={selectedAiImageModel}
+                    onChange={e => setSelectedAiImageModel(e.target.value)}
+                    className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="pollinations">Pollinations AI (Fast High-Res - Free)</option>
+                    <option value="flux">Flux.1 / Imagen 3 Photorealistic</option>
+                    <option value="midjourney">Midjourney v6 Artistic Style</option>
+                    <option value="dalle">DALL-E 3 / ChatGPT Image Model</option>
+                    <option value="banana">Banana SDXL Ultra Speed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Visual Prompt (Optional)</label>
+                  <Textarea
+                    rows={3}
+                    value={customPrompt}
+                    onChange={e => setCustomPrompt(e.target.value)}
+                    placeholder="e.g. Sleek modern marketing poster with vibrant purple lighting and futuristic digital interface..."
+                    className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={isRenderingMedia}
+                onClick={async () => {
+                  await handleRenderMedia();
+                  setActiveMediaModal(null);
+                }}
+                className="bg-gradient-to-r from-primary to-indigo-600 text-white font-bold gap-1.5"
+              >
+                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================================ */}
+      {/* CUSTOM PROMPT REGENERATION MODAL */}
+      {/* ============================================================================ */}
+      {customPromptModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <Wand2 className="h-5 w-5 text-indigo-500" /> Custom Prompt Media AI
               </h3>
               <button onClick={() => setCustomPromptModalOpen(false)} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800">
