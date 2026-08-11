@@ -3735,8 +3735,11 @@ export default function AIStudioPage() {
                 }}
               >
                 <Sparkles className="h-4 w-4 mr-1" /> Generate Custom Visual
-              </Button>
             </div>
+          </div>
+        </div>
+      )}
+
       {/* ============================================================================ */}
       {/* 4. FULL-FEATURED AI VIDEO CREATOR STUDIO MODAL */}
       {/* ============================================================================ */}
