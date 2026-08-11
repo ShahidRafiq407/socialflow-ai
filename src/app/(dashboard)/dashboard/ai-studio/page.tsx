@@ -2657,21 +2657,28 @@ export default function AIStudioPage() {
               Live Mockup Preview ({getPlatformDef(manualPost.platform).label})
             </h3>
             <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-4 w-full flex items-center justify-center min-h-[400px]">
-              {manualPost.platform === "instagram" ? (
-                <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
-              ) : manualPost.platform === "linkedin" ? (
-                <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} />
-              ) : manualPost.platform === "x" ? (
-                <XPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
-              ) : manualPost.platform === "tiktok" ? (
-                <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} userHandle={userHandle} currentCaption={manualPost.caption} />
-              ) : manualPost.platform === "youtube" ? (
-                <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} />
-              ) : manualPost.platform === "facebook" ? (
-                <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={userName} userImage={userImage} currentCaption={manualPost.caption} isVertical={false} />
-              ) : (
-                <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={userName} userImage={userImage} />
-              )}
+              {(() => {
+                const manualIntegration = integrationsList.find(i => i.platformKey === manualPost.platform);
+                const mName = manualIntegration?.pageName || manualIntegration?.handle || defaultUserName;
+                const mHandle = manualIntegration?.handle ? (manualIntegration.handle.startsWith("@") ? manualIntegration.handle : `@${manualIntegration.handle}`) : `@${defaultUserHandle}`;
+                const mImage = defaultUserImage;
+
+                if (manualPost.platform === "instagram") {
+                  return <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                } else if (manualPost.platform === "linkedin") {
+                  return <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} />;
+                } else if (manualPost.platform === "x") {
+                  return <XPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                } else if (manualPost.platform === "tiktok") {
+                  return <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                } else if (manualPost.platform === "youtube") {
+                  return <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} />;
+                } else if (manualPost.platform === "facebook") {
+                  return <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isVertical={false} />;
+                } else {
+                  return <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={mName} userImage={mImage} />;
+                }
+              })()}
             </div>
           </Card>
         </div>
