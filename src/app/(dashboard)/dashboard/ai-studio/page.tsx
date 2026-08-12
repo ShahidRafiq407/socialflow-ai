@@ -554,33 +554,47 @@ export default function AIStudioPage() {
   const handleMultiAgentPayload = (campaignPayload: any) => {
     if (!campaignPayload || !campaignPayload.platforms) return;
     
+    const firstPlatform = selectedPlatforms[0] || Object.keys(campaignPayload.platforms)[0];
+
     setGeneratedContents(prev => {
       const updated = { ...prev };
       for (const [plt, formats] of Object.entries(campaignPayload.platforms as Record<string, Record<string, any>>)) {
-        updated[plt] = updated[plt] || {};
+        const normalizedPlt = plt.toLowerCase();
+        updated[normalizedPlt] = updated[normalizedPlt] || {};
         for (const [fmt, content] of Object.entries(formats)) {
           const caption = content.caption || "";
           const hashtags = Array.isArray(content.hashtags) 
             ? content.hashtags.map((h: string) => h.startsWith("#") ? h : `#${h}`) 
             : [];
-          const visualPrompts = content.visualPrompt ? [content.visualPrompt] : [];
+          const visualPrompts = Array.isArray(content.visualPrompts) && content.visualPrompts.length > 0 
+            ? content.visualPrompts 
+            : (content.imagePrompt ? [content.imagePrompt] : []);
           
-          updated[plt][fmt] = {
+          updated[normalizedPlt][fmt] = {
             caption,
-            imagePrompt: content.visualPrompt || "",
+            imagePrompt: content.imagePrompt || content.visualPrompt || "",
             hashtags,
             visualPrompts,
             bestTime: content.bestTime || "Best engagement window",
-            overlayText: content.overlayText || [],
+            overlayText: Array.isArray(content.overlayText) ? content.overlayText : [],
           };
         }
       }
       return updated;
     });
 
+    if (firstPlatform) {
+      const normFirst = firstPlatform.toLowerCase();
+      setActivePlatformTab(normFirst);
+      const availableFmts = Object.keys(campaignPayload.platforms[firstPlatform] || campaignPayload.platforms[normFirst] || {});
+      if (availableFmts.length > 0) {
+        setActiveFormatTab(prev => ({ ...prev, [normFirst]: availableFmts[0] }));
+      }
+    }
+
     setPublishResult({
       success: true,
-      message: "AI Multi-Agent Content generated successfully for all selected platforms!",
+      message: "AI Multi-Agent Content generated & loaded into Content Editor!",
     });
     setTimeout(() => setPublishResult(null), 3500);
   };
