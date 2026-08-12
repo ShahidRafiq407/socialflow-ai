@@ -40,18 +40,40 @@ export class VertexAIProvider {
   }
 
   /**
-   * Helper to resolve fallback model names if Vertex AI returns 404 for futuristic / preview names
+   * Helper to resolve candidate model names prioritizing exact preview strings
    */
   private getFallbackModels(requestedModel: string): string[] {
-    const list = [requestedModel];
-    
-    // Map futuristic / preview model names to standard GA model names on Vertex AI & AI Studio
-    if (requestedModel.includes("3.1-pro") || requestedModel.includes("3.0-pro")) {
-      list.push("gemini-2.5-pro", "gemini-1.5-pro-002", "gemini-1.5-pro");
+    const list: string[] = [];
+
+    // 1. If requested model doesn't have -preview, add the -preview version FIRST (e.g. gemini-3.1-pro-preview)
+    if (!requestedModel.endsWith("-preview")) {
+      list.push(`${requestedModel}-preview`);
+    }
+
+    // 2. Add exact requested model
+    list.push(requestedModel);
+
+    // 3. Add latest Gemini 3 / 2.5 preview & GA variations in order of recency
+    if (requestedModel.includes("3.1-pro") || requestedModel.includes("pro")) {
+      list.push(
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-pro",
+        "gemini-3.0-pro-preview",
+        "gemini-2.5-pro-preview",
+        "gemini-2.5-pro",
+        "gemini-1.5-pro"
+      );
     } else if (requestedModel.includes("flash")) {
-      list.push("gemini-2.5-flash", "gemini-1.5-flash-002", "gemini-1.5-flash");
+      list.push(
+        "gemini-3.6-flash-preview",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-preview",
+        "gemini-2.5-flash-preview",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash"
+      );
     } else {
-      list.push("gemini-1.5-pro", "gemini-1.5-flash");
+      list.push("gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro");
     }
 
     return Array.from(new Set(list));
