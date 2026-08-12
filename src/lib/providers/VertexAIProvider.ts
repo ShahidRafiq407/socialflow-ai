@@ -28,10 +28,14 @@ export class VertexAIProvider {
         console.error("Failed to parse GOOGLE_CREDENTIALS_JSON string.");
       }
     } else if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+      // Individual env vars (Vercel) - MUST include 'type' and 'token_uri' for google-auth-library
       credentials = {
+        type: "service_account",
+        project_id: process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT_ID,
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
         private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-        project_id: process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT_ID,
+        token_uri: "https://oauth2.googleapis.com/token",
+        universe_domain: "googleapis.com",
       };
     } else {
       const localPath = path.resolve(process.cwd(), "google-credentials.json");
@@ -46,6 +50,16 @@ export class VertexAIProvider {
 
     const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || "project-6191674b-f452-4f72-903";
     const googleAuthOptions = credentials ? { credentials } : undefined;
+
+    // Diagnostic logging (visible in Vercel Function Logs)
+    console.log("[Provider Init]", {
+      hasGeminiApiKey: !!this.googleAI,
+      hasCredentials: !!credentials,
+      credentialsType: credentials?.type || "none",
+      credentialsEmail: credentials?.client_email ? credentials.client_email.slice(0, 15) + "..." : "none",
+      projectId,
+      location: process.env.GOOGLE_CLOUD_LOCATION || "global",
+    });
 
     try {
       const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
