@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   X,
   Sparkles,
@@ -20,12 +20,22 @@ import {
   Mic,
   Film,
   Sparkle,
-  Volume2
+  Volume2,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Image as ImageIcon,
+  ChevronRight,
+  ChevronLeft,
+  FastForward
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import StockMediaModal from "@/components/stock-media/StockMediaModal";
+import { generateAIReelPackage, ReelScene } from "@/actions/ai-reel-generator";
+import { StockHit } from "@/actions/stock-media";
 
 interface VideoStudioModalProps {
   isOpen: boolean;
@@ -36,6 +46,14 @@ interface VideoStudioModalProps {
   defaultTopic?: string;
 }
 
+const TOPIC_PRESETS = [
+  "5 Habits of Successful Entrepreneurs",
+  "3 AI Tools That Will Replace 90% of Software Jobs",
+  "How to Scale Your Business in 2026",
+  "5 Morning Routines for Maximum Productivity",
+  "3 Secret Marketing Strategies for Explosive Growth"
+];
+
 export default function VideoStudioModal({
   isOpen,
   onClose,
@@ -45,95 +63,172 @@ export default function VideoStudioModal({
   defaultTopic = ""
 }: VideoStudioModalProps) {
   // Main Studio Mode Tabs
-  const [activeTab, setActiveTab] = useState<"template" | "heygen" | "veo3" | "runway">("template");
+  const [activeTab, setActiveTab] = useState<"ai_reel" | "canva" | "heygen" | "veo3">("ai_reel");
 
-  // --- TAB 1: CANVA STUDIO STATE ---
-  const [canvaSidebarTab, setCanvaSidebarTab] = useState<"templates" | "uploads" | "text" | "effects">("templates");
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("product");
-  const [headlineText, setHeadlineText] = useState<string>(defaultTopic || "Exciting New Product Launch");
-  const [subheadlineText, setSubheadlineText] = useState<string>("Automate your social growth with AI");
-  const [motionFx, setMotionFx] = useState<string>("zoom");
-  const [voiceFilter, setVoiceFilter] = useState<string>("studio");
-  const [trimDuration, setTrimDuration] = useState<number>(15);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
+  // --- STRATEGY 1: GROQ + PIXABAY AUTO AI REEL STATE ---
+  const [reelTopic, setReelTopic] = useState<string>(defaultTopic || "5 Habits of Successful Entrepreneurs");
+  const [isGeneratingReel, setIsGeneratingReel] = useState<boolean>(false);
+  const [scenes, setScenes] = useState<ReelScene[]>([
+    {
+      id: 1,
+      text: "Stop wasting time on low-impact tasks!",
+      keyword: "businessman working desk",
+      durationSeconds: 4,
+      videoUrl: "https://cdn.pixabay.com/video/2021/04/12/70868-536412678_tiny.mp4",
+      mediaType: "video"
+    },
+    {
+      id: 2,
+      text: "Focus 80% of your energy on high ROI goals.",
+      keyword: "growth chart analytics strategy",
+      durationSeconds: 4,
+      videoUrl: "https://cdn.pixabay.com/video/2020/05/25/40150-425126838_tiny.mp4",
+      mediaType: "video"
+    },
+    {
+      id: 3,
+      text: "Automate repetitive workflows with AI tools.",
+      keyword: "future technology artificial intelligence",
+      durationSeconds: 4,
+      videoUrl: "https://cdn.pixabay.com/video/2019/04/23/23011-332490515_tiny.mp4",
+      mediaType: "video"
+    }
+  ]);
 
-  // --- TAB 2: HEYGEN AVATAR STATE ---
-  const [heygenAvatar, setHeygenAvatar] = useState<string>("sarah");
-  const [heygenVoice, setHeygenVoice] = useState<string>("en-US-female");
-  const [heygenBg, setHeygenBg] = useState<string>("office");
-  const [heygenScript, setHeygenScript] = useState<string>(
-    defaultTopic ? `Hello! Welcome to our official update on ${defaultTopic}. Let me walk you through the key features.` : "Welcome! Today we are introducing our breakthrough AI solution engineered for growth."
-  );
+  const [activeSceneIdx, setActiveSceneIdx] = useState<number>(0);
+  const [isPlayingReel, setIsPlayingReel] = useState<boolean>(false);
+  const [captionStyle, setCaptionStyle] = useState<"yellow_bold" | "clean_white" | "neon_box">("yellow_bold");
+  const [isStockModalOpen, setIsStockModalOpen] = useState<boolean>(false);
+  const [targetSceneId, setTargetSceneId] = useState<number | null>(null);
 
-  // --- TAB 3 & 4: VEO 3 / SORA & RUNWAY STATE ---
-  const [aiPrompt, setAiPrompt] = useState<string>(
-    defaultTopic ? `Cinematic vertical reel showcasing ${defaultTopic} with futuristic lighting and dynamic camera movement.` : "Cinematic vertical reel of a sleek futuristic tech workspace with smooth camera flyover..."
-  );
-  const [cameraMotion, setCameraMotion] = useState<string>("pan");
-  const [aspectRatio, setAspectRatio] = useState<string>("9:16");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  // File Ref for Manual PC Media Upload per scene
+  const pcFileRef = useRef<HTMLInputElement>(null);
+
+  // Auto-play cycling timer for Reel Canvas
+  useEffect(() => {
+    let timer: any;
+    if (isPlayingReel && scenes.length > 0) {
+      const currentDuration = (scenes[activeSceneIdx]?.durationSeconds || 4) * 1000;
+      timer = setTimeout(() => {
+        setActiveSceneIdx(prev => (prev + 1) % scenes.length);
+      }, currentDuration);
+    }
+    return () => clearTimeout(timer);
+  }, [isPlayingReel, activeSceneIdx, scenes]);
+
+  // Voiceover Text-To-Speech Synthesis helper
+  const playVoiceover = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const currentText = scenes[activeSceneIdx]?.text || "";
+      if (currentText) {
+        const utterance = new SpeechSynthesisUtterance(currentText);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  };
+
+  // Trigger Full AI Reel Generation (Groq + Pixabay API)
+  const handleGenerateAIReel = async (topicToUse?: string) => {
+    const targetTopic = topicToUse || reelTopic;
+    if (!targetTopic.trim()) return;
+
+    setIsGeneratingReel(true);
+    setIsPlayingReel(false);
+
+    try {
+      const res = await generateAIReelPackage(targetTopic, 4);
+      if (res.success && res.scenes && res.scenes.length > 0) {
+        setScenes(res.scenes);
+        setActiveSceneIdx(0);
+        setIsPlayingReel(true);
+      }
+    } catch (error) {
+      console.error("AI Reel Generation failed:", error);
+    }
+
+    setIsGeneratingReel(false);
+  };
+
+  // Manual Scene Media Update (Pixabay Stock Modal callback)
+  const handleSelectStockForScene = (item: StockHit) => {
+    if (targetSceneId !== null) {
+      setScenes(prev =>
+        prev.map(s => (s.id === targetSceneId ? { ...s, videoUrl: item.url, mediaType: item.type } : s))
+      );
+    }
+    setIsStockModalOpen(false);
+    setTargetSceneId(null);
+  };
+
+  // Manual PC Media Upload Callback for Scene
+  const handlePCFileUploadForScene = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && targetSceneId !== null) {
+      const url = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith("video/");
+      setScenes(prev =>
+        prev.map(s => (s.id === targetSceneId ? { ...s, videoUrl: url, mediaType: isVideo ? "video" : "image" } : s))
+      );
+    }
+    setTargetSceneId(null);
+  };
+
+  // Final Action: Add Video Reel to Post
+  const handleApplyAndClose = () => {
+    const primaryVideo = scenes[0]?.videoUrl || "";
+    onSelectVideo(primaryVideo);
+    onClose();
+  };
 
   if (!isOpen) return null;
 
-  // Mock Video Presets for Live Editing
-  const TEMPLATE_PRESETS = [
-    { id: "product", name: "Product Showcase", bgUrl: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80", color: "from-purple-900 to-indigo-950" },
-    { id: "saas", name: "SaaS Feature Spotlight", bgUrl: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=80", color: "from-blue-900 to-slate-950" },
-    { id: "tech", name: "Tech Announcement", bgUrl: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=80", color: "from-emerald-950 to-teal-900" },
-    { id: "minimal", name: "Minimal Quote Reel", bgUrl: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80", color: "from-slate-900 to-black" }
-  ];
-
-  const HEYGEN_AVATARS = [
-    { id: "sarah", name: "Sarah (Tech Lead)", img: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=400&auto=format&fit=crop&q=80" },
-    { id: "alex", name: "Alex (B2B Executive)", img: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=400&auto=format&fit=crop&q=80" },
-    { id: "elena", name: "Elena (Creative Host)", img: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=400&auto=format&fit=crop&q=80" },
-    { id: "david", name: "David (Corporate Lead)", img: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400&auto=format&fit=crop&q=80" }
-  ];
-
-  const activePreset = TEMPLATE_PRESETS.find(p => p.id === selectedTemplate) || TEMPLATE_PRESETS[0];
-
-  const handleApplyAndClose = () => {
-    // Generate high-resolution video preview URL
-    let finalVideoUrl = uploadedVideoUrl || activePreset.bgUrl;
-    if (activeTab === "heygen") {
-      const selectedAvatarObj = HEYGEN_AVATARS.find(a => a.id === heygenAvatar);
-      finalVideoUrl = selectedAvatarObj?.img || finalVideoUrl;
-    }
-    onSelectVideo(finalVideoUrl);
-    onClose();
-  };
+  const currentScene = scenes[activeSceneIdx] || scenes[0];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
       <div className="bg-slate-950 rounded-3xl w-full max-w-6xl h-[92vh] border border-slate-800 shadow-2xl flex flex-col overflow-hidden text-white">
         
         {/* ============================================================================ */}
-        {/* HEADER BAR: STUDIO TITLE & 4 MAIN ENGINE TABS */}
+        {/* HEADER BAR: STUDIO TITLE & ENGINE TABS */}
         {/* ============================================================================ */}
         <div className="p-3.5 px-6 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-lg">
+            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 text-white shadow-lg">
               <Film className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-black tracking-wide text-white uppercase">AI Video Creator Studio</h2>
+                <h2 className="text-base font-black tracking-wide text-white uppercase">AI Video & Reel Creator Studio</h2>
                 <Badge variant="outline" className="text-[10px] font-extrabold uppercase border-purple-500/40 text-purple-300 bg-purple-950/40">
                   {formatName} ({platform.toUpperCase()})
                 </Badge>
               </div>
-              <p className="text-xs text-slate-400">Canva-style editing, HeyGen avatars, Veo 3 & Sora AI motion engines</p>
+              <p className="text-xs text-slate-400">Groq AI Multi-Scene Scripting, HD Stock Videos & Kinetic Voiceover Subtitles</p>
             </div>
           </div>
 
-          {/* 4 ENGINE TABS */}
+          {/* ENGINE TABS */}
           <div className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
             <button
-              onClick={() => setActiveTab("template")}
+              onClick={() => setActiveTab("ai_reel")}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-                activeTab === "template"
-                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md"
+                activeTab === "ai_reel"
+                  ? "bg-gradient-to-r from-purple-600 via-pink-600 to-amber-500 text-white shadow-md"
+                  : "text-slate-400 hover:text-white hover:bg-slate-900"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>⚡ Groq AI Reel Builder</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("canva")}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+                activeTab === "canva"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md"
                   : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
@@ -157,24 +252,12 @@ export default function VideoStudioModal({
               onClick={() => setActiveTab("veo3")}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 ${
                 activeTab === "veo3"
-                  ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md"
-                  : "text-slate-400 hover:text-white hover:bg-slate-900"
-              }`}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Google Veo 3 / Sora</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab("runway")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-                activeTab === "runway"
-                  ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-md"
+                  ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md"
                   : "text-slate-400 hover:text-white hover:bg-slate-900"
               }`}
             >
               <VideoIcon className="h-3.5 w-3.5" />
-              <span>Runway Gen-3</span>
+              <span>Google Veo 3 / Sora</span>
             </button>
           </div>
 
@@ -187,384 +270,333 @@ export default function VideoStudioModal({
           </button>
         </div>
 
+        {/* Hidden PC File Input for Manual Upload per Scene */}
+        <input
+          type="file"
+          ref={pcFileRef}
+          accept="video/*,image/*"
+          className="hidden"
+          onChange={handlePCFileUploadForScene}
+        />
+
         {/* ============================================================================ */}
         {/* MAIN BODY AREA */}
         {/* ============================================================================ */}
         <div className="flex-1 flex overflow-hidden">
 
           {/* -------------------------------------------------------------------------- */}
-          {/* TAB 1: CANVA-STYLE VIDEO EDITOR STUDIO */}
+          {/* TAB 1: GROQ AI REEL BUILDER (STRATEGY 1) */}
           {/* -------------------------------------------------------------------------- */}
-          {activeTab === "template" && (
-            <div className="w-full h-full flex flex-col md:flex-row overflow-hidden">
+          {activeTab === "ai_reel" && (
+            <div className="w-full h-full flex flex-col md:flex-row overflow-hidden p-4 gap-5">
               
-              {/* SIDEBAR NAVIGATION (CANVA ICON BAR) */}
-              <div className="w-16 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-5 shrink-0">
-                <button
-                  onClick={() => setCanvaSidebarTab("templates")}
-                  className={`flex flex-col items-center gap-1 text-[10px] font-bold p-2.5 rounded-xl w-12 transition-all ${
-                    canvaSidebarTab === "templates" ? "bg-purple-600 text-white shadow-md" : "text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  <Tv className="h-5 w-5" />
-                  <span>Presets</span>
-                </button>
-
-                <button
-                  onClick={() => setCanvaSidebarTab("uploads")}
-                  className={`flex flex-col items-center gap-1 text-[10px] font-bold p-2.5 rounded-xl w-12 transition-all ${
-                    canvaSidebarTab === "uploads" ? "bg-purple-600 text-white shadow-md" : "text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  <Upload className="h-5 w-5" />
-                  <span>Uploads</span>
-                </button>
-
-                <button
-                  onClick={() => setCanvaSidebarTab("text")}
-                  className={`flex flex-col items-center gap-1 text-[10px] font-bold p-2.5 rounded-xl w-12 transition-all ${
-                    canvaSidebarTab === "text" ? "bg-purple-600 text-white shadow-md" : "text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  <Type className="h-5 w-5" />
-                  <span>Text</span>
-                </button>
-
-                <button
-                  onClick={() => setCanvaSidebarTab("effects")}
-                  className={`flex flex-col items-center gap-1 text-[10px] font-bold p-2.5 rounded-xl w-12 transition-all ${
-                    canvaSidebarTab === "effects" ? "bg-purple-600 text-white shadow-md" : "text-slate-400 hover:bg-slate-800"
-                  }`}
-                >
-                  <Sliders className="h-5 w-5" />
-                  <span>Audio/FX</span>
-                </button>
-              </div>
-
-              {/* CANVA TOOL PANEL */}
-              <div className="w-72 bg-slate-900/60 border-r border-slate-800 p-4 space-y-4 overflow-y-auto shrink-0">
-                {canvaSidebarTab === "templates" && (
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase text-purple-400 tracking-wider">Motion Presets</h3>
-                    <div className="grid grid-cols-2 gap-2">
-                      {TEMPLATE_PRESETS.map(preset => (
-                        <div
-                          key={preset.id}
-                          onClick={() => setSelectedTemplate(preset.id)}
-                          className={`aspect-[9/14] rounded-xl overflow-hidden cursor-pointer border-2 relative transition-all group ${
-                            selectedTemplate === preset.id ? "border-purple-500 ring-2 ring-purple-500/50 shadow-lg" : "border-slate-800 hover:border-slate-700"
-                          }`}
-                        >
-                          <img src={preset.bgUrl} alt={preset.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-2 flex flex-col justify-end">
-                            <span className="text-[10px] font-extrabold text-white leading-tight">{preset.name}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {canvaSidebarTab === "uploads" && (
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase text-emerald-400 tracking-wider">Upload Video / Audio</h3>
-                    <label className="border-2 border-dashed border-slate-700 rounded-2xl p-6 text-center flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-emerald-500 transition-colors bg-slate-950/40">
-                      <Upload className="h-8 w-8 text-emerald-400" />
-                      <span className="text-xs font-bold text-slate-300">Browse Video from PC</span>
-                      <span className="text-[10px] text-slate-500">MP4, MOV, WEBM (Max 100MB)</span>
-                      <input
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) setUploadedVideoUrl(URL.createObjectURL(file));
-                        }}
-                      />
-                    </label>
-                    {uploadedVideoUrl && (
-                      <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/40 flex items-center justify-between text-xs">
-                        <span className="font-bold text-emerald-300 truncate">Custom Video Uploaded</span>
-                        <Check className="h-4 w-4 text-emerald-400" />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {canvaSidebarTab === "text" && (
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase text-indigo-400 tracking-wider">Text & Titles</h3>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1">Headline Text</label>
-                      <Input
-                        value={headlineText}
-                        onChange={e => setHeadlineText(e.target.value)}
-                        placeholder="Headline overlay..."
-                        className="text-xs bg-slate-950 border-slate-800 text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1">Sub-Headline Text</label>
-                      <Input
-                        value={subheadlineText}
-                        onChange={e => setSubheadlineText(e.target.value)}
-                        placeholder="Sub-headline..."
-                        className="text-xs bg-slate-950 border-slate-800 text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1">Motion Animation Effect</label>
-                      <select
-                        value={motionFx}
-                        onChange={e => setMotionFx(e.target.value)}
-                        className="w-full h-8 text-xs rounded-lg border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="zoom">Smooth Zoom & Slide</option>
-                        <option value="bounce">Pop & Bounce Text</option>
-                        <option value="lift">Fade & Lift Motion</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {canvaSidebarTab === "effects" && (
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-black uppercase text-amber-400 tracking-wider">Audio & Voice Filters</h3>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1">Voice Enhancement Filter</label>
-                      <select
-                        value={voiceFilter}
-                        onChange={e => setVoiceFilter(e.target.value)}
-                        className="w-full h-8 text-xs rounded-lg border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="studio">Studio Crystal Clear</option>
-                        <option value="bass">Deep Bass Boost</option>
-                        <option value="podcast">Warm Podcast Tone</option>
-                      </select>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1">
-                        <span>Trim Video Duration</span>
-                        <span>{trimDuration}s</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="5"
-                        max="60"
-                        value={trimDuration}
-                        onChange={e => setTrimDuration(Number(e.target.value))}
-                        className="w-full accent-purple-500"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* CANVA CENTER CANVAS & TIMELINE */}
-              <div className="flex-1 bg-slate-950 p-6 flex flex-col justify-between items-center overflow-y-auto">
-                {/* VIDEO CANVAS PREVIEW */}
-                <div className="relative w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden border-4 border-slate-800 shadow-2xl bg-black flex items-center justify-center group">
-                  {uploadedVideoUrl ? (
-                    <video src={uploadedVideoUrl} className="w-full h-full object-cover" controls={false} autoPlay loop muted />
-                  ) : (
-                    <img src={activePreset.bgUrl} alt="Preview" className="w-full h-full object-cover" />
-                  )}
-
-                  {/* OVERLAY TEXT */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/30 p-5 flex flex-col justify-between z-10">
-                    <div className="flex justify-end">
-                      <Badge className="bg-purple-600 text-white text-[10px] font-extrabold uppercase">Canva Reel</Badge>
-                    </div>
-                    <div className="space-y-1.5 mb-6">
-                      <h2 className="text-white text-xl font-black leading-tight drop-shadow-lg animate-pulse">{headlineText}</h2>
-                      <p className="text-purple-200 text-xs font-semibold drop-shadow-md">{subheadlineText}</p>
-                    </div>
-                  </div>
-
-                  {/* PLAY OVERLAY BUTTON */}
-                  <button
-                    onClick={() => setIsPlaying(!isPlaying)}
-                    className="absolute inset-0 m-auto h-12 w-12 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:scale-110"
-                  >
-                    {isPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
-                  </button>
-                </div>
-
-                {/* BOTTOM VIDEO TIMELINE TRACK */}
-                <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2 mt-4">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-                    <span className="flex items-center gap-1.5 text-purple-400"><Film className="h-3.5 w-3.5" /> Timeline Track</span>
-                    <span>0:00 / 0:{trimDuration < 10 ? `0${trimDuration}` : trimDuration}</span>
-                  </div>
-                  <div className="h-8 bg-slate-950 rounded-xl border border-slate-800 flex items-center px-2 relative overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg w-3/4 opacity-80 flex items-center px-3 text-[11px] font-extrabold text-white">
-                      Video Track - {headlineText}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* -------------------------------------------------------------------------- */}
-          {/* TAB 2: HEYGEN AI DIGITAL AVATAR PRESENTING STUDIO */}
-          {/* -------------------------------------------------------------------------- */}
-          {activeTab === "heygen" && (
-            <div className="w-full h-full flex flex-col md:flex-row overflow-hidden p-6 gap-6">
-              {/* LEFT AVATAR CONTROLS */}
-              <div className="w-full md:w-1/2 space-y-4 overflow-y-auto pr-2">
+              {/* LEFT SIDE: AI GENERATOR & SCENE LIST EDITOR */}
+              <div className="w-full md:w-1/2 flex flex-col space-y-4 overflow-y-auto pr-1">
+                
+                {/* 1. TOPIC INPUT & GROQ GENERATE BAR */}
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
-                  <h3 className="text-xs font-black uppercase text-pink-400 tracking-wider flex items-center gap-2">
-                    <Mic className="h-4 w-4" /> Select Digital Twin Avatar
-                  </h3>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {HEYGEN_AVATARS.map(avatar => (
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-extrabold uppercase text-purple-400 tracking-wider flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" /> AI Script & Scene Generator (Groq Powered)
+                    </h3>
+                    <Badge variant="outline" className="text-[9px] border-purple-500/40 text-purple-300">100% Free Engine</Badge>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={reelTopic}
+                      onChange={e => setReelTopic(e.target.value)}
+                      placeholder="Enter Reel Topic or Niche (e.g. 5 Fitness Hacks)..."
+                      className="text-xs bg-slate-950 border-slate-800 text-white focus:border-purple-500"
+                    />
+                    <Button
+                      disabled={isGeneratingReel}
+                      onClick={() => handleGenerateAIReel()}
+                      className="bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-xs shrink-0 gap-1.5"
+                    >
+                      {isGeneratingReel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                      <span>{isGeneratingReel ? "Generating..." : "Auto Build Reel"}</span>
+                    </Button>
+                  </div>
+
+                  {/* Topic Presets */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    <span className="text-[10px] font-bold text-slate-400">Presets:</span>
+                    {TOPIC_PRESETS.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => { setReelTopic(preset); handleGenerateAIReel(preset); }}
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 hover:bg-purple-900/40 hover:text-purple-300 border border-slate-700 transition-colors"
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. SCENES EDITOR LIST (User can edit text, swap stock, or upload PC file) */}
+                <div className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase text-slate-300 flex items-center gap-1.5">
+                      <Layers className="h-3.5 w-3.5 text-pink-400" /> Multi-Scene Timeline Breakdown ({scenes.length} Scenes)
+                    </h4>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newId = scenes.length + 1;
+                        setScenes([...scenes, { id: newId, text: `Scene ${newId} Text Overlay`, keyword: "business", durationSeconds: 4, mediaType: "video" }]);
+                      }}
+                      className="h-7 text-[11px] font-bold gap-1 border-slate-700 bg-slate-950"
+                    >
+                      <Plus className="h-3 w-3 text-emerald-400" /> Add Scene
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {scenes.map((scene, idx) => (
                       <div
-                        key={avatar.id}
-                        onClick={() => setHeygenAvatar(avatar.id)}
-                        className={`p-2 rounded-xl border-2 cursor-pointer flex items-center gap-2.5 transition-all ${
-                          heygenAvatar === avatar.id ? "border-pink-500 bg-pink-950/20" : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                        key={scene.id}
+                        onClick={() => setActiveSceneIdx(idx)}
+                        className={`p-3 rounded-xl border transition-all cursor-pointer space-y-2.5 ${
+                          activeSceneIdx === idx
+                            ? "bg-slate-950 border-purple-500 shadow-md ring-1 ring-purple-500/50"
+                            : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
                         }`}
                       >
-                        <img src={avatar.img} alt={avatar.name} className="h-10 w-10 rounded-full object-cover border border-pink-500/40 shrink-0" />
-                        <span className="text-xs font-bold text-slate-200">{avatar.name}</span>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-full bg-purple-600 text-white font-extrabold text-[10px] flex items-center justify-center">
+                              {idx + 1}
+                            </span>
+                            <span className="text-xs font-extrabold text-white">Scene {idx + 1}</span>
+                            <Badge variant="outline" className="text-[9px] text-slate-400 border-slate-800">{scene.durationSeconds}s</Badge>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {/* Manual Pixabay Picker */}
+                            <button
+                              title="Pick Stock Video from Pixabay"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTargetSceneId(scene.id);
+                                setIsStockModalOpen(true);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-pink-900/40 text-[10px] font-bold text-pink-300 border border-slate-700 flex items-center gap-1"
+                            >
+                              <ImageIcon className="h-3 w-3 text-pink-400" /> Stock
+                            </button>
+
+                            {/* Manual PC Upload */}
+                            <button
+                              title="Upload Video/Image from PC"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTargetSceneId(scene.id);
+                                pcFileRef.current?.click();
+                              }}
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-emerald-900/40 text-[10px] font-bold text-emerald-300 border border-slate-700 flex items-center gap-1"
+                            >
+                              <Upload className="h-3 w-3 text-emerald-400" /> PC Upload
+                            </button>
+
+                            {/* Delete Scene */}
+                            {scenes.length > 1 && (
+                              <button
+                                title="Delete Scene"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScenes(scenes.filter(s => s.id !== scene.id));
+                                  setActiveSceneIdx(0);
+                                }}
+                                className="p-1 rounded-lg hover:bg-red-950 text-slate-400 hover:text-red-400"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Scene Caption Input */}
+                        <Textarea
+                          rows={2}
+                          value={scene.text}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setScenes(scenes.map(s => s.id === scene.id ? { ...s, text: val } : s));
+                          }}
+                          placeholder="Type caption overlay text for this scene..."
+                          className="text-xs bg-slate-900 border-slate-800 text-white focus:border-purple-500"
+                        />
                       </div>
                     ))}
                   </div>
                 </div>
 
-                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1">AI Voice & Dialect</label>
-                      <select
-                        value={heygenVoice}
-                        onChange={e => setHeygenVoice(e.target.value)}
-                        className="w-full h-9 text-xs rounded-xl border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="en-US-female">US English - Professional Female</option>
-                        <option value="en-US-male">US English - Energetic Male</option>
-                        <option value="en-UK-executive">UK English - Executive Formal</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1">Studio Environment</label>
-                      <select
-                        value={heygenBg}
-                        onChange={e => setHeygenBg(e.target.value)}
-                        className="w-full h-9 text-xs rounded-xl border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="office">Modern Office Studio</option>
-                        <option value="cyberpunk">Cyberpunk Neon Workspace</option>
-                        <option value="gradient">Minimal Studio Gradient</option>
-                        <option value="greenscreen">Green Screen Transparent</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 mb-1">Spoken Script Text</label>
-                    <Textarea
-                      rows={4}
-                      value={heygenScript}
-                      onChange={e => setHeygenScript(e.target.value)}
-                      placeholder="Type text script for HeyGen avatar to speak..."
-                      className="text-xs p-3 rounded-xl border border-slate-800 bg-slate-950 text-white"
-                    />
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Est. Duration: {Math.max(5, Math.round((heygenScript || "").split(" ").length / 2.5))} seconds
-                    </p>
-                  </div>
-                </div>
               </div>
 
-              {/* RIGHT AVATAR CANVAS PREVIEW */}
-              <div className="w-full md:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden">
-                <div className="relative w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden border-4 border-pink-500/50 shadow-2xl bg-slate-950">
-                  <img
-                    src={HEYGEN_AVATARS.find(a => a.id === heygenAvatar)?.img}
-                    alt="HeyGen Avatar"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 p-4 flex flex-col justify-between">
-                    <Badge className="bg-pink-600 text-white text-[10px] font-extrabold uppercase w-max">HeyGen AI Avatar</Badge>
-                    <div className="bg-black/70 backdrop-blur-md p-3 rounded-xl border border-white/10">
-                      <p className="text-white text-xs leading-snug line-clamp-3 font-medium">"{heygenScript}"</p>
+              {/* RIGHT SIDE: CAPCUT / INVIDEO STYLE 9:16 VERTICAL CANVASS PREVIEW */}
+              <div className="w-full md:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-5 flex flex-col items-center justify-between relative overflow-hidden">
+                
+                {/* TOP CANVAS CONTROLS */}
+                <div className="w-full flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-purple-600 text-white text-[10px] font-black uppercase">
+                      Scene {activeSceneIdx + 1}/{scenes.length}
+                    </Badge>
+                    <span className="text-xs font-bold text-slate-300 truncate max-w-[180px]">
+                      {currentScene?.keyword || "Stock Video"}
+                    </span>
+                  </div>
+
+                  {/* Subtitle Style Selector */}
+                  <select
+                    value={captionStyle}
+                    onChange={e => setCaptionStyle(e.target.value as any)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg text-[10px] font-extrabold px-2 py-1 text-purple-300 focus:outline-none"
+                  >
+                    <option value="yellow_bold">CapCut Yellow Subtitles</option>
+                    <option value="clean_white">Clean Bold White</option>
+                    <option value="neon_box">Cyberpunk Neon Box</option>
+                  </select>
+                </div>
+
+                {/* 9:16 VERTICAL REEL CANVAS */}
+                <div className="relative w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden border-4 border-purple-500/50 shadow-2xl bg-black flex items-center justify-center group">
+                  {currentScene?.videoUrl ? (
+                    currentScene.mediaType === "image" ? (
+                      <img src={currentScene.videoUrl} alt="Scene" className="w-full h-full object-cover" />
+                    ) : (
+                      <video
+                        key={currentScene.videoUrl}
+                        src={currentScene.videoUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                      />
+                    )
+                  ) : (
+                    <div className="text-center p-4 text-slate-400 text-xs">
+                      <Film className="h-8 w-8 mx-auto mb-2 opacity-40 animate-pulse" />
+                      No Video Attached
+                    </div>
+                  )}
+
+                  {/* CAPCUT ANIMATED KINETIC TYPOGRAPHY OVERLAY */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/30 p-5 flex flex-col justify-between pointer-events-none z-10">
+                    <div className="flex justify-end">
+                      <Badge className="bg-black/60 text-pink-400 border border-pink-500/30 text-[9px] font-extrabold uppercase">
+                        AI Reel
+                      </Badge>
+                    </div>
+
+                    {/* CAPTION TEXT BOX */}
+                    <div className="mb-8 text-center px-2">
+                      {captionStyle === "yellow_bold" && (
+                        <h3 className="text-yellow-300 text-lg font-black leading-tight drop-shadow-[0_4px_12px_rgba(0,0,0,0.9)] tracking-wide uppercase stroke-black">
+                          {currentScene?.text || "Your Viral Caption Overlay"}
+                        </h3>
+                      )}
+                      {captionStyle === "clean_white" && (
+                        <h3 className="text-white text-lg font-extrabold leading-snug drop-shadow-md">
+                          {currentScene?.text || "Your Viral Caption Overlay"}
+                        </h3>
+                      )}
+                      {captionStyle === "neon_box" && (
+                        <div className="bg-purple-900/90 text-cyan-300 text-sm font-black p-2.5 rounded-xl border border-cyan-400 shadow-lg">
+                          {currentScene?.text || "Your Viral Caption Overlay"}
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* OVERLAY PLAY/PAUSE BUTTON */}
+                  <button
+                    onClick={() => {
+                      setIsPlayingReel(!isPlayingReel);
+                      playVoiceover();
+                    }}
+                    className="absolute inset-0 m-auto h-12 w-12 rounded-full bg-black/70 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:scale-110"
+                  >
+                    {isPlayingReel ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+                  </button>
                 </div>
+
+                {/* BOTTOM PLAYBACK TIMELINE TRACK */}
+                <div className="w-full max-w-sm bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-2 mt-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setIsPlayingReel(!isPlayingReel);
+                          playVoiceover();
+                        }}
+                        className="p-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-500 transition-colors"
+                      >
+                        {isPlayingReel ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
+                        onClick={playVoiceover}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-pink-300 flex items-center gap-1"
+                      >
+                        <Volume2 className="h-3 w-3 text-pink-400" /> Voiceover TTS
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-300">
+                      <button onClick={() => setActiveSceneIdx(prev => Math.max(0, prev - 1))}>
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span>{activeSceneIdx + 1} / {scenes.length}</span>
+                      <button onClick={() => setActiveSceneIdx(prev => (prev + 1) % scenes.length)}>
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scene Progress Bars */}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {scenes.map((s, idx) => (
+                      <div
+                        key={s.id}
+                        onClick={() => setActiveSceneIdx(idx)}
+                        className={`h-2 rounded-full cursor-pointer transition-all ${
+                          activeSceneIdx === idx ? "bg-purple-500" : "bg-slate-800 hover:bg-slate-700"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          )}
+
+          {/* -------------------------------------------------------------------------- */}
+          {/* TAB 2: CANVA VIDEO STUDIO */}
+          {/* -------------------------------------------------------------------------- */}
+          {activeTab === "canva" && (
+            <div className="w-full h-full flex items-center justify-center p-8 text-center text-slate-400">
+              <div>
+                <Tv className="h-12 w-12 mx-auto mb-3 opacity-50 text-blue-400" />
+                <h3 className="text-base font-bold text-white mb-1">Canva Video Preset Editor</h3>
+                <p className="text-xs text-slate-400 max-w-sm">Use pre-designed graphic video layouts and custom text overlays.</p>
               </div>
             </div>
           )}
 
           {/* -------------------------------------------------------------------------- */}
-          {/* TAB 3 & 4: VEO 3, SORA & RUNWAY CINEMATIC ENGINE */}
+          {/* TAB 3 & 4: HEYGEN & VEO 3 */}
           {/* -------------------------------------------------------------------------- */}
-          {(activeTab === "veo3" || activeTab === "runway") && (
-            <div className="w-full h-full flex flex-col md:flex-row overflow-hidden p-6 gap-6">
-              {/* PROMPT CONTROLS */}
-              <div className="w-full md:w-1/2 space-y-4">
-                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
-                  <h3 className="text-xs font-black uppercase text-blue-400 tracking-wider flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" /> {activeTab === "veo3" ? "Google Veo 3 / Sora 4K Prompt Studio" : "Runway Gen-3 Alpha Prompt Studio"}
-                  </h3>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 mb-1">Visual Prompt Script</label>
-                    <Textarea
-                      rows={5}
-                      value={aiPrompt}
-                      onChange={e => setAiPrompt(e.target.value)}
-                      placeholder="Describe high-tech cinematic video scene..."
-                      className="text-xs p-3 rounded-xl border border-slate-800 bg-slate-950 text-white"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1">Camera Motion</label>
-                      <select
-                        value={cameraMotion}
-                        onChange={e => setCameraMotion(e.target.value)}
-                        className="w-full h-9 text-xs rounded-xl border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="pan">Pan Left to Right</option>
-                        <option value="zoom">Dynamic Cinematic Zoom In</option>
-                        <option value="orbit">Orbit 360 Degree View</option>
-                        <option value="drone">Drone Flyover Shot</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1">Aspect Ratio</label>
-                      <select
-                        value={aspectRatio}
-                        onChange={e => setAspectRatio(e.target.value)}
-                        className="w-full h-9 text-xs rounded-xl border border-slate-800 bg-slate-950 px-2 font-semibold text-white"
-                      >
-                        <option value="9:16">9:16 Vertical Reel</option>
-                        <option value="16:9">16:9 Landscape</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* CINEMATIC PREVIEW */}
-              <div className="w-full md:w-1/2 bg-slate-900 border border-slate-800 rounded-3xl p-6 flex items-center justify-center">
-                <div className="w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden border-4 border-blue-500/50 shadow-2xl bg-black relative flex items-center justify-center">
-                  <img
-                    src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80"
-                    alt="Veo3 Motion"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent p-4 flex flex-col justify-end">
-                    <Badge className="bg-blue-600 text-white text-[10px] font-extrabold uppercase w-max mb-2">
-                      {activeTab === "veo3" ? "Veo 3 4K Motion" : "Runway Gen-3"}
-                    </Badge>
-                    <p className="text-white text-xs font-bold leading-tight drop-shadow-md">{aiPrompt}</p>
-                  </div>
-                </div>
+          {(activeTab === "heygen" || activeTab === "veo3") && (
+            <div className="w-full h-full flex items-center justify-center p-8 text-center text-slate-400">
+              <div>
+                <Sparkles className="h-12 w-12 mx-auto mb-3 opacity-50 text-pink-400 animate-pulse" />
+                <h3 className="text-base font-bold text-white mb-1">AI Avatar & Motion Studio</h3>
+                <p className="text-xs text-slate-400 max-w-sm">High-end cloud AI avatar and motion generation engines.</p>
               </div>
             </div>
           )}
@@ -585,11 +617,19 @@ export default function VideoStudioModal({
             className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold px-6 py-2.5 rounded-xl shadow-lg gap-2 text-xs"
           >
             <Sparkles className="h-4 w-4" />
-            <span>Add Video to Post & Close Studio</span>
+            <span>Add AI Reel Video to Post</span>
           </Button>
         </div>
 
       </div>
+
+      {/* MANUAL STOCK MEDIA PICKER MODAL FOR ANY SCENE */}
+      <StockMediaModal
+        isOpen={isStockModalOpen}
+        allowedType="video"
+        onClose={() => setIsStockModalOpen(false)}
+        onSelect={handleSelectStockForScene}
+      />
     </div>
   );
 }
