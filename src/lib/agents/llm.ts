@@ -1,13 +1,13 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 
-// The primary models mapping based on the Vertex AI Migration Plan
+// Use established GA model names that work on all Vertex AI projects including free trial
 export const MODELS = {
-  TREND_RESEARCHER: "gemini-3.6-flash",
-  COMPETITOR_ANALYST: "gemini-3.5-flash-lite",
-  CONTENT_CREATOR: "gemini-3.1-pro",
-  CEO_SUPERVISOR: "gemini-3.1-pro",
-  ARTICLE_GENERATOR: "gemini-3.1-pro",
-  VISUALIZER: "gemini-3.1-flash-image",
+  TREND_RESEARCHER: "gemini-2.5-flash",
+  COMPETITOR_ANALYST: "gemini-2.5-flash",
+  CONTENT_CREATOR: "gemini-2.5-pro",
+  CEO_SUPERVISOR: "gemini-2.5-pro",
+  ARTICLE_GENERATOR: "gemini-2.5-pro",
+  VISUALIZER: "gemini-2.5-flash",
   VIDEO: "veo-3.1-fast-generate-preview",
 };
 
@@ -48,9 +48,11 @@ class VertexLLMAdapter {
   async invoke(input: any[], options?: any) {
     const messages = translateMessages(input);
     
-    // For tools (like Google Search Grounding), we check if the caller passed tools in options
+    // Use options.modelName if provided by caller, otherwise fall back to currentWorkingModel
+    const modelName = options?.modelName || currentWorkingModel;
+    
     const generateOptions: any = {
-      modelName: currentWorkingModel,
+      modelName,
       temperature: options?.temperature ?? 0.7,
     };
     
@@ -67,8 +69,9 @@ class VertexLLMAdapter {
     return {
       invoke: async (input: any[], options?: any) => {
         const messages = translateMessages(input);
+        const modelName = options?.modelName || currentWorkingModel;
         const content = await vertexProvider.generateJSON(messages, {
-          modelName: currentWorkingModel,
+          modelName,
           temperature: 0.1,
         });
         

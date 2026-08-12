@@ -58,11 +58,11 @@ export class VertexAIProvider {
       credentialsType: credentials?.type || "none",
       credentialsEmail: credentials?.client_email ? credentials.client_email.slice(0, 15) + "..." : "none",
       projectId,
-      location: process.env.GOOGLE_CLOUD_LOCATION || "global",
+      location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
     });
 
     try {
-      const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
+      const location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
       this.vertexai = new VertexAI({
         project: projectId,
         location: location,
