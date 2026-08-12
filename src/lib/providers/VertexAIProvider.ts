@@ -1,5 +1,7 @@
 import { VertexAI, GenerateContentRequest } from "@google-cloud/vertexai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import fs from "fs";
+import path from "path";
 
 export class VertexAIProvider {
   private vertexai: VertexAI | null = null;
@@ -16,21 +18,39 @@ export class VertexAIProvider {
       }
     }
 
-    // 2. Initialize Vertex AI SDK
-    let googleAuthOptions: any = undefined;
+    // 2. Resolve Vertex AI credentials from multiple sources
+    let credentials: any = null;
+
     if (process.env.GOOGLE_CREDENTIALS_JSON) {
       try {
-        const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
-        googleAuthOptions = { credentials };
+        credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
       } catch (e) {
-        console.error("Failed to parse GOOGLE_CREDENTIALS_JSON in Vercel environment.");
+        console.error("Failed to parse GOOGLE_CREDENTIALS_JSON string.");
+      }
+    } else if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+      credentials = {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        project_id: process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT_ID,
+      };
+    } else {
+      const localPath = path.resolve(process.cwd(), "google-credentials.json");
+      if (fs.existsSync(localPath)) {
+        try {
+          credentials = JSON.parse(fs.readFileSync(localPath, "utf8"));
+        } catch (e) {
+          console.error("Failed to read local google-credentials.json file.");
+        }
       }
     }
+
+    const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || "project-6191674b-f452-4f72-903";
+    const googleAuthOptions = credentials ? { credentials } : undefined;
 
     try {
       const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
       this.vertexai = new VertexAI({
-        project: process.env.GOOGLE_CLOUD_PROJECT_ID || "project-6191674b-f452-4f72-903",
+        project: projectId,
         location: location,
         googleAuthOptions,
       });
