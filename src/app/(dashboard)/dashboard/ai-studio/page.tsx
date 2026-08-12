@@ -216,6 +216,9 @@ interface GeneratedFormat {
   overlayText: { step: number; title: string; body: string; theme: string }[];
   hashtags: string[];
   bestTime: string;
+  imageUrls?: string[];
+  imageUrl?: string;
+  videoUrl?: string;
 }
 
 // ============================================================================
@@ -848,11 +851,12 @@ export default function AIStudioPage() {
   const displayPrompts = isMultiFormat ? currentVisualPrompts : currentVisualPrompts.slice(0, 1);
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
   const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || campaignTopic || "modern digital marketing abstract";
-  const displayImageUrls = isHtmlSlideFormat
+  const aiGeneratedImageUrls = currentGenerated?.imageUrls && currentGenerated.imageUrls.length > 0 ? currentGenerated.imageUrls : null;
+  const displayImageUrls = aiGeneratedImageUrls || (isHtmlSlideFormat
     ? (displayOverlayTexts.length > 0
-        ? displayOverlayTexts.map((_, i) => getPollinationsAIUrl(displayPrompts[i] || singleImagePrompt || `${campaignTopic} visual slide ${i + 1}`, currentAspectRatio, 42 + i, currentFormatName))
-        : displayPrompts.map((p, i) => getPollinationsAIUrl(p || singleImagePrompt, currentAspectRatio, 42 + i, currentFormatName)))
-    : [getPollinationsAIUrl(singleImagePrompt, currentAspectRatio, 42, currentFormatName)];
+        ? displayOverlayTexts.map((_, i) => `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(displayPrompts[i] || singleImagePrompt)}&sig=${i}`)
+        : displayPrompts.map((p, i) => `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(p || singleImagePrompt)}&sig=${i}`))
+    : [`https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(singleImagePrompt)}`]);
   const currentMediaType = getMediaType(currentFormatName);
 
   const getHtmlSlideKey = (slideIdx: number) => `${activePlatformTab}-${currentFormatName}-${slideIdx}`;
@@ -1014,8 +1018,8 @@ export default function AIStudioPage() {
     setTimeout(() => setIsRenderingMedia(false), 800);
   };
 
-  const aiImageUrl = displayImageUrls[activeSlideIdx] || displayImageUrls[0] || "";
-  const displayImageUrl = customMedia?.url || renderedImageUrl || aiImageUrl;
+  const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || displayImageUrls[activeSlideIdx] || displayImageUrls[0] || "";
+  const displayImageUrl = customMedia?.url || renderedImageUrl || aiMediaUrl;
 
   const currentHtmlSlide = htmlSlidesDict[getHtmlSlideKey(activeSlideIdx)] || null;
   const isCurrentSlideLoading = loadingHtmlSlides[getHtmlSlideKey(activeSlideIdx)] || false;

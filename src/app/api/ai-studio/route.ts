@@ -92,8 +92,8 @@ export async function POST(req: Request) {
             if (campaign.platforms) {
               for (const [platformId, formats] of Object.entries(campaign.platforms as Record<string, Record<string, any>>)) {
                 for (const [formatName, content] of Object.entries(formats)) {
-                  let imageUrl: string | null = content.imageUrl || null;
-                  let imagePrompt: string | null = content.visualPrompt || null;
+                  let imageUrl: string | null = content.videoUrl || content.imageUrl || (Array.isArray(content.imageUrls) ? content.imageUrls[0] : null);
+                  let imagePrompt: string | null = content.refinedImagePrompt || content.visualPrompt || content.imagePrompt || null;
                   const caption = content.caption || "";
                   const hashtags = Array.isArray(content.hashtags) ? content.hashtags.map((h: string) => h.startsWith("#") ? h : `#${h}`).join(" ") : "";
                   const fullContent = hashtags ? `${caption}\n\n${hashtags}` : caption;
