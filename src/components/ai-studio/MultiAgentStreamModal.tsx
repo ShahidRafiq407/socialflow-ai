@@ -445,29 +445,29 @@ export default function MultiAgentStreamModal({
   const currentAgent = steps[activeStepIdx] || steps[0];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/60 rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-start sm:items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-300">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/60 rounded-2xl sm:rounded-3xl shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden my-2 sm:my-4 max-h-[95vh] sm:max-h-[90vh]">
         
         {/* ─── HEADER ─── */}
-        <div className="p-5 px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-500 flex items-center justify-center shadow-md shadow-purple-500/20 text-white">
-              <Bot className="h-5 w-5" />
+        <div className="p-3 sm:p-5 px-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-500 flex items-center justify-center shadow-md shadow-purple-500/20 text-white shrink-0">
+              <Bot className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
-            <div>
-              <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wide">
+            <div className="min-w-0">
+              <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-wide truncate">
                 Autonomous AI Studio
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
                 Generating tailored content for {platforms.length} platform(s)
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-1.5 sm:p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4 sm:h-5 sm:w-5" />
           </button>
         </div>
 
@@ -480,26 +480,26 @@ export default function MultiAgentStreamModal({
         </div>
 
         {/* ─── ACTION BANNER ─── */}
-        <div className="bg-purple-950/20 border-b border-purple-500/20 px-6 py-2.5 flex items-center justify-between text-xs font-extrabold">
-          <div className="flex items-center gap-2 text-purple-300">
-            {isRunning && <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />}
-            {!isRunning && completedPayload && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-            {!isRunning && errorMsg && <AlertCircle className="h-3.5 w-3.5 text-red-400" />}
+        <div className="bg-purple-950/20 border-b border-purple-500/20 px-4 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between text-[10px] sm:text-xs font-extrabold shrink-0">
+          <div className="flex items-center gap-2 text-purple-300 min-w-0">
+            {isRunning && <Loader2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 animate-spin text-purple-400 shrink-0" />}
+            {!isRunning && completedPayload && <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-emerald-400 shrink-0" />}
+            {!isRunning && errorMsg && <AlertCircle className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-red-400 shrink-0" />}
             <span className="truncate">{actionBanner}</span>
           </div>
-          <span className="text-[10px] text-purple-400 uppercase tracking-widest ml-2 shrink-0">
+          <span className="text-[9px] sm:text-[10px] text-purple-400 uppercase tracking-widest ml-2 shrink-0">
             {progressPercentage}%
           </span>
         </div>
 
-        {/* ─── BODY ─── */}
-        <div className="p-6 space-y-4">
+        {/* ─── BODY (scrollable) ─── */}
+        <div className="p-3 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1 min-h-0">
           
           {/* Error */}
           {errorMsg && (
-            <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs font-semibold flex items-start gap-2">
+            <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-[10px] sm:text-xs font-semibold flex items-start gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
+              <span className="break-words overflow-hidden">{errorMsg}</span>
             </div>
           )}
 
@@ -521,7 +521,7 @@ export default function MultiAgentStreamModal({
           {/* ─── ACTIVE AGENT SPOTLIGHT ─── */}
           {currentAgent && (
             <div
-              className={`p-5 rounded-2xl border shadow-xl space-y-4 transition-all duration-500 ${
+              className={`p-3 sm:p-5 rounded-xl sm:rounded-2xl border shadow-xl space-y-3 sm:space-y-4 transition-all duration-500 ${
                 currentAgent.status === "running"
                   ? "border-purple-500/40 bg-gradient-to-b from-purple-500/5 via-slate-50/50 to-white dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900"
                   : currentAgent.status === "completed" && !isRunning && completedPayload
@@ -530,10 +530,10 @@ export default function MultiAgentStreamModal({
               }`}
             >
               {/* Agent Header */}
-              <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-3">
+              <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-2 sm:pb-3">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-md font-bold text-white ${
+                    className={`h-7 w-7 sm:h-9 sm:w-9 rounded-lg sm:rounded-xl flex items-center justify-center shadow-md font-bold text-white shrink-0 ${
                       currentAgent.status === "running"
                         ? "bg-purple-600 shadow-purple-500/30"
                         : currentAgent.status === "completed"
@@ -542,16 +542,16 @@ export default function MultiAgentStreamModal({
                     }`}
                   >
                     {currentAgent.status === "completed" ? (
-                      <CheckCircle2 className="h-5 w-5" />
+                      <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5" />
                     ) : (
-                      <currentAgent.icon className="h-5 w-5" />
+                      <currentAgent.icon className="h-4 w-4 sm:h-5 sm:w-5" />
                     )}
                   </div>
                   <div>
-                    <h3 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                    <h3 className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
                       {currentAgent.name}
                     </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1">
                       {currentAgent.role}
                     </p>
                   </div>
@@ -578,7 +578,7 @@ export default function MultiAgentStreamModal({
               {/* ─── LIVE THINKING LOG (Terminal Style) ─── */}
               <div
                 ref={thinkingContainerRef}
-                className="p-4 rounded-xl bg-slate-950 text-slate-200 font-mono text-[11px] space-y-1.5 border border-slate-800 min-h-[120px] max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700"
+                className="p-3 sm:p-4 rounded-lg sm:rounded-xl bg-slate-950 text-slate-200 font-mono text-[10px] sm:text-[11px] space-y-1.5 border border-slate-800 min-h-[80px] sm:min-h-[100px] max-h-[140px] sm:max-h-[180px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700"
               >
                 {/* Already typed lines */}
                 {thinkingLines.map((line, i) => (
@@ -612,8 +612,8 @@ export default function MultiAgentStreamModal({
         </div>
 
         {/* ─── FOOTER ─── */}
-        <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+        <div className="p-3 sm:p-4 px-4 sm:px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between shrink-0">
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[11px] sm:text-xs">
             Cancel
           </Button>
 
@@ -625,7 +625,7 @@ export default function MultiAgentStreamModal({
           ) : completedPayload ? (
             <Button
               onClick={handleApplyToEditors}
-              className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-lg shadow-purple-500/20 gap-2 transition-all hover:scale-[1.02]"
+              className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-[11px] sm:text-xs px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-purple-500/20 gap-2 transition-all hover:scale-[1.02]"
             >
               <ArrowRight className="h-4 w-4" />
               Add to Editor Section
