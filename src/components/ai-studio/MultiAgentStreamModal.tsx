@@ -14,9 +14,7 @@ import {
   Image as ImageIcon, 
   Crown,
   Bot,
-  Search,
-  ChevronRight,
-  Sparkle,
+  Check,
   ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +35,7 @@ interface AgentStep {
   icon: any;
   status: "waiting" | "running" | "completed" | "error";
   details?: any;
-  thoughtLog?: string[];
+  subStatusText?: string;
 }
 
 export default function MultiAgentStreamModal({
@@ -51,6 +49,8 @@ export default function MultiAgentStreamModal({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [completedPayload, setCompletedPayload] = useState<any | null>(null);
+  const [isApplied, setIsApplied] = useState<boolean>(false);
+  const [currentActionText, setCurrentActionText] = useState<string>("Initializing Autonomous AI Network...");
 
   const [steps, setSteps] = useState<AgentStep[]>([
     {
@@ -59,11 +59,7 @@ export default function MultiAgentStreamModal({
       role: "Analyzing workspace Brand DNA & target audience",
       icon: Building2,
       status: "waiting",
-      thoughtLog: [
-        "Connecting to database...",
-        "Extracting Brand DNA & writing style parameters...",
-        "Identifying target audience personas & brand tone...",
-      ]
+      subStatusText: "Fetching workspace Brand DNA & writing parameters...",
     },
     {
       id: "trendResearcher",
@@ -71,11 +67,7 @@ export default function MultiAgentStreamModal({
       role: "Live Google Search Grounding for 98% viral trends",
       icon: TrendingUp,
       status: "waiting",
-      thoughtLog: [
-        "Initiating real-time Google Search Grounding...",
-        "Scanning top tech & industry news for breaking trends...",
-        "Extracting citations & filtering high-virality topics...",
-      ]
+      subStatusText: "Initiating live web search & sourcing 98% viral trends...",
     },
     {
       id: "competitorAnalyst",
@@ -83,35 +75,23 @@ export default function MultiAgentStreamModal({
       role: "Strategic positioning & market differentiation check",
       icon: ShieldCheck,
       status: "waiting",
-      thoughtLog: [
-        "Analyzing competitor content strategies & angles...",
-        "Identifying content gap opportunities for maximum reach...",
-        "Formulating unique strategic positioning advice...",
-      ]
+      subStatusText: "Checking competitor gap & market positioning...",
     },
     {
       id: "contentCreator",
       name: "Pro Copywriter Agent",
-      role: "Crafting viral hooks, pattern interrupts & platform copy",
+      role: "Crafting viral hooks & platform copy",
       icon: PenTool,
       status: "waiting",
-      thoughtLog: [
-        "Designing 1-2 second attention hooks & pattern interrupts...",
-        "Eliminating robotic AI clichés ('dive into', 'game-changer')...",
-        "Formatting custom posts for selected target platforms...",
-      ]
+      subStatusText: "Writing platform-specific captions & pattern interrupts...",
     },
     {
       id: "visualizerCreator",
       name: "Visualizer Agent",
-      role: "Generating context-aware prompts for Nano Banana & Veo 3.1",
+      role: "Generating visual prompts for Nano Banana & Veo 3.1",
       icon: ImageIcon,
       status: "waiting",
-      thoughtLog: [
-        "Analyzing generated captions for visual themes & emotion...",
-        "Constructing cinematic lighting, camera angles & style prompts...",
-        "Preparing graphic slide specs for carousel & video rendering...",
-      ]
+      subStatusText: "Designing image, reel & carousel prompts per platform...",
     },
     {
       id: "supervisor",
@@ -119,64 +99,23 @@ export default function MultiAgentStreamModal({
       role: "Auditing text for robotic AI clichés & granting final approval",
       icon: Crown,
       status: "waiting",
-      thoughtLog: [
-        "Reviewing copy against strict human-written standards...",
-        "Verifying hook strength & platform format compliance...",
-        "Granting final CEO green light for campaign deployment...",
-      ]
+      subStatusText: "Performing quality check & verifying hook strength...",
     },
   ]);
 
-  const [currentThoughtIdx, setCurrentThoughtIdx] = useState<number>(0);
-  const thoughtIntervalRef = useRef<any>(null);
-
-  // Start Generation stream when modal opens
+  // Dynamic status runner for Granular Step Action Messages
   useEffect(() => {
-    if (isOpen && !isGenerating && !completedPayload) {
+    if (!isOpen) return;
+
+    if (!isGenerating && !completedPayload) {
       runAgentPipeline();
     }
-    return () => {
-      if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-    };
   }, [isOpen]);
-
-  // Animate thoughts for current running agent (Claude style thinking)
-  useEffect(() => {
-    if (isGenerating) {
-      setCurrentThoughtIdx(0);
-      if (thoughtIntervalRef.current) clearInterval(thoughtIntervalRef.current);
-
-      thoughtIntervalRef.current = setInterval(() => {
-        setCurrentThoughtIdx((prev) => (prev < 2 ? prev + 1 : prev));
-      }, 1400);
-    }
-  }, [activeStepIndex, isGenerating]);
-
-  const updateStepStatus = (
-    stepId: string,
-    status: "waiting" | "running" | "completed" | "error",
-    details?: any
-  ) => {
-    setSteps((prev) => {
-      const nextIdx = prev.findIndex((s) => s.id === stepId);
-      if (nextIdx !== -1 && status === "completed") {
-        setActiveStepIndex(Math.min(nextIdx + 1, prev.length - 1));
-      } else if (nextIdx !== -1 && status === "running") {
-        setActiveStepIndex(nextIdx);
-      }
-
-      return prev.map((step) => {
-        if (step.id === stepId) {
-          return { ...step, status, details: details || step.details };
-        }
-        return step;
-      });
-    });
-  };
 
   const runAgentPipeline = async () => {
     setIsGenerating(true);
     setErrorMsg(null);
+    setIsApplied(false);
     setActiveStepIndex(0);
 
     // Reset steps
@@ -189,6 +128,10 @@ export default function MultiAgentStreamModal({
     );
 
     try {
+      // Step 1: Brand Analyst Simulation pacing
+      setCurrentActionText("Brand Analyst: Extracting Brand Profile & Writing Tone...");
+      await new Promise(r => setTimeout(r, 1200));
+
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -212,6 +155,13 @@ export default function MultiAgentStreamModal({
       const decoder = new TextDecoder();
       let buffer = "";
 
+      // List of platforms to dynamically update action text
+      const formatList: string[] = [];
+      platforms.forEach(p => {
+        const types = contentTypes[p] || ["Feed"];
+        types.forEach(t => formatList.push(`${p.toUpperCase()} ${t}`));
+      });
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -228,11 +178,42 @@ export default function MultiAgentStreamModal({
                 const nodeName = eventData.node;
                 const payload = eventData.payload;
 
-                // Mark completed for nodeName
-                updateStepStatus(nodeName, "completed", payload);
-
-                // Delay slightly for smooth human-like AI stream feel
-                await new Promise((r) => setTimeout(r, 600));
+                // Update Action Text dynamically depending on node
+                if (nodeName === "brandAnalyst") {
+                  setCurrentActionText("Brand Analyst: Identity Verified. Handing over to Trend Researcher...");
+                  setSteps(prev => prev.map(s => s.id === "brandAnalyst" ? { ...s, status: "completed", details: payload } : s.id === "trendResearcher" ? { ...s, status: "running" } : s));
+                  setActiveStepIndex(1);
+                  await new Promise(r => setTimeout(r, 1500));
+                } else if (nodeName === "trendResearcher") {
+                  setCurrentActionText("Trend Researcher: Grounding 98% Viral Trends via Live Google Search...");
+                  setSteps(prev => prev.map(s => s.id === "trendResearcher" ? { ...s, status: "completed", details: payload } : s.id === "competitorAnalyst" ? { ...s, status: "running" } : s));
+                  setActiveStepIndex(2);
+                  await new Promise(r => setTimeout(r, 1500));
+                } else if (nodeName === "competitorAnalyst") {
+                  setCurrentActionText("Competitor Analyst: Formulating Market Differentiation Angle...");
+                  setSteps(prev => prev.map(s => s.id === "competitorAnalyst" ? { ...s, status: "completed", details: payload } : s.id === "contentCreator" ? { ...s, status: "running" } : s));
+                  setActiveStepIndex(3);
+                  await new Promise(r => setTimeout(r, 1500));
+                } else if (nodeName === "contentCreator") {
+                  // Dynamic step loop through selected platform formats
+                  for (const fmtName of formatList) {
+                    setCurrentActionText(`Pro Copywriter: Writing viral caption & hook for [ ${fmtName} ]...`);
+                    await new Promise(r => setTimeout(r, 800));
+                  }
+                  setSteps(prev => prev.map(s => s.id === "contentCreator" ? { ...s, status: "completed", details: payload } : s.id === "visualizerCreator" ? { ...s, status: "running" } : s));
+                  setActiveStepIndex(4);
+                } else if (nodeName === "visualizerCreator") {
+                  for (const fmtName of formatList) {
+                    setCurrentActionText(`Visualizer: Generating tailored cinematic prompts for [ ${fmtName} ]...`);
+                    await new Promise(r => setTimeout(r, 800));
+                  }
+                  setSteps(prev => prev.map(s => s.id === "visualizerCreator" ? { ...s, status: "completed", details: payload } : s.id === "supervisor" ? { ...s, status: "running" } : s));
+                  setActiveStepIndex(5);
+                } else if (nodeName === "supervisor") {
+                  setCurrentActionText("CEO Auditor: Auditing text for AI clichés & granting final approval...");
+                  setSteps(prev => prev.map(s => s.id === "supervisor" ? { ...s, status: "completed", details: payload } : s));
+                  await new Promise(r => setTimeout(r, 1200));
+                }
 
                 if (payload?.campaignPayload) {
                   setCompletedPayload(payload.campaignPayload);
@@ -247,6 +228,7 @@ export default function MultiAgentStreamModal({
 
       // Mark all completed
       setSteps((prev) => prev.map((s) => ({ ...s, status: "completed" })));
+      setCurrentActionText("✨ Campaign Generation Completed Successfully!");
       setIsGenerating(false);
     } catch (err: any) {
       console.error("Multi-agent error:", err);
@@ -257,8 +239,14 @@ export default function MultiAgentStreamModal({
 
   const handleApplyToEditors = () => {
     if (completedPayload) {
+      setIsApplied(true);
       onCompletePayload(completedPayload);
-      onClose();
+      
+      // Auto close after 1.5 seconds showing success message
+      setTimeout(() => {
+        onClose();
+        setIsApplied(false);
+      }, 1500);
     }
   };
 
@@ -295,12 +283,21 @@ export default function MultiAgentStreamModal({
           </button>
         </div>
 
-        {/* PROGRESS BAR */}
-        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1 overflow-hidden">
+        {/* PROGRESS BAR WITH DYNAMIC ACTION TEXT */}
+        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 overflow-hidden">
           <div
             className="bg-gradient-to-r from-purple-600 via-indigo-500 to-pink-500 h-full transition-all duration-500 ease-out"
             style={{ width: `${progressPercentage}%` }}
           />
+        </div>
+
+        {/* DYNAMIC ACTION STATUS BANNER */}
+        <div className="bg-purple-950/20 border-b border-purple-500/20 px-6 py-2.5 flex items-center justify-between text-xs font-extrabold text-purple-300">
+          <div className="flex items-center gap-2">
+            <Loader2 className={`h-3.5 w-3.5 ${isGenerating ? "animate-spin text-purple-400" : "hidden"}`} />
+            <span>{currentActionText}</span>
+          </div>
+          <span className="text-[10px] text-purple-400 uppercase tracking-widest">{progressPercentage}%</span>
         </div>
 
         {/* CLAUDE AI-STYLE THINKING STREAM BODY */}
@@ -314,28 +311,18 @@ export default function MultiAgentStreamModal({
 
           {/* COMPLETED STEPS COLLAPSED PILLS (CLAUDE STYLE) */}
           <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
-            {steps.filter(s => s.status === "completed").map((st) => {
-              const Icon = st.icon;
-              return (
-                <div
-                  key={st.id}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold animate-in fade-in slide-in-from-left-2"
-                >
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
-                  <span>{st.name.replace(" Agent", "")}</span>
-                </div>
-              );
-            })}
-
-            {isGenerating && (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-300 text-[11px] font-bold animate-pulse">
-                <Loader2 className="h-3 w-3 animate-spin text-purple-500" />
-                <span>Active Agent Pipeline...</span>
+            {steps.filter(s => s.status === "completed").map((st) => (
+              <div
+                key={st.id}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold animate-in fade-in slide-in-from-left-2"
+              >
+                <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                <span>{st.name.replace(" Agent", "")}</span>
               </div>
-            )}
+            ))}
           </div>
 
-          {/* MAIN LIVE ACTIVE AGENT SPOTLIGHT (CLAUDE THINKING BOX) */}
+          {/* MAIN LIVE ACTIVE AGENT SPOTLIGHT */}
           <div className="p-5 rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-500/5 via-slate-50/50 to-white dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 shadow-xl space-y-4">
             
             <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-3">
@@ -359,7 +346,7 @@ export default function MultiAgentStreamModal({
 
               {currentActiveAgent.status === "running" && (
                 <Badge variant="outline" className="text-[9px] font-extrabold uppercase border-purple-500/40 text-purple-400 bg-purple-950/40 animate-pulse px-2 py-0.5">
-                  Thinking...
+                  Active
                 </Badge>
               )}
               {currentActiveAgent.status === "completed" && (
@@ -371,20 +358,18 @@ export default function MultiAgentStreamModal({
 
             {/* LIVE STREAMING LOG / THINKING LOG */}
             <div className="p-4 rounded-xl bg-slate-900 text-slate-200 font-mono text-[11px] space-y-2 border border-slate-800 min-h-[110px] flex flex-col justify-center">
-              {currentActiveAgent.thoughtLog?.slice(0, currentThoughtIdx + 1).map((thought, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-slate-300 animate-in fade-in slide-in-from-bottom-1">
-                  <span className="text-purple-400 font-bold">&gt;</span>
-                  <span>{thought}</span>
-                  {idx === currentThoughtIdx && currentActiveAgent.status === "running" && (
-                    <span className="inline-block w-1.5 h-3 bg-purple-400 animate-pulse ml-0.5" />
-                  )}
-                </div>
-              ))}
+              <div className="flex items-center gap-2 text-slate-300">
+                <span className="text-purple-400 font-bold">&gt;</span>
+                <span>{currentActiveAgent.subStatusText}</span>
+                {currentActiveAgent.status === "running" && (
+                  <span className="inline-block w-1.5 h-3 bg-purple-400 animate-pulse ml-0.5" />
+                )}
+              </div>
 
               {currentActiveAgent.id === "trendResearcher" && currentActiveAgent.details?.trendData && (
                 <div className="mt-2 pt-2 border-t border-slate-800 text-emerald-400 font-sans text-xs">
                   <div className="flex items-center gap-1 font-bold text-[10px] uppercase text-emerald-400 mb-1">
-                    <Globe className="h-3 w-3" /> Live Google Search Grounding Sourced:
+                    <Globe className="h-3 w-3" /> Grounded Viral News:
                   </div>
                   <p className="text-[11px] leading-relaxed text-slate-300 line-clamp-3">
                     {currentActiveAgent.details.trendData}
@@ -398,37 +383,33 @@ export default function MultiAgentStreamModal({
                   <p className="text-[11px] text-slate-400 mt-0.5">{currentActiveAgent.details.brandDNA.tagline || currentActiveAgent.details.brandDNA.description}</p>
                 </div>
               )}
-
-              {currentActiveAgent.id === "contentCreator" && currentActiveAgent.details?.campaignPayload && (
-                <div className="mt-2 pt-2 border-t border-slate-800 text-pink-300 font-sans text-xs">
-                  <div className="font-bold text-[10px] uppercase text-pink-400 mb-1">Generated Hooks & Copy:</div>
-                  <p className="text-[11px] text-slate-300 italic">
-                    Platform copy crafted with pattern interrupts & zero robotic AI words.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         </div>
 
-        {/* FOOTER */}
+        {/* FOOTER WITH "ADD TO EDITOR SECTION" BUTTON */}
         <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500">
             Cancel
           </Button>
 
-          {completedPayload ? (
+          {isApplied ? (
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-xl animate-in fade-in">
+              <Check className="h-4 w-4" />
+              <span>Added to Content Editor Section! Closing popup...</span>
+            </div>
+          ) : completedPayload ? (
             <Button
               onClick={handleApplyToEditors}
               className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-lg shadow-purple-500/20 gap-2"
             >
               <Sparkles className="h-4 w-4" />
-              Apply & Populate All Editors
+              Add to Editor Section
             </Button>
           ) : (
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
               {isGenerating && <Loader2 className="h-4 w-4 animate-spin text-purple-500" />}
-              <span>{isGenerating ? "AI Agent is reasoning..." : "Pipeline ready"}</span>
+              <span>{isGenerating ? "AI Agent is processing..." : "Pipeline ready"}</span>
             </div>
           )}
         </div>
