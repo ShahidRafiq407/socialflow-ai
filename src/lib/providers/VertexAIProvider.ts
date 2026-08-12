@@ -1,34 +1,20 @@
-import { VertexAI, GenerateContentRequest } from "@google-cloud/vertexai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import fs from "fs";
-import path from "path";
+import { GoogleGenAI } from "@google/genai";
 
 export class VertexAIProvider {
-  private vertexai: VertexAI | null = null;
-  private googleAI: GoogleGenerativeAI | null = null;
+  private ai: GoogleGenAI;
 
   constructor() {
-    // 1. Initialize Google AI Studio SDK if GEMINI_API_KEY is available
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        this.googleAI = new GoogleGenerativeAI(apiKey);
-      } catch (e) {
-        console.warn("[Provider] Failed to initialize GoogleGenerativeAI with GEMINI_API_KEY:", e);
-      }
-    }
-
-    // 2. Resolve Vertex AI credentials from multiple sources
+    // Resolve credentials from multiple sources for Vercel/local compatibility
     let credentials: any = null;
 
     if (process.env.GOOGLE_CREDENTIALS_JSON) {
       try {
         credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
       } catch (e) {
-        console.error("Failed to parse GOOGLE_CREDENTIALS_JSON string.");
+        console.error("[Provider] Failed to parse GOOGLE_CREDENTIALS_JSON string.");
       }
     } else if (process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
-      // Individual env vars (Vercel) - MUST include 'type' and 'token_uri' for google-auth-library
+      // Individual env vars (Vercel deployment)
       credentials = {
         type: "service_account",
         project_id: process.env.GOOGLE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT_ID,
@@ -37,232 +23,154 @@ export class VertexAIProvider {
         token_uri: "https://oauth2.googleapis.com/token",
         universe_domain: "googleapis.com",
       };
-    } else {
-      const localPath = path.resolve(process.cwd(), "google-credentials.json");
-      if (fs.existsSync(localPath)) {
-        try {
-          credentials = JSON.parse(fs.readFileSync(localPath, "utf8"));
-        } catch (e) {
-          console.error("Failed to read local google-credentials.json file.");
-        }
-      }
     }
 
-    const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || "project-6191674b-f452-4f72-903";
+    const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_PROJECT_ID;
+    // IMPORTANT: Use "global" for new Gemini 3.x models - us-central1 gives 404
+    const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
+
     const googleAuthOptions = credentials ? { credentials } : undefined;
 
     // Diagnostic logging (visible in Vercel Function Logs)
-    console.log("[Provider Init]", {
-      hasGeminiApiKey: !!this.googleAI,
+    console.log("[Provider Init - @google/genai]", {
       hasCredentials: !!credentials,
       credentialsType: credentials?.type || "none",
       credentialsEmail: credentials?.client_email ? credentials.client_email.slice(0, 15) + "..." : "none",
-      projectId,
-      location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
+      projectId: projectId || "auto-detect",
+      location,
     });
 
-    try {
-      const location = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
-      this.vertexai = new VertexAI({
-        project: projectId,
-        location: location,
-        googleAuthOptions,
-      });
-    } catch (e) {
-      console.warn("[Provider] Failed to initialize VertexAI client:", e);
-    }
+    // Initialize the NEW @google/genai SDK with Vertex AI mode
+    this.ai = new GoogleGenAI({
+      vertexai: true,
+      project: projectId,
+      location: location,
+      googleAuthOptions,
+    });
   }
 
   /**
-   * Helper to resolve candidate model names prioritizing exact preview strings
+   * Get fallback model names to try if the primary model fails
    */
-  private getFallbackModels(requestedModel: string): string[] {
-    const list: string[] = [];
+  private getFallbackModels(primaryModel: string): string[] {
+    const models = [primaryModel];
 
-    // 1. If requested model doesn't have -preview, add the -preview version FIRST (e.g. gemini-3.1-pro-preview)
-    if (!requestedModel.endsWith("-preview")) {
-      list.push(`${requestedModel}-preview`);
+    // Add preview variant
+    if (!primaryModel.includes("-preview")) {
+      models.push(`${primaryModel}-preview`);
     }
 
-    // 2. Add exact requested model
-    list.push(requestedModel);
-
-    // 3. Add latest Gemini 3 / 2.5 preview & GA variations in order of recency
-    if (requestedModel.includes("3.1-pro") || requestedModel.includes("pro")) {
-      list.push(
-        "gemini-3.1-pro-preview",
-        "gemini-3.1-pro",
-        "gemini-3.0-pro-preview",
-        "gemini-2.5-pro-preview",
-        "gemini-2.5-pro",
-        "gemini-1.5-pro"
-      );
-    } else if (requestedModel.includes("flash")) {
-      list.push(
-        "gemini-3.6-flash-preview",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash-preview",
-        "gemini-2.5-flash-preview",
-        "gemini-2.5-flash",
-        "gemini-1.5-flash"
-      );
+    // Add stable fallbacks
+    if (primaryModel.includes("pro")) {
+      models.push("gemini-2.5-pro", "gemini-2.5-pro-preview", "gemini-2.0-pro", "gemini-1.5-pro");
     } else {
-      list.push("gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro");
+      models.push("gemini-2.5-flash", "gemini-2.5-flash-preview", "gemini-2.0-flash", "gemini-1.5-flash");
     }
 
-    return Array.from(new Set(list));
+    // Remove duplicates
+    return [...new Set(models)];
   }
 
-  private formatMessages(messages: { role: string; content: string }[]) {
-    let systemInstruction = "";
-    const contents: any[] = [];
-
-    for (const msg of messages) {
-      if (msg.role === "system") {
-        systemInstruction += msg.content + "\n";
-      } else {
-        const role = msg.role === "assistant" ? "model" : "user";
-        contents.push({ role, parts: [{ text: msg.content }] });
-      }
-    }
-
-    return { systemInstruction, contents };
-  }
-
+  /**
+   * Generate text using the new @google/genai SDK with Vertex AI backend
+   */
   async generateText(
     messages: { role: string; content: string }[],
-    options: { modelName: string; temperature?: number; tools?: any[] }
+    options: { modelName?: string; temperature?: number; tools?: any[] } = {}
   ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName);
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-2.5-flash");
     let lastError: any = null;
 
-    // Try Google AI Studio first if available
-    if (this.googleAI) {
-      for (const modelName of candidateModels) {
-        try {
-          const { systemInstruction, contents } = this.formatMessages(messages);
-          const model = this.googleAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: systemInstruction || undefined,
-            generationConfig: { temperature: options.temperature ?? 0.7 },
-          });
+    for (const modelName of candidateModels) {
+      try {
+        console.log(`[GenAI] Trying model: ${modelName}`);
 
-          // Convert contents format for GoogleGenerativeAI
-          const response = await model.generateContent({ contents });
-          const text = response.response.text();
-          if (text) return text;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[GoogleAI Fallback] ${modelName} failed, trying next...`, err?.message || err);
+        // Build the contents string from messages
+        const prompt = messages.map(m => {
+          if (m.role === "system") return `[System Instructions]: ${m.content}`;
+          return m.content;
+        }).join("\n\n");
+
+        // Build config
+        const config: any = {
+          temperature: options.temperature ?? 0.7,
+        };
+
+        // Add Google Search tool if requested
+        if (options.tools) {
+          const hasSearchTool = options.tools.some((t: any) => t.googleSearchRetrieval || t.google_search_retrieval);
+          if (hasSearchTool) {
+            config.tools = [{ googleSearch: {} }];
+          }
         }
+
+        const response = await this.ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config,
+        });
+
+        const text = response.text;
+        if (text) {
+          console.log(`[GenAI] ✅ Success with model: ${modelName} (${text.length} chars)`);
+          return text;
+        }
+
+        console.warn(`[GenAI] Model ${modelName} returned empty response, trying next...`);
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[GenAI] ❌ ${modelName} failed:`, err?.message?.slice(0, 200) || err);
       }
     }
 
-    // Try Vertex AI
-    if (this.vertexai) {
-      for (const modelName of candidateModels) {
-        try {
-          const { systemInstruction, contents } = this.formatMessages(messages);
-          const generativeModel = this.vertexai.getGenerativeModel({
-            model: modelName,
-            generationConfig: {
-              temperature: options.temperature ?? 0.7,
-            },
-            systemInstruction: systemInstruction ? { role: "system", parts: [{ text: systemInstruction }] } : undefined,
-          });
-
-          const request: GenerateContentRequest = { contents };
-          if (options.tools) request.tools = options.tools;
-
-          const response = await generativeModel.generateContent(request);
-          const text = response.response.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return text;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[VertexAI Fallback] ${modelName} failed, trying next model...`, err?.message || err);
-        }
-      }
-    }
-
-    throw lastError || new Error("All LLM model attempts failed.");
+    throw lastError || new Error("All model attempts failed.");
   }
 
+  /**
+   * Generate structured JSON output
+   */
   async generateJSON(
     messages: { role: string; content: string }[],
-    options: { modelName: string; temperature?: number }
-  ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName);
+    options: { modelName?: string; temperature?: number } = {}
+  ): Promise<any> {
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-2.5-flash");
     let lastError: any = null;
 
-    // Try Google AI Studio first if available
-    if (this.googleAI) {
-      for (const modelName of candidateModels) {
-        try {
-          const { systemInstruction, contents } = this.formatMessages(messages);
-          const model = this.googleAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: systemInstruction || undefined,
-            generationConfig: {
-              temperature: options.temperature ?? 0.1,
-              responseMimeType: "application/json",
-            },
-          });
+    for (const modelName of candidateModels) {
+      try {
+        console.log(`[GenAI JSON] Trying model: ${modelName}`);
 
-          const response = await model.generateContent({ contents });
-          const text = response.response.text();
-          if (text) return text;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[GoogleAI JSON Fallback] ${modelName} failed:`, err?.message || err);
+        const prompt = messages.map(m => {
+          if (m.role === "system") return `[System Instructions]: ${m.content}`;
+          return m.content;
+        }).join("\n\n");
+
+        const response = await this.ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            temperature: options.temperature ?? 0.1,
+            responseMimeType: "application/json",
+          },
+        });
+
+        const text = response.text;
+        if (!text) {
+          console.warn(`[GenAI JSON] Model ${modelName} returned empty, trying next...`);
+          continue;
         }
-      }
-    }
 
-    // Try Vertex AI
-    if (this.vertexai) {
-      for (const modelName of candidateModels) {
-        try {
-          const { systemInstruction, contents } = this.formatMessages(messages);
-          const generativeModel = this.vertexai.getGenerativeModel({
-            model: modelName,
-            generationConfig: {
-              temperature: options.temperature ?? 0.1,
-              responseMimeType: "application/json",
-            },
-            systemInstruction: systemInstruction ? { role: "system", parts: [{ text: systemInstruction }] } : undefined,
-          });
-
-          const request: GenerateContentRequest = { contents };
-          const response = await generativeModel.generateContent(request);
-          const text = response.response.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return text;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[VertexAI JSON Fallback] ${modelName} failed:`, err?.message || err);
-        }
+        // Clean and parse JSON
+        const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        console.log(`[GenAI JSON] ✅ Success with model: ${modelName}`);
+        return parsed;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[GenAI JSON] ❌ ${modelName} failed:`, err?.message?.slice(0, 200) || err);
       }
     }
 
     throw lastError || new Error("All JSON generation attempts failed.");
-  }
-
-  async generateImage(prompt: string, options?: { modelName?: string; aspectRatio?: string }) {
-    try {
-      if (this.vertexai) {
-        const generativeModel = this.vertexai.getGenerativeModel({
-          model: options?.modelName || "imagen-3.0-generate-001",
-        });
-
-        const response = await generativeModel.generateContent({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-        });
-
-        return response.response;
-      }
-      return null;
-    } catch (error) {
-      console.error("VertexAI Image Error:", error);
-      throw error;
-    }
   }
 }
