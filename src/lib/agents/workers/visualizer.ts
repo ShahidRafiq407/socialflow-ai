@@ -44,8 +44,12 @@ Example: ["A cinematic wide shot of a neon city, 8k resolution, photorealistic",
           const res = await llm.withStructuredOutput(null).invoke([new HumanMessage(refinementPrompt)], {
               modelName: MODELS.VISUALIZER
           });
-          const text = (res.content?.toString() || "").replace(/```json/g, "").replace(/```/g, "").trim();
-          refinedPrompts = JSON.parse(text);
+          if (typeof res.content === "object" && res.content !== null) {
+            refinedPrompts = res.content;
+          } else {
+            const text = (res.content?.toString() || "").replace(/```json/g, "").replace(/```/g, "").trim();
+            refinedPrompts = JSON.parse(text);
+          }
           if (!Array.isArray(refinedPrompts)) refinedPrompts = [refinedPrompts];
       } catch (e) {
           console.error("Visualizer LLM failed to generate refined prompts, falling back to content prompts.", e);

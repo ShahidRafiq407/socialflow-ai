@@ -58,16 +58,20 @@ Do NOT output any markdown blocks or text outside the JSON.`;
     modelName: MODELS.CONTENT_CREATOR
   });
 
-  let parsed = null;
+  let parsed: any = null;
   try {
-    let text = (res.content?.toString() || "")
-      .replace(/```json/g, "").replace(/```/g, "").trim();
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
-    parsed = JSON.parse(text);
+    if (typeof res.content === "object" && res.content !== null) {
+      parsed = res.content;
+    } else {
+      let text = (res.content?.toString() || "")
+        .replace(/```json/g, "").replace(/```/g, "").trim();
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
+      parsed = JSON.parse(text);
+    }
   } catch (err) {
-    console.error("Failed to parse Content JSON:", err);
+    console.error("Failed to parse Content JSON:", err, "Raw response content:", res.content);
     throw new Error("Content Creator returned invalid JSON.");
   }
 
