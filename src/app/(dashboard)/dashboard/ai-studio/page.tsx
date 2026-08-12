@@ -13,6 +13,7 @@ import FacebookPreview from "@/components/previews/FacebookPreview";
 import PinterestPreview from "@/components/previews/PinterestPreview";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
+import MultiAgentStreamModal from "@/components/ai-studio/MultiAgentStreamModal";
 import {
   Card,
   CardHeader,
@@ -548,6 +549,41 @@ export default function AIStudioPage() {
   // GENERATION PIPELINE
   // ============================================================================
   const [generationState, setGenerationState] = useState<"idle" | "running" | "completed">("idle");
+  const [isMultiAgentModalOpen, setIsMultiAgentModalOpen] = useState(false);
+
+  const handleMultiAgentPayload = (campaignPayload: any) => {
+    if (!campaignPayload || !campaignPayload.platforms) return;
+    
+    setGeneratedContents(prev => {
+      const updated = { ...prev };
+      for (const [plt, formats] of Object.entries(campaignPayload.platforms as Record<string, Record<string, any>>)) {
+        updated[plt] = updated[plt] || {};
+        for (const [fmt, content] of Object.entries(formats)) {
+          const caption = content.caption || "";
+          const hashtags = Array.isArray(content.hashtags) 
+            ? content.hashtags.map((h: string) => h.startsWith("#") ? h : `#${h}`) 
+            : [];
+          const visualPrompts = content.visualPrompt ? [content.visualPrompt] : [];
+          
+          updated[plt][fmt] = {
+            caption,
+            imagePrompt: content.visualPrompt || "",
+            hashtags,
+            visualPrompts,
+            bestTime: content.bestTime || "Best engagement window",
+            overlayText: content.overlayText || [],
+          };
+        }
+      }
+      return updated;
+    });
+
+    setPublishResult({
+      success: true,
+      message: "AI Multi-Agent Content generated successfully for all selected platforms!",
+    });
+    setTimeout(() => setPublishResult(null), 3500);
+  };
   const [showProgressBox, setShowProgressBox] = useState(false);
   const [pipelineStep, setPipelineStep] = useState(0);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -1603,6 +1639,18 @@ export default function AIStudioPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* GENERATE CONTENT WITH AI FOR ALL SELECTED PLATFORMS BUTTON */}
+          <div className="mt-2.5 mb-4 flex items-center justify-center">
+            <Button
+              onClick={() => setIsMultiAgentModalOpen(true)}
+              disabled={selectedPlatforms.length === 0}
+              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-95 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-purple-500/20 gap-2.5 transition-all hover:scale-[1.01]"
+            >
+              <Sparkles className="h-4 w-4" />
+              <span>Generate Content with AI for All Selected Platforms ({selectedPlatforms.length})</span>
+            </Button>
+          </div>
 
           {/* MAIN WORKSPACE */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -3488,6 +3536,17 @@ export default function AIStudioPage() {
         platform={activePlatformTab}
         formatName={currentFormatName}
         defaultTopic={campaignTopic || "Cinematic digital marketing content"}
+      />
+
+      {/* ============================================================================ */}
+      {/* 5. AUTONOMOUS MULTI-AGENT STREAMING MODAL */}
+      {/* ============================================================================ */}
+      <MultiAgentStreamModal
+        isOpen={isMultiAgentModalOpen}
+        onClose={() => setIsMultiAgentModalOpen(false)}
+        platforms={selectedPlatforms}
+        contentTypes={selectedContentTypes}
+        onCompletePayload={handleMultiAgentPayload}
       />
     </div>
   );
