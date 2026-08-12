@@ -265,8 +265,17 @@ export default function MultiAgentStreamModal({
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Failed to launch multi-agent pipeline.");
+          let errorMessage = `Server error (${res.status} ${res.statusText})`;
+          try {
+            const err = await res.json();
+            errorMessage = err.error || errorMessage;
+          } catch {
+            const textErr = await res.text().catch(() => "");
+            if (textErr && !textErr.includes("<!DOCTYPE")) {
+              errorMessage = textErr.slice(0, 150);
+            }
+          }
+          throw new Error(errorMessage);
         }
         if (!res.body) throw new Error("No response stream received.");
 
