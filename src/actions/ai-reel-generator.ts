@@ -1,6 +1,7 @@
 "use server";
 
-import { GroqProvider } from "@/lib/providers/GroqProvider";
+import { llm, MODELS } from "@/lib/agents/llm";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { searchStockMedia } from "./stock-media";
 
 export interface ReelScene {
@@ -21,12 +22,9 @@ export interface AIReelPackage {
   error?: string;
 }
 
-const groq = new GroqProvider();
-
 export async function generateAIReelPackage(topic: string, numScenes: number = 4): Promise<AIReelPackage> {
   try {
     const promptTopic = topic && topic.trim() ? topic.trim() : "5 Effective Growth Hacks for 2026";
-    
     const messages = [
       {
         role: "system",
@@ -62,10 +60,15 @@ Respond ONLY with valid JSON in this structure:
       }
     ];
 
-    let jsonStr = await groq.generateJSON(messages, { temperature: 0.7 });
+    let res = await llm.withStructuredOutput(null).invoke(messages.map(m => {
+        if (m.role === 'system') return new SystemMessage(m.content);
+        return new HumanMessage(m.content);
+    }), { modelName: MODELS.VIDEO });
+    
+    let jsonStr = res.content?.toString() || "";
     
     if (!jsonStr) {
-      throw new Error("Failed to receive JSON from Groq AI");
+      throw new Error("Failed to receive JSON from Vertex AI");
     }
 
     let parsedData: any;

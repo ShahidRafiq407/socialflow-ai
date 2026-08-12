@@ -1,10 +1,17 @@
-import { GroqProvider } from "../providers/GroqProvider";
+import { VertexAIProvider } from "../providers/VertexAIProvider";
 
-// The primary model the user requested
-const PRIMARY_MODEL = "llama-3.3-70b-versatile";
-export const NVIDIA_MODELS = [PRIMARY_MODEL]; // Keeping array for backwards compatibility
+// The primary models mapping based on the Vertex AI Migration Plan
+export const MODELS = {
+  TREND_RESEARCHER: "gemini-3.6-flash",
+  COMPETITOR_ANALYST: "gemini-3.5-flash-lite",
+  CONTENT_CREATOR: "gemini-3.1-pro",
+  CEO_SUPERVISOR: "gemini-3.1-pro",
+  ARTICLE_GENERATOR: "gemini-3.1-pro",
+  VISUALIZER: "gemini-3.1-flash-image",
+  VIDEO: "veo-3.1-fast-generate-preview",
+};
 
-let currentWorkingModel = PRIMARY_MODEL;
+let currentWorkingModel = MODELS.CONTENT_CREATOR;
 
 export function getWorkingModelName() {
   return currentWorkingModel;
@@ -14,11 +21,11 @@ export function setWorkingModelName(name: string) {
   currentWorkingModel = name;
 }
 
-// Instantiate our custom Groq Provider
-const groqProvider = new GroqProvider();
+// Instantiate our new Vertex AI Provider
+export const vertexProvider = new VertexAIProvider();
 
 /**
- * Adapter to translate LangChain messages to Groq API messages
+ * Adapter to translate LangChain messages to standard format expected by our Provider
  */
 function translateMessages(langchainMessages: any[]): any[] {
   return langchainMessages.map((msg) => {
@@ -31,23 +38,28 @@ function translateMessages(langchainMessages: any[]): any[] {
       role = msg.role;
     }
     
-    // Some messages might be passed directly as strings in raw implementations
     let content = typeof msg === "string" ? msg : (msg.content || JSON.stringify(msg));
     
     return { role, content };
   });
 }
 
-class GroqLLMAdapter {
+class VertexLLMAdapter {
   async invoke(input: any[], options?: any) {
     const messages = translateMessages(input);
-    const content = await groqProvider.generateText(messages, {
-      modelName: currentWorkingModel,
-      temperature: 0.7,
-      maxRetries: 3,
-    });
     
-    // Return standard Langchain-like response object
+    // For tools (like Google Search Grounding), we check if the caller passed tools in options
+    const generateOptions: any = {
+      modelName: currentWorkingModel,
+      temperature: options?.temperature ?? 0.7,
+    };
+    
+    if (options?.tools) {
+      generateOptions.tools = options.tools;
+    }
+
+    const content = await vertexProvider.generateText(messages, generateOptions);
+    
     return { content };
   }
 
@@ -55,10 +67,9 @@ class GroqLLMAdapter {
     return {
       invoke: async (input: any[], options?: any) => {
         const messages = translateMessages(input);
-        const content = await groqProvider.generateJSON(messages, {
+        const content = await vertexProvider.generateJSON(messages, {
           modelName: currentWorkingModel,
           temperature: 0.1,
-          maxRetries: 3,
         });
         
         return { content };
@@ -67,15 +78,14 @@ class GroqLLMAdapter {
   }
 }
 
-export const llm = new GroqLLMAdapter();
+export const llm = new VertexLLMAdapter();
 
 export const ceoLlm = {
   invoke: async (input: any[], options?: any) => {
     const messages = translateMessages(input);
-    const content = await groqProvider.generateText(messages, {
-      modelName: "llama-3.3-70b-versatile",
+    const content = await vertexProvider.generateText(messages, {
+      modelName: MODELS.CEO_SUPERVISOR,
       temperature: 0.3,
-      maxRetries: 3,
     });
     
     return { content };

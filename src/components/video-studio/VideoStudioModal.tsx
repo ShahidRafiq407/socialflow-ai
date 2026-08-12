@@ -9,16 +9,14 @@ import {
   Upload,
   Video as VideoIcon,
   Wand2,
-  Layers,
-  Film,
-  Volume2,
-  Loader2,
-  Trash2,
   Image as ImageIcon,
   ChevronRight,
   ChevronLeft,
-  Plus,
-  RefreshCw
+  Loader2,
+  Trash2,
+  Film,
+  Settings,
+  Layers
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,35 +26,37 @@ import StockMediaModal from "@/components/stock-media/StockMediaModal";
 import { generateAIReelPackage, ReelScene } from "@/actions/ai-reel-generator";
 import { StockHit } from "@/actions/stock-media";
 
-interface VideoStudioModalProps {
+interface AIStudioModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectVideo: (videoUrl: string) => void;
+  onSelectMedia: (mediaUrls: string[]) => void;
   platform: string;
-  formatName: string;
+  formatName: string; // e.g., "Reel", "Carousel", "Single Image"
   defaultTopic?: string;
 }
 
 export default function VideoStudioModal({
   isOpen,
   onClose,
-  onSelectVideo,
+  onSelectMedia,
   platform,
   formatName,
   defaultTopic = ""
-}: VideoStudioModalProps) {
+}: AIStudioModalProps) {
   // --- STATE ---
-  const [reelTopic, setReelTopic] = useState<string>(defaultTopic || "");
+  const [prompt, setPrompt] = useState<string>(defaultTopic || "");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [generationProgress, setGenerationProgress] = useState<string>("");
   const [scenes, setScenes] = useState<ReelScene[]>([]);
-  const [reelTitle, setReelTitle] = useState<string>("");
-  const [fullScript, setFullScript] = useState<string>("");
   const [hasGenerated, setHasGenerated] = useState<boolean>(false);
+  
+  // Advanced Settings State
+  const [aspectRatio, setAspectRatio] = useState<string>("9:16");
+  const [artStyle, setArtStyle] = useState<string>("Cinematic");
+  const [cameraMotion, setCameraMotion] = useState<string>("Slow Pan");
+  const [showSettings, setShowSettings] = useState<boolean>(false);
 
-  const [activeSceneIdx, setActiveSceneIdx] = useState<number>(0);
+  const [activeSlideIdx, setActiveSlideIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [isVoiceoverOn, setIsVoiceoverOn] = useState<boolean>(true);
 
   const [isStockModalOpen, setIsStockModalOpen] = useState<boolean>(false);
   const [targetSceneId, setTargetSceneId] = useState<number | null>(null);
@@ -64,97 +64,56 @@ export default function VideoStudioModal({
   const pcFileRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // --- AUTO-PLAY SCENE CYCLING ---
+  const isVideo = formatName.toLowerCase().includes("video") || formatName.toLowerCase().includes("reel") || formatName.toLowerCase().includes("tiktok");
+  const isCarousel = formatName.toLowerCase().includes("carousel");
+
+  // --- AUTO-PLAY SCENE CYCLING (For Video/Carousel) ---
   useEffect(() => {
     let timer: any;
     if (isPlaying && scenes.length > 0) {
-      const dur = (scenes[activeSceneIdx]?.durationSeconds || 7) * 1000;
+      const dur = (scenes[activeSlideIdx]?.durationSeconds || 5) * 1000;
       timer = setTimeout(() => {
-        const nextIdx = (activeSceneIdx + 1) % scenes.length;
-        setActiveSceneIdx(nextIdx);
-        // Auto voiceover for next scene
-        if (isVoiceoverOn) speakText(scenes[nextIdx]?.voiceoverText || scenes[nextIdx]?.text || "");
+        const nextIdx = (activeSlideIdx + 1) % scenes.length;
+        setActiveSlideIdx(nextIdx);
       }, dur);
     }
     return () => clearTimeout(timer);
-  }, [isPlaying, activeSceneIdx, scenes, isVoiceoverOn]);
+  }, [isPlaying, activeSlideIdx, scenes]);
 
-  // --- VOICEOVER TTS ---
-  const speakText = useCallback((text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    if (!text.trim()) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-    // Try to find a good English voice
-    const voices = window.speechSynthesis.getVoices();
-    const englishVoice = voices.find(v => v.lang.startsWith("en") && v.name.includes("Google")) || voices.find(v => v.lang.startsWith("en"));
-    if (englishVoice) utterance.voice = englishVoice;
-    window.speechSynthesis.speak(utterance);
-  }, []);
-
-  // --- GENERATE AI REEL (Background) ---
+  // --- GENERATE MEDIA ---
   const handleGenerate = async () => {
-    if (!reelTopic.trim() || isGenerating) return;
+    if (!prompt.trim() || isGenerating) return;
 
     setIsGenerating(true);
     setIsPlaying(false);
     setHasGenerated(false);
     setScenes([]);
-    setGenerationProgress("🧠 AI is writing your viral script...");
-
+    
     try {
-      const res = await generateAIReelPackage(reelTopic.trim(), 4);
+      const numScenes = isCarousel ? 4 : isVideo ? 3 : 1;
+      // In a real app, we'd pass advanced settings to the backend
+      const res = await generateAIReelPackage(prompt.trim(), numScenes);
       
       if (res.success && res.scenes && res.scenes.length > 0) {
         setScenes(res.scenes);
-        setReelTitle(res.title || reelTopic);
-        setFullScript(res.fullScript || "");
-        setActiveSceneIdx(0);
+        setActiveSlideIdx(0);
         setHasGenerated(true);
-        setGenerationProgress("");
 
-        // Auto-start playback with voiceover
-        setTimeout(() => {
-          setIsPlaying(true);
-          if (isVoiceoverOn && res.scenes![0]?.voiceoverText) {
-            speakText(res.scenes![0].voiceoverText);
-          }
-        }, 500);
-      } else {
-        setGenerationProgress("❌ " + (res.error || "Failed to generate. Try a different topic."));
+        if (isVideo) {
+          setTimeout(() => setIsPlaying(true), 500);
+        }
       }
     } catch (error) {
-      setGenerationProgress("❌ Generation failed. Please try again.");
-      console.error("AI Reel Generation failed:", error);
+      console.error("Media Generation failed:", error);
     }
 
     setIsGenerating(false);
   };
 
-  // --- PLAY/PAUSE ---
-  const togglePlay = () => {
-    const newState = !isPlaying;
-    setIsPlaying(newState);
-    if (newState && isVoiceoverOn) {
-      speakText(scenes[activeSceneIdx]?.voiceoverText || scenes[activeSceneIdx]?.text || "");
-    } else {
-      window.speechSynthesis?.cancel();
-    }
-  };
+  const togglePlay = () => setIsPlaying(!isPlaying);
+  const goToSlide = (idx: number) => setActiveSlideIdx(idx);
 
-  // --- SCENE NAVIGATION ---
-  const goToScene = (idx: number) => {
-    setActiveSceneIdx(idx);
-    if (isPlaying && isVoiceoverOn) {
-      speakText(scenes[idx]?.voiceoverText || scenes[idx]?.text || "");
-    }
-  };
-
-  // --- STOCK MODAL CALLBACK ---
-  const handleSelectStockForScene = (item: StockHit) => {
+  const handleSelectStock = (item: StockHit) => {
     if (targetSceneId !== null) {
       setScenes(prev => prev.map(s => s.id === targetSceneId ? { ...s, videoUrl: item.url, mediaType: item.type } : s));
     }
@@ -162,33 +121,31 @@ export default function VideoStudioModal({
     setTargetSceneId(null);
   };
 
-  // --- PC UPLOAD CALLBACK ---
   const handlePCUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && targetSceneId !== null) {
       const url = URL.createObjectURL(file);
-      const isVideo = file.type.startsWith("video/");
-      setScenes(prev => prev.map(s => s.id === targetSceneId ? { ...s, videoUrl: url, mediaType: isVideo ? "video" : "image" } : s));
+      const isVid = file.type.startsWith("video/");
+      setScenes(prev => prev.map(s => s.id === targetSceneId ? { ...s, videoUrl: url, mediaType: isVid ? "video" : "image" } : s));
     }
     setTargetSceneId(null);
     if (e.target) e.target.value = "";
   };
 
-  // --- ADD REEL TO POST (Pass the active scene's video which is the first/primary one) ---
   const handleAddToPost = () => {
-    // Find the first scene with a valid video URL
-    const primaryScene = scenes.find(s => s.videoUrl && s.videoUrl.length > 0);
-    const videoUrl = primaryScene?.videoUrl || scenes[activeSceneIdx]?.videoUrl || "";
-    if (videoUrl) {
-      onSelectVideo(videoUrl);
+    const urls = scenes.map(s => s.videoUrl).filter(Boolean);
+    if (urls.length > 0) {
+      // If the parent expects a single string, we'll join or just send the first
+      // But the interface in page.tsx might expect onSelectVideo(url: string)
+      // I will adapt it to pass a single string for backward compatibility or let the parent handle it
+      onSelectMedia(urls as any);
     }
     onClose();
   };
 
   if (!isOpen) return null;
 
-  const currentScene = scenes[activeSceneIdx] || null;
-  const totalDuration = scenes.reduce((sum, s) => sum + (s.durationSeconds || 7), 0);
+  const currentScene = scenes[activeSlideIdx] || null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
@@ -197,12 +154,12 @@ export default function VideoStudioModal({
         {/* ═══════════════ HEADER ═══════════════ */}
         <div className="p-3.5 px-6 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 text-white shadow-lg">
-              <Film className="h-5 w-5" />
+            <div className="p-2 rounded-xl bg-gradient-to-tr from-purple-600 to-emerald-500 text-white shadow-lg">
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-black tracking-wide text-white uppercase">AI Reel Creator</h2>
-              <p className="text-xs text-slate-400">Groq AI Script + Pixabay HD Videos + Voiceover</p>
+              <h2 className="text-base font-black tracking-wide text-white uppercase">AI Media Studio</h2>
+              <p className="text-xs text-slate-400">Professional Generation Suite</p>
             </div>
             <Badge variant="outline" className="text-[10px] font-extrabold uppercase border-purple-500/40 text-purple-300 bg-purple-950/40">
               {formatName} • {platform}
@@ -213,128 +170,154 @@ export default function VideoStudioModal({
           </button>
         </div>
 
-        {/* Hidden PC File Input */}
         <input type="file" ref={pcFileRef} accept="video/*,image/*" className="hidden" onChange={handlePCUpload} />
 
         {/* ═══════════════ MAIN BODY ═══════════════ */}
         <div className="flex-1 flex overflow-hidden">
 
-          {/* ──────── LEFT: PROMPT + SCENE LIST ──────── */}
-          <div className="w-full md:w-[45%] flex flex-col border-r border-slate-800 overflow-hidden">
+          {/* ──────── LEFT: PROMPT + SETTINGS ──────── */}
+          <div className="w-full md:w-[45%] flex flex-col border-r border-slate-800 bg-slate-950 overflow-y-auto">
 
-            {/* PROMPT INPUT - Simple & Clean */}
-            <div className="p-5 border-b border-slate-800 space-y-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  value={reelTopic}
-                  onChange={e => setReelTopic(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleGenerate(); }}
-                  placeholder="Describe your Reel topic (e.g. 5 Habits of Millionaires)..."
-                  className="text-sm bg-slate-900 border-slate-700 text-white focus:border-purple-500 h-11"
+            <div className="p-5 border-b border-slate-800 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-400 mb-1.5 block uppercase tracking-wider">AI Prompt</label>
+                <Textarea
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  placeholder="Describe your vision..."
+                  className="bg-slate-900 border-slate-700 text-white focus:border-purple-500 min-h-[80px] resize-none"
                   disabled={isGenerating}
                 />
-                <Button
-                  disabled={isGenerating || !reelTopic.trim()}
-                  onClick={handleGenerate}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-sm h-11 px-5 shrink-0 gap-2"
-                >
-                  {isGenerating ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
-                  ) : (
-                    <><Wand2 className="h-4 w-4" /> Generate Reel</>
-                  )}
-                </Button>
               </div>
 
-              {/* Loading Progress */}
-              {isGenerating && (
-                <div className="flex items-center gap-3 bg-purple-950/30 border border-purple-800/40 rounded-xl px-4 py-3 animate-pulse">
-                  <Loader2 className="h-5 w-5 text-purple-400 animate-spin" />
-                  <div>
-                    <p className="text-xs font-bold text-purple-300">AI is building your Reel...</p>
-                    <p className="text-[11px] text-slate-400">Writing script → Matching HD stock videos → Preparing voiceover</p>
+              {/* Advanced Settings Toggle */}
+              <div>
+                <button 
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-purple-400 transition-colors"
+                >
+                  <Settings className="h-3.5 w-3.5" /> 
+                  Advanced Configuration
+                  <ChevronRight className={`h-3 w-3 transition-transform ${showSettings ? "rotate-90" : ""}`} />
+                </button>
+                
+                {showSettings && (
+                  <div className="mt-3 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Aspect Ratio</label>
+                        <select 
+                          value={aspectRatio}
+                          onChange={e => setAspectRatio(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                        >
+                          <option value="9:16">Vertical (9:16)</option>
+                          <option value="1:1">Square (1:1)</option>
+                          <option value="16:9">Landscape (16:9)</option>
+                          <option value="4:5">Portrait (4:5)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Art Style</label>
+                        <select 
+                          value={artStyle}
+                          onChange={e => setArtStyle(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                        >
+                          <option value="Cinematic">Cinematic</option>
+                          <option value="Photorealistic">Photorealistic</option>
+                          <option value="Digital Art">Digital Art</option>
+                          <option value="Anime">Anime</option>
+                          <option value="Minimalist">Minimalist</option>
+                        </select>
+                      </div>
+                      {isVideo && (
+                        <div className="col-span-2">
+                          <label className="text-[10px] font-bold text-slate-500 mb-1 block uppercase">Camera Motion</label>
+                          <select 
+                            value={cameraMotion}
+                            onChange={e => setCameraMotion(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
+                          >
+                            <option value="Slow Pan">Slow Pan</option>
+                            <option value="Zoom In">Zoom In</option>
+                            <option value="Static">Static</option>
+                            <option value="FPV Drone">FPV Drone</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
-              {/* Error Message */}
-              {generationProgress && !isGenerating && generationProgress.startsWith("❌") && (
-                <p className="text-xs text-red-400 font-semibold">{generationProgress}</p>
-              )}
+              <Button
+                disabled={isGenerating || !prompt.trim()}
+                onClick={handleGenerate}
+                className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white font-extrabold text-sm h-11 px-5 gap-2"
+              >
+                {isGenerating ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
+                ) : (
+                  <><Wand2 className="h-4 w-4" /> Generate {isCarousel ? "Carousel" : isVideo ? "Video" : "Image"}</>
+                )}
+              </Button>
             </div>
 
-            {/* SCENE LIST */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {scenes.length === 0 && !isGenerating && (
-                <div className="flex flex-col items-center justify-center h-full text-center text-slate-500 gap-3 py-16">
-                  <Film className="h-12 w-12 opacity-30" />
-                  <p className="text-sm font-semibold">Enter a topic above and hit Generate</p>
-                  <p className="text-xs text-slate-600">AI will write the script, find matching videos, and add voiceover automatically</p>
-                </div>
+            {/* SCENE LIST (Layers) */}
+            <div className="flex-1 p-4 space-y-2 overflow-y-auto">
+              {!isGenerating && scenes.length === 0 && (
+                 <div className="text-center mt-10">
+                   <Layers className="h-10 w-10 text-slate-700 mx-auto mb-2" />
+                   <p className="text-xs text-slate-500 font-semibold">Enter a prompt to create AI media.</p>
+                 </div>
               )}
-
+              
               {scenes.map((scene, idx) => (
                 <div
                   key={scene.id}
-                  onClick={() => goToScene(idx)}
+                  onClick={() => goToSlide(idx)}
                   className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                    activeSceneIdx === idx
+                    activeSlideIdx === idx
                       ? "bg-purple-950/30 border-purple-500 ring-1 ring-purple-500/40"
-                      : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
+                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-purple-600 text-white font-black text-[11px] flex items-center justify-center">{idx + 1}</span>
-                      <span className="text-xs font-bold text-white">Scene {idx + 1}</span>
-                      <Badge variant="outline" className="text-[9px] text-slate-400 border-slate-700">{scene.durationSeconds}s</Badge>
+                      <span className="w-5 h-5 rounded-full bg-purple-600 text-white font-black text-[10px] flex items-center justify-center">{idx + 1}</span>
+                      <span className="text-xs font-bold text-white">{isCarousel ? `Slide ${idx + 1}` : isVideo ? `Scene ${idx + 1}` : 'Media'}</span>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <button
                         onClick={(e) => { e.stopPropagation(); setTargetSceneId(scene.id); setIsStockModalOpen(true); }}
-                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-pink-900/30 text-[10px] font-bold text-pink-300 border border-slate-700 flex items-center gap-1"
+                        className="px-2 py-1 rounded-md bg-slate-800 hover:bg-pink-900/30 text-[10px] font-bold text-pink-300 border border-slate-700 flex items-center gap-1"
                       >
                         <ImageIcon className="h-3 w-3" /> Stock
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setTargetSceneId(scene.id); pcFileRef.current?.click(); }}
-                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-emerald-900/30 text-[10px] font-bold text-emerald-300 border border-slate-700 flex items-center gap-1"
+                        className="px-2 py-1 rounded-md bg-slate-800 hover:bg-emerald-900/30 text-[10px] font-bold text-emerald-300 border border-slate-700 flex items-center gap-1"
                       >
                         <Upload className="h-3 w-3" /> Upload
                       </button>
-                      {scenes.length > 1 && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setScenes(scenes.filter(s => s.id !== scene.id)); if (activeSceneIdx >= scenes.length - 1) setActiveSceneIdx(0); }}
-                          className="p-1 rounded-lg hover:bg-red-950 text-slate-500 hover:text-red-400"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
                     </div>
                   </div>
-
-                  {/* Caption */}
-                  <p className="text-xs font-semibold text-white leading-snug mb-1">📝 {scene.text}</p>
-                  {/* Voiceover text */}
-                  <p className="text-[11px] text-slate-400 leading-snug italic">🎙️ {scene.voiceoverText}</p>
+                  <p className="text-[11px] text-slate-400 leading-snug line-clamp-2">{scene.text || "AI Generated Media"}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* ──────── RIGHT: 9:16 VERTICAL PREVIEW ──────── */}
-          <div className="hidden md:flex w-[55%] flex-col items-center justify-center bg-slate-900/30 p-6 gap-4">
+          {/* ──────── RIGHT: PREVIEW (Single, Video, Carousel) ──────── */}
+          <div className="hidden md:flex w-[55%] flex-col items-center justify-center bg-slate-900/30 p-6 relative">
 
-            {/* TITLE */}
-            {reelTitle && hasGenerated && (
-              <h3 className="text-sm font-black text-white text-center max-w-sm">{reelTitle}</h3>
-            )}
-
-            {/* 9:16 CANVAS */}
-            <div className="relative w-full max-w-[280px] aspect-[9/16] rounded-3xl overflow-hidden border-4 border-purple-500/40 shadow-2xl bg-black flex items-center justify-center group">
+            {/* PREVIEW CANVAS */}
+            <div className={`relative w-full overflow-hidden flex items-center justify-center group ${aspectRatio === '9:16' ? 'max-w-[280px] aspect-[9/16] rounded-3xl border-4 border-purple-500/40 bg-black shadow-2xl' : aspectRatio === '1:1' ? 'max-w-md aspect-square rounded-2xl border-4 border-purple-500/40 bg-black shadow-xl' : 'max-w-lg aspect-video rounded-xl border-4 border-purple-500/40 bg-black shadow-xl'}`}>
+              
               {currentScene?.videoUrl ? (
                 currentScene.mediaType === "image" ? (
-                  <img src={currentScene.videoUrl} alt="Scene" className="w-full h-full object-cover" />
+                  <img src={currentScene.videoUrl} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
                   <video
                     ref={videoRef}
@@ -350,31 +333,17 @@ export default function VideoStudioModal({
               ) : hasGenerated ? (
                 <div className="text-center p-4 text-slate-500 text-xs">
                   <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin opacity-40" />
-                  Loading video...
+                  Loading media...
                 </div>
               ) : (
-                <div className="text-center p-6 text-slate-500">
-                  <Film className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-xs font-semibold">Your AI Reel preview will appear here</p>
+                <div className="text-center p-6 text-slate-600">
+                  <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-xs font-semibold">Preview Canvas</p>
                 </div>
               )}
 
-              {/* CAPTION OVERLAY */}
-              {currentScene && (
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20 p-4 flex flex-col justify-end pointer-events-none z-10">
-                  <div className="mb-6 text-center px-2">
-                    <h3
-                      className="text-yellow-300 text-lg font-black leading-tight uppercase tracking-wide"
-                      style={{ textShadow: "2px 2px 8px rgba(0,0,0,0.95), 0 0 20px rgba(0,0,0,0.8)" }}
-                    >
-                      {currentScene.text}
-                    </h3>
-                  </div>
-                </div>
-              )}
-
-              {/* PLAY/PAUSE OVERLAY */}
-              {hasGenerated && (
+              {/* OVERLAYS */}
+              {isVideo && hasGenerated && (
                 <button
                   onClick={togglePlay}
                   className="absolute inset-0 m-auto h-14 w-14 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:scale-110"
@@ -382,60 +351,52 @@ export default function VideoStudioModal({
                   {isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 ml-0.5" />}
                 </button>
               )}
+
+              {/* CAROUSEL ARROWS */}
+              {isCarousel && hasGenerated && scenes.length > 1 && (
+                <>
+                  <button 
+                    onClick={() => goToSlide(activeSlideIdx === 0 ? scenes.length - 1 : activeSlideIdx - 1)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-70 hover:opacity-100 z-20"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button 
+                    onClick={() => goToSlide((activeSlideIdx + 1) % scenes.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-70 hover:opacity-100 z-20"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </>
+              )}
             </div>
 
-            {/* PLAYBACK CONTROLS */}
-            {hasGenerated && scenes.length > 0 && (
-              <div className="w-full max-w-sm space-y-2">
-                {/* Control Bar */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <button onClick={togglePlay} className="p-2 rounded-xl bg-purple-600 text-white hover:bg-purple-500 transition-colors">
-                      {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsVoiceoverOn(!isVoiceoverOn);
-                        if (isVoiceoverOn) window.speechSynthesis?.cancel();
-                      }}
-                      className={`px-3 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all ${
-                        isVoiceoverOn
-                          ? "bg-pink-950/40 border-pink-500/40 text-pink-300"
-                          : "bg-slate-900 border-slate-700 text-slate-400"
-                      }`}
-                    >
-                      <Volume2 className="h-3.5 w-3.5" /> Voiceover {isVoiceoverOn ? "ON" : "OFF"}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-                    <button onClick={() => goToScene(Math.max(0, activeSceneIdx - 1))}>
-                      <ChevronLeft className="h-5 w-5 hover:text-white" />
-                    </button>
-                    <span>{activeSceneIdx + 1}/{scenes.length}</span>
-                    <button onClick={() => goToScene((activeSceneIdx + 1) % scenes.length)}>
-                      <ChevronRight className="h-5 w-5 hover:text-white" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Scene Progress Bars */}
-                <div className="flex gap-1">
-                  {scenes.map((s, idx) => (
-                    <div
-                      key={s.id}
-                      onClick={() => goToScene(idx)}
-                      className={`h-1.5 rounded-full cursor-pointer transition-all flex-1 ${
-                        activeSceneIdx === idx ? "bg-purple-500" : idx < activeSceneIdx ? "bg-purple-800" : "bg-slate-800"
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                <p className="text-center text-[11px] text-slate-500 font-medium">
-                  Total Duration: {totalDuration}s • {scenes.length} Scenes
-                </p>
-              </div>
+            {/* CAROUSEL DOTS */}
+            {isCarousel && hasGenerated && scenes.length > 1 && (
+               <div className="mt-6 flex items-center justify-center gap-2">
+                 {scenes.map((_, idx) => (
+                   <div 
+                     key={idx}
+                     onClick={() => goToSlide(idx)}
+                     className={`h-2 rounded-full cursor-pointer transition-all ${activeSlideIdx === idx ? "w-6 bg-purple-500" : "w-2 bg-slate-700 hover:bg-slate-500"}`}
+                   />
+                 ))}
+               </div>
+            )}
+            
+            {/* VIDEO TIMELINE */}
+            {isVideo && hasGenerated && scenes.length > 0 && (
+               <div className="mt-6 w-full max-w-sm flex gap-1">
+                 {scenes.map((s, idx) => (
+                   <div
+                     key={s.id}
+                     onClick={() => goToSlide(idx)}
+                     className={`h-1.5 rounded-full cursor-pointer transition-all flex-1 ${
+                       activeSlideIdx === idx ? "bg-purple-500" : idx < activeSlideIdx ? "bg-purple-800" : "bg-slate-800"
+                     }`}
+                   />
+                 ))}
+               </div>
             )}
           </div>
         </div>
@@ -449,21 +410,11 @@ export default function VideoStudioModal({
           {hasGenerated && (
             <div className="flex items-center gap-2">
               <Button
-                variant="outline"
-                size="sm"
-                onClick={handleGenerate}
-                disabled={isGenerating}
-                className="text-xs font-bold gap-1.5 border-slate-700"
-              >
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerate
-              </Button>
-              <Button
                 size="sm"
                 onClick={handleAddToPost}
-                className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold px-6 py-2.5 rounded-xl shadow-lg gap-2 text-xs"
+                className="bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-90 text-white font-extrabold px-8 py-2.5 rounded-xl shadow-lg text-xs"
               >
-                <Sparkles className="h-4 w-4" />
-                Add to Reel
+                Confirm Media
               </Button>
             </div>
           )}
@@ -471,12 +422,11 @@ export default function VideoStudioModal({
 
       </div>
 
-      {/* STOCK MEDIA PICKER */}
       <StockMediaModal
         isOpen={isStockModalOpen}
-        allowedType="video"
+        allowedType={isVideo ? "video" : "image"}
         onClose={() => setIsStockModalOpen(false)}
-        onSelect={handleSelectStockForScene}
+        onSelect={handleSelectStock}
       />
     </div>
   );

@@ -3467,20 +3467,20 @@ export default function AIStudioPage() {
       )}
 
       {/* ============================================================================ */}
-      {/* 4. FULL-FEATURED AI VIDEO CREATOR STUDIO MODAL */}
+      {/* 4. FULL-FEATURED AI MEDIA STUDIO MODAL */}
       {/* ============================================================================ */}
       <VideoStudioModal
-        isOpen={activeMediaModal === "ai" && currentMediaType === "video"}
+        isOpen={activeMediaModal === "ai"}
         onClose={() => setActiveMediaModal(null)}
-        onSelectVideo={(videoUrl) => {
+        onSelectMedia={(urls) => {
           setCustomMediaDict(prev => ({
             ...prev,
-            [currentMediaKey]: { url: videoUrl, type: "video" }
+            [activePlatformTab]: urls
           }));
         }}
         platform={activePlatformTab}
         formatName={currentFormatName}
-        defaultTopic={customPrompt || ""}
+        defaultTopic={campaignTopic || "Cinematic digital marketing content"}
       />
     </div>
   );
