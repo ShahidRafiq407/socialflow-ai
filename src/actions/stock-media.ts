@@ -44,6 +44,8 @@ export async function searchStockMedia(
       return validHits;
     };
 
+    const res = await fetch(endpoint, { cache: "no-store" });
+
     if (res.ok) {
       const data = await res.json();
       const totalHits = data.total || data.totalHits || 0;
