@@ -160,8 +160,30 @@ export class VertexAIProvider {
           continue;
         }
 
-        // Clean and parse JSON
-        const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        // Clean and parse JSON robustly
+        let cleaned = text.trim();
+        
+        // Find the first { or [ and the last } or ]
+        const firstBrace = cleaned.indexOf('{');
+        const firstBracket = cleaned.indexOf('[');
+        const lastBrace = cleaned.lastIndexOf('}');
+        const lastBracket = cleaned.lastIndexOf(']');
+        
+        let startIndex = -1;
+        let endIndex = -1;
+        
+        if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+          startIndex = firstBrace;
+          endIndex = lastBrace;
+        } else if (firstBracket !== -1) {
+          startIndex = firstBracket;
+          endIndex = lastBracket;
+        }
+        
+        if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
+          cleaned = cleaned.substring(startIndex, endIndex + 1);
+        }
+        
         const parsed = JSON.parse(cleaned);
         console.log(`[GenAI JSON] ✅ Success with model: ${modelName}`);
         return parsed;
