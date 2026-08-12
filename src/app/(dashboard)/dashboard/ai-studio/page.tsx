@@ -3473,10 +3473,17 @@ export default function AIStudioPage() {
         isOpen={activeMediaModal === "ai"}
         onClose={() => setActiveMediaModal(null)}
         onSelectMedia={(urls) => {
-          setCustomMediaDict(prev => ({
-            ...prev,
-            [activePlatformTab]: urls
-          }));
+          setCustomMediaDict(prev => {
+            const next = { ...prev };
+            urls.forEach((url, idx) => {
+              const key = `${activePlatformTab}-${currentFormatName}-${idx}`;
+              const isVideo = currentFormatName.toLowerCase().includes('video') || 
+                              currentFormatName.toLowerCase().includes('reel') || 
+                              url.toLowerCase().endsWith('.mp4');
+              next[key] = { url, type: isVideo ? "video" : "image" };
+            });
+            return next;
+          });
         }}
         platform={activePlatformTab}
         formatName={currentFormatName}
