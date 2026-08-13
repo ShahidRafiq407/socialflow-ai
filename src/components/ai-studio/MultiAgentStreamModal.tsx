@@ -535,9 +535,22 @@ export default function MultiAgentStreamModal({
                           <div>
                             <p className="text-white font-bold text-sm">Quality Score: {activeAgentOutput.score}/100</p>
                             <p className="text-[#9CA3AF] mt-0.5">{activeAgentOutput.notes}</p>
+                            {Array.isArray(activeAgentOutput.issues) && activeAgentOutput.issues.length > 0 && (
+                              <ul className="list-disc list-inside text-[#EF4444] mt-2 space-y-0.5">
+                                {activeAgentOutput.issues.map((iss: string, iIdx: number) => (
+                                  <li key={iIdx}>{iss}</li>
+                                ))}
+                              </ul>
+                            )}
                           </div>
-                          <span className="bg-[#22C55E]/10 text-[#22C55E] px-2.5 py-1 rounded-full border border-[#22C55E]/20 text-[10px] font-bold">
-                            APPROVED
+                          <span
+                            className={`px-2.5 py-1 rounded-full border text-[10px] font-bold ${
+                              activeAgentOutput.passed
+                                ? "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20"
+                                : "bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/20"
+                            }`}
+                          >
+                            {activeAgentOutput.passed ? "APPROVED" : "REJECTED"}
                           </span>
                         </div>
                       </div>

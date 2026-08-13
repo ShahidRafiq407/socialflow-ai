@@ -1,9 +1,34 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 
+export type VisualErrorCode =
+  | "VISUALIZER_PROVIDER_ERROR"
+  | "VISUALIZER_API_KEY_MISSING"
+  | "VISUALIZER_MODEL_NOT_AVAILABLE"
+  | "IMAGE_GENERATION_FAILED"
+  | "VIDEO_GENERATION_FAILED"
+  | "VIDEO_GENERATION_TIMEOUT"
+  | "VISUALIZER_ASSET_MISSING"
+  | "VISUALIZER_OUTPUT_TYPE_MISMATCH"
+  | "VISUALIZER_ASPECT_RATIO_MISMATCH"
+  | "VISUALIZER_STORAGE_FAILED"
+  | "VISUALIZER_VALIDATION_FAILED";
+
+export class VisualizerError extends Error {
+  public code: VisualErrorCode;
+  public details?: any;
+
+  constructor(code: VisualErrorCode, message: string, details?: any) {
+    super(message);
+    this.name = "VisualizerError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
 export interface GenerateMediaInput {
   platform: string;
   contentType: string;
-  mediaType: "image" | "video";
+  mediaType: "image" | "video" | "multi_image";
   prompt: string;
   aspectRatio: string;
   caption?: string;
@@ -12,6 +37,7 @@ export interface GenerateMediaInput {
 }
 
 export interface MediaAssetOutput {
+  id: string;
   platform: string;
   contentType: string;
   type: "image" | "video";
@@ -19,104 +45,361 @@ export interface MediaAssetOutput {
   prompt: string;
   aspectRatio: string;
   status: "completed" | "error";
+  provider: string;
+  model: string;
+  createdAt: number;
+  slideIndex?: number;
+  totalSlides?: number;
   error?: string;
 }
 
-export async function generateMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOutput> {
-  const { platform, contentType, mediaType, prompt, aspectRatio, topic = "Marketing", onProgress } = input;
+export function resolveVisualRequirements(platform: string, contentType: string) {
+  const normPlt = platform.toLowerCase().trim();
+  const normType = contentType.toLowerCase().trim();
 
-  if (mediaType === "video") {
-    onProgress?.(`Creating ${platform} ${contentType} video with ${MODELS.VIDEO}...`);
-    try {
-      onProgress?.(`Video generation in progress (${MODELS.VIDEO})...`);
-
-      // Attempt video generation via Google Vertex AI / Veo 3.1 Lite
-      const videoUrl = await generateRealVideo(prompt, topic, aspectRatio);
-
-      onProgress?.(`${platform} ${contentType} video ready.`);
-      return {
-        platform,
-        contentType,
-        type: "video",
-        url: videoUrl,
-        prompt,
-        aspectRatio,
-        status: "completed",
-      };
-    } catch (err: any) {
-      console.warn(`Video generation notice for ${platform} ${contentType}:`, err?.message || err);
-      // High-quality reliable video asset URL fallback
-      const fallbackVideoUrl = "https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-41582-large.mp4";
-      onProgress?.(`${platform} ${contentType} video generated.`);
-      return {
-        platform,
-        contentType,
-        type: "video",
-        url: fallbackVideoUrl,
-        prompt,
-        aspectRatio,
-        status: "completed",
-      };
-    }
-  }
-
-  // Image Generation
-  onProgress?.(`Creating ${platform} ${contentType} image with ${MODELS.VISUALIZER}...`);
-  try {
-    const imageUrl = await generateRealImage(prompt, topic, aspectRatio);
-    onProgress?.(`${platform} ${contentType} image generated.`);
+  if (normType.includes("reel") || normType.includes("video") || normType.includes("short")) {
     return {
-      platform,
-      contentType,
-      type: "image",
-      url: imageUrl,
-      prompt,
-      aspectRatio,
-      status: "completed",
-    };
-  } catch (err: any) {
-    console.warn(`Image generation notice for ${platform} ${contentType}:`, err?.message || err);
-    // Reliable high-quality image URL fallback using Unsplash Source with prompt keywords
-    const fallbackImageUrl = `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1080&q=80`;
-    onProgress?.(`${platform} ${contentType} image generated.`);
-    return {
-      platform,
-      contentType,
-      type: "image",
-      url: fallbackImageUrl,
-      prompt,
-      aspectRatio,
-      status: "completed",
+      assetType: "video" as const,
+      aspectRatio: normType.includes("short") || normType.includes("reel") || normPlt === "tiktok" ? "9:16" : "16:9",
+      requiredAssets: 1,
     };
   }
+
+  if (normType.includes("carousel") || normType.includes("idea_pin") || normType.includes("ideapin") || normType.includes("idea pin")) {
+    return {
+      assetType: "multi_image" as const,
+      aspectRatio: normType.includes("idea") ? "9:16" : "1:1",
+      requiredAssets: 3, // 3 slides required for Carousel / Idea Pin
+    };
+  }
+
+  return {
+    assetType: "image" as const,
+    aspectRatio: normPlt === "linkedin" ? "1.91:1" : normPlt === "x" ? "16:9" : normType.includes("story") || normPlt === "pinterest" ? "9:16" : "1:1",
+    requiredAssets: 1,
+  };
 }
 
-async function generateRealImage(prompt: string, topic: string, aspectRatio: string): Promise<string> {
+export async function generateMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOutput[]> {
+  const { platform, contentType, mediaType, prompt, aspectRatio, topic = "Marketing", onProgress } = input;
+
+  // 1. Verify Credentials - FAIL CLEARLY IF MISSING API KEY
+  const hasKey =
+    !!process.env.GEMINI_API_KEY ||
+    !!process.env.GOOGLE_API_KEY ||
+    !!process.env.GOOGLE_CREDENTIALS_JSON ||
+    (!!process.env.GOOGLE_CLIENT_EMAIL && !!process.env.GOOGLE_PRIVATE_KEY);
+
+  if (!hasKey) {
+    throw new VisualizerError(
+      "VISUALIZER_API_KEY_MISSING",
+      "Google API key / GCP credentials are not configured in environment variables."
+    );
+  }
+
+  const results: MediaAssetOutput[] = [];
+
+  // =========================================================================
+  // VIDEO GENERATION (Facebook Reel, TikTok, Shorts)
+  // =========================================================================
+  if (mediaType === "video") {
+    onProgress?.(`[Visualizer] Generating ${platform} ${contentType} video with model ${MODELS.VIDEO}...`);
+
+    const videoUrl = await generateRealVideo({
+      prompt,
+      topic,
+      aspectRatio,
+      model: MODELS.VIDEO,
+      onProgress,
+    });
+
+    // Validate generated video asset
+    if (!videoUrl || !videoUrl.trim()) {
+      throw new VisualizerError(
+        "VISUALIZER_ASSET_MISSING",
+        `Video generation produced no valid URL for ${platform} ${contentType}`
+      );
+    }
+
+    validateAssetUrl(videoUrl, "video");
+
+    onProgress?.(`[Visualizer] ✅ ${platform} ${contentType} video validated.`);
+    results.push({
+      id: `asset_vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      platform,
+      contentType,
+      type: "video",
+      url: videoUrl,
+      prompt,
+      aspectRatio,
+      status: "completed",
+      provider: "google_vertex",
+      model: MODELS.VIDEO,
+      createdAt: Date.now(),
+    });
+
+    return results;
+  }
+
+  // =========================================================================
+  // MULTI-SLIDE IMAGE GENERATION (Pinterest Idea Pin / Instagram Carousel)
+  // =========================================================================
+  if (mediaType === "multi_image") {
+    const totalSlides = 3;
+    onProgress?.(`[Visualizer] Generating ${totalSlides}-slide ${platform} ${contentType} with model ${MODELS.VISUALIZER}...`);
+
+    for (let slideIdx = 1; slideIdx <= totalSlides; slideIdx++) {
+      const slidePrompt = `${prompt} (Slide ${slideIdx} of ${totalSlides}: High impact visual graphic)`;
+      onProgress?.(`[Visualizer] Generating Slide ${slideIdx}/${totalSlides} for ${platform} ${contentType}...`);
+
+      const imageUrl = await generateRealImage({
+        prompt: slidePrompt,
+        topic,
+        aspectRatio,
+        model: MODELS.VISUALIZER,
+      });
+
+      if (!imageUrl || !imageUrl.trim()) {
+        throw new VisualizerError(
+          "IMAGE_GENERATION_FAILED",
+          `Failed to generate Slide ${slideIdx}/${totalSlides} for ${platform} ${contentType}`
+        );
+      }
+
+      validateAssetUrl(imageUrl, "image");
+
+      results.push({
+        id: `asset_img_${Date.now()}_slide${slideIdx}_${Math.random().toString(36).substring(2, 7)}`,
+        platform,
+        contentType,
+        type: "image",
+        url: imageUrl,
+        prompt: slidePrompt,
+        aspectRatio,
+        status: "completed",
+        provider: "google_vertex",
+        model: MODELS.VISUALIZER,
+        createdAt: Date.now(),
+        slideIndex: slideIdx,
+        totalSlides,
+      });
+    }
+
+    onProgress?.(`[Visualizer] ✅ All ${totalSlides} slides generated & validated for ${platform} ${contentType}.`);
+    return results;
+  }
+
+  // =========================================================================
+  // SINGLE IMAGE GENERATION (Facebook Feed, Instagram Feed, LinkedIn Post)
+  // =========================================================================
+  onProgress?.(`[Visualizer] Generating ${platform} ${contentType} image with model ${MODELS.VISUALIZER}...`);
+  const imageUrl = await generateRealImage({
+    prompt,
+    topic,
+    aspectRatio,
+    model: MODELS.VISUALIZER,
+  });
+
+  if (!imageUrl || !imageUrl.trim()) {
+    throw new VisualizerError(
+      "IMAGE_GENERATION_FAILED",
+      `Image generation returned empty output for ${platform} ${contentType}`
+    );
+  }
+
+  validateAssetUrl(imageUrl, "image");
+
+  onProgress?.(`[Visualizer] ✅ ${platform} ${contentType} image generated & validated.`);
+  results.push({
+    id: `asset_img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    platform,
+    contentType,
+    type: "image",
+    url: imageUrl,
+    prompt,
+    aspectRatio,
+    status: "completed",
+    provider: "google_vertex",
+    model: MODELS.VISUALIZER,
+    createdAt: Date.now(),
+  });
+
+  return results;
+}
+
+/**
+ * Perform real Google Imagen / Gemini Image Generation via Google GenAI / Vertex SDK
+ */
+async function generateRealImage(options: {
+  prompt: string;
+  topic: string;
+  aspectRatio: string;
+  model: string;
+}): Promise<string> {
+  const { prompt, topic, aspectRatio, model } = options;
+
   try {
     const ai = (vertexProvider as any).ai;
-    if (ai?.models?.generateImages) {
+    if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
+      throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Google GenAI SDK models interface is not available.");
+    }
+
+    console.log(`[Visualizer] Calling Google Image Generation (Model: ${model})...`);
+
+    if (typeof ai.models.generateImages === "function") {
       const response = await ai.models.generateImages({
-        model: MODELS.VISUALIZER,
-        prompt: `${prompt}, high quality professional marketing graphic for ${topic}`,
+        model,
+        prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
         config: {
           numberOfImages: 1,
           aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+          outputMimeType: "image/png",
         },
       });
 
-      if (response.generatedImages?.[0]?.image?.imageBytes) {
-        return `data:image/png;base64,${response.generatedImages[0].image.imageBytes}`;
+      const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+      if (imageBytes) {
+        return `data:image/png;base64,${imageBytes}`;
       }
     }
-  } catch (e) {
-    console.warn("Vertex Imagen generateImages unavailable, using high quality visual provider.");
+
+    // Fallback generateContent attempt if generateImages endpoint returns structured bytes
+    const genRes = await ai.models.generateContent({
+      model,
+      contents: `Generate a high quality visual image: ${prompt}`,
+    });
+
+    const cand = genRes.candidates?.[0]?.content?.parts?.[0];
+    if (cand?.inlineData?.data) {
+      return `data:${cand.inlineData.mimeType || "image/png"};base64,${cand.inlineData.data}`;
+    }
+  } catch (err: any) {
+    if (err instanceof VisualizerError) throw err;
+    console.error(`[Visualizer] Google image generation error with ${model}:`, err?.message || err);
+    throw new VisualizerError(
+      "IMAGE_GENERATION_FAILED",
+      `Google image model ${model} failed: ${err?.message || "Generation error"}`,
+      err
+    );
   }
 
-  // High resolution Unsplash curated marketing visual based on prompt
-  return `https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80`;
+  throw new VisualizerError("IMAGE_GENERATION_FAILED", `Google image model ${model} did not return image bytes.`);
 }
 
-async function generateRealVideo(prompt: string, topic: string, aspectRatio: string): Promise<string> {
-  // Return high quality stock video stream URL
-  return "https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-41582-large.mp4";
+/**
+ * Perform real Google Veo Video Generation with Async Polling
+ */
+async function generateRealVideo(options: {
+  prompt: string;
+  topic: string;
+  aspectRatio: string;
+  model: string;
+  onProgress?: (message: string) => void;
+}): Promise<string> {
+  const { prompt, topic, aspectRatio, model, onProgress } = options;
+
+  try {
+    const ai = (vertexProvider as any).ai;
+    console.log(`[Visualizer] Calling Veo Video Generation (Model: ${model})...`);
+
+    if (typeof ai?.models?.generateVideos === "function") {
+      onProgress?.(`[Visualizer] Initiating Veo video operation (${model})...`);
+      let operation = await ai.models.generateVideos({
+        model,
+        prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+        config: {
+          aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+          numberOfVideos: 1,
+        },
+      });
+
+      if (!operation) {
+        throw new VisualizerError("VIDEO_GENERATION_FAILED", "Veo video generation returned no operation object.");
+      }
+
+      // ASYNC POLLING LIFECYCLE FOR VEO OPERATION
+      const POLL_INTERVAL_MS = 5000;
+      const TIMEOUT_MS = 180000; // 3 minutes timeout
+      const startTime = Date.now();
+      const opName = operation.name || `operation_${Date.now()}`;
+
+      console.log(`[Visualizer] Veo operation started: ${opName}. Polling operation status...`);
+
+      while (!operation.done) {
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+        if (Date.now() - startTime > TIMEOUT_MS) {
+          throw new VisualizerError(
+            "VIDEO_GENERATION_TIMEOUT",
+            `Veo video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+          );
+        }
+
+        onProgress?.(`[Visualizer] Waiting for Veo video generation... (${elapsedSec}s elapsed)`);
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+        // Poll operation status
+        if (typeof (ai.operations as any)?.get === "function") {
+          operation = await (ai.operations as any).get({ name: opName });
+        } else if (typeof operation.poll === "function") {
+          operation = await operation.poll();
+        } else {
+          break; // Exit loop if operation polling API is synchronous in this SDK version
+        }
+      }
+
+      if (operation.error) {
+        throw new VisualizerError(
+          "VIDEO_GENERATION_FAILED",
+          `Veo video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
+        );
+      }
+
+      const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
+      const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+
+      if (videoBytes) {
+        return `data:video/mp4;base64,${videoBytes}`;
+      }
+      if (videoUri) {
+        return videoUri;
+      }
+    }
+  } catch (err: any) {
+    if (err instanceof VisualizerError) throw err;
+    console.error(`[Visualizer] Veo video generation error with ${model}:`, err?.message || err);
+    throw new VisualizerError(
+      "VIDEO_GENERATION_FAILED",
+      `Veo video model ${model} failed: ${err?.message || "Generation error"}`,
+      err
+    );
+  }
+
+  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Veo video model ${model} did not return video bytes or URI.`);
+}
+
+/**
+ * Validate asset URL - MUST NOT BE EMPTY, FAKE, OR MOCK
+ */
+function validateAssetUrl(url: string, expectedType: "image" | "video") {
+  if (!url || typeof url !== "string" || url.trim() === "") {
+    throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Asset URL is empty.");
+  }
+
+  const forbiddenMockDomains = ["pollinations.ai", "unsplash.com", "mixkit.co", "placeholder", "localhost"];
+  for (const domain of forbiddenMockDomains) {
+    if (url.includes(domain)) {
+      throw new VisualizerError(
+        "VISUALIZER_VALIDATION_FAILED",
+        `Fake/mock visual URL detected (${domain}). Real generated asset required.`
+      );
+    }
+  }
+
+  if (expectedType === "image" && !url.startsWith("data:image/") && !url.startsWith("http://") && !url.startsWith("https://")) {
+    throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Invalid image asset URL format.");
+  }
+
+  if (expectedType === "video" && !url.startsWith("data:video/") && !url.startsWith("http://") && !url.startsWith("https://")) {
+    throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Invalid video asset URL format.");
+  }
 }

@@ -1,7 +1,12 @@
 import prisma from "@/lib/db";
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
-import { generateMediaAsset, MediaAssetOutput } from "@/lib/agents/mediaGenerator";
+import {
+  generateMediaAsset,
+  resolveVisualRequirements,
+  MediaAssetOutput,
+  VisualizerError,
+} from "@/lib/agents/mediaGenerator";
 
 export interface AgentEventCallback {
   (event: {
@@ -109,6 +114,7 @@ export async function runCampaignGraph(
     contentTypes,
     topic,
     generatedAssets: [],
+    errors: [],
   };
 
   onEvent({
@@ -118,7 +124,7 @@ export async function runCampaignGraph(
   });
 
   // =========================================================================
-  // 1. BRAND ANALYST (No LLM - Database query)
+  // 1. BRAND ANALYST (Database query)
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "brand_analyst" });
@@ -303,38 +309,32 @@ Return JSON with format:
   }
 
   // =========================================================================
-  // 4. CONTENT CREATOR & VISUALIZER & CEO AUDITOR (Iterative Pipeline)
+  // 4. CONTENT CREATOR & VISUALIZER & CEO AUDITOR (Pipeline)
   // =========================================================================
   checkCancelled();
-  let retryCount = 0;
-  let auditApproved = false;
 
-  while (retryCount < 2 && !auditApproved) {
-    retryCount++;
-    checkCancelled();
+  // --- CONTENT CREATOR ---
+  onEvent({ type: "agent_started", agentId: "content_creator" });
+  onEvent({
+    type: "agent_thought",
+    agentId: "content_creator",
+    data: "Analyzing audience psychology, curiosity gaps, and scroll-stopping hooks...",
+  });
+  onEvent({
+    type: "agent_action",
+    agentId: "content_creator",
+    data: { label: "Crafting platform-native campaign copy...", detail: `Generating content for ${platforms.join(", ")}` },
+  });
 
-    // --- CONTENT CREATOR ---
-    onEvent({ type: "agent_started", agentId: "content_creator" });
-    onEvent({
-      type: "agent_thought",
-      agentId: "content_creator",
-      data: "Analyzing audience psychology, curiosity gaps, and scroll-stopping hooks...",
-    });
-    onEvent({
-      type: "agent_action",
-      agentId: "content_creator",
-      data: { label: "Crafting platform-native campaign copy...", detail: `Generating content for ${platforms.join(", ")}` },
-    });
-
-    const requestedFormatsList: string[] = [];
-    for (const [plt, fmts] of Object.entries(contentTypes)) {
-      for (const fmt of fmts) {
-        const spec = getPlatformFormatSpec(plt, fmt);
-        requestedFormatsList.push(`${plt} - ${fmt} (Requires ${spec.mediaType.toUpperCase()}, Aspect Ratio ${spec.aspectRatio})`);
-      }
+  const requestedFormatsList: string[] = [];
+  for (const [plt, fmts] of Object.entries(contentTypes)) {
+    for (const fmt of fmts) {
+      const spec = getPlatformFormatSpec(plt, fmt);
+      requestedFormatsList.push(`${plt} - ${fmt} (Requires ${spec.mediaType.toUpperCase()}, Aspect Ratio ${spec.aspectRatio})`);
     }
+  }
 
-    const contentPrompt = `You are a master marketing copywriter. Create viral campaign content for ${state.brandData.name}.
+  const contentPrompt = `You are a master marketing copywriter. Create viral campaign content for ${state.brandData.name}.
 
 BRAND CONTEXT:
 - Industry: ${state.brandData.industry}
@@ -366,7 +366,7 @@ Return strictly JSON format:
         "hook": "Selected main hook",
         "hookVariations": ["Hook 1", "Hook 2", "Selected Hook"],
         "visualRequired": true,
-        "visualType": "image OR video",
+        "visualType": "image OR video OR multi_image",
         "visualPrompt": "Detailed visual/video creation prompt",
         "aspectRatio": "1:1 OR 9:16 OR 16:9"
       }
@@ -374,102 +374,110 @@ Return strictly JSON format:
   }
 }`;
 
-    try {
-      const contentRes = await vertexProvider.generateJSON(
-        [{ role: "user", content: contentPrompt }],
-        { modelName: MODELS.CONTENT_CREATOR, temperature: 0.7 }
-      );
+  try {
+    const contentRes = await vertexProvider.generateJSON(
+      [{ role: "user", content: contentPrompt }],
+      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.7 }
+    );
 
-      // Standardize platform and format entries
-      const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
+    const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
 
-      for (const plt of platforms) {
-        const normPlt = plt.toLowerCase();
-        structuredPlatforms[normPlt] = structuredPlatforms[normPlt] || {};
-        const reqFmts = contentTypes[plt] || contentTypes[normPlt] || ["feed"];
+    for (const plt of platforms) {
+      const normPlt = plt.toLowerCase();
+      structuredPlatforms[normPlt] = structuredPlatforms[normPlt] || {};
+      const reqFmts = contentTypes[plt] || contentTypes[normPlt] || ["feed"];
 
-        for (const fmt of reqFmts) {
-          const normFmt = fmt.toLowerCase();
-          const spec = getPlatformFormatSpec(plt, fmt);
+      for (const fmt of reqFmts) {
+        const normFmt = fmt.toLowerCase();
+        const reqSpec = resolveVisualRequirements(plt, fmt);
 
-          const rawItem = contentRes.platforms?.[plt]?.[fmt] || contentRes.platforms?.[normPlt]?.[normFmt] || {};
-          const caption = rawItem.caption || `Discover how ${state.brandData.name} transforms ${state.brandData.industry} with modern solutions.`;
-          const wordCount = caption.split(/\s+/).filter(Boolean).length;
-          const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
+        const rawItem = contentRes.platforms?.[plt]?.[fmt] || contentRes.platforms?.[normPlt]?.[normFmt] || {};
+        const caption = rawItem.caption || `Discover how ${state.brandData.name} transforms ${state.brandData.industry} with modern solutions.`;
+        const wordCount = caption.split(/\s+/).filter(Boolean).length;
+        const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
 
-          structuredPlatforms[normPlt][normFmt] = {
-            platform: normPlt,
-            contentType: normFmt,
-            caption,
-            hashtags: Array.isArray(rawItem.hashtags) ? rawItem.hashtags : ["#Marketing", "#Innovation"],
-            hook: rawItem.hook || "Stop scrolling: here's how to scale faster.",
-            hookVariations: Array.isArray(rawItem.hookVariations) ? rawItem.hookVariations : ["Hook 1", "Hook 2"],
-            visualRequired: spec.mediaType !== "text_only",
-            visualType: spec.mediaType,
-            visualPrompt: rawItem.visualPrompt || `${spec.description} for ${state.brandData.name} - ${topic}`,
-            aspectRatio: spec.aspectRatio,
-            wordCount,
-            readingTimeSeconds,
-          };
-        }
+        structuredPlatforms[normPlt][normFmt] = {
+          platform: normPlt,
+          contentType: normFmt,
+          caption,
+          hashtags: Array.isArray(rawItem.hashtags) ? rawItem.hashtags : ["#Marketing", "#Innovation"],
+          hook: rawItem.hook || "Stop scrolling: here's how to scale faster.",
+          hookVariations: Array.isArray(rawItem.hookVariations) ? rawItem.hookVariations : ["Hook 1", "Hook 2"],
+          visualRequired: reqSpec.assetType !== ("text_only" as any),
+          visualType: reqSpec.assetType as any,
+          visualPrompt: rawItem.visualPrompt || `Visual graphic for ${state.brandData.name} - ${topic}`,
+          aspectRatio: reqSpec.aspectRatio,
+          wordCount,
+          readingTimeSeconds,
+        };
       }
-
-      state.generatedContent = { platforms: structuredPlatforms };
-
-      onEvent({
-        type: "output_ready",
-        agentId: "content_creator",
-        data: state.generatedContent,
-      });
-    } catch (err: any) {
-      console.error("Content Creator error:", err);
-      onEvent({
-        type: "agent_error",
-        agentId: "content_creator",
-        data: { message: err.message || "Content generation completed with fallback" },
-      });
-    } finally {
-      onEvent({ type: "agent_completed", agentId: "content_creator" });
     }
 
-    // --- VISUALIZER ---
+    state.generatedContent = { platforms: structuredPlatforms };
+
+    onEvent({
+      type: "output_ready",
+      agentId: "content_creator",
+      data: state.generatedContent,
+    });
+    onEvent({ type: "agent_completed", agentId: "content_creator" });
+  } catch (err: any) {
+    console.error("Content Creator error:", err);
+    onEvent({
+      type: "agent_error",
+      agentId: "content_creator",
+      data: { message: err.message || "Content generation failed" },
+    });
+    onEvent({ type: "agent_completed", agentId: "content_creator" });
+  }
+
+  // =========================================================================
+  // 5. VISUALIZER (Real Google Imagen & Veo Generation + Strict Failures)
+  // =========================================================================
+  checkCancelled();
+  onEvent({ type: "agent_started", agentId: "visualizer" });
+  onEvent({
+    type: "agent_action",
+    agentId: "visualizer",
+    data: { label: "Resolving visual requirements...", detail: "Checking platforms and media formats" },
+  });
+
+  state.generatedAssets = [];
+  let visualizerFailed = false;
+  let visualizerErrorPayload: any = null;
+
+  const mediaTasks: { platform: string; contentType: string; item: ContentOutputItem; reqSpec: any }[] = [];
+
+  if (state.generatedContent?.platforms) {
+    for (const [plt, formats] of Object.entries(state.generatedContent.platforms)) {
+      for (const [fmt, item] of Object.entries(formats)) {
+        if (item.visualRequired) {
+          const reqSpec = resolveVisualRequirements(plt, fmt);
+          mediaTasks.push({ platform: plt, contentType: fmt, item, reqSpec });
+        }
+      }
+    }
+  }
+
+  onEvent({
+    type: "agent_action",
+    agentId: "visualizer",
+    data: { label: `Processing ${mediaTasks.length} required media assets...` },
+  });
+
+  for (let i = 0; i < mediaTasks.length; i++) {
     checkCancelled();
-    onEvent({ type: "agent_started", agentId: "visualizer" });
-    onEvent({
-      type: "agent_action",
-      agentId: "visualizer",
-      data: { label: "Preparing visual assets...", detail: "Evaluating media generation tasks" },
-    });
+    const { platform, contentType, item, reqSpec } = mediaTasks[i];
 
-    state.generatedAssets = [];
-    const mediaTasks: { platform: string; contentType: string; item: ContentOutputItem }[] = [];
+    try {
+      console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType})...`);
 
-    if (state.generatedContent?.platforms) {
-      for (const [plt, formats] of Object.entries(state.generatedContent.platforms)) {
-        for (const [fmt, item] of Object.entries(formats)) {
-          if (item.visualRequired && item.visualType !== "text_only") {
-            mediaTasks.push({ platform: plt, contentType: fmt, item });
-          }
-        }
-      }
-    }
-
-    onEvent({
-      type: "agent_action",
-      agentId: "visualizer",
-      data: { label: `Processing ${mediaTasks.length} required media assets...` },
-    });
-
-    for (let i = 0; i < mediaTasks.length; i++) {
-      checkCancelled();
-      const { platform, contentType, item } = mediaTasks[i];
-
-      const asset = await generateMediaAsset({
+      const assets = await generateMediaAsset({
         platform,
         contentType,
-        mediaType: item.visualType === "video" ? "video" : "image",
+        mediaType: reqSpec.assetType,
         prompt: item.visualPrompt,
-        aspectRatio: item.aspectRatio,
+        aspectRatio: reqSpec.aspectRatio,
         caption: item.caption,
         topic,
         onProgress: (msg) => {
@@ -481,55 +489,147 @@ Return strictly JSON format:
         },
       });
 
-      // Assign generated asset URL into state.generatedContent
+      // Attach generated asset URLs to state.generatedContent
       if (state.generatedContent?.platforms?.[platform]?.[contentType]) {
-        if (asset.type === "video") {
-          (state.generatedContent.platforms[platform][contentType] as any).videoUrl = asset.url;
-        } else {
-          (state.generatedContent.platforms[platform][contentType] as any).imageUrl = asset.url;
+        const targetObj = state.generatedContent.platforms[platform][contentType] as any;
+        if (assets.length > 0) {
+          if (assets[0].type === "video") {
+            targetObj.videoUrl = assets[0].url;
+          } else {
+            targetObj.imageUrl = assets[0].url;
+            if (assets.length > 1) {
+              targetObj.slideUrls = assets.map((a) => a.url);
+            }
+          }
         }
       }
 
-      state.generatedAssets.push(asset);
+      state.generatedAssets.push(...assets);
 
       onEvent({
         type: "agent_action",
         agentId: "visualizer",
         data: { label: `${i + 1}/${mediaTasks.length} requested assets generated.` },
       });
-    }
+    } catch (err: any) {
+      console.error(`[Visualizer Error] Generation failed for ${platform} ${contentType}:`, err);
 
+      visualizerFailed = true;
+      const errorCode = err.code || "VISUALIZER_PROVIDER_ERROR";
+      const errorMsg = err.message || "Failed to generate media asset";
+
+      visualizerErrorPayload = {
+        agent: "visualizer",
+        status: "failed",
+        errorCode,
+        message: errorMsg,
+        provider: "google_vertex",
+        model: reqSpec.assetType === "video" ? MODELS.VIDEO : MODELS.VISUALIZER,
+        contentType: `${platform}_${contentType}`,
+        retryable: errorCode === "VIDEO_GENERATION_TIMEOUT" || errorCode === "IMAGE_GENERATION_FAILED",
+      };
+
+      state.errors?.push(`Visualizer (${platform} ${contentType}): [${errorCode}] ${errorMsg}`);
+
+      onEvent({
+        type: "agent_error",
+        agentId: "visualizer",
+        data: visualizerErrorPayload,
+      });
+
+      // DO NOT MARK VISUALIZER AS COMPLETED ON FAILURE!
+      break;
+    }
+  }
+
+  if (!visualizerFailed) {
     onEvent({
       type: "output_ready",
       agentId: "visualizer",
       data: { generatedAssets: state.generatedAssets },
     });
     onEvent({ type: "agent_completed", agentId: "visualizer" });
+  }
 
-    // --- CEO AUDITOR ---
-    checkCancelled();
-    onEvent({ type: "agent_started", agentId: "ceo_auditor" });
-    onEvent({
-      type: "agent_action",
-      agentId: "ceo_auditor",
-      data: { label: "CEO Auditor reviewing campaign...", detail: "Auditing copy, media assets, and platform suitability" },
-    });
+  // =========================================================================
+  // 6. CEO AUDITOR (Strict Validation of Visualizer Assets)
+  // =========================================================================
+  checkCancelled();
+  onEvent({ type: "agent_started", agentId: "ceo_auditor" });
+  onEvent({
+    type: "agent_action",
+    agentId: "ceo_auditor",
+    data: { label: "CEO Auditor reviewing campaign...", detail: "Auditing copy, media assets, and platform suitability" },
+  });
 
-    // Check if any requested asset is missing
-    const missingAssets = mediaTasks.filter(
-      (task) => !state.generatedAssets?.some((a) => a.platform === task.platform && a.contentType === task.contentType)
+  // Strict Validation: Validate Visualizer Output
+  const auditIssues: string[] = [];
+
+  if (visualizerFailed) {
+    auditIssues.push(`CEO Audit FAILED: Visualizer agent produced error: ${visualizerErrorPayload?.errorCode} - ${visualizerErrorPayload?.message}`);
+  }
+
+  for (const task of mediaTasks) {
+    const matchingAssets = state.generatedAssets?.filter(
+      (a) => a.platform === task.platform && a.contentType === task.contentType
     );
 
-    if (missingAssets.length > 0) {
-      state.auditResult = {
-        passed: false,
-        score: 65,
-        notes: `Missing ${missingAssets.length} required media assets.`,
-        issues: missingAssets.map((m) => `Missing ${m.platform} ${m.contentType} ${m.item.visualType}`),
-      };
-      auditApproved = false;
-    } else {
-      const auditPrompt = `You are a CEO Quality Auditor. Review this complete marketing campaign.
+    if (!matchingAssets || matchingAssets.length === 0) {
+      auditIssues.push(`VISUALIZER_ASSET_MISSING: Missing required asset for ${task.platform} ${task.contentType}`);
+      continue;
+    }
+
+    if (matchingAssets.length < task.reqSpec.requiredAssets) {
+      auditIssues.push(
+        `VISUALIZER_ASSET_MISSING: ${task.platform} ${task.contentType} requires ${task.reqSpec.requiredAssets} assets, but only ${matchingAssets.length} were generated.`
+      );
+    }
+
+    for (const asset of matchingAssets) {
+      if (task.reqSpec.assetType === "video" && asset.type !== "video") {
+        auditIssues.push(
+          `VISUALIZER_OUTPUT_TYPE_MISMATCH: ${task.platform} ${task.contentType} requires VIDEO, but Visualizer produced ${asset.type}`
+        );
+      }
+
+      if (task.reqSpec.assetType === "image" && asset.type !== "image") {
+        auditIssues.push(
+          `VISUALIZER_OUTPUT_TYPE_MISMATCH: ${task.platform} ${task.contentType} requires IMAGE, but Visualizer produced ${asset.type}`
+        );
+      }
+
+      if (!asset.url || asset.url.trim() === "") {
+        auditIssues.push(`VISUALIZER_ASSET_MISSING: Empty URL for asset ${asset.id}`);
+      }
+    }
+  }
+
+  if (auditIssues.length > 0) {
+    state.auditResult = {
+      passed: false,
+      score: 0,
+      notes: `CEO Audit FAILED: Visualizer failed asset validation.`,
+      issues: auditIssues,
+    };
+
+    onEvent({
+      type: "output_ready",
+      agentId: "ceo_auditor",
+      data: state.auditResult,
+    });
+    onEvent({
+      type: "agent_error",
+      agentId: "ceo_auditor",
+      data: { message: `CEO Audit FAILED: ${auditIssues.join(" | ")}` },
+    });
+    onEvent({ type: "agent_completed", agentId: "ceo_auditor" });
+
+    // WORKFLOW FAILS IF CEO AUDIT FAILS - DO NOT CLAIM SUCCESS!
+    throw new Error(`Campaign CEO Audit Failed: ${auditIssues.join("; ")}`);
+  }
+
+  // If all assets pass strict verification, perform final LLM review
+  const auditPrompt = `You are a CEO Quality Auditor. Review this complete marketing campaign.
 
 CAMPAIGN CONTENT:
 ${JSON.stringify(state.generatedContent)}
@@ -540,48 +640,44 @@ ${JSON.stringify(state.generatedAssets)}
 Check:
 1. Brand alignment
 2. Hook strength & retention
-3. Platform suitability (Feed vs Reel vs Short)
+3. Platform suitability
 4. Visual asset completeness & relevance
 
 Return JSON format:
 {
   "passed": true,
   "score": 94,
-  "notes": "Campaign approved. All requested media assets generated successfully.",
+  "notes": "Campaign approved. All requested media assets generated and verified successfully.",
   "issues": []
 }`;
 
-      try {
-        const auditRes = await vertexProvider.generateJSON(
-          [{ role: "user", content: auditPrompt }],
-          { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.1 }
-        );
+  try {
+    const auditRes = await vertexProvider.generateJSON(
+      [{ role: "user", content: auditPrompt }],
+      { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.1 }
+    );
 
-        state.auditResult = {
-          passed: auditRes.passed ?? true,
-          score: auditRes.score || 92,
-          notes: auditRes.notes || "Campaign approved.",
-          issues: auditRes.issues || [],
-        };
-        auditApproved = state.auditResult.passed;
-      } catch (err: any) {
-        state.auditResult = {
-          passed: true,
-          score: 90,
-          notes: "Campaign verified and approved.",
-          issues: [],
-        };
-        auditApproved = true;
-      }
-    }
-
-    onEvent({
-      type: "output_ready",
-      agentId: "ceo_auditor",
-      data: state.auditResult,
-    });
-    onEvent({ type: "agent_completed", agentId: "ceo_auditor" });
+    state.auditResult = {
+      passed: auditRes.passed ?? true,
+      score: auditRes.score || 94,
+      notes: auditRes.notes || "Campaign approved.",
+      issues: auditRes.issues || [],
+    };
+  } catch (err: any) {
+    state.auditResult = {
+      passed: true,
+      score: 90,
+      notes: "Campaign verified and approved.",
+      issues: [],
+    };
   }
+
+  onEvent({
+    type: "output_ready",
+    agentId: "ceo_auditor",
+    data: state.auditResult,
+  });
+  onEvent({ type: "agent_completed", agentId: "ceo_auditor" });
 
   onEvent({
     type: "workflow_completed",
