@@ -45,6 +45,7 @@ export interface ContentOutputItem {
   hashtags: string[];
   hook: string;
   hookVariations: string[];
+  slides?: string[];
   visualRequired: boolean;
   visualType: "image" | "video" | "text_only";
   visualPrompt: string;

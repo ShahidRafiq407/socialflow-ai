@@ -12,7 +12,7 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
   },
   instagram: {
     feed: { mediaType: "image", aspectRatio: "1:1", description: "Instagram Feed Square Image" },
-    carousel: { mediaType: "image", aspectRatio: "1:1", description: "Instagram Carousel Image" },
+    carousel: { mediaType: "image", aspectRatio: "1:1", description: "Instagram Carousel Multi-Slide Post" },
     reel: { mediaType: "video", aspectRatio: "9:16", description: "Instagram Reel Vertical Video" },
     story: { mediaType: "image", aspectRatio: "9:16", description: "Instagram Story Image" },
   },
@@ -23,6 +23,7 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
   linkedin: {
     post: { mediaType: "image", aspectRatio: "1.91:1", description: "LinkedIn Professional Image" },
     feed: { mediaType: "image", aspectRatio: "1.91:1", description: "LinkedIn Feed Post Image" },
+    carousel: { mediaType: "image", aspectRatio: "1:1", description: "LinkedIn PDF Carousel Document" },
     article: { mediaType: "text_only", aspectRatio: "1.91:1", description: "LinkedIn Longform Article" },
   },
   youtube: {
@@ -36,6 +37,9 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
   },
   pinterest: {
     pin: { mediaType: "image", aspectRatio: "9:16", description: "Pinterest Vertical Pin Image" },
+    ideapin: { mediaType: "image", aspectRatio: "9:16", description: "Pinterest Idea Pin Multi-Slide Visual" },
+    "idea pin": { mediaType: "image", aspectRatio: "9:16", description: "Pinterest Idea Pin Multi-Slide Visual" },
+    idea_pin: { mediaType: "image", aspectRatio: "9:16", description: "Pinterest Idea Pin Multi-Slide Visual" },
   },
 };
 
