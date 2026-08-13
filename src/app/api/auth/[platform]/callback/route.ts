@@ -137,6 +137,7 @@ export async function GET(
     let accountId = "";
     let handle = "";
     let pageName: string | null = null;
+    let avatarUrl: string | null = null;
 
     try {
       if (platform === "tiktok") {
@@ -149,14 +150,16 @@ export async function GET(
         accountId = userData?.open_id || tokenData.data?.open_id || "tiktok-user";
         handle = userData?.username ? `@${userData.username}` : userData?.display_name || "TikTok User";
         pageName = userData?.display_name || null;
+        avatarUrl = userData?.avatar_url || null;
       } else if (platform === "x") {
-        const profileRes = await fetch("https://api.twitter.com/2/users/me", {
+        const profileRes = await fetch("https://api.twitter.com/2/users/me?user.fields=profile_image_url", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const profileData = await profileRes.json();
         accountId = profileData.data?.id || "x-user";
         handle = profileData.data?.username ? `@${profileData.data.username}` : "X User";
         pageName = profileData.data?.name || null;
+        avatarUrl = profileData.data?.profile_image_url || null;
       } else if (platform === "pinterest") {
         const profileRes = await fetch("https://api.pinterest.com/v5/user_account", {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -165,6 +168,7 @@ export async function GET(
         accountId = profileData.id || "pinterest-user";
         handle = profileData.username ? `@${profileData.username}` : "Pinterest User";
         pageName = profileData.business_name || profileData.account_type || null;
+        avatarUrl = profileData.profile_image || null;
       } else if (platform === "youtube") {
         const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -173,8 +177,9 @@ export async function GET(
         accountId = profileData.id || "youtube-user";
         handle = profileData.name || profileData.email || "YouTube User";
         pageName = profileData.name || null;
+        avatarUrl = profileData.picture || null;
 
-        // Try to get channel name
+        // Try to get channel name and avatar
         try {
           const channelRes = await fetch(
             "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
@@ -184,17 +189,19 @@ export async function GET(
           if (channelData.items?.[0]) {
             pageName = channelData.items[0].snippet?.title || pageName;
             handle = channelData.items[0].snippet?.customUrl || handle;
+            avatarUrl = channelData.items[0].snippet?.thumbnails?.high?.url || channelData.items[0].snippet?.thumbnails?.default?.url || avatarUrl;
           }
         } catch {}
       } else if (platform === "facebook" || platform === "instagram") {
         // Meta Graph API
         const profileRes = await fetch(
-          `https://graph.facebook.com/me?fields=id,name,picture&access_token=${accessToken}`
+          `https://graph.facebook.com/me?fields=id,name,picture.type(large)&access_token=${accessToken}`
         );
         const profileData = await profileRes.json();
         accountId = profileData.id || "meta-user";
         handle = profileData.name || "Facebook User";
         pageName = profileData.name || null;
+        avatarUrl = profileData.picture?.data?.url || null;
 
         // For Instagram: try to get Instagram business account
         if (platform === "instagram") {
@@ -206,12 +213,13 @@ export async function GET(
             const igPage = pagesData.data?.find((p: any) => p.instagram_business_account);
             if (igPage?.instagram_business_account?.id) {
               const igRes = await fetch(
-                `https://graph.facebook.com/${igPage.instagram_business_account.id}?fields=id,username,name&access_token=${accessToken}`
+                `https://graph.facebook.com/${igPage.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
               );
               const igData = await igRes.json();
               accountId = igData.id || accountId;
               handle = igData.username ? `@${igData.username}` : handle;
               pageName = igData.name || pageName;
+              avatarUrl = igData.profile_picture_url || avatarUrl;
             }
           } catch {}
         }
@@ -223,6 +231,7 @@ export async function GET(
         accountId = profileData.sub || "linkedin-user";
         handle = profileData.name || profileData.email || "LinkedIn User";
         pageName = profileData.name || null;
+        avatarUrl = profileData.picture || null;
       }
     } catch (profileError) {
       console.warn(`Profile fetch failed for ${platform}, proceeding with token only:`, profileError);
@@ -290,6 +299,7 @@ export async function GET(
         accountId,
         handle,
         pageName,
+        avatarUrl,
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
       },
       update: {
@@ -298,6 +308,7 @@ export async function GET(
         accountId,
         handle,
         pageName,
+        avatarUrl,
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
       },
     });

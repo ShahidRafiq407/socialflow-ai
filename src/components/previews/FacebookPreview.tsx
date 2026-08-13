@@ -7,6 +7,8 @@ interface FacebookPreviewProps {
   userImage: string | null;
   currentCaption: string;
   isVertical: boolean;
+  isLoading?: boolean;
+  isConnected?: boolean;
 }
 
 export default function FacebookPreview({
@@ -14,31 +16,45 @@ export default function FacebookPreview({
   userName,
   userImage,
   currentCaption,
-  isVertical
+  isVertical,
+  isLoading = false,
+  isConnected = false,
 }: FacebookPreviewProps) {
   const [expanded, setExpanded] = useState(false);
   const isLong = (currentCaption || "").length > 120;
 
+  const pageTitle = isConnected ? userName : "Facebook Page";
+
   return (
     <div className="w-full max-w-[400px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#242526] shadow-md overflow-hidden text-left">
       <div className="flex items-center justify-between p-3">
-        <div className="flex items-center gap-2.5">
-          <div className="h-10 w-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 overflow-hidden shrink-0 flex items-center justify-center text-white font-bold text-sm">
-            {userImage ? (
-              <img src={userImage} alt={userName} className="h-full w-full object-cover" />
-            ) : (
-              userName.substring(0, 2).toUpperCase()
-            )}
+        {isLoading ? (
+          <div className="flex items-center gap-2.5 animate-pulse">
+            <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
+            <div className="space-y-1">
+              <div className="h-3.5 w-28 bg-slate-200 dark:bg-slate-800 rounded" />
+              <div className="h-2.5 w-16 bg-slate-200 dark:bg-slate-800 rounded" />
+            </div>
           </div>
-          <div>
-            <p className="text-[13px] font-bold text-slate-900 dark:text-[#e4e6eb] leading-tight flex items-center gap-1">
-              {userName} <Check className="h-3 w-3 bg-blue-500 text-white rounded-full p-[1px]" />
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-[#b0b3b8] flex items-center gap-1 mt-0.5">
-              2h • <Globe className="h-3 w-3" />
-            </p>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <div className="h-10 w-10 rounded-full bg-[#1877F2] overflow-hidden shrink-0 flex items-center justify-center text-white font-bold text-sm">
+              {userImage ? (
+                <img src={userImage} alt={pageTitle} className="h-full w-full object-cover" />
+              ) : (
+                <Globe className="h-5 w-5 text-white" />
+              )}
+            </div>
+            <div>
+              <p className="text-[13px] font-bold text-slate-900 dark:text-[#e4e6eb] leading-tight flex items-center gap-1">
+                <span className="truncate max-w-[170px]">{pageTitle}</span> <Check className="h-3 w-3 bg-blue-500 text-white rounded-full p-[1px] shrink-0" />
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-[#b0b3b8] flex items-center gap-1 mt-0.5">
+                2h • <Globe className="h-3 w-3" />
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         <div className="flex gap-2 text-slate-500">
           <MoreHorizontal className="h-5 w-5 cursor-pointer hover:text-slate-700" />
           <X className="h-5 w-5 cursor-pointer hover:text-slate-700" />
@@ -62,12 +78,12 @@ export default function FacebookPreview({
       </div>
 
       {displayImageUrl && (
-        <div className="w-full max-h-[300px] bg-slate-100 flex items-center justify-center overflow-hidden">
+        <div className="w-full max-h-[300px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
           {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : displayImageUrl ? (
+          ) : (
             <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />
-          ) : null}
+          )}
         </div>
       )}
 

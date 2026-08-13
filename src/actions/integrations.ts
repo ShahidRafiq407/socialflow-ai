@@ -12,7 +12,9 @@ export interface SocialPlatformIntegration {
   platformKey: string;  // Lowercase key: "instagram", "linkedin", etc.
   handle: string;       // @username
   pageName: string | null; // Business page name (optional)
+  avatarUrl: string | null; // Authentic social profile picture URL
   isConnected: boolean;
+  isTokenExpired?: boolean;
   description: string;  // What this platform does
   color: string;        // Brand color hex
 }
@@ -37,7 +39,9 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
         platform: def.platform,
         handle: "",
         pageName: null,
+        avatarUrl: null,
         isConnected: false,
+        isTokenExpired: false,
         description: def.description,
         color: def.color,
       }));
@@ -55,7 +59,9 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
         platform: def.platform,
         handle: "",
         pageName: null,
+        avatarUrl: null,
         isConnected: false,
+        isTokenExpired: false,
         description: def.description,
         color: def.color,
       }));
@@ -69,13 +75,16 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
     return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => {
       const sa = accountMap.get(key) as SocialAccountModel | undefined;
       if (sa) {
+        const isExpired = sa.tokenExpiresAt ? sa.tokenExpiresAt < new Date() : false;
         return {
           id: sa.id,
           platformKey: key,
           platform: def.platform,
           handle: sa.handle,
           pageName: sa.pageName,
+          avatarUrl: (sa as any).avatarUrl || null,
           isConnected: true,
+          isTokenExpired: isExpired,
           description: def.description,
           color: def.color,
         };
@@ -86,7 +95,9 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
         platform: def.platform,
         handle: "",
         pageName: null,
+        avatarUrl: null,
         isConnected: false,
+        isTokenExpired: false,
         description: def.description,
         color: def.color,
       };
@@ -99,7 +110,9 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
       platform: def.platform,
       handle: "",
       pageName: null,
+      avatarUrl: null,
       isConnected: false,
+      isTokenExpired: false,
       description: def.description,
       color: def.color,
     }));
@@ -109,7 +122,8 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
 export async function connectPlatform(
   platformKey: string,
   handle: string,
-  pageName?: string
+  pageName?: string,
+  avatarUrl?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     if (!handle) {
@@ -153,12 +167,14 @@ export async function connectPlatform(
       update: {
         handle,
         pageName: pageName || null,
+        avatarUrl: avatarUrl || null,
       },
       create: {
         workspaceId: workspace.id,
         platform: enumValue,
         handle,
         pageName: pageName || null,
+        avatarUrl: avatarUrl || null,
       },
     });
 

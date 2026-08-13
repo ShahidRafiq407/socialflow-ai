@@ -73,6 +73,7 @@ model SocialAccount {
   accountId      String    @default("")
   handle         String    @default("")
   pageName       String?
+  avatarUrl      String?
   tokenExpiresAt DateTime?
   workspaceId    String
   workspace      Workspace @relation(fields: [workspaceId], references: [id])

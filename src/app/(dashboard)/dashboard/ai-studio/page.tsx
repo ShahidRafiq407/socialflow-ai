@@ -2145,25 +2145,26 @@ export default function AIStudioPage() {
                         ) : (
                           (() => {
                             const activeIntegration = integrationsList.find(i => i.platformKey === activePlatformTab);
-                            const activeName = activeIntegration?.pageName || activeIntegration?.handle || defaultUserName;
-                            const activeHandle = activeIntegration?.handle ? (activeIntegration.handle.startsWith("@") ? activeIntegration.handle : `@${activeIntegration.handle}`) : `@${defaultUserHandle}`;
-                            const activeImage = defaultUserImage;
+                            const isConnected = activeIntegration?.isConnected || false;
+                            const activeName = activeIntegration?.pageName || activeIntegration?.handle?.replace(/^@/, '') || "";
+                            const activeHandle = activeIntegration?.handle || "";
+                            const activeImage = activeIntegration?.avatarUrl || null;
 
                             switch (activePlatformTab) {
                               case "instagram":
-                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
+                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "linkedin":
-                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} />;
+                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "x":
-                                return <XPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
+                                return <XPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "tiktok":
-                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} />;
+                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "youtube":
-                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} />;
+                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "facebook":
-                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isVertical={isVertical} />;
+                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isVertical={isVertical} isLoading={loadingConnections} isConnected={isConnected} />;
                               case "pinterest":
-                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={activeName} userImage={activeImage} />;
+                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={activeName} userImage={activeImage} isLoading={loadingConnections} isConnected={isConnected} />;
                               default:
                                 return null;
                             }
@@ -2546,24 +2547,25 @@ export default function AIStudioPage() {
             <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-4 w-full flex items-center justify-center min-h-[400px]">
               {(() => {
                 const manualIntegration = integrationsList.find(i => i.platformKey === manualPost.platform);
-                const mName = manualIntegration?.pageName || manualIntegration?.handle || defaultUserName;
-                const mHandle = manualIntegration?.handle ? (manualIntegration.handle.startsWith("@") ? manualIntegration.handle : `@${manualIntegration.handle}`) : `@${defaultUserHandle}`;
-                const mImage = defaultUserImage;
+                const isConnected = manualIntegration?.isConnected || false;
+                const mName = manualIntegration?.pageName || manualIntegration?.handle?.replace(/^@/, '') || "";
+                const mHandle = manualIntegration?.handle || "";
+                const mImage = manualIntegration?.avatarUrl || null;
 
                 if (manualPost.platform === "instagram") {
-                  return <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                  return <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else if (manualPost.platform === "linkedin") {
-                  return <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} />;
+                  return <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else if (manualPost.platform === "x") {
-                  return <XPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                  return <XPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else if (manualPost.platform === "tiktok") {
-                  return <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} />;
+                  return <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else if (manualPost.platform === "youtube") {
-                  return <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} />;
+                  return <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else if (manualPost.platform === "facebook") {
-                  return <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isVertical={false} />;
+                  return <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isVertical={false} isLoading={loadingConnections} isConnected={isConnected} />;
                 } else {
-                  return <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={mName} userImage={mImage} />;
+                  return <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={mName} userImage={mImage} isLoading={loadingConnections} isConnected={isConnected} />;
                 }
               })()}
             </div>
