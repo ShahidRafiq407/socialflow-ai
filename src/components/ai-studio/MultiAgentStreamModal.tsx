@@ -1,32 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Sparkles,
-  CheckCircle2,
-  Loader2,
-  X,
-  Building2,
-  TrendingUp,
-  ShieldCheck,
+  Database,
+  Globe,
+  Users,
   PenTool,
   Image as ImageIcon,
-  Crown,
-  Bot,
-  Check,
-  AlertCircle,
+  ShieldCheck,
+  CheckCircle2,
+  FileText,
+  Video,
+  Edit,
+  BarChart2,
+  X,
+  Minus,
+  Maximize2,
+  Sparkles,
+  Loader2,
   ArrowRight,
-  ExternalLink,
-  ChevronDown,
-  ChevronRight,
-  Globe,
-  Database,
-  Cpu,
-  Search,
-  Brain,
-  Zap,
-  MessageSquare,
-  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -38,338 +30,383 @@ interface MultiAgentStreamModalProps {
   onCompletePayload: (payload: any) => void;
 }
 
-type StepStatus = "waiting" | "thinking" | "running" | "completed" | "error";
-type AgentActionType = "search" | "analyze" | "write" | "generate" | "review" | "info";
+type AgentStatus = "waiting" | "running" | "completed" | "error";
 
-interface AgentAction {
-  type: AgentActionType;
-  label: string;
-  detail?: string;
-  url?: string;
-  timestamp: number;
-}
-
-interface AgentStep {
+interface Agent {
   id: string;
+  number: number;
   name: string;
-  role: string;
-  icon: any;
-  model: string;
-  status: StepStatus;
-  actions: AgentAction[];
-  thoughts?: string[];
-  output?: any;
-  latencyMs?: number;
-  startTime?: number;
+  icon: React.ElementType;
+  status: AgentStatus;
+  description: string;
 }
 
-interface StreamEvent {
-  type: "agent-start" | "agent-action" | "agent-thought" | "agent-output" | "agent-complete" | "pipeline-error";
-  agentId: string;
-  data?: any;
-}
-
-const AGENT_CONFIGS: Omit<AgentStep, "status" | "actions" | "thoughts" | "output" | "latencyMs" | "startTime">[] = [
-  { id: "brandAnalyst", name: "Brand Analyst", role: "Extracting Workspace Brand DNA", icon: Building2, model: "DB/brand DNA, no LLM" },
-  { id: "trendResearcher", name: "Trend Researcher", role: "Live Google Search & Viral Trend Analysis", icon: TrendingUp, model: "Gemini Flash + Google Search Grounding" },
-  { id: "competitorAnalyst", name: "Competitor Analyst", role: "Market Gap Analysis", icon: ShieldCheck, model: "Gemini Flash-Lite" },
-  { id: "contentCreator", name: "Pro Copywriter", role: "Strategic Multi-Platform Content", icon: PenTool, model: "Gemini 3.1 Pro" },
-  { id: "visualizerCreator", name: "Visual Director", role: "AI Visual Generation", icon: ImageIcon, model: "Gemini 3 Pro Image / Veo 3.1 Lite" },
-  { id: "supervisor", name: "CEO Auditor", role: "Human-Quality Verification", icon: Crown, model: "Gemini 3.1 Pro" },
-];
-
-const getAgentIcon = (type: AgentActionType) => {
-  switch (type) {
-    case "search": return Search;
-    case "analyze": return Brain;
-    case "write": return PenTool;
-    case "generate": return Zap;
-    case "review": return ShieldCheck;
-    default: return MessageSquare;
-  }
-};
-
-const getAgentColor = (type: AgentActionType) => {
-  switch (type) {
-    case "search": return "text-blue-500";
-    case "analyze": return "text-purple-500";
-    case "write": return "text-emerald-500";
-    case "generate": return "text-orange-500";
-    case "review": return "text-amber-500";
-    default: return "text-slate-500";
-  }
-};
-
-export default function MultiAgentStreamModal({ isOpen, onClose, platforms, contentTypes, onCompletePayload }: MultiAgentStreamModalProps) {
-  const [agents, setAgents] = useState<AgentStep[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [completedPayload, setCompletedPayload] = useState<any>(null);
-  const [isApplied, setIsApplied] = useState(false);
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
-
-  const abortRef = useRef<AbortController | null>(null);
-  const hasStartedRef = useRef(false);
-  const completedPayloadRef = useRef<any>(null);
-
-  const toggleAgent = (agentId: string) => {
-    setExpandedAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(agentId)) next.delete(agentId);
-      else next.add(agentId);
-      return next;
-    });
-  };
-
-  const updateAgent = useCallback((agentId: string, updates: Partial<AgentStep>) => {
-    setAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, ...updates } : a)));
-  }, []);
-
-  const addAction = useCallback((agentId: string, action: Omit<AgentAction, "timestamp">) => {
-    setAgents((prev) => prev.map((a) => a.id !== agentId ? a : { ...a, actions: [...a.actions, { ...action, timestamp: Date.now() }] }));
-  }, []);
-
-  const addThought = useCallback((agentId: string, thought: string) => {
-    setAgents((prev) => prev.map((a) => a.id !== agentId ? a : { ...a, thoughts: [...(a.thoughts || []), thought] }));
-  }, []);
-
-  const runPipeline = useCallback(async () => {
-    if (isRunning) return;
-    setIsRunning(true);
-    setErrorMsg(null);
-    setIsApplied(false);
-    setCompletedPayload(null);
-    completedPayloadRef.current = null;
-
-    const initialAgents: AgentStep[] = AGENT_CONFIGS.map((config) => ({ ...config, status: "waiting" as StepStatus, actions: [], thoughts: [], output: null, latencyMs: undefined, startTime: undefined }));
-    setAgents(initialAgents);
-    setExpandedAgents(new Set());
-
-    const abort = new AbortController();
-    abortRef.current = abort;
-
-    try {
-      const res = await fetch("/api/ai-studio-v2", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ step: "generate-campaign", platforms, contentTypes }),
-        signal: abort.signal,
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Server error" }));
-        throw new Error(err.error || `HTTP ${res.status}`);
-      }
-
-      if (!res.body) throw new Error("No response body");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event: StreamEvent = JSON.parse(line.replace("data: ", ""));
-            handleStreamEvent(event);
-          } catch {}
-        }
-      }
-    } catch (err: any) {
-      if (err.name !== "AbortError") setErrorMsg(err.message || "Pipeline failed");
-    } finally {
-      setIsRunning(false);
-    }
-  }, [isRunning, platforms, contentTypes, addAction, addThought, updateAgent]);
-
-  const handleStreamEvent = (event: StreamEvent) => {
-    const { agentId, type, data } = event;
-    switch (type) {
-      case "agent-start":
-        updateAgent(agentId, { status: "thinking", startTime: Date.now() });
-        setActiveAgentId(agentId);
-        setExpandedAgents((prev) => new Set([...prev, agentId]));
-        break;
-      case "agent-action": addAction(agentId, data); break;
-      case "agent-thought": addThought(agentId, data); break;
-      case "agent-output": updateAgent(agentId, { status: "completed", output: data, latencyMs: Date.now() - (agents.find((a) => a.id === agentId)?.startTime || Date.now()) }); break;
-      case "agent-complete": updateAgent(agentId, { status: "completed", latencyMs: Date.now() - (agents.find((a) => a.id === agentId)?.startTime || Date.now()) }); break;
-      case "pipeline-error": setErrorMsg(data?.message || "Pipeline error"); break;
-    }
-  };
+export default function MultiAgentStreamModal({
+  isOpen,
+  onClose,
+  platforms,
+  contentTypes,
+  onCompletePayload,
+}: MultiAgentStreamModalProps) {
+  // Static Dummy State for UI Review
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [activeAgentIndex, setActiveAgentIndex] = useState(3); // "Content Creator" is active in the spec
+  const [elapsedTime, setElapsedTime] = useState(0);
 
   useEffect(() => {
-    if (isOpen && !hasStartedRef.current) {
-      hasStartedRef.current = true;
-      setTimeout(() => runPipeline(), 300);
+    if (isOpen) {
+      const timer = setInterval(() => {
+        setElapsedTime((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(timer);
     }
-    if (!isOpen) {
-      hasStartedRef.current = false;
-      abortRef.current?.abort();
-    }
-  }, [isOpen, runPipeline]);
-
-  const handleApplyToEditors = () => {
-    const payload = completedPayloadRef.current || completedPayload;
-    if (payload) {
-      setIsApplied(true);
-      onCompletePayload(payload);
-      setTimeout(() => { onClose(); setIsApplied(false); setCompletedPayload(null); completedPayloadRef.current = null; hasStartedRef.current = false; }, 1200);
-    }
-  };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const completedCount = agents.filter((a) => a.status === "completed").length;
-  const progressPercentage = agents.length > 0 ? Math.round((completedCount / agents.length) * 100) : 0;
-  const isFullyComplete = completedCount === agents.length;
+  const agents: Agent[] = [
+    {
+      id: "brand_analyst",
+      number: 1,
+      name: "Brand Analyst",
+      icon: Database,
+      status: isCompleted ? "completed" : activeAgentIndex > 0 ? "completed" : "running",
+      description: "Loaded brand DNA from database",
+    },
+    {
+      id: "trend_researcher",
+      number: 2,
+      name: "Trend Researcher",
+      icon: Globe,
+      status: isCompleted ? "completed" : activeAgentIndex > 1 ? "completed" : activeAgentIndex === 1 ? "running" : "waiting",
+      description: "Completed live trend research",
+    },
+    {
+      id: "competitor_analyst",
+      number: 3,
+      name: "Competitor Analyst",
+      icon: Users,
+      status: isCompleted ? "completed" : activeAgentIndex > 2 ? "completed" : activeAgentIndex === 2 ? "running" : "waiting",
+      description: "Competitor analysis completed",
+    },
+    {
+      id: "content_creator",
+      number: 4,
+      name: "Content Creator",
+      icon: PenTool,
+      status: isCompleted ? "completed" : activeAgentIndex > 3 ? "completed" : activeAgentIndex === 3 ? "running" : "waiting",
+      description: "Writing campaign content based on research",
+    },
+    {
+      id: "visualizer",
+      number: 5,
+      name: "Visualizer",
+      icon: ImageIcon,
+      status: isCompleted ? "completed" : activeAgentIndex > 4 ? "completed" : activeAgentIndex === 4 ? "running" : "waiting",
+      description: "Waiting for content",
+    },
+    {
+      id: "ceo_auditor",
+      number: 6,
+      name: "CEO Auditor",
+      icon: ShieldCheck,
+      status: isCompleted ? "completed" : activeAgentIndex > 5 ? "completed" : activeAgentIndex === 5 ? "running" : "waiting",
+      description: "Final review pending",
+    },
+  ];
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const activeAgent = agents[activeAgentIndex] || agents[3];
+
+  const handleApplyToEditors = () => {
+    // Dummy payload for UI testing
+    onCompletePayload({ success: true, dummy: true });
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-5xl w-full flex flex-col overflow-hidden my-4 max-h-[95vh]">
-        <div className="p-5 px-7 bg-gradient-to-r from-slate-50 to-white dark:from-slate-950 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/80 text-white flex items-center justify-center shadow-lg shrink-0">
-              <Sparkles className="h-6 w-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Autonomous Campaign Engine</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Multi-agent AI workflow with live execution tracking</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all shrink-0">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-all duration-300 font-sans">
+      {/* Debug Toggle for UI Review */}
+      <button
+        onClick={() => setIsCompleted(!isCompleted)}
+        className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg text-sm font-medium z-50 backdrop-blur-md border border-white/20"
+      >
+        Debug: Toggle State (Currently: {isCompleted ? "Completed" : "Processing"})
+      </button>
 
-        <div className="px-7 py-4 bg-slate-50/50 dark:bg-slate-950/50 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Pipeline Progress</span>
-            <span className="text-xs font-bold text-slate-900 dark:text-white">{completedCount} / {agents.length} agents complete</span>
-          </div>
-          <div className="h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-primary via-primary/90 to-primary transition-all duration-500 ease-out" style={{ width: `${progressPercentage}%` }} />
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6 bg-white dark:bg-slate-900 space-y-3">
-          {agents.map((agent) => {
-            const isActive = agent.id === activeAgentId;
-            const isExpanded = expandedAgents.has(agent.id);
-            const isRunning = agent.status === "thinking" || agent.status === "running";
-            const isDone = agent.status === "completed";
-            const Icon = agent.icon;
-
-            return (
-              <div key={agent.id} className={`border rounded-2xl overflow-hidden transition-all duration-300 ${isActive ? "border-primary shadow-lg shadow-primary/10 bg-white dark:bg-slate-950" : isDone ? "border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/10" : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50"}`}>
-                <button onClick={() => toggleAgent(agent.id)} className="w-full p-5 flex items-start gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left">
-                  <div className={`h-12 w-12 rounded-xl flex items-center justify-center shrink-0 ${isDone ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400" : isActive ? "bg-primary/10 text-primary" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
-                    {isDone ? <CheckCircle2 className="h-6 w-6" /> : isRunning ? <Loader2 className="h-6 w-6 animate-spin" /> : <Icon className="h-6 w-6" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-bold text-slate-900 dark:text-white text-sm">{agent.name}</h3>
-                      {isRunning && <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full animate-pulse">{agent.status === "thinking" ? "ANALYZING" : "WORKING"}</span>}
-                      {isDone && agent.latencyMs && <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full">{agent.latencyMs}ms</span>}
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">{agent.role}</p>
-                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 dark:text-slate-500">
-                      <Cpu className="h-3 w-3" />
-                      {agent.model}
-                    </div>
-                  </div>
-                  <div className="shrink-0">{isExpanded ? <ChevronDown className="h-5 w-5 text-slate-400" /> : <ChevronRight className="h-5 w-5 text-slate-400" />}</div>
-                </button>
-
-                {isExpanded && (
-                  <div className="px-5 pb-5 space-y-4 border-t border-slate-100 dark:border-slate-800 pt-4">
-                    {agent.thoughts && agent.thoughts.length > 0 && (
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Agent Reasoning</div>
-                        <div className="space-y-2">
-                          {agent.thoughts.map((thought, tIdx) => (
-                            <div key={tIdx} className="text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/50 rounded-lg p-3 border-l-2 border-primary/50">{thought}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {agent.actions.length > 0 && (
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Live Actions</div>
-                        <div className="space-y-2">
-                          {agent.actions.map((action, aIdx) => {
-                            const ActionIcon = getAgentIcon(action.type);
-                            const color = getAgentColor(action.type);
-                            return (
-                              <div key={aIdx} className="flex items-start gap-3 text-xs bg-white dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
-                                <div className={`${color} shrink-0 mt-0.5`}><ActionIcon className="h-4 w-4" /></div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-semibold text-slate-900 dark:text-white">{action.label}</div>
-                                  {action.detail && <div className="text-slate-500 dark:text-slate-400 mt-1 text-[11px]">{action.detail}</div>}
-                                  {action.url && (
-                                    <a href={action.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 mt-2 font-semibold">
-                                      <Link2 className="h-3 w-3" />View Source<ExternalLink className="h-3 w-3" />
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {agent.output && (
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Output</div>
-                        <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-3 max-h-48 overflow-y-auto">
-                          <pre className="text-[10px] font-mono text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{JSON.stringify(agent.output, null, 2)}</pre>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+      {/* Main Modal Container */}
+      <div
+        className={`relative overflow-hidden shadow-2xl transition-all duration-500 ease-in-out ${
+          isCompleted
+            ? "w-[730px] max-w-[calc(100vw-32px)] bg-white rounded-[20px] border border-[#E5E7EB]"
+            : "w-[1180px] min-h-[680px] max-w-[calc(100vw-32px)] bg-[#0B0D10] rounded-[18px] border border-[#252A32]"
+        }`}
+      >
+        {/* Processing State */}
+        {!isCompleted && (
+          <div className="flex flex-col h-full text-white">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#252A32]">
+              <div className="flex items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight">AI Studio</h2>
+                  <p className="text-sm text-[#9CA3AF]">Multi-Agent Campaign</p>
+                </div>
+                <div className="h-4 w-px bg-[#252A32] mx-2"></div>
+                <div className="flex items-center gap-2 px-3 py-1 bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-full">
+                  <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse"></div>
+                  <span className="text-xs font-medium text-[#22C55E]">Live</span>
+                </div>
               </div>
-            );
-          })}
+              <div className="flex items-center gap-3">
+                <button className="p-2 text-[#9CA3AF] hover:text-white transition-colors"><Minus className="w-4 h-4" /></button>
+                <button className="p-2 text-[#9CA3AF] hover:text-white transition-colors"><Maximize2 className="w-4 h-4" /></button>
+                <button onClick={onClose} className="p-2 text-[#9CA3AF] hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
 
-          {errorMsg && (
-            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-5 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+            {/* Campaign Status */}
+            <div className="px-6 py-4 flex items-center justify-between border-b border-[#252A32] bg-[#11141A]">
+              <h3 className="text-[#9CA3AF] font-medium text-sm">Creating your campaign...</h3>
+              <div className="text-sm font-mono text-[#9CA3AF]">{formatTime(elapsedTime)}</div>
+            </div>
+
+            {/* Two Column Layout */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left Column: Agents List */}
+              <div className="w-[32%] border-r border-[#252A32] overflow-y-auto p-4 space-y-2">
+                {agents.map((agent) => {
+                  const Icon = agent.icon;
+                  const isActive = agent.id === activeAgent.id;
+                  const isCompleted = agent.status === "completed";
+                  const isWaiting = agent.status === "waiting";
+
+                  return (
+                    <div
+                      key={agent.id}
+                      className={`flex items-start gap-4 p-4 rounded-xl border transition-all duration-300 ${
+                        isActive
+                          ? "bg-[#161920] border-[#8B5CF6]/30 shadow-[0_0_15px_rgba(139,92,246,0.1)]"
+                          : isCompleted
+                          ? "bg-transparent border-[#252A32] opacity-80"
+                          : "bg-transparent border-transparent opacity-50"
+                      }`}
+                    >
+                      <div
+                        className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center border ${
+                          isCompleted
+                            ? "bg-[#22C55E]/10 border-[#22C55E]/20 text-[#22C55E]"
+                            : isActive
+                            ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/20 text-[#8B5CF6]"
+                            : "bg-[#1A1D24] border-[#252A32] text-[#9CA3AF]"
+                        }`}
+                      >
+                        {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className={`text-sm font-semibold truncate ${isActive ? "text-white" : "text-[#9CA3AF]"}`}>
+                            {agent.name}
+                          </h4>
+                          {isActive && (
+                            <span className="text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-2 py-0.5 rounded-full border border-[#8B5CF6]/20">
+                              {formatTime(elapsedTime % 45)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#6B7280] line-clamp-2 leading-relaxed">{agent.description}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Right Column: Active Agent Panel */}
+              <div className="w-[68%] p-8 bg-[#0B0D10] overflow-y-auto">
+                <div className="max-w-2xl mx-auto space-y-8">
+                  {/* Active Agent Header */}
+                  <div className="flex flex-col items-center text-center space-y-4">
+                    <div className="w-16 h-16 rounded-2xl bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 flex items-center justify-center shadow-[0_0_30px_rgba(139,92,246,0.15)] relative">
+                      <activeAgent.icon className="w-8 h-8 text-[#8B5CF6]" />
+                      <div className="absolute inset-0 rounded-2xl border border-[#8B5CF6] opacity-50 animate-ping" style={{ animationDuration: '3s' }}></div>
+                    </div>
+                    <div>
+                      <div className="inline-flex items-center gap-2 mb-2">
+                        <span className="text-[10px] font-bold tracking-wider text-[#8B5CF6] uppercase bg-[#8B5CF6]/10 px-2 py-1 rounded-md">
+                          IN PROGRESS
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-semibold text-white mb-2">{activeAgent.name}</h3>
+                      <p className="text-[#9CA3AF] text-sm">{activeAgent.description}...</p>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="space-y-2 pt-4">
+                    <div className="flex justify-between text-xs font-medium text-[#9CA3AF]">
+                      <span>Overall Progress</span>
+                      <span className="text-white">62%</span>
+                    </div>
+                    <div className="h-2 w-full bg-[#1A1D24] rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#A78BFA] w-[62%] transition-all duration-1000 ease-out rounded-full shadow-[0_0_10px_rgba(139,92,246,0.5)]"></div>
+                    </div>
+                  </div>
+
+                  {/* Activity Card */}
+                  <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-6">
+                    <h4 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#8B5CF6]" />
+                      What I'm doing
+                    </h4>
+                    <div className="space-y-4">
+                      {[
+                        { label: "Analyzing audience and intent", status: "completed" },
+                        { label: "Generating hook variations", status: "running" },
+                        { label: "Crafting engaging copy", status: "pending" },
+                        { label: "Building strong call to action", status: "pending" },
+                        { label: "Optimizing tone and readability", status: "pending" },
+                      ].map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-3">
+                          {item.status === "completed" ? (
+                            <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
+                          ) : item.status === "running" ? (
+                            <Loader2 className="w-4 h-4 text-[#8B5CF6] animate-spin" />
+                          ) : (
+                            <div className="w-4 h-4 rounded-full border border-[#252A32]" />
+                          )}
+                          <span
+                            className={`text-sm ${
+                              item.status === "completed"
+                                ? "text-[#9CA3AF]"
+                                : item.status === "running"
+                                ? "text-white font-medium"
+                                : "text-[#4B5563]"
+                            }`}
+                          >
+                            {item.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[#252A32] flex items-center justify-between bg-[#0B0D10]">
+              <span className="text-xs text-[#6B7280]">You can close this window, we'll keep working.</span>
+              <Button
+                variant="outline"
+                className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-sm h-9 px-4 rounded-lg transition-colors"
+                onClick={onClose}
+              >
+                Cancel Campaign
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Completed State */}
+        {isCompleted && (
+          <div className="flex flex-col text-[#111318] p-8 animate-in fade-in zoom-in-95 duration-500">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
               <div>
-                <div className="font-bold text-red-700 dark:text-red-400 text-sm mb-1">Pipeline Error</div>
-                <div className="text-xs text-red-600 dark:text-red-300">{errorMsg}</div>
+                <h2 className="text-xl font-bold tracking-tight">AI Studio</h2>
+                <p className="text-sm text-[#6B7280]">Multi-Agent Campaign</p>
+              </div>
+              <button onClick={onClose} className="p-2 text-[#6B7280] hover:text-[#111318] hover:bg-gray-100 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Success Message */}
+            <div className="flex flex-col items-center text-center space-y-4 mb-8">
+              <div className="w-[86px] h-[86px] rounded-full bg-[#22C55E]/10 flex items-center justify-center mb-2">
+                <CheckCircle2 className="w-[48px] h-[48px] text-[#22C55E]" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold mb-2">Campaign Ready!</h3>
+                <p className="text-[#6B7280]">Your content has been successfully created.</p>
               </div>
             </div>
-          )}
-        </div>
 
-        <div className="p-5 px-7 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between shrink-0">
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xs font-semibold">Cancel</Button>
-          {isApplied ? (
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 px-6 py-2.5 rounded-xl animate-in zoom-in-95">
-              <Check className="h-4 w-4" /><span>Content Added to Editor! Closing...</span>
+            {/* Summary & Assets */}
+            <div className="grid grid-cols-2 gap-6 mb-8">
+              {/* Campaign Summary */}
+              <div className="bg-gray-50 border border-[#E5E7EB] rounded-[16px] p-5">
+                <h4 className="text-sm font-semibold mb-4 text-[#111318]">Campaign Summary</h4>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-xs text-[#6B7280] block mb-1">Campaign Name</span>
+                    <span className="text-sm font-medium">Social Media Campaign</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-[#6B7280] block mb-1">ID</span>
+                    <span className="text-sm font-mono bg-white border border-[#E5E7EB] px-2 py-0.5 rounded text-[#111318]">CMP-XXXXXX</span>
+                  </div>
+                  <div className="pt-2 flex flex-wrap gap-2">
+                    {["6 agents completed", "12 sources", "3 assets generated"].map((stat, i) => (
+                      <span key={i} className="text-xs bg-white border border-[#E5E7EB] px-2 py-1 rounded-md text-[#6B7280]">
+                        {stat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Assets Generated */}
+              <div className="bg-gray-50 border border-[#E5E7EB] rounded-[16px] p-5">
+                <h4 className="text-sm font-semibold mb-4 text-[#111318]">Assets Generated</h4>
+                <div className="space-y-2">
+                  {[
+                    { label: "Content", icon: FileText },
+                    { label: "Image", icon: ImageIcon },
+                    { label: "Video", icon: Video },
+                  ].map((asset, i) => (
+                    <div key={i} className="flex items-center justify-between bg-white border border-[#E5E7EB] p-3 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-gray-50 border border-[#E5E7EB] flex items-center justify-center">
+                          <asset.icon className="w-4 h-4 text-[#6B7280]" />
+                        </div>
+                        <span className="text-sm font-medium">{asset.label}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-1 rounded-md uppercase">Ready</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          ) : isFullyComplete && completedPayload ? (
-            <Button onClick={handleApplyToEditors} className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg transition-all hover:scale-[1.02] flex items-center gap-2">
-              Add All Content to Editor<ArrowRight className="h-4 w-4" />
-            </Button>
-          ) : isRunning ? (
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" /><span>Agents are executing...</span>
+
+            {/* Actions */}
+            <div className="flex flex-col gap-3">
+              <Button
+                onClick={handleApplyToEditors}
+                className="w-full h-[56px] bg-[#0B0D10] hover:bg-black text-white rounded-xl text-base font-medium transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+              >
+                <Edit className="w-5 h-5" />
+                Add Content to Editor
+                <ArrowRight className="w-4 h-4 ml-1 opacity-70" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full h-[56px] bg-white border border-[#E5E7EB] text-[#111318] hover:bg-gray-50 rounded-xl text-base font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <BarChart2 className="w-5 h-5 text-[#6B7280]" />
+                View Campaign Details
+              </Button>
+              <button onClick={onClose} className="mt-2 text-sm text-[#6B7280] hover:text-[#111318] font-medium transition-colors">
+                Close
+              </button>
             </div>
-          ) : (
-            <div className="text-xs text-slate-400">Ready</div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -53,3 +53,5 @@ istanbul/
 *.temp
 .DS_Store
 ```google-credentials.json
+
+google-credentials.json
