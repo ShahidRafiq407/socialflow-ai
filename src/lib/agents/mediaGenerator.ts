@@ -57,13 +57,13 @@ function validateAssetUrl(url: string, type: "image" | "video") {
   if (!url || (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("data:"))) {
     throw new VisualizerError(
       "VISUALIZER_VALIDATION_FAILED",
-      `Generated ${type} target is not a valid output link.`
+      `Rendered ${type} asset allocation failed string target formatting.`
     );
   }
 }
 
 /**
- * Flagship Video Synthesis Engine (Focus: Maximum Cinematic Fidelity)
+ * Flagship Video Synthesis Handler Utilizing Veo 3.1 Premium Tier
  */
 async function generateRealVideo(options: {
   prompt: string;
@@ -74,18 +74,19 @@ async function generateRealVideo(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
 
-  // Strict high-quality mapping only. Removed cheap/lite versions.
-  const premiumVideoModels = [
+  // High fidelity structures only. Cheap/Lite pipelines completely eliminated.
+  const premiumVideoCluster = [
     model,
-    "veo-2.0-generate-001" // Heavy weight flagship production video model
+    "veo-3.1-generate-001", // Veo 3.1 Flagship Cinematic Unit
+    "veo-2.0-generate-001"  // GA Core Fallback Target
   ];
-  const uniqueVideoModels = [...new Set(premiumVideoModels.filter(Boolean))];
+  const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
   let lastErr: any = null;
 
   for (const vModel of uniqueVideoModels) {
     try {
       const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
-      console.log(`[Visualizer] Launching Premium Video Synthesis with: ${vModel}`);
+      console.log(`[Visualizer] Dispatching Veo Core Thread on Instance: ${vModel}`);
 
       if (typeof ai?.models?.generateVideos === "function") {
         onProgress?.(`[Visualizer] Initiating Veo video operation (${vModel})...`);
@@ -150,15 +151,12 @@ async function generateRealVideo(options: {
         }
       }
     } catch (err: any) {
-      console.warn(`[Visualizer] Premium engine ${vModel} was restricted, attempting secure alternative...`, err?.message || err);
+      console.warn(`[Visualizer] Target cluster ${vModel} reported processing limits. Attempting fallback instance...`, err?.message || err);
       lastErr = err;
     }
   }
 
-  throw new VisualizerError(
-    "VIDEO_GENERATION_FAILED",
-    `Vertex AI high-fidelity cinematic video cluster failed to render. Trace: ${lastErr?.message || lastErr}`
-  );
+  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Vertex AI heavy cluster video synthesis execution dropped frame layer. Trace: ${lastErr?.message || lastErr}`);
 }
 
 export function resolveVisualRequirements(platform: string, contentType: string) {
@@ -198,19 +196,19 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     (!!process.env.GOOGLE_CLIENT_EMAIL && !!process.env.GOOGLE_PRIVATE_KEY);
 
   if (!hasKey) {
-    throw new VisualizerError(
-      "VISUALIZER_API_KEY_MISSING",
-      "Google credentials mapping is incomplete."
-    );
+    throw new VisualizerError("VISUALIZER_API_KEY_MISSING", "Google Cloud Environment credentials structure mapping is broken.");
   }
 
   const results: MediaAssetOutput[] = [];
 
   if (mediaType === "video") {
-    onProgress?.(`[Visualizer] Initiating professional video rendering sequence with ${MODELS.VIDEO}...`);
+    onProgress?.(`[Visualizer] Compiling premium cinematic narrative canvas via ${MODELS.VIDEO}...`);
+
+    // Injecting strict adherence directives for maximum video realism
+    const highEndVideoPrompt = `${prompt}, hyper-realistic photography, 8k resolution, smooth cinematography, cinematic lighting, photorealism style, flawless texture map`;
 
     const videoUrl = await generateRealVideo({
-      prompt,
+      prompt: highEndVideoPrompt,
       topic,
       aspectRatio,
       model: MODELS.VIDEO,
@@ -218,7 +216,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     });
 
     if (!videoUrl || !videoUrl.trim()) {
-      throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Video processing returned an unreadable asset link.");
+      throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Video thread compilation returned an empty frame link.");
     }
 
     validateAssetUrl(videoUrl, "video");
@@ -228,7 +226,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       contentType,
       type: "video",
       url: videoUrl,
-      prompt,
+      prompt: highEndVideoPrompt,
       aspectRatio,
       status: "completed",
       provider: "google_vertex",
@@ -241,11 +239,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   if (mediaType === "multi_image") {
     const totalSlides = 3;
-    onProgress?.(`[Visualizer] Initializing elite rendering for ${totalSlides} multi-slide frames using ${MODELS.VISUALIZER}...`);
+    onProgress?.(`[Visualizer] Processing master grade image arrays (${totalSlides} frames) with engine: ${MODELS.VISUALIZER}...`);
 
     for (let slideIdx = 1; slideIdx <= totalSlides; slideIdx++) {
-      const slidePrompt = `${prompt} (Slide ${slideIdx} of ${totalSlides}: Photorealistic, ultra-detailed professional studio shot, 8k resolution, crisp texture)`;
-      onProgress?.(`[Visualizer] Rendering Slide ${slideIdx}/${totalSlides}...`);
+      const slidePrompt = `${prompt} (Slide ${slideIdx} of ${totalSlides}: Commercial studio product capture, ultra detailed textures, raytraced reflections, 8k resolution close-up)`;
+      onProgress?.(`[Visualizer] Directing Frame compilation ${slideIdx}/${totalSlides}...`);
 
       const imageUrl = await generateRealImage({
         prompt: slidePrompt,
@@ -255,7 +253,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       });
 
       if (!imageUrl || !imageUrl.trim()) {
-        throw new VisualizerError("IMAGE_GENERATION_FAILED", `Slide ${slideIdx} generation dropped execution frame.`);
+        throw new VisualizerError("IMAGE_GENERATION_FAILED", `Multi-frame layer compilation failed at block level ${slideIdx}.`);
       }
 
       validateAssetUrl(imageUrl, "image");
@@ -280,18 +278,18 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   onProgress?.(`[Visualizer] Dispatching master image synthesis via ${MODELS.VISUALIZER}...`);
 
-  // Appending strict clarity enhancers directly to prompt variables for better output text compliance
-  const enhancedPrompt = `${prompt} (Photorealistic, commercial grade product photography, cinematic lighting, ultra-high resolution textures)`;
+  // Forcing raw structural fidelity parameters right onto the input parameters
+  const commercialPrompt = `${prompt}, highly detailed studio shot, realistic lighting layers, hyper-detailed photography aesthetics, crisp focus, 8k resolution`;
 
   const imageUrl = await generateRealImage({
-    prompt: enhancedPrompt,
+    prompt: commercialPrompt,
     topic,
     aspectRatio,
     model: MODELS.VISUALIZER,
   });
 
   if (!imageUrl || !imageUrl.trim()) {
-    throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image compilation returned empty frame bytes.");
+    throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image canvas interface compilation dropped layer bytes.");
   }
 
   validateAssetUrl(imageUrl, "image");
@@ -301,7 +299,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     contentType,
     type: "image",
     url: imageUrl,
-    prompt: enhancedPrompt,
+    prompt: commercialPrompt,
     aspectRatio,
     status: "completed",
     provider: "google_vertex",
@@ -313,7 +311,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 }
 
 /**
- * Top-Tier Text-to-Image Generation Processing via Vertex AI Studio
+ * Top-Tier Lossless Text-to-Image Engine Processing Pipeline
  */
 async function generateRealImage(options: {
   prompt: string;
@@ -323,22 +321,21 @@ async function generateRealImage(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model } = options;
 
-  // STRICT RULE: Stripped away all light/fast/banana model strings completely.
-  const coreHighQualityModels = [
+  const premiumImageCluster = [
     model,
-    "imagen-3.0-generate-002" // Google's absolute highest tier photorealism production unit
+    "imagen-3.0-generate-002" // Flagship Production Photorealism Matrix
   ];
-  const uniqueModels = [...new Set(coreHighQualityModels.filter(Boolean))];
+  const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
   let lastErr: any = null;
 
   for (const mName of uniqueModels) {
     try {
       const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
       if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
-        throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Vertex AI core image engine interface is unreachable.");
+        throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Vertex AI raw image engine adapter pipeline is offline.");
       }
 
-      console.log(`[Visualizer] Executing production payload on raw high-quality cluster: ${mName}`);
+      console.log(`[Visualizer] Executing elite generation prompt array on raw engine cluster: ${mName}`);
 
       if (typeof ai.models.generateImages === "function") {
         const response = await ai.models.generateImages({
@@ -369,13 +366,13 @@ async function generateRealImage(options: {
         return `data:${cand.inlineData.mimeType || "image/png"};base64,${cand.inlineData.data}`;
       }
     } catch (err: any) {
-      console.error(`[Visualizer] Frame processing rejected by model instance ${mName}:`, err);
+      console.error(`[Visualizer] Hardware compilation layer rejected processing parameters on core ${mName}:`, err);
       lastErr = err;
     }
   }
 
   throw new VisualizerError(
     "IMAGE_GENERATION_FAILED",
-    `All master image generation engines rejected parameters. Trace: ${lastErr?.message || lastErr}`
+    `All configured master grade visualizer arrays failed parameters. Trace: ${lastErr?.message || lastErr}`
   );
 }
