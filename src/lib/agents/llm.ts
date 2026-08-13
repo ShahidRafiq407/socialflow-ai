@@ -13,8 +13,8 @@ export const MODELS = {
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
-  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "imagen-3.0-generate-002",
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-generate-001",
+  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3-pro-image",
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "gemini-omni-flash-preview",
 
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro-preview",
 };

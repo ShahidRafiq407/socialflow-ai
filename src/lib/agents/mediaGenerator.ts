@@ -77,8 +77,7 @@ async function generateRealVideo(options: {
   // High fidelity structures only. Cheap/Lite pipelines completely eliminated.
   const premiumVideoCluster = [
     model,
-    "veo-3.1-generate-001", // Veo 3.1 Flagship Cinematic Unit
-    "veo-2.0-generate-001"  // GA Core Fallback Target
+    "gemini-omni-flash-preview" // Veo 3.1 Flagship Cinematic Unit
   ];
   const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
   let lastErr: any = null;
@@ -323,7 +322,7 @@ async function generateRealImage(options: {
 
   const premiumImageCluster = [
     model,
-    "imagen-3.0-generate-002" // Flagship Production Photorealism Matrix
+    "gemini-3-pro-image" // Flagship Production Photorealism Matrix
   ];
   const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
   let lastErr: any = null;
