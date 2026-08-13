@@ -142,7 +142,7 @@ export default function MultiAgentStreamModal({
       <div
         className={`relative overflow-hidden shadow-2xl transition-all duration-300 ease-in-out w-full flex flex-col ${
           isCompleted
-            ? "max-w-[730px] max-h-[90vh] bg-white rounded-2xl md:rounded-[20px] border border-[#E5E7EB] overflow-y-auto"
+            ? "max-w-[520px] bg-white rounded-2xl md:rounded-[20px] border border-[#E5E7EB]"
             : "max-w-[1180px] h-[92vh] max-h-[750px] min-h-[500px] bg-[#0B0D10] rounded-2xl md:rounded-[18px] border border-[#252A32]"
         }`}
       >
@@ -295,9 +295,9 @@ export default function MultiAgentStreamModal({
 
         {/* Completed State */}
         {isCompleted && (
-          <div className="flex flex-col text-[#111318] p-4 sm:p-6 md:p-8 animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex flex-col text-[#111318] p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6 sm:mb-8">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
               <div>
                 <h2 className="text-lg sm:text-xl font-bold tracking-tight">AI Studio</h2>
                 <p className="text-xs sm:text-sm text-[#6B7280]">Multi-Agent Campaign</p>
@@ -308,65 +308,18 @@ export default function MultiAgentStreamModal({
             </div>
 
             {/* Success Message */}
-            <div className="flex flex-col items-center text-center space-y-3 sm:space-y-4 mb-6 sm:mb-8">
-              <div className="w-[64px] h-[64px] sm:w-[86px] sm:h-[86px] rounded-full bg-[#22C55E]/10 flex items-center justify-center mb-1 sm:mb-2">
-                <CheckCircle2 className="w-[36px] h-[36px] sm:w-[48px] sm:h-[48px] text-[#22C55E]" />
+            <div className="flex flex-col items-center text-center space-y-3 sm:space-y-4 my-4 sm:my-6">
+              <div className="w-[72px] h-[72px] sm:w-[86px] sm:h-[86px] rounded-full bg-[#22C55E]/10 flex items-center justify-center mb-1">
+                <CheckCircle2 className="w-[40px] h-[40px] sm:w-[48px] sm:h-[48px] text-[#22C55E]" />
               </div>
               <div>
-                <h3 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Campaign Ready!</h3>
+                <h3 className="text-xl sm:text-2xl font-bold mb-1.5">Campaign Ready!</h3>
                 <p className="text-xs sm:text-sm text-[#6B7280]">Your content has been successfully created.</p>
               </div>
             </div>
 
-            {/* Summary & Assets */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
-              {/* Campaign Summary */}
-              <div className="bg-gray-50 border border-[#E5E7EB] rounded-[16px] p-4 sm:p-5">
-                <h4 className="text-xs sm:text-sm font-semibold mb-3 sm:mb-4 text-[#111318]">Campaign Summary</h4>
-                <div className="space-y-3">
-                  <div>
-                    <span className="text-[11px] sm:text-xs text-[#6B7280] block mb-0.5">Campaign Name</span>
-                    <span className="text-xs sm:text-sm font-medium">Social Media Campaign</span>
-                  </div>
-                  <div>
-                    <span className="text-[11px] sm:text-xs text-[#6B7280] block mb-0.5">ID</span>
-                    <span className="text-xs sm:text-sm font-mono bg-white border border-[#E5E7EB] px-2 py-0.5 rounded text-[#111318]">CMP-XXXXXX</span>
-                  </div>
-                  <div className="pt-1 sm:pt-2 flex flex-wrap gap-1.5 sm:gap-2">
-                    {["6 agents completed", "12 sources", "3 assets generated"].map((stat, i) => (
-                      <span key={i} className="text-[10px] sm:text-xs bg-white border border-[#E5E7EB] px-2 py-1 rounded-md text-[#6B7280]">
-                        {stat}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Assets Generated */}
-              <div className="bg-gray-50 border border-[#E5E7EB] rounded-[16px] p-4 sm:p-5">
-                <h4 className="text-xs sm:text-sm font-semibold mb-3 sm:mb-4 text-[#111318]">Assets Generated</h4>
-                <div className="space-y-2">
-                  {[
-                    { label: "Content", icon: FileText },
-                    { label: "Image", icon: ImageIcon },
-                    { label: "Video", icon: Video },
-                  ].map((asset, i) => (
-                    <div key={i} className="flex items-center justify-between bg-white border border-[#E5E7EB] p-2.5 sm:p-3 rounded-xl">
-                      <div className="flex items-center gap-2.5 sm:gap-3">
-                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gray-50 border border-[#E5E7EB] flex items-center justify-center">
-                          <asset.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#6B7280]" />
-                        </div>
-                        <span className="text-xs sm:text-sm font-medium">{asset.label}</span>
-                      </div>
-                      <span className="text-[9px] sm:text-[10px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 sm:py-1 rounded-md uppercase">Ready</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
             {/* Actions */}
-            <div className="flex flex-col gap-2.5 sm:gap-3">
+            <div className="mt-4 sm:mt-6">
               <Button
                 onClick={handleApplyToEditors}
                 className="w-full h-12 sm:h-[56px] bg-[#0B0D10] hover:bg-black text-white rounded-xl text-sm sm:text-base font-medium transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
@@ -375,16 +328,6 @@ export default function MultiAgentStreamModal({
                 Add Content to Editor
                 <ArrowRight className="w-4 h-4 ml-1 opacity-70" />
               </Button>
-              <Button
-                variant="outline"
-                className="w-full h-12 sm:h-[56px] bg-white border border-[#E5E7EB] text-[#111318] hover:bg-gray-50 rounded-xl text-sm sm:text-base font-medium transition-colors flex items-center justify-center gap-2"
-              >
-                <BarChart2 className="w-4 h-4 sm:w-5 sm:h-5 text-[#6B7280]" />
-                View Campaign Details
-              </Button>
-              <button onClick={onClose} className="mt-1 text-xs sm:text-sm text-[#6B7280] hover:text-[#111318] font-medium transition-colors">
-                Close
-              </button>
             </div>
           </div>
         )}
