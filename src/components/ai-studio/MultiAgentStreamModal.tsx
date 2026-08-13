@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ExternalLink,
   Search,
+  Film,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -71,7 +72,7 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     number: 5,
     name: "Visualizer",
     icon: ImageIcon,
-    description: "Generating visual specifications",
+    description: "Generating visual & video assets",
   },
   {
     id: "ceo_auditor",
@@ -99,6 +100,7 @@ export default function MultiAgentStreamModal({
     ceo_auditor: "waiting",
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("brand_analyst");
+  const [userHasManuallySelected, setUserHasManuallySelected] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
   const [agentActivities, setAgentActivities] = useState<Record<string, { label: string; status: AgentStatus }[]>>({});
   const [trendSources, setTrendSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
@@ -120,6 +122,8 @@ export default function MultiAgentStreamModal({
     setSearchQuery("");
     setAgentOutputs({});
     setAgentActivities({});
+    setUserHasManuallySelected(false);
+    setSelectedAgentId("brand_analyst");
     setAgentStatuses({
       brand_analyst: "waiting",
       trend_researcher: "waiting",
@@ -195,7 +199,10 @@ export default function MultiAgentStreamModal({
 
     if (type === "agent_started") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
-      setSelectedAgentId((prev) => (prev === "brand_analyst" || agentStatuses[prev] === "completed" ? agentId : prev));
+      // Automatically switch active panel to running agent unless user explicitly clicked another
+      if (!userHasManuallySelected) {
+        setSelectedAgentId(agentId);
+      }
     } else if (type === "agent_action") {
       if (data?.label) {
         setAgentActivities((prev) => ({
@@ -259,7 +266,7 @@ export default function MultiAgentStreamModal({
         body: JSON.stringify({ action: "cancel", runId: runIdRef.current }),
       });
     } catch (e) {
-      // Ignore cancel network errors
+      // Ignore network cancellation errors
     }
     onClose();
   };
@@ -279,7 +286,6 @@ export default function MultiAgentStreamModal({
 
   if (!isOpen) return null;
 
-  // Calculate Real Dynamic Progress Percentage based on Completed Agents
   const completedCount = Object.values(agentStatuses).filter((s) => s === "completed").length;
   const runningCount = Object.values(agentStatuses).filter((s) => s === "running").length;
   const realProgress = Math.min(100, Math.round(((completedCount + (runningCount ? 0.5 : 0)) / AGENT_SEQUENCE.length) * 100));
@@ -318,7 +324,7 @@ export default function MultiAgentStreamModal({
               </div>
             </div>
 
-            {/* Responsive Layout: 2-column on desktop, stacked on tablet/mobile */}
+            {/* 2-Column Responsive Layout */}
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
               {/* Left Column: Agents List */}
               <div className="w-full md:w-[35%] lg:w-[32%] md:min-w-[280px] border-b md:border-b-0 md:border-r border-[#252A32] overflow-y-auto p-3 sm:p-4 space-y-2 max-h-[180px] sm:max-h-[220px] md:max-h-none shrink-0 md:shrink">
@@ -332,7 +338,10 @@ export default function MultiAgentStreamModal({
                   return (
                     <div
                       key={agent.id}
-                      onClick={() => setSelectedAgentId(agent.id)}
+                      onClick={() => {
+                        setUserHasManuallySelected(true);
+                        setSelectedAgentId(agent.id);
+                      }}
                       className={`flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border cursor-pointer transition-all duration-200 ${
                         isSelected
                           ? "bg-[#161920] border-[#8B5CF6]/40 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
@@ -395,7 +404,7 @@ export default function MultiAgentStreamModal({
                     </div>
                   </div>
 
-                  {/* Activity & Real Output Section */}
+                  {/* Activity & Details Panel */}
                   <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-6 space-y-5">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs sm:text-sm font-semibold text-white flex items-center gap-2">
@@ -407,7 +416,7 @@ export default function MultiAgentStreamModal({
                       </span>
                     </div>
 
-                    {/* Agent Activities */}
+                    {/* Agent Live Activity Messages */}
                     {activeActivities.length > 0 ? (
                       <div className="space-y-3">
                         {activeActivities.map((act, idx) => (
@@ -425,7 +434,7 @@ export default function MultiAgentStreamModal({
                       <p className="text-xs text-[#6B7280]">Agent waiting to execute...</p>
                     )}
 
-                    {/* Agent Specific Real Data Display */}
+                    {/* Real Data Details Panel for selectedAgentId */}
                     {selectedAgentId === "trend_researcher" && (
                       <div className="pt-3 border-t border-[#252A32] space-y-3">
                         {searchQuery && (
@@ -488,21 +497,43 @@ export default function MultiAgentStreamModal({
                       </div>
                     )}
 
-                    {selectedAgentId === "content_creator" && activeAgentOutput && (
+                    {selectedAgentId === "visualizer" && activeAgentOutput?.generatedAssets && (
                       <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Content Generation Summary</h5>
-                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32]">
-                          <p className="text-[#22C55E] font-medium">✅ High-converting copy generated for requested platforms.</p>
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Generated Media Assets</h5>
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {activeAgentOutput.generatedAssets.map((asset: any, aIdx: number) => (
+                            <div key={aIdx} className="bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32] flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {asset.type === "video" ? (
+                                  <Film className="w-4 h-4 text-[#8B5CF6]" />
+                                ) : (
+                                  <ImageIcon className="w-4 h-4 text-[#22C55E]" />
+                                )}
+                                <div>
+                                  <p className="text-white font-medium capitalize">{asset.platform} — {asset.contentType} ({asset.type.toUpperCase()})</p>
+                                  <p className="text-[10px] text-[#6B7280]">Aspect Ratio: {asset.aspectRatio}</p>
+                                </div>
+                              </div>
+                              <a
+                                href={asset.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#8B5CF6] hover:underline flex items-center gap-1 text-[11px] font-semibold"
+                              >
+                                View <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
 
                     {selectedAgentId === "ceo_auditor" && activeAgentOutput && (
                       <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">CEO Audit Results</h5>
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">CEO Audit Verification</h5>
                         <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] flex items-center justify-between">
                           <div>
-                            <p className="text-white font-bold text-sm">Score: {activeAgentOutput.score}/100</p>
+                            <p className="text-white font-bold text-sm">Quality Score: {activeAgentOutput.score}/100</p>
                             <p className="text-[#9CA3AF] mt-0.5">{activeAgentOutput.notes}</p>
                           </div>
                           <span className="bg-[#22C55E]/10 text-[#22C55E] px-2.5 py-1 rounded-full border border-[#22C55E]/20 text-[10px] font-bold">
