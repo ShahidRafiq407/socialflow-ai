@@ -238,52 +238,65 @@ async function generateRealImage(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model } = options;
 
-  try {
-    const ai = (vertexProvider as any).ai;
-    if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
-      throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Google GenAI SDK models interface is not available.");
-    }
+  const candidateModels = [
+    model,
+    "imagen-3.0-generate-002",
+    "imagen-3.0-fast-generate-001",
+    "gemini-2.0-flash",
+  ];
+  const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 
-    console.log(`[Visualizer] Calling Google Image Generation (Model: ${model})...`);
+  let lastErr: any = null;
 
-    if (typeof ai.models.generateImages === "function") {
-      const response = await ai.models.generateImages({
-        model,
-        prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
-        config: {
-          numberOfImages: 1,
-          aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
-          outputMimeType: "image/png",
-        },
+  for (const mName of uniqueModels) {
+    try {
+      const ai = (vertexProvider as any).ai;
+      if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
+        throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Google GenAI SDK models interface is not available.");
+      }
+
+      console.log(`[Visualizer] Calling Google Image Generation (Model: ${mName})...`);
+
+      if (typeof ai.models.generateImages === "function") {
+        const response = await ai.models.generateImages({
+          model: mName,
+          prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
+          config: {
+            numberOfImages: 1,
+            aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+            outputMimeType: "image/png",
+          },
+        });
+
+        const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+        if (imageBytes) {
+          console.log(`[Visualizer] ✅ Image generation success with model: ${mName}`);
+          return `data:image/png;base64,${imageBytes}`;
+        }
+      }
+
+      // Fallback generateContent attempt if generateImages endpoint returns structured bytes
+      const genRes = await ai.models.generateContent({
+        model: mName,
+        contents: `Generate a high quality visual image: ${prompt}`,
       });
 
-      const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
-      if (imageBytes) {
-        return `data:image/png;base64,${imageBytes}`;
+      const cand = genRes.candidates?.[0]?.content?.parts?.[0];
+      if (cand?.inlineData?.data) {
+        console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${mName}`);
+        return `data:${cand.inlineData.mimeType || "image/png"};base64,${cand.inlineData.data}`;
       }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Visualizer] Image model ${mName} failed:`, err?.message || err);
     }
-
-    // Fallback generateContent attempt if generateImages endpoint returns structured bytes
-    const genRes = await ai.models.generateContent({
-      model,
-      contents: `Generate a high quality visual image: ${prompt}`,
-    });
-
-    const cand = genRes.candidates?.[0]?.content?.parts?.[0];
-    if (cand?.inlineData?.data) {
-      return `data:${cand.inlineData.mimeType || "image/png"};base64,${cand.inlineData.data}`;
-    }
-  } catch (err: any) {
-    if (err instanceof VisualizerError) throw err;
-    console.error(`[Visualizer] Google image generation error with ${model}:`, err?.message || err);
-    throw new VisualizerError(
-      "IMAGE_GENERATION_FAILED",
-      `Google image model ${model} failed: ${err?.message || "Generation error"}`,
-      err
-    );
   }
 
-  throw new VisualizerError("IMAGE_GENERATION_FAILED", `Google image model ${model} did not return image bytes.`);
+  throw new VisualizerError(
+    "IMAGE_GENERATION_FAILED",
+    `Google image model ${model} failed: ${lastErr?.message || "Publisher model not found or unavailable in global region"}`,
+    lastErr
+  );
 }
 
 /**
@@ -298,83 +311,92 @@ async function generateRealVideo(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
 
-  try {
-    const ai = (vertexProvider as any).ai;
-    console.log(`[Visualizer] Calling Veo Video Generation (Model: ${model})...`);
+  const candidateModels = [
+    model,
+    "veo-3.1-generate-preview",
+    "veo-2.0-generate-001",
+    "veo-2.0-flash",
+  ];
+  const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 
-    if (typeof ai?.models?.generateVideos === "function") {
-      onProgress?.(`[Visualizer] Initiating Veo video operation (${model})...`);
-      let operation = await ai.models.generateVideos({
-        model,
-        prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
-        config: {
-          aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
-          numberOfVideos: 1,
-        },
-      });
+  let lastErr: any = null;
 
-      if (!operation) {
-        throw new VisualizerError("VIDEO_GENERATION_FAILED", "Veo video generation returned no operation object.");
-      }
+  for (const mName of uniqueModels) {
+    try {
+      const ai = (vertexProvider as any).ai;
+      console.log(`[Visualizer] Calling Veo Video Generation (Model: ${mName})...`);
 
-      // ASYNC POLLING LIFECYCLE FOR VEO OPERATION
-      const POLL_INTERVAL_MS = 5000;
-      const TIMEOUT_MS = 180000; // 3 minutes timeout
-      const startTime = Date.now();
-      const opName = operation.name || `operation_${Date.now()}`;
+      if (typeof ai?.models?.generateVideos === "function") {
+        onProgress?.(`[Visualizer] Initiating Veo video operation (${mName})...`);
+        let operation = await ai.models.generateVideos({
+          model: mName,
+          prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+          config: {
+            aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+            numberOfVideos: 1,
+          },
+        });
 
-      console.log(`[Visualizer] Veo operation started: ${opName}. Polling operation status...`);
+        if (!operation) {
+          throw new VisualizerError("VIDEO_GENERATION_FAILED", "Veo video generation returned no operation object.");
+        }
 
-      while (!operation.done) {
-        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-        if (Date.now() - startTime > TIMEOUT_MS) {
+        // ASYNC POLLING LIFECYCLE FOR VEO OPERATION
+        const POLL_INTERVAL_MS = 5000;
+        const TIMEOUT_MS = 180000; // 3 minutes timeout
+        const startTime = Date.now();
+        const opName = operation.name || `operation_${Date.now()}`;
+
+        console.log(`[Visualizer] Veo operation started: ${opName}. Polling operation status...`);
+
+        while (!operation.done) {
+          const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+          if (Date.now() - startTime > TIMEOUT_MS) {
+            throw new VisualizerError(
+              "VIDEO_GENERATION_TIMEOUT",
+              `Veo video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+            );
+          }
+
+          onProgress?.(`[Visualizer] Waiting for Veo video generation... (${elapsedSec}s elapsed)`);
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+          // Poll operation status
+          if (typeof (ai.operations as any)?.get === "function") {
+            operation = await (ai.operations as any).get({ name: opName });
+          } else if (typeof operation.poll === "function") {
+            operation = await operation.poll();
+          } else {
+            break;
+          }
+        }
+
+        if (operation.error) {
           throw new VisualizerError(
-            "VIDEO_GENERATION_TIMEOUT",
-            `Veo video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+            "VIDEO_GENERATION_FAILED",
+            `Veo video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
           );
         }
 
-        onProgress?.(`[Visualizer] Waiting for Veo video generation... (${elapsedSec}s elapsed)`);
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
+        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
 
-        // Poll operation status
-        if (typeof (ai.operations as any)?.get === "function") {
-          operation = await (ai.operations as any).get({ name: opName });
-        } else if (typeof operation.poll === "function") {
-          operation = await operation.poll();
-        } else {
-          break; // Exit loop if operation polling API is synchronous in this SDK version
+        if (videoBytes) {
+          console.log(`[Visualizer] ✅ Video generation success with model: ${mName}`);
+          return `data:video/mp4;base64,${videoBytes}`;
+        }
+        if (videoUri) {
+          console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${mName}`);
+          return videoUri;
         }
       }
-
-      if (operation.error) {
-        throw new VisualizerError(
-          "VIDEO_GENERATION_FAILED",
-          `Veo video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
-        );
-      }
-
-      const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
-      const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-
-      if (videoBytes) {
-        return `data:video/mp4;base64,${videoBytes}`;
-      }
-      if (videoUri) {
-        return videoUri;
-      }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Visualizer] Veo video model ${mName} failed:`, err?.message || err);
     }
-  } catch (err: any) {
-    if (err instanceof VisualizerError) throw err;
-    console.error(`[Visualizer] Veo video generation error with ${model}:`, err?.message || err);
-    throw new VisualizerError(
-      "VIDEO_GENERATION_FAILED",
-      `Veo video model ${model} failed: ${err?.message || "Generation error"}`,
-      err
-    );
   }
 
-  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Veo video model ${model} did not return video bytes or URI.`);
+  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Veo video generation failed: ${lastErr?.message || "Publisher model not found or unavailable"}`);
 }
 
 /**
