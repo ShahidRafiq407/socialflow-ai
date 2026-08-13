@@ -227,26 +227,9 @@ export default function MultiAgentStreamModal({
 
               {/* Right Column / Bottom Section: Active Agent Panel */}
               <div className="flex-1 p-4 sm:p-6 md:p-8 bg-[#0B0D10] overflow-y-auto">
-                <div className="max-w-2xl mx-auto space-y-6 sm:space-y-8">
-                  {/* Active Agent Header */}
-                  <div className="flex flex-col items-center text-center space-y-3 sm:space-y-4">
-                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 flex items-center justify-center shadow-[0_0_30px_rgba(139,92,246,0.15)] relative">
-                      <activeAgent.icon className="w-6 h-6 sm:w-8 sm:h-8 text-[#8B5CF6]" />
-                      <div className="absolute inset-0 rounded-2xl border border-[#8B5CF6] opacity-50 animate-ping" style={{ animationDuration: '3s' }}></div>
-                    </div>
-                    <div>
-                      <div className="inline-flex items-center gap-2 mb-1.5 sm:mb-2">
-                        <span className="text-[9px] sm:text-[10px] font-bold tracking-wider text-[#8B5CF6] uppercase bg-[#8B5CF6]/10 px-2 py-0.5 sm:py-1 rounded-md">
-                          IN PROGRESS
-                        </span>
-                      </div>
-                      <h3 className="text-xl sm:text-2xl font-semibold text-white mb-1 sm:mb-2">{activeAgent.name}</h3>
-                      <p className="text-[#9CA3AF] text-xs sm:text-sm">{activeAgent.description}...</p>
-                    </div>
-                  </div>
-
+                <div className="max-w-2xl mx-auto space-y-6">
                   {/* Progress Bar */}
-                  <div className="space-y-2 pt-2 sm:pt-4">
+                  <div className="space-y-2">
                     <div className="flex justify-between text-xs font-medium text-[#9CA3AF]">
                       <span>Overall Progress</span>
                       <span className="text-white">62%</span>
@@ -256,7 +239,7 @@ export default function MultiAgentStreamModal({
                     </div>
                   </div>
 
-                  {/* Activity Card */}
+                  {/* Activity Card - What I'm doing */}
                   <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-6">
                     <h4 className="text-xs sm:text-sm font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-[#8B5CF6]" />
@@ -298,8 +281,7 @@ export default function MultiAgentStreamModal({
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-between bg-[#0B0D10] shrink-0">
-              <span className="text-[11px] sm:text-xs text-[#6B7280] truncate mr-2">You can close this window, we'll keep working.</span>
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-end bg-[#0B0D10] shrink-0">
               <Button
                 variant="outline"
                 className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors shrink-0"
