@@ -74,104 +74,138 @@ async function generateRealVideo(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
 
-  // High fidelity structures only.
-  const premiumVideoCluster = [
-    model,
-    "gemini-omni-flash-preview",
-    "veo-3.1-generate-001",
-    "veo-2.0-generate-001",
-  ];
-  const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
+  // Strictly use user specified video model
+  const targetVideoModel = model || "gemini-omni-flash-preview";
+  const uniqueVideoModels = [targetVideoModel];
   const aiClients = [
-    (vertexProvider as any).usCentralAi,
-    (vertexProvider as any).mediaAi,
     (vertexProvider as any).globalAi,
     (vertexProvider as any).ai,
+    (vertexProvider as any).mediaAi,
+    (vertexProvider as any).usCentralAi,
   ].filter(Boolean);
   let lastErr: any = null;
 
   for (let cIdx = 0; cIdx < aiClients.length; cIdx++) {
     const ai = aiClients[cIdx];
-    const regionTag = cIdx === 0 ? "us-central1" : cIdx === 1 ? "media" : cIdx === 2 ? "global" : "primary";
+    const regionTag = cIdx === 0 ? "global" : cIdx === 1 ? "primary" : cIdx === 2 ? "media" : "us-central1";
 
     for (const vModel of uniqueVideoModels) {
       try {
         console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel} (${regionTag})`);
         onProgress?.(`[Visualizer] Connecting to ${regionTag} endpoint for video engine: ${vModel}...`);
 
+        // 1. Try generateVideos method
         if (typeof ai?.models?.generateVideos === "function") {
-          onProgress?.(`[Visualizer] Submitting video synthesis job (${vModel})...`);
-          let operation = await ai.models.generateVideos({
-            model: vModel,
-            prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
-            config: {
-              aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
-              numberOfVideos: 1,
-            },
-          });
+          try {
+            onProgress?.(`[Visualizer] Submitting video synthesis job (${vModel} on ${regionTag})...`);
+            let operation = await ai.models.generateVideos({
+              model: vModel,
+              prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+              config: {
+                aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+                numberOfVideos: 1,
+              },
+            });
 
-          if (!operation) {
-            throw new VisualizerError("VIDEO_GENERATION_FAILED", "Video generation returned no operation object.");
-          }
+            if (operation) {
+              const POLL_INTERVAL_MS = 5000;
+              const TIMEOUT_MS = 180000;
+              const startTime = Date.now();
+              const opName = operation.name || `operation_${Date.now()}`;
 
-          const POLL_INTERVAL_MS = 5000;
-          const TIMEOUT_MS = 180000;
-          const startTime = Date.now();
-          const opName = operation.name || `operation_${Date.now()}`;
+              console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
 
-          console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
+              while (!operation.done) {
+                const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+                if (Date.now() - startTime > TIMEOUT_MS) {
+                  throw new VisualizerError(
+                    "VIDEO_GENERATION_TIMEOUT",
+                    `Video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+                  );
+                }
 
-          while (!operation.done) {
-            const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-            if (Date.now() - startTime > TIMEOUT_MS) {
-              throw new VisualizerError(
-                "VIDEO_GENERATION_TIMEOUT",
-                `Video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
-              );
+                onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
+                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+                if (typeof (ai.operations as any)?.get === "function") {
+                  operation = await (ai.operations as any).get({ name: opName });
+                } else if (typeof operation.poll === "function") {
+                  operation = await operation.poll();
+                } else {
+                  break;
+                }
+              }
+
+              if (operation.error) {
+                throw new VisualizerError(
+                  "VIDEO_GENERATION_FAILED",
+                  `Video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
+                );
+              }
+
+              const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
+              const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+
+              if (videoBytes) {
+                onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${vModel})!`);
+                console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
+                return `data:video/mp4;base64,${videoBytes}`;
+              }
+              if (videoUri) {
+                onProgress?.(`[Visualizer] ✅ Video asset ready (${vModel})!`);
+                console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
+                return videoUri;
+              }
             }
+          } catch (gvErr: any) {
+            lastErr = gvErr;
+            console.warn(`[Visualizer] generateVideos on ${vModel} (${regionTag}) failed:`, gvErr?.message || gvErr);
+          }
+        }
 
-            onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
-            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        // 2. Try generateContent with VIDEO modality
+        if (typeof ai?.models?.generateContent === "function") {
+          try {
+            onProgress?.(`[Visualizer] Synthesizing video via multimodal channel (${vModel} on ${regionTag})...`);
+            const genRes = await ai.models.generateContent({
+              model: vModel,
+              contents: `Generate a high quality engaging commercial video: ${prompt}`,
+              config: {
+                responseModalities: ["VIDEO"],
+              },
+            });
 
-            if (typeof (ai.operations as any)?.get === "function") {
-              operation = await (ai.operations as any).get({ name: opName });
-            } else if (typeof operation.poll === "function") {
-              operation = await operation.poll();
-            } else {
-              break;
+            const candidates = genRes.candidates || [];
+            for (const cand of candidates) {
+              for (const part of cand.content?.parts || []) {
+                if (part.inlineData?.data) {
+                  onProgress?.(`[Visualizer] ✅ Video frame generated successfully (${vModel})!`);
+                  return `data:${part.inlineData.mimeType || "video/mp4"};base64,${part.inlineData.data}`;
+                }
+                if ((part as any).fileData?.fileUri) {
+                  onProgress?.(`[Visualizer] ✅ Video asset URI ready (${vModel})!`);
+                  return (part as any).fileData.fileUri;
+                }
+              }
             }
-          }
-
-          if (operation.error) {
-            throw new VisualizerError(
-              "VIDEO_GENERATION_FAILED",
-              `Video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
-            );
-          }
-
-          const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
-          const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-
-          if (videoBytes) {
-            onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${vModel})!`);
-            console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
-            return `data:video/mp4;base64,${videoBytes}`;
-          }
-          if (videoUri) {
-            onProgress?.(`[Visualizer] ✅ Video asset ready (${vModel})!`);
-            console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
-            return videoUri;
+          } catch (gcErr: any) {
+            lastErr = gcErr;
+            console.warn(`[Visualizer] generateContent video on ${vModel} (${regionTag}) failed:`, gcErr?.message || gcErr);
           }
         }
       } catch (err: any) {
         lastErr = err;
         console.warn(`[Visualizer] Video attempt on ${vModel} (${regionTag}) failed:`, err?.message || err);
-        onProgress?.(`[Visualizer] ${vModel} (${regionTag}) returned: ${err?.message || "Unavailable"}. Trying next...`);
+        onProgress?.(`[Visualizer] ${vModel} (${regionTag}) returned: ${err?.message || "Unavailable"}. Trying next region...`);
       }
     }
   }
 
-  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Vertex AI video synthesis dropped frame layer. Trace: ${lastErr?.message || lastErr}`);
+  const errDetail = lastErr?.message || (typeof lastErr === "string" ? lastErr : JSON.stringify(lastErr));
+  throw new VisualizerError(
+    "VIDEO_GENERATION_FAILED",
+    `Vertex AI video synthesis failed on model ${targetVideoModel}. Trace: ${errDetail}`
+  );
 }
 
 export function resolveVisualRequirements(platform: string, contentType: string) {
@@ -338,14 +372,8 @@ async function generateRealImage(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
 
-  const premiumImageCluster = [
-    model,
-    "gemini-3-pro-image",
-    "gemini-3-pro-image-preview",
-    "imagen-3.0-generate-002",
-    "imagen-3.0-fast-generate-001",
-  ];
-  const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
+  const targetImageModel = model || "gemini-3-pro-image";
+  const uniqueModels = [targetImageModel];
   const aiClients = [
     (vertexProvider as any).globalAi,
     (vertexProvider as any).mediaAi,
