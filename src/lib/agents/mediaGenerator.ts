@@ -80,7 +80,12 @@ async function generateRealVideo(options: {
     "gemini-omni-flash-preview" // Veo 3.1 Flagship Cinematic Unit
   ];
   const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
-  const aiClients = [...new Set([(vertexProvider as any).ai, (vertexProvider as any).mediaAi].filter(Boolean))];
+  const aiClients = [
+    (vertexProvider as any).usCentralAi,
+    (vertexProvider as any).mediaAi,
+    (vertexProvider as any).globalAi,
+    (vertexProvider as any).ai,
+  ].filter(Boolean);
   let lastErr: any = null;
 
   for (const ai of aiClients) {
@@ -327,7 +332,12 @@ async function generateRealImage(options: {
     "gemini-3-pro-image" // Flagship Production Photorealism Matrix
   ];
   const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
-  const aiClients = [...new Set([(vertexProvider as any).ai, (vertexProvider as any).mediaAi].filter(Boolean))];
+  const aiClients = [
+    (vertexProvider as any).globalAi,
+    (vertexProvider as any).mediaAi,
+    (vertexProvider as any).usCentralAi,
+    (vertexProvider as any).ai,
+  ].filter(Boolean);
   let lastErr: any = null;
 
   for (const ai of aiClients) {
