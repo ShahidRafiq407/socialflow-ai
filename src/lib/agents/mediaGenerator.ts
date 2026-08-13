@@ -240,6 +240,7 @@ async function generateRealImage(options: {
 
   const candidateModels = [
     model,
+    "gemini-2.5-flash-image",
     "imagen-3.0-generate-002",
     "imagen-3.0-fast-generate-001",
     "gemini-2.0-flash",
