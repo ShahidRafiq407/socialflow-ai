@@ -1,6 +1,7 @@
 import { AgentStateType } from "../graph/state";
 import { llm, MODELS } from "../llm";
 import { HumanMessage } from "@langchain/core/messages";
+import { generateMediaAsset } from "../mediaGenerator";
 
 // High-quality HD marketing video collection for Reels/Shorts/TikTok
 const HIGH_QUALITY_MARKETING_VIDEOS = [
@@ -83,20 +84,63 @@ Return ONLY valid JSON.`;
 
       if (isCarousel) {
         content.refinedVisualPrompts = prompts;
-        // Generate high quality slide image URLs matching each slide prompt
-        content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, isCarousel ? "4:5" : "2:3", i));
-        content.imageUrl = content.imageUrls[0];
+        try {
+          const mediaRes = await generateMediaAsset({
+            platform: platformId,
+            contentType: formatName,
+            mediaType: "multi_image",
+            prompt: prompts.join(", "),
+            aspectRatio: formatName.toLowerCase().includes("idea") ? "9:16" : "1:1",
+            caption: content.caption,
+            topic: payload.topic,
+          });
+          content.imageUrls = mediaRes.map((m) => m.url);
+          content.imageUrl = content.imageUrls[0];
+        } catch (e) {
+          content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, isCarousel ? "4:5" : "2:3", i));
+          content.imageUrl = content.imageUrls[0];
+        }
       } else if (isVideo) {
-        // Assign real high quality HD video URL for Reels, Shorts, Videos
-        const videoUrl = HIGH_QUALITY_MARKETING_VIDEOS[videoIndex % HIGH_QUALITY_MARKETING_VIDEOS.length];
-        videoIndex++;
-        content.videoUrl = videoUrl;
-        content.imageUrl = videoUrl; // Fallback field so legacy views show the video
+        try {
+          const mediaRes = await generateMediaAsset({
+            platform: platformId,
+            contentType: formatName,
+            mediaType: "video",
+            prompt: prompts[0] || "Cinematic marketing video",
+            aspectRatio: "9:16",
+            caption: content.caption,
+            topic: payload.topic,
+          });
+          if (mediaRes[0]?.url) {
+            content.videoUrl = mediaRes[0].url;
+            content.imageUrl = mediaRes[0].url;
+          }
+        } catch (e) {
+          const videoUrl = HIGH_QUALITY_MARKETING_VIDEOS[videoIndex % HIGH_QUALITY_MARKETING_VIDEOS.length];
+          videoIndex++;
+          content.videoUrl = videoUrl;
+          content.imageUrl = videoUrl;
+        }
         content.refinedImagePrompt = prompts[0] || "Cinematic marketing video";
       } else {
         content.refinedImagePrompt = prompts[0];
         const aspect = formatName === "Pin" ? "2:3" : formatName === "Story" ? "9:16" : "1:1";
-        content.imageUrl = getHighQualityImageUrl(prompts[0] || payload.topic, aspect, 0);
+        try {
+          const mediaRes = await generateMediaAsset({
+            platform: platformId,
+            contentType: formatName,
+            mediaType: "image",
+            prompt: prompts[0] || payload.topic,
+            aspectRatio: aspect,
+            caption: content.caption,
+            topic: payload.topic,
+          });
+          if (mediaRes[0]?.url) {
+            content.imageUrl = mediaRes[0].url;
+          }
+        } catch (e) {
+          content.imageUrl = getHighQualityImageUrl(prompts[0] || payload.topic, aspect, 0);
+        }
       }
     }
   }
