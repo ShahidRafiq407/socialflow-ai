@@ -22,18 +22,43 @@ export interface PlatformProfile {
 async function fetchInstagramProfile(accessToken: string, accountId: string): Promise<{ username: string; displayName: string; avatarUrl: string } | null> {
   try {
     // Instagram Graph API - get user profile
-    const url = `https://graph.facebook.com/v19.0/${accountId}?fields=username,profile_picture_url&access_token=${accessToken}`;
+    // Try with the Instagram Business Account ID first
+    const url = `https://graph.facebook.com/v19.0/${accountId}?fields=username,profile_picture_url,name&access_token=${accessToken}`;
     const response = await fetch(url);
     const data = await response.json();
 
     if (!response.ok) {
       console.error("Instagram profile fetch error:", data);
+      
+      // If the accountId is not the Instagram Business Account ID, try to get it from the Facebook Page
+      // The accountId stored might be the Facebook Page ID, we need to get the connected Instagram Business Account
+      if (data.error?.code === 100 || data.error?.message?.includes("Unsupported get request")) {
+        // Try to get Instagram Business Account from the Facebook Page
+        const pageUrl = `https://graph.facebook.com/v19.0/${accountId}?fields=instagram_business_account&access_token=${accessToken}`;
+        const pageResponse = await fetch(pageUrl);
+        const pageData = await pageResponse.json();
+        
+        if (pageData.instagram_business_account?.id) {
+          const igAccountId = pageData.instagram_business_account.id;
+          const igUrl = `https://graph.facebook.com/v19.0/${igAccountId}?fields=username,profile_picture_url,name&access_token=${accessToken}`;
+          const igResponse = await fetch(igUrl);
+          const igData = await igResponse.json();
+          
+          if (igResponse.ok) {
+            return {
+              username: igData.username || "",
+              displayName: igData.name || igData.username || "",
+              avatarUrl: igData.profile_picture_url || null,
+            };
+          }
+        }
+      }
       return null;
     }
 
     return {
       username: data.username || "",
-      displayName: data.username || "",
+      displayName: data.name || data.username || "",
       avatarUrl: data.profile_picture_url || null,
     };
   } catch (error) {

@@ -327,10 +327,14 @@ export default function PlatformPreviewWrapper({
       isConnected: true,
     };
 
+    // Use a key that includes the format name to force re-mount when format changes
+    const previewKey = `${platformKey}-${currentFormatName}`;
+
     switch (platformKey) {
       case "instagram":
         return (
           <InstagramPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -340,6 +344,7 @@ export default function PlatformPreviewWrapper({
       case "linkedin":
         return (
           <LinkedInPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -348,6 +353,7 @@ export default function PlatformPreviewWrapper({
       case "x":
         return (
           <XPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -357,6 +363,7 @@ export default function PlatformPreviewWrapper({
       case "tiktok":
         return (
           <TikTokPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -366,6 +373,7 @@ export default function PlatformPreviewWrapper({
       case "youtube":
         return (
           <YoutubePreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -374,6 +382,7 @@ export default function PlatformPreviewWrapper({
       case "facebook":
         return (
           <FacebookPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
@@ -383,6 +392,7 @@ export default function PlatformPreviewWrapper({
       case "pinterest":
         return (
           <PinterestPreview
+            key={previewKey}
             {...commonProps}
             userName={userName}
             userImage={userImage}
