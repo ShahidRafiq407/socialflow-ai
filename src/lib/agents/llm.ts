@@ -6,10 +6,10 @@ export const MODELS = {
   BRAND_ANALYST: "none", // Database processing
 
   // Premium frontier intelligence text infrastructure
-  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.1-pro",
-  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro",
+  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
+  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
   CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
-  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro",
+  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.6-pro", // Maximum reasoning tier for CEO Auditor
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
