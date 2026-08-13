@@ -240,9 +240,10 @@ async function generateRealImage(options: {
 
   const candidateModels = [
     model,
-    "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image",
     "imagen-3.0-generate-002",
     "imagen-3.0-fast-generate-001",
+    "gemini-2.5-flash-image",
     "gemini-2.0-flash",
   ];
   const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
@@ -314,6 +315,7 @@ async function generateRealVideo(options: {
 
   const candidateModels = [
     model,
+    "veo-3.1-lite-generate-preview",
     "veo-3.1-generate-preview",
     "veo-2.0-generate-001",
     "veo-2.0-flash",
