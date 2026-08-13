@@ -73,177 +73,157 @@ async function generateRealVideo(options: {
   onProgress?: (message: string) => void;
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
-
-  // Strictly use user specified video model
   const targetVideoModel = model || "gemini-omni-flash-preview";
-  const uniqueVideoModels = [targetVideoModel];
-  const aiClients = [
-    (vertexProvider as any).globalAi,
-    (vertexProvider as any).ai,
-    (vertexProvider as any).mediaAi,
-    (vertexProvider as any).usCentralAi,
-  ].filter(Boolean);
+  const ai = (vertexProvider as any).ai;
   let lastErr: any = null;
 
-  for (let cIdx = 0; cIdx < aiClients.length; cIdx++) {
-    const ai = aiClients[cIdx];
-    const regionTag = cIdx === 0 ? "global" : cIdx === 1 ? "primary" : cIdx === 2 ? "media" : "us-central1";
+  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel}`);
 
-    for (const vModel of uniqueVideoModels) {
-      try {
-        console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel} (${regionTag})`);
-        // 1. Try Interactions API (Native endpoint for Gemini Omni Flash Preview)
-        if (typeof (ai as any)?.interactions?.create === "function") {
-          try {
-            onProgress?.(`[Visualizer] Initiating video via Interactions API (${vModel} on ${regionTag})...`);
-            const interaction = await (ai as any).interactions.create({
-              model: vModel,
-              input: [
-                {
-                  type: "user_input",
-                  content: [
-                    {
-                      type: "text",
-                      text: `${prompt}, dynamic engaging commercial video for ${topic}`,
-                    },
-                  ],
-                },
-              ],
-            });
-
-            if (interaction?.steps) {
-              for (const step of interaction.steps) {
-                if (step.type === "model_output" && Array.isArray(step.content)) {
-                  for (const part of step.content) {
-                    if (part.type === "video") {
-                      if (part.data) {
-                        onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
-                        return `data:video/mp4;base64,${part.data}`;
-                      } else if (part.uri) {
-                        onProgress?.(`[Visualizer] ✅ Video asset ready via Interactions API (${vModel})!`);
-                        return part.uri;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            const directData = (interaction as any)?.output_video?.data || (interaction as any)?.outputVideo?.data || (interaction as any)?.outputs?.[0]?.video?.data;
-            if (directData) {
-              onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
-              return `data:video/mp4;base64,${directData}`;
-            }
-          } catch (iErr: any) {
-            lastErr = iErr;
-            console.warn(`[Visualizer] interactions.create on ${vModel} (${regionTag}) failed:`, iErr?.message || iErr);
-          }
-        }
-
-        // 2. Try generateVideos method
-        if (typeof ai?.models?.generateVideos === "function") {
-          try {
-            onProgress?.(`[Visualizer] Submitting video synthesis job (${vModel} on ${regionTag})...`);
-            let operation = await ai.models.generateVideos({
-              model: vModel,
-              prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
-              config: {
-                aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
-                numberOfVideos: 1,
+  // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
+  if (typeof (ai as any)?.interactions?.create === "function") {
+    try {
+      onProgress?.(`[Visualizer] Initiating video via Interactions API (${targetVideoModel})...`);
+      const interaction = await (ai as any).interactions.create({
+        model: targetVideoModel,
+        input: [
+          {
+            type: "user_input",
+            content: [
+              {
+                type: "text",
+                text: `${prompt}, dynamic engaging commercial video for ${topic}`,
               },
-            });
+            ],
+          },
+        ],
+      });
 
-            if (operation) {
-              const POLL_INTERVAL_MS = 5000;
-              const TIMEOUT_MS = 180000;
-              const startTime = Date.now();
-              const opName = operation.name || `operation_${Date.now()}`;
-
-              console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
-
-              while (!operation.done) {
-                const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-                if (Date.now() - startTime > TIMEOUT_MS) {
-                  throw new VisualizerError(
-                    "VIDEO_GENERATION_TIMEOUT",
-                    `Video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
-                  );
-                }
-
-                onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
-                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-                if (typeof (ai.operations as any)?.get === "function") {
-                  operation = await (ai.operations as any).get({ name: opName });
-                } else if (typeof operation.poll === "function") {
-                  operation = await operation.poll();
-                } else {
-                  break;
-                }
-              }
-
-              if (operation.error) {
-                throw new VisualizerError(
-                  "VIDEO_GENERATION_FAILED",
-                  `Video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
-                );
-              }
-
-              const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
-              const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-
-              if (videoBytes) {
-                onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${vModel})!`);
-                console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
-                return `data:video/mp4;base64,${videoBytes}`;
-              }
-              if (videoUri) {
-                onProgress?.(`[Visualizer] ✅ Video asset ready (${vModel})!`);
-                console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
-                return videoUri;
-              }
-            }
-          } catch (gvErr: any) {
-            lastErr = gvErr;
-            console.warn(`[Visualizer] generateVideos on ${vModel} (${regionTag}) failed:`, gvErr?.message || gvErr);
-          }
-        }
-
-        // 2. Try generateContent with VIDEO modality
-        if (typeof ai?.models?.generateContent === "function") {
-          try {
-            onProgress?.(`[Visualizer] Synthesizing video via multimodal channel (${vModel} on ${regionTag})...`);
-            const genRes = await ai.models.generateContent({
-              model: vModel,
-              contents: `Generate a high quality engaging commercial video: ${prompt}`,
-              config: {
-                responseModalities: ["VIDEO"],
-              },
-            });
-
-            const candidates = genRes.candidates || [];
-            for (const cand of candidates) {
-              for (const part of cand.content?.parts || []) {
-                if (part.inlineData?.data) {
-                  onProgress?.(`[Visualizer] ✅ Video frame generated successfully (${vModel})!`);
-                  return `data:${part.inlineData.mimeType || "video/mp4"};base64,${part.inlineData.data}`;
-                }
-                if ((part as any).fileData?.fileUri) {
-                  onProgress?.(`[Visualizer] ✅ Video asset URI ready (${vModel})!`);
-                  return (part as any).fileData.fileUri;
+      if (interaction?.steps) {
+        for (const step of interaction.steps) {
+          if (step.type === "model_output" && Array.isArray(step.content)) {
+            for (const part of step.content) {
+              if (part.type === "video") {
+                if (part.data) {
+                  onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${targetVideoModel})!`);
+                  return `data:video/mp4;base64,${part.data}`;
+                } else if (part.uri) {
+                  onProgress?.(`[Visualizer] ✅ Video asset ready via Interactions API (${targetVideoModel})!`);
+                  return part.uri;
                 }
               }
             }
-          } catch (gcErr: any) {
-            lastErr = gcErr;
-            console.warn(`[Visualizer] generateContent video on ${vModel} (${regionTag}) failed:`, gcErr?.message || gcErr);
           }
         }
-      } catch (err: any) {
-        lastErr = err;
-        console.warn(`[Visualizer] Video attempt on ${vModel} (${regionTag}) failed:`, err?.message || err);
-        onProgress?.(`[Visualizer] ${vModel} (${regionTag}) returned: ${err?.message || "Unavailable"}. Trying next region...`);
       }
+
+      const directData = (interaction as any)?.output_video?.data || (interaction as any)?.outputVideo?.data || (interaction as any)?.outputs?.[0]?.video?.data;
+      if (directData) {
+        onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${targetVideoModel})!`);
+        return `data:video/mp4;base64,${directData}`;
+      }
+    } catch (iErr: any) {
+      lastErr = iErr;
+      console.warn(`[Visualizer] interactions.create on ${targetVideoModel} failed:`, iErr?.message || iErr);
+    }
+  }
+
+  // 2. Secondary: generateVideos method
+  if (typeof ai?.models?.generateVideos === "function") {
+    try {
+      onProgress?.(`[Visualizer] Submitting video synthesis job (${targetVideoModel})...`);
+      let operation = await ai.models.generateVideos({
+        model: targetVideoModel,
+        prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+        config: {
+          aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+          numberOfVideos: 1,
+        },
+      });
+
+      if (operation) {
+        const POLL_INTERVAL_MS = 5000;
+        const TIMEOUT_MS = 180000;
+        const startTime = Date.now();
+        const opName = operation.name || `operation_${Date.now()}`;
+
+        console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
+
+        while (!operation.done) {
+          const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+          if (Date.now() - startTime > TIMEOUT_MS) {
+            throw new VisualizerError(
+              "VIDEO_GENERATION_TIMEOUT",
+              `Video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+            );
+          }
+
+          onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+          if (typeof (ai.operations as any)?.get === "function") {
+            operation = await (ai.operations as any).get({ name: opName });
+          } else if (typeof operation.poll === "function") {
+            operation = await operation.poll();
+          } else {
+            break;
+          }
+        }
+
+        if (operation.error) {
+          throw new VisualizerError(
+            "VIDEO_GENERATION_FAILED",
+            `Video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
+          );
+        }
+
+        const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
+        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+
+        if (videoBytes) {
+          onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${targetVideoModel})!`);
+          console.log(`[Visualizer] ✅ Video generation success with model: ${targetVideoModel}`);
+          return `data:video/mp4;base64,${videoBytes}`;
+        }
+        if (videoUri) {
+          onProgress?.(`[Visualizer] ✅ Video asset ready (${targetVideoModel})!`);
+          console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${targetVideoModel}`);
+          return videoUri;
+        }
+      }
+    } catch (gvErr: any) {
+      lastErr = gvErr;
+      console.warn(`[Visualizer] generateVideos on ${targetVideoModel} failed:`, gvErr?.message || gvErr);
+    }
+  }
+
+  // 3. Multimodal generateContent with VIDEO modality
+  if (typeof ai?.models?.generateContent === "function") {
+    try {
+      onProgress?.(`[Visualizer] Synthesizing video via multimodal channel (${targetVideoModel})...`);
+      const genRes = await ai.models.generateContent({
+        model: targetVideoModel,
+        contents: `Generate a high quality engaging commercial video: ${prompt}`,
+        config: {
+          responseModalities: ["VIDEO"],
+        },
+      });
+
+      const candidates = genRes.candidates || [];
+      for (const cand of candidates) {
+        for (const part of cand.content?.parts || []) {
+          if (part.inlineData?.data) {
+            onProgress?.(`[Visualizer] ✅ Video frame generated successfully (${targetVideoModel})!`);
+            return `data:${part.inlineData.mimeType || "video/mp4"};base64,${part.inlineData.data}`;
+          }
+          if ((part as any).fileData?.fileUri) {
+            onProgress?.(`[Visualizer] ✅ Video asset URI ready (${targetVideoModel})!`);
+            return (part as any).fileData.fileUri;
+          }
+        }
+      }
+    } catch (gcErr: any) {
+      lastErr = gcErr;
+      console.warn(`[Visualizer] generateContent video on ${targetVideoModel} failed:`, gcErr?.message || gcErr);
     }
   }
 
@@ -406,9 +386,6 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   return results;
 }
 
-/**
- * Top-Tier Lossless Text-to-Image Engine Processing Pipeline
- */
 async function generateRealImage(options: {
   prompt: string;
   topic: string;
@@ -417,94 +394,69 @@ async function generateRealImage(options: {
   onProgress?: (message: string) => void;
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
-
   const targetImageModel = model || "gemini-3-pro-image";
-  const uniqueModels = [targetImageModel];
-  const aiClients = [
-    (vertexProvider as any).globalAi,
-    (vertexProvider as any).mediaAi,
-    (vertexProvider as any).usCentralAi,
-    (vertexProvider as any).ai,
-  ].filter(Boolean);
+  const ai = (vertexProvider as any).ai;
   let lastErr: any = null;
 
-  for (let cIdx = 0; cIdx < aiClients.length; cIdx++) {
-    const ai = aiClients[cIdx];
-    const regionTag = cIdx === 0 ? "global" : cIdx === 1 ? "media" : cIdx === 2 ? "us-central1" : "primary";
+  console.log(`[Visualizer] Executing image generation: ${targetImageModel}`);
 
-    for (const mName of uniqueModels) {
-      try {
-        if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
-          continue;
-        }
+  // 1. Multimodal generateContent with responseModalities (Native Gemini 3 Image Mode)
+  if (typeof ai?.models?.generateContent === "function") {
+    try {
+      onProgress?.(`[Visualizer] Synthesizing image canvas with ${targetImageModel}...`);
+      const genRes = await ai.models.generateContent({
+        model: targetImageModel,
+        contents: `Generate a high quality visual image: ${prompt}`,
+        config: {
+          responseModalities: ["IMAGE"],
+        },
+      });
 
-        console.log(`[Visualizer] Executing image generation: ${mName} (${regionTag})`);
-        onProgress?.(`[Visualizer] Connecting to ${regionTag} endpoint for model: ${mName}...`);
-
-        // 1. Try generateContent with responseModalities for Gemini 3 series image generation
-        if (typeof ai.models.generateContent === "function") {
-          try {
-            onProgress?.(`[Visualizer] Synthesizing image canvas with ${mName} (${regionTag})...`);
-            const genRes = await ai.models.generateContent({
-              model: mName,
-              contents: `Generate a high quality visual image: ${prompt}`,
-              config: {
-                responseModalities: ["IMAGE"],
-              },
-            });
-
-            const candidates = genRes.candidates || [];
-            for (const cand of candidates) {
-              for (const part of cand.content?.parts || []) {
-                if (part.inlineData?.data) {
-                  onProgress?.(`[Visualizer] ✅ Image frame generated successfully (${mName})!`);
-                  console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${mName}`);
-                  return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                }
-              }
-            }
-          } catch (gcErr: any) {
-            lastErr = gcErr;
-            console.log(`[Visualizer] generateContent attempt with ${mName} (${regionTag}):`, gcErr?.message || gcErr);
+      const candidates = genRes.candidates || [];
+      for (const cand of candidates) {
+        for (const part of cand.content?.parts || []) {
+          if (part.inlineData?.data) {
+            onProgress?.(`[Visualizer] ✅ Image frame generated successfully (${targetImageModel})!`);
+            console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${targetImageModel}`);
+            return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
           }
         }
-
-        // 2. Try generateImages for dedicated image synthesis endpoints
-        if (typeof ai.models.generateImages === "function") {
-          try {
-            onProgress?.(`[Visualizer] Rendering photorealistic canvas with ${mName} (${regionTag})...`);
-            const response = await ai.models.generateImages({
-              model: mName,
-              prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
-              config: {
-                numberOfImages: 1,
-                aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
-                outputMimeType: "image/png",
-              },
-            });
-
-            const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
-            if (imageBytes) {
-              onProgress?.(`[Visualizer] ✅ Image frame rendered successfully (${mName})!`);
-              console.log(`[Visualizer] ✅ Image generation success with model: ${mName}`);
-              return `data:image/png;base64,${imageBytes}`;
-            }
-          } catch (giErr: any) {
-            lastErr = giErr;
-            console.log(`[Visualizer] generateImages attempt with ${mName} (${regionTag}):`, giErr?.message || giErr);
-          }
-        }
-      } catch (err: any) {
-        lastErr = err;
-        console.error(`[Visualizer] Processing rejected on model ${mName} (${regionTag}):`, err);
-        onProgress?.(`[Visualizer] ${mName} (${regionTag}) error: ${err?.message || "Failed"}. Trying next...`);
       }
+    } catch (gcErr: any) {
+      lastErr = gcErr;
+      console.log(`[Visualizer] generateContent attempt with ${targetImageModel}:`, gcErr?.message || gcErr);
+    }
+  }
+
+  // 2. Dedicated generateImages method (Imagen Endpoint)
+  if (typeof ai?.models?.generateImages === "function") {
+    try {
+      onProgress?.(`[Visualizer] Rendering photorealistic canvas with ${targetImageModel}...`);
+      const response = await ai.models.generateImages({
+        model: targetImageModel,
+        prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
+        config: {
+          numberOfImages: 1,
+          aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+          outputMimeType: "image/png",
+        },
+      });
+
+      const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+      if (imageBytes) {
+        onProgress?.(`[Visualizer] ✅ Image frame rendered successfully (${targetImageModel})!`);
+        console.log(`[Visualizer] ✅ Image generation success with model: ${targetImageModel}`);
+        return `data:image/png;base64,${imageBytes}`;
+      }
+    } catch (giErr: any) {
+      lastErr = giErr;
+      console.log(`[Visualizer] generateImages attempt with ${targetImageModel}:`, giErr?.message || giErr);
     }
   }
 
   const errDetail = lastErr?.message || (typeof lastErr === "string" ? lastErr : JSON.stringify(lastErr));
   throw new VisualizerError(
     "IMAGE_GENERATION_FAILED",
-    `All configured visualizer attempts failed across models and regions. Trace: ${errDetail}`
+    `Vertex AI image synthesis failed on model ${targetImageModel}. Trace: ${errDetail}`
   );
 }

@@ -3,8 +3,6 @@ import { GoogleGenAI } from "@google/genai";
 export class VertexAIProvider {
   public ai: GoogleGenAI;
   public mediaAi: GoogleGenAI;
-  public globalAi: GoogleGenAI;
-  public usCentralAi: GoogleGenAI;
 
   constructor() {
     // Resolve Google Cloud credentials for Vertex AI
@@ -28,69 +26,33 @@ export class VertexAIProvider {
     }
 
     const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_PROJECT_ID || "marketing-ai-saas";
-    const textLocation = process.env.GOOGLE_CLOUD_LOCATION || "global";
-    const mediaLocation = process.env.GOOGLE_CLOUD_MEDIA_LOCATION || "us-central1";
+    const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
     const googleAuthOptions = credentials ? { credentials } : undefined;
+    const httpOptions = { headers: { "Api-Revision": "2026-05-20" } };
 
     console.log("[Vertex AI Provider Init]", {
       hasCredentials: !!credentials,
       projectId,
-      textLocation,
-      mediaLocation,
+      location,
     });
 
-    const httpOptions = { headers: { "Api-Revision": "2026-05-20" } };
-
-    // Configured primary client
+    // Unified GoogleGenAI client with Vertex AI and Api-Revision 2026-05-20
     this.ai = new GoogleGenAI({
       vertexai: true,
       project: projectId,
-      location: textLocation,
+      location,
       googleAuthOptions,
       httpOptions,
     });
 
-    // Configured media client
-    this.mediaAi = new GoogleGenAI({
-      vertexai: true,
-      project: projectId,
-      location: mediaLocation,
-      googleAuthOptions,
-      httpOptions,
-    });
-
-    // Dedicated global client (for Gemini 3.x frontier text and image models)
-    this.globalAi = new GoogleGenAI({
-      vertexai: true,
-      project: projectId,
-      location: "global",
-      googleAuthOptions,
-      httpOptions,
-    });
-
-    // Dedicated us-central1 regional client (for video models like Gemini Omni Flash & Veo)
-    this.usCentralAi = new GoogleGenAI({
-      vertexai: true,
-      project: projectId,
-      location: "us-central1",
-      googleAuthOptions,
-      httpOptions,
-    });
+    this.mediaAi = this.ai;
   }
 
   /**
-   * Get target model for Vertex AI generation with fallbacks from available GCP project models
+   * Target model for Vertex AI generation
    */
   private getFallbackModels(primaryModel: string): string[] {
-    const candidateList = [
-      primaryModel,
-      "gemini-3.1-pro-preview",
-      "gemini-2.5-pro",
-      "gemini-3.7-flash",
-      "gemini-3.6-flash",
-      "gemini-2.5-flash",
-    ];
-    return [...new Set(candidateList.filter(Boolean))];
+    return [primaryModel].filter(Boolean);
   }
 
   /**
