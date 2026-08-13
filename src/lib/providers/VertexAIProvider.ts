@@ -27,7 +27,7 @@ export class VertexAIProvider {
 
     const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_PROJECT_ID || "marketing-ai-saas";
     const textLocation = process.env.GOOGLE_CLOUD_LOCATION || "global";
-    const mediaLocation = process.env.GOOGLE_CLOUD_MEDIA_LOCATION || "us-central1"; // Vertex AI Imagen & Veo require regional endpoint (us-central1)
+    const mediaLocation = process.env.GOOGLE_CLOUD_MEDIA_LOCATION || textLocation; // Match global / configured location for Gemini 3.x
     const googleAuthOptions = credentials ? { credentials } : undefined;
 
     console.log("[Vertex AI Provider Init]", {
@@ -37,7 +37,7 @@ export class VertexAIProvider {
       mediaLocation,
     });
 
-    // Initialize @google/genai SDK for text/grounding in textLocation
+    // Initialize @google/genai SDK for text/grounding in textLocation (global)
     this.ai = new GoogleGenAI({
       vertexai: true,
       project: projectId,
@@ -45,7 +45,7 @@ export class VertexAIProvider {
       googleAuthOptions,
     });
 
-    // Initialize @google/genai SDK for media (Imagen & Veo) strictly in us-central1 region
+    // Initialize @google/genai SDK for media in mediaLocation (global by default for Gemini 3.x)
     this.mediaAi = new GoogleGenAI({
       vertexai: true,
       project: projectId,

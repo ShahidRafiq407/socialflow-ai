@@ -80,78 +80,80 @@ async function generateRealVideo(options: {
     "gemini-omni-flash-preview" // Veo 3.1 Flagship Cinematic Unit
   ];
   const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
+  const aiClients = [...new Set([(vertexProvider as any).ai, (vertexProvider as any).mediaAi].filter(Boolean))];
   let lastErr: any = null;
 
-  for (const vModel of uniqueVideoModels) {
-    try {
-      const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
-      console.log(`[Visualizer] Dispatching Veo Core Thread on Instance: ${vModel}`);
+  for (const ai of aiClients) {
+    for (const vModel of uniqueVideoModels) {
+      try {
+        console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel}`);
 
-      if (typeof ai?.models?.generateVideos === "function") {
-        onProgress?.(`[Visualizer] Initiating Veo video operation (${vModel})...`);
-        let operation = await ai.models.generateVideos({
-          model: vModel,
-          prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
-          config: {
-            aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
-            numberOfVideos: 1,
-          },
-        });
+        if (typeof ai?.models?.generateVideos === "function") {
+          onProgress?.(`[Visualizer] Initiating video operation (${vModel})...`);
+          let operation = await ai.models.generateVideos({
+            model: vModel,
+            prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+            config: {
+              aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+              numberOfVideos: 1,
+            },
+          });
 
-        if (!operation) {
-          throw new VisualizerError("VIDEO_GENERATION_FAILED", "Veo video generation returned no operation object.");
-        }
+          if (!operation) {
+            throw new VisualizerError("VIDEO_GENERATION_FAILED", "Video generation returned no operation object.");
+          }
 
-        const POLL_INTERVAL_MS = 5000;
-        const TIMEOUT_MS = 180000;
-        const startTime = Date.now();
-        const opName = operation.name || `operation_${Date.now()}`;
+          const POLL_INTERVAL_MS = 5000;
+          const TIMEOUT_MS = 180000;
+          const startTime = Date.now();
+          const opName = operation.name || `operation_${Date.now()}`;
 
-        console.log(`[Visualizer] Veo operation started: ${opName}. Polling operation status...`);
+          console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
 
-        while (!operation.done) {
-          const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-          if (Date.now() - startTime > TIMEOUT_MS) {
+          while (!operation.done) {
+            const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+            if (Date.now() - startTime > TIMEOUT_MS) {
+              throw new VisualizerError(
+                "VIDEO_GENERATION_TIMEOUT",
+                `Video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+              );
+            }
+
+            onProgress?.(`[Visualizer] Waiting for video generation... (${elapsedSec}s elapsed)`);
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+            if (typeof (ai.operations as any)?.get === "function") {
+              operation = await (ai.operations as any).get({ name: opName });
+            } else if (typeof operation.poll === "function") {
+              operation = await operation.poll();
+            } else {
+              break;
+            }
+          }
+
+          if (operation.error) {
             throw new VisualizerError(
-              "VIDEO_GENERATION_TIMEOUT",
-              `Veo video generation timed out after ${elapsedSec}s (Operation: ${opName}).`
+              "VIDEO_GENERATION_FAILED",
+              `Video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
             );
           }
 
-          onProgress?.(`[Visualizer] Waiting for Veo video generation... (${elapsedSec}s elapsed)`);
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
+          const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
 
-          if (typeof (ai.operations as any)?.get === "function") {
-            operation = await (ai.operations as any).get({ name: opName });
-          } else if (typeof operation.poll === "function") {
-            operation = await operation.poll();
-          } else {
-            break;
+          if (videoBytes) {
+            console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
+            return `data:video/mp4;base64,${videoBytes}`;
+          }
+          if (videoUri) {
+            console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
+            return videoUri;
           }
         }
-
-        if (operation.error) {
-          throw new VisualizerError(
-            "VIDEO_GENERATION_FAILED",
-            `Veo video generation operation error: ${operation.error.message || JSON.stringify(operation.error)}`
-          );
-        }
-
-        const videoBytes = operation.response?.generatedVideos?.[0]?.video?.videoBytes;
-        const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-
-        if (videoBytes) {
-          console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
-          return `data:video/mp4;base64,${videoBytes}`;
-        }
-        if (videoUri) {
-          console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
-          return videoUri;
-        }
+      } catch (err: any) {
+        console.warn(`[Visualizer] Target cluster ${vModel} reported processing limits. Attempting fallback instance...`, err?.message || err);
+        lastErr = err;
       }
-    } catch (err: any) {
-      console.warn(`[Visualizer] Target cluster ${vModel} reported processing limits. Attempting fallback instance...`, err?.message || err);
-      lastErr = err;
     }
   }
 
@@ -325,53 +327,74 @@ async function generateRealImage(options: {
     "gemini-3-pro-image" // Flagship Production Photorealism Matrix
   ];
   const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
+  const aiClients = [...new Set([(vertexProvider as any).ai, (vertexProvider as any).mediaAi].filter(Boolean))];
   let lastErr: any = null;
 
-  for (const mName of uniqueModels) {
-    try {
-      const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
-      if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
-        throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Vertex AI raw image engine adapter pipeline is offline.");
-      }
-
-      console.log(`[Visualizer] Executing elite generation prompt array on raw engine cluster: ${mName}`);
-
-      if (typeof ai.models.generateImages === "function") {
-        const response = await ai.models.generateImages({
-          model: mName,
-          prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
-          config: {
-            numberOfImages: 1,
-            aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
-            outputMimeType: "image/png",
-          },
-        });
-
-        const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
-        if (imageBytes) {
-          console.log(`[Visualizer] ✅ Image generation success with model: ${mName}`);
-          return `data:image/png;base64,${imageBytes}`;
+  for (const ai of aiClients) {
+    for (const mName of uniqueModels) {
+      try {
+        if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
+          continue;
         }
-      }
 
-      const genRes = await ai.models.generateContent({
-        model: mName,
-        contents: `Generate a high quality visual image: ${prompt}`,
-      });
+        console.log(`[Visualizer] Executing generation on engine: ${mName}`);
 
-      const cand = genRes.candidates?.[0]?.content?.parts?.[0];
-      if (cand?.inlineData?.data) {
-        console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${mName}`);
-        return `data:${cand.inlineData.mimeType || "image/png"};base64,${cand.inlineData.data}`;
+        // 1. Try generateContent with responseModalities for Gemini 3 series image generation
+        if (typeof ai.models.generateContent === "function") {
+          try {
+            const genRes = await ai.models.generateContent({
+              model: mName,
+              contents: `Generate a high quality visual image: ${prompt}`,
+              config: {
+                responseModalities: ["IMAGE"],
+              },
+            });
+
+            const candidates = genRes.candidates || [];
+            for (const cand of candidates) {
+              for (const part of cand.content?.parts || []) {
+                if (part.inlineData?.data) {
+                  console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${mName}`);
+                  return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                }
+              }
+            }
+          } catch (gcErr: any) {
+            console.log(`[Visualizer] generateContent attempt with ${mName}: ${gcErr?.message || gcErr}`);
+          }
+        }
+
+        // 2. Try generateImages for dedicated image synthesis endpoints
+        if (typeof ai.models.generateImages === "function") {
+          try {
+            const response = await ai.models.generateImages({
+              model: mName,
+              prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
+              config: {
+                numberOfImages: 1,
+                aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+                outputMimeType: "image/png",
+              },
+            });
+
+            const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
+            if (imageBytes) {
+              console.log(`[Visualizer] ✅ Image generation success with model: ${mName}`);
+              return `data:image/png;base64,${imageBytes}`;
+            }
+          } catch (giErr: any) {
+            console.log(`[Visualizer] generateImages attempt with ${mName}: ${giErr?.message || giErr}`);
+          }
+        }
+      } catch (err: any) {
+        console.error(`[Visualizer] Processing rejected on model ${mName}:`, err);
+        lastErr = err;
       }
-    } catch (err: any) {
-      console.error(`[Visualizer] Hardware compilation layer rejected processing parameters on core ${mName}:`, err);
-      lastErr = err;
     }
   }
 
   throw new VisualizerError(
     "IMAGE_GENERATION_FAILED",
-    `All configured master grade visualizer arrays failed parameters. Trace: ${lastErr?.message || lastErr}`
+    `All configured visualizer attempts failed. Trace: ${lastErr?.message || lastErr}`
   );
 }
