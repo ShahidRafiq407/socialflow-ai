@@ -110,6 +110,65 @@ export class VertexAIProvider {
   }
 
   /**
+   * Generate text with Google Search Grounding and return grounding sources
+   */
+  async generateWithGrounding(
+    prompt: string,
+    options: { modelName?: string; temperature?: number } = {}
+  ): Promise<{ text: string; searchQueries: string[]; sources: { title: string; url: string; snippet: string }[] }> {
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
+    let lastError: any = null;
+
+    for (const modelName of candidateModels) {
+      try {
+        console.log(`[Vertex AI Grounding] Executing with model: ${modelName}`);
+        const response = await this.ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            temperature: options.temperature ?? 0.3,
+            tools: [{ googleSearch: {} }],
+          },
+        });
+
+        const text = response.text || "";
+        const searchQueries: string[] = [];
+        const sources: { title: string; url: string; snippet: string }[] = [];
+
+        const candidates = (response as any).candidates || [];
+        for (const candidate of candidates) {
+          const groundingMetadata = candidate?.groundingMetadata;
+          if (groundingMetadata) {
+            if (Array.isArray(groundingMetadata.webSearchQueries)) {
+              searchQueries.push(...groundingMetadata.webSearchQueries);
+            }
+            if (Array.isArray(groundingMetadata.groundingChunks)) {
+              for (const chunk of groundingMetadata.groundingChunks) {
+                if (chunk.web) {
+                  sources.push({
+                    title: chunk.web.title || "Web Source",
+                    url: chunk.web.uri || chunk.web.url || "",
+                    snippet: chunk.web.snippet || "",
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        console.log(`[Vertex AI Grounding] Found ${sources.length} sources and ${searchQueries.length} queries.`);
+        return { text, searchQueries, sources };
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Vertex AI Grounding] ❌ Model ${modelName} failed:`, err?.message || err);
+      }
+    }
+
+    const cleanErr = lastError?.message || (typeof lastError === "string" ? lastError : "Vertex AI Grounding response error.");
+    throw new Error(`Vertex AI Provider Grounding: ${cleanErr}`);
+  }
+
+  /**
    * Generate structured JSON output using Google Cloud Vertex AI
    */
   async generateJSON(

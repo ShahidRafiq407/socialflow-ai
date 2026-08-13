@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Database,
   Globe,
@@ -9,16 +9,13 @@ import {
   Image as ImageIcon,
   ShieldCheck,
   CheckCircle2,
-  FileText,
-  Video,
   Edit,
-  BarChart2,
   X,
-  Minus,
-  Maximize2,
   Sparkles,
   Loader2,
   ArrowRight,
+  ExternalLink,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -32,14 +29,58 @@ interface MultiAgentStreamModalProps {
 
 type AgentStatus = "waiting" | "running" | "completed" | "error";
 
-interface Agent {
+interface AgentConfig {
   id: string;
   number: number;
   name: string;
   icon: React.ElementType;
-  status: AgentStatus;
   description: string;
 }
+
+const AGENT_SEQUENCE: AgentConfig[] = [
+  {
+    id: "brand_analyst",
+    number: 1,
+    name: "Brand Analyst",
+    icon: Database,
+    description: "Loading brand DNA from database",
+  },
+  {
+    id: "trend_researcher",
+    number: 2,
+    name: "Trend Researcher",
+    icon: Globe,
+    description: "Live Google Search & trend research",
+  },
+  {
+    id: "competitor_analyst",
+    number: 3,
+    name: "Competitor Analyst",
+    icon: Users,
+    description: "Evaluating market positioning & gaps",
+  },
+  {
+    id: "content_creator",
+    number: 4,
+    name: "Content Creator",
+    icon: PenTool,
+    description: "Writing platform-native viral copy",
+  },
+  {
+    id: "visualizer",
+    number: 5,
+    name: "Visualizer",
+    icon: ImageIcon,
+    description: "Generating visual specifications",
+  },
+  {
+    id: "ceo_auditor",
+    number: 6,
+    name: "CEO Auditor",
+    icon: ShieldCheck,
+    description: "Quality & brand alignment audit",
+  },
+];
 
 export default function MultiAgentStreamModal({
   isOpen,
@@ -48,72 +89,187 @@ export default function MultiAgentStreamModal({
   contentTypes,
   onCompletePayload,
 }: MultiAgentStreamModalProps) {
-  // Static Dummy State for UI Review
   const [isCompleted, setIsCompleted] = useState(false);
-  const [activeAgentIndex, setActiveAgentIndex] = useState(3); // "Content Creator" is active in the spec
+  const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatus>>({
+    brand_analyst: "waiting",
+    trend_researcher: "waiting",
+    competitor_analyst: "waiting",
+    content_creator: "waiting",
+    visualizer: "waiting",
+    ceo_auditor: "waiting",
+  });
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("brand_analyst");
+  const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
+  const [agentActivities, setAgentActivities] = useState<Record<string, { label: string; status: AgentStatus }[]>>({});
+  const [trendSources, setTrendSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [completedPayload, setCompletedPayload] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const runIdRef = useRef<string>(`run_${Date.now()}`);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<any>(null);
+
+  const startStream = useCallback(async () => {
+    setIsCompleted(false);
+    setErrorMessage(null);
+    setCompletedPayload(null);
+    setElapsedTime(0);
+    setTrendSources([]);
+    setSearchQuery("");
+    setAgentOutputs({});
+    setAgentActivities({});
+    setAgentStatuses({
+      brand_analyst: "waiting",
+      trend_researcher: "waiting",
+      competitor_analyst: "waiting",
+      content_creator: "waiting",
+      visualizer: "waiting",
+      ceo_auditor: "waiting",
+    });
+
+    const runId = `run_${Date.now()}`;
+    runIdRef.current = runId;
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setElapsedTime((prev) => prev + 1);
+    }, 1000);
+
+    try {
+      const res = await fetch("/api/ai-studio-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "generate-campaign",
+          platforms,
+          contentTypes,
+          runId,
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({ error: "Server error" }));
+        throw new Error(errJson.error || `HTTP ${res.status}`);
+      }
+
+      if (!res.body) throw new Error("No response body");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.replace("data: ", ""));
+            handleStreamEvent(event);
+          } catch (e) {
+            console.error("Failed to parse SSE line:", line);
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        console.error("Stream error:", err);
+        setErrorMessage(err.message || "Pipeline execution failed");
+      }
+    }
+  }, [platforms, contentTypes]);
+
+  const handleStreamEvent = (event: any) => {
+    const { type, agentId, data } = event;
+
+    if (type === "agent_started") {
+      setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
+      setSelectedAgentId((prev) => (prev === "brand_analyst" || agentStatuses[prev] === "completed" ? agentId : prev));
+    } else if (type === "agent_action") {
+      if (data?.label) {
+        setAgentActivities((prev) => ({
+          ...prev,
+          [agentId]: [...(prev[agentId] || []), { label: data.label, status: "running" }],
+        }));
+      }
+    } else if (type === "web_search") {
+      if (data?.query) setSearchQuery(data.query);
+    } else if (type === "source_found") {
+      if (Array.isArray(data?.sources)) {
+        setTrendSources(data.sources);
+      }
+    } else if (type === "output_ready") {
+      if (data) {
+        setAgentOutputs((prev) => ({ ...prev, [agentId]: data }));
+      }
+    } else if (type === "agent_completed") {
+      setAgentStatuses((prev) => ({ ...prev, [agentId]: "completed" }));
+      setAgentActivities((prev) => ({
+        ...prev,
+        [agentId]: (prev[agentId] || []).map((act) => ({ ...act, status: "completed" })),
+      }));
+    } else if (type === "agent_error") {
+      setAgentStatuses((prev) => ({ ...prev, [agentId]: "error" }));
+      if (data?.message) setErrorMessage(data.message);
+    } else if (type === "workflow_completed") {
+      if (timerRef.current) clearInterval(timerRef.current);
+      const payload = data?.campaign || data?.resultState?.generatedContent;
+      if (payload) {
+        setCompletedPayload(payload);
+      }
+      setIsCompleted(true);
+    } else if (type === "workflow_cancelled") {
+      if (timerRef.current) clearInterval(timerRef.current);
+      onClose();
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
-      const timer = setInterval(() => {
-        setElapsedTime((prev) => prev + 1);
-      }, 1000);
-      return () => clearInterval(timer);
+      startStream();
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     }
-  }, [isOpen]);
 
-  if (!isOpen) return null;
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isOpen, startStream]);
 
-  const agents: Agent[] = [
-    {
-      id: "brand_analyst",
-      number: 1,
-      name: "Brand Analyst",
-      icon: Database,
-      status: isCompleted ? "completed" : activeAgentIndex > 0 ? "completed" : "running",
-      description: "Loaded brand DNA from database",
-    },
-    {
-      id: "trend_researcher",
-      number: 2,
-      name: "Trend Researcher",
-      icon: Globe,
-      status: isCompleted ? "completed" : activeAgentIndex > 1 ? "completed" : activeAgentIndex === 1 ? "running" : "waiting",
-      description: "Completed live trend research",
-    },
-    {
-      id: "competitor_analyst",
-      number: 3,
-      name: "Competitor Analyst",
-      icon: Users,
-      status: isCompleted ? "completed" : activeAgentIndex > 2 ? "completed" : activeAgentIndex === 2 ? "running" : "waiting",
-      description: "Competitor analysis completed",
-    },
-    {
-      id: "content_creator",
-      number: 4,
-      name: "Content Creator",
-      icon: PenTool,
-      status: isCompleted ? "completed" : activeAgentIndex > 3 ? "completed" : activeAgentIndex === 3 ? "running" : "waiting",
-      description: "Writing campaign content based on research",
-    },
-    {
-      id: "visualizer",
-      number: 5,
-      name: "Visualizer",
-      icon: ImageIcon,
-      status: isCompleted ? "completed" : activeAgentIndex > 4 ? "completed" : activeAgentIndex === 4 ? "running" : "waiting",
-      description: "Waiting for content",
-    },
-    {
-      id: "ceo_auditor",
-      number: 6,
-      name: "CEO Auditor",
-      icon: ShieldCheck,
-      status: isCompleted ? "completed" : activeAgentIndex > 5 ? "completed" : activeAgentIndex === 5 ? "running" : "waiting",
-      description: "Final review pending",
-    },
-  ];
+  const handleCancelCampaign = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    try {
+      await fetch("/api/ai-studio-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", runId: runIdRef.current }),
+      });
+    } catch (e) {
+      // Ignore cancel network errors
+    }
+    onClose();
+  };
+
+  const handleApplyToEditors = () => {
+    if (completedPayload) {
+      onCompletePayload(completedPayload);
+    }
+    onClose();
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -121,23 +277,19 @@ export default function MultiAgentStreamModal({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const activeAgent = agents[activeAgentIndex] || agents[3];
+  if (!isOpen) return null;
 
-  const handleApplyToEditors = () => {
-    onCompletePayload({ success: true, dummy: true });
-    onClose();
-  };
+  // Calculate Real Dynamic Progress Percentage based on Completed Agents
+  const completedCount = Object.values(agentStatuses).filter((s) => s === "completed").length;
+  const runningCount = Object.values(agentStatuses).filter((s) => s === "running").length;
+  const realProgress = Math.min(100, Math.round(((completedCount + (runningCount ? 0.5 : 0)) / AGENT_SEQUENCE.length) * 100));
+
+  const activeAgentConfig = AGENT_SEQUENCE.find((a) => a.id === selectedAgentId) || AGENT_SEQUENCE[0];
+  const activeAgentOutput = agentOutputs[selectedAgentId];
+  const activeActivities = agentActivities[selectedAgentId] || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-sm transition-all duration-300 font-sans overflow-hidden">
-      {/* Debug Toggle for UI Review */}
-      <button
-        onClick={() => setIsCompleted(!isCompleted)}
-        className="absolute top-2 right-2 sm:top-4 sm:right-4 bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium z-50 backdrop-blur-md border border-white/20 shadow-lg"
-      >
-        Toggle State ({isCompleted ? "Completed" : "Processing"})
-      </button>
-
       {/* Main Modal Container */}
       <div
         className={`relative overflow-hidden shadow-2xl transition-all duration-300 ease-in-out w-full flex flex-col ${
@@ -160,27 +312,29 @@ export default function MultiAgentStreamModal({
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-xs sm:text-sm font-mono text-[#9CA3AF] shrink-0">{formatTime(elapsedTime)}</div>
-                <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-white transition-colors">
+                <button onClick={handleCancelCampaign} className="p-1 text-[#9CA3AF] hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Responsive Layout: Stacked on mobile/tablet, 2-column on desktop */}
+            {/* Responsive Layout: 2-column on desktop, stacked on tablet/mobile */}
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
-              {/* Left Column / Top Section: Agents List */}
+              {/* Left Column: Agents List */}
               <div className="w-full md:w-[35%] lg:w-[32%] md:min-w-[280px] border-b md:border-b-0 md:border-r border-[#252A32] overflow-y-auto p-3 sm:p-4 space-y-2 max-h-[180px] sm:max-h-[220px] md:max-h-none shrink-0 md:shrink">
-                {agents.map((agent) => {
+                {AGENT_SEQUENCE.map((agent) => {
                   const Icon = agent.icon;
-                  const isActive = agent.id === activeAgent.id;
-                  const isAgentCompleted = agent.status === "completed";
+                  const status = agentStatuses[agent.id] || "waiting";
+                  const isSelected = agent.id === selectedAgentId;
+                  const isAgentCompleted = status === "completed";
+                  const isRunning = status === "running";
 
                   return (
                     <div
                       key={agent.id}
-                      onClick={() => setActiveAgentIndex(agent.number - 1)}
+                      onClick={() => setSelectedAgentId(agent.id)}
                       className={`flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border cursor-pointer transition-all duration-200 ${
-                        isActive
+                        isSelected
                           ? "bg-[#161920] border-[#8B5CF6]/40 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
                           : isAgentCompleted
                           ? "bg-transparent border-[#252A32] opacity-80 hover:bg-[#11141A]"
@@ -191,81 +345,178 @@ export default function MultiAgentStreamModal({
                         className={`flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center border mt-0.5 ${
                           isAgentCompleted
                             ? "bg-[#22C55E]/10 border-[#22C55E]/20 text-[#22C55E]"
-                            : isActive
+                            : isRunning
                             ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/20 text-[#8B5CF6]"
                             : "bg-[#1A1D24] border-[#252A32] text-[#9CA3AF]"
                         }`}
                       >
-                        {isAgentCompleted ? <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                        {isAgentCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        ) : isRunning ? (
+                          <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+                        ) : (
+                          <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-0.5">
-                          <h4 className={`text-xs sm:text-sm font-semibold truncate ${isActive ? "text-white" : "text-[#9CA3AF]"}`}>
+                          <h4 className={`text-xs sm:text-sm font-semibold truncate ${isSelected ? "text-white" : "text-[#9CA3AF]"}`}>
                             {agent.name}
                           </h4>
-                          {isActive && (
+                          {isRunning && (
                             <span className="text-[9px] sm:text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-1.5 py-0.5 rounded-full border border-[#8B5CF6]/20 shrink-0 ml-1">
-                              {formatTime(elapsedTime % 45)}
+                              RUNNING
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] sm:text-xs text-[#6B7280] line-clamp-1 md:line-clamp-2 leading-tight sm:leading-relaxed">{agent.description}</p>
+                        <p className="text-[11px] sm:text-xs text-[#6B7280] line-clamp-1 md:line-clamp-2 leading-tight sm:leading-relaxed">
+                          {agent.description}
+                        </p>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Right Column / Bottom Section: Active Agent Panel */}
+              {/* Right Column: Active Agent Details */}
               <div className="flex-1 p-4 sm:p-6 md:p-8 bg-[#0B0D10] overflow-y-auto">
                 <div className="max-w-2xl mx-auto space-y-6">
                   {/* Progress Bar */}
                   <div className="space-y-2">
                     <div className="flex justify-between text-xs font-medium text-[#9CA3AF]">
                       <span>Overall Progress</span>
-                      <span className="text-white">62%</span>
+                      <span className="text-white">{realProgress}%</span>
                     </div>
                     <div className="h-2 w-full bg-[#1A1D24] rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#A78BFA] w-[62%] transition-all duration-1000 ease-out rounded-full shadow-[0_0_10px_rgba(139,92,246,0.5)]"></div>
+                      <div
+                        className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#A78BFA] transition-all duration-700 ease-out rounded-full shadow-[0_0_10px_rgba(139,92,246,0.5)]"
+                        style={{ width: `${realProgress}%` }}
+                      ></div>
                     </div>
                   </div>
 
-                  {/* Activity Card - What I'm doing */}
-                  <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-6">
-                    <h4 className="text-xs sm:text-sm font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-[#8B5CF6]" />
-                      What I'm doing
-                    </h4>
-                    <div className="space-y-3 sm:space-y-4">
-                      {[
-                        { label: "Analyzing audience and intent", status: "completed" },
-                        { label: "Generating hook variations", status: "running" },
-                        { label: "Crafting engaging copy", status: "pending" },
-                        { label: "Building strong call to action", status: "pending" },
-                        { label: "Optimizing tone and readability", status: "pending" },
-                      ].map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-3">
-                          {item.status === "completed" ? (
-                            <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
-                          ) : item.status === "running" ? (
-                            <Loader2 className="w-4 h-4 text-[#8B5CF6] animate-spin shrink-0" />
-                          ) : (
-                            <div className="w-4 h-4 rounded-full border border-[#252A32] shrink-0" />
+                  {/* Activity & Real Output Section */}
+                  <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-6 space-y-5">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs sm:text-sm font-semibold text-white flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#8B5CF6]" />
+                        {activeAgentConfig.name} — Live Activity
+                      </h4>
+                      <span className="text-[10px] font-mono text-[#9CA3AF] uppercase bg-[#1A1D24] px-2 py-0.5 rounded border border-[#252A32]">
+                        {agentStatuses[selectedAgentId] || "waiting"}
+                      </span>
+                    </div>
+
+                    {/* Agent Activities */}
+                    {activeActivities.length > 0 ? (
+                      <div className="space-y-3">
+                        {activeActivities.map((act, idx) => (
+                          <div key={idx} className="flex items-center gap-3">
+                            {act.status === "completed" ? (
+                              <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
+                            ) : (
+                              <Loader2 className="w-4 h-4 text-[#8B5CF6] animate-spin shrink-0" />
+                            )}
+                            <span className="text-xs sm:text-sm text-white font-medium truncate">{act.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#6B7280]">Agent waiting to execute...</p>
+                    )}
+
+                    {/* Agent Specific Real Data Display */}
+                    {selectedAgentId === "trend_researcher" && (
+                      <div className="pt-3 border-t border-[#252A32] space-y-3">
+                        {searchQuery && (
+                          <div className="flex items-center gap-2 text-xs text-[#9CA3AF] bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32]">
+                            <Search className="w-3.5 h-3.5 text-[#8B5CF6] shrink-0" />
+                            <span className="font-mono text-[11px] truncate">{searchQuery}</span>
+                          </div>
+                        )}
+
+                        {trendSources.length > 0 && (
+                          <div className="space-y-2">
+                            <h5 className="text-xs font-semibold text-[#9CA3AF] uppercase tracking-wider">Live Web Sources Found</h5>
+                            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                              {trendSources.map((src, sIdx) => (
+                                <a
+                                  key={sIdx}
+                                  href={src.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block bg-[#161920] border border-[#252A32] hover:border-[#8B5CF6]/40 p-2.5 rounded-lg transition-colors group"
+                                >
+                                  <div className="flex items-center justify-between text-xs font-semibold text-white group-hover:text-[#8B5CF6]">
+                                    <span className="truncate">{src.title}</span>
+                                    <ExternalLink className="w-3 h-3 text-[#9CA3AF] shrink-0 ml-2" />
+                                  </div>
+                                  {src.snippet && <p className="text-[11px] text-[#6B7280] line-clamp-1 mt-1">{src.snippet}</p>}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedAgentId === "brand_analyst" && activeAgentOutput && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Brand DNA Context</h5>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-1.5">
+                          <p><span className="text-[#9CA3AF]">Brand:</span> <span className="text-white font-medium">{activeAgentOutput.name}</span></p>
+                          <p><span className="text-[#9CA3AF]">Industry:</span> <span className="text-white font-medium">{activeAgentOutput.industry}</span></p>
+                          <p><span className="text-[#9CA3AF]">Target Audience:</span> <span className="text-white font-medium">{activeAgentOutput.targetAudience}</span></p>
+                          <p><span className="text-[#9CA3AF]">Tone:</span> <span className="text-white font-medium">{activeAgentOutput.tone}</span></p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAgentId === "competitor_analyst" && activeAgentOutput && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Market Differentiation Ideas</h5>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-2">
+                          <p className="text-white font-medium">{activeAgentOutput.positioning}</p>
+                          {Array.isArray(activeAgentOutput.differentiation) && (
+                            <ul className="list-disc list-inside text-[#9CA3AF] space-y-1">
+                              {activeAgentOutput.differentiation.map((diff: string, dIdx: number) => (
+                                <li key={dIdx}>{diff}</li>
+                              ))}
+                            </ul>
                           )}
-                          <span
-                            className={`text-xs sm:text-sm truncate ${
-                              item.status === "completed"
-                                ? "text-[#9CA3AF]"
-                                : item.status === "running"
-                                ? "text-white font-medium"
-                                : "text-[#4B5563]"
-                            }`}
-                          >
-                            {item.label}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAgentId === "content_creator" && activeAgentOutput && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Content Generation Summary</h5>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32]">
+                          <p className="text-[#22C55E] font-medium">✅ High-converting copy generated for requested platforms.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAgentId === "ceo_auditor" && activeAgentOutput && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">CEO Audit Results</h5>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] flex items-center justify-between">
+                          <div>
+                            <p className="text-white font-bold text-sm">Score: {activeAgentOutput.score}/100</p>
+                            <p className="text-[#9CA3AF] mt-0.5">{activeAgentOutput.notes}</p>
+                          </div>
+                          <span className="bg-[#22C55E]/10 text-[#22C55E] px-2.5 py-1 rounded-full border border-[#22C55E]/20 text-[10px] font-bold">
+                            APPROVED
                           </span>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
+
+                    {errorMessage && (
+                      <div className="p-3 bg-[#EF4444]/10 border border-[#EF4444]/20 rounded-lg text-xs text-[#EF4444]">
+                        {errorMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -276,7 +527,7 @@ export default function MultiAgentStreamModal({
               <Button
                 variant="outline"
                 className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors shrink-0"
-                onClick={onClose}
+                onClick={handleCancelCampaign}
               >
                 Cancel Campaign
               </Button>

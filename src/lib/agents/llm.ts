@@ -1,16 +1,16 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 
-// Recommended per-agent Google Vertex AI model mapping
+// Centralized per-agent Google Vertex AI model mapping with environment variable overrides
 export const MODELS = {
   BRAND_ANALYST: "none", // DB read, no LLM required
-  TREND_RESEARCHER: "gemini-3.6-flash",
-  COMPETITOR_ANALYST: "gemini-3.5-flash-lite",
-  CONTENT_CREATOR: "gemini-3.1-pro",
-  CEO_SUPERVISOR: "gemini-3.1-pro",
-  ARTICLE_GENERATOR: "gemini-3.1-pro",
-  VISUALIZER: "gemini-3.1-flash-image",
-  SLIDE_REGENERATOR: "gemini-3.5-flash-lite",
-  VIDEO: "veo-2.0-flash",
+  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
+  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
+  CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
+  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro",
+  ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
+  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3.1-flash-image",
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-2.0-flash",
+  SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
 };
 
 let currentWorkingModel = MODELS.CONTENT_CREATOR;
