@@ -155,16 +155,15 @@ export async function runCampaignGraph(
       agentId: "brand_analyst",
       data: state.brandData,
     });
+    onEvent({ type: "agent_completed", agentId: "brand_analyst" });
   } catch (err: any) {
     console.error("Brand Analyst error:", err);
-    state.brandData = { name: "Brand", industry: "Marketing", tone: "Professional", targetAudience: "Business audience" };
     onEvent({
       type: "agent_error",
       agentId: "brand_analyst",
       data: { message: err.message || "Failed to load brand DNA" },
     });
-  } finally {
-    onEvent({ type: "agent_completed", agentId: "brand_analyst" });
+    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
   }
 
   // =========================================================================
@@ -219,21 +218,15 @@ export async function runCampaignGraph(
       agentId: "trend_researcher",
       data: state.trendResearch,
     });
+    onEvent({ type: "agent_completed", agentId: "trend_researcher" });
   } catch (err: any) {
     console.error("Trend Researcher error:", err);
-    state.trendResearch = {
-      searchQueries: [searchQuery],
-      sources: [{ title: "Google Search Index", url: "https://google.com", snippet: "Live search insights" }],
-      findings: ["Short form video dominance", "Authentic storytelling focus"],
-      rawText: "Fallback trend research findings",
-    };
     onEvent({
       type: "agent_error",
       agentId: "trend_researcher",
-      data: { message: err.message || "Trend research completed with fallback" },
+      data: { message: err.message || "Trend research failed" },
     });
-  } finally {
-    onEvent({ type: "agent_completed", agentId: "trend_researcher" });
+    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
   }
 
   // =========================================================================
@@ -289,31 +282,22 @@ Return JSON with format:
       agentId: "competitor_analyst",
       data: state.competitorAnalysis,
     });
+    onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
   } catch (err: any) {
     console.error("Competitor Analyst error:", err);
-    state.competitorAnalysis = {
-      positioning: "Feature-focused positioning",
-      contentPatterns: ["Static posts"],
-      hooks: ["Attention!"],
-      offers: ["Demo"],
-      weaknesses: ["Repetitive messaging"],
-      differentiation: ["Outcome-driven storytelling"],
-    };
     onEvent({
       type: "agent_error",
       agentId: "competitor_analyst",
-      data: { message: err.message || "Competitor analysis completed with fallback" },
+      data: { message: err.message || "Competitor analysis failed" },
     });
-  } finally {
-    onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
+    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
   }
 
   // =========================================================================
-  // 4. CONTENT CREATOR & VISUALIZER & CEO AUDITOR (Pipeline)
+  // 4. CONTENT CREATOR
   // =========================================================================
   checkCancelled();
 
-  // --- CONTENT CREATOR ---
   onEvent({ type: "agent_started", agentId: "content_creator" });
   onEvent({
     type: "agent_thought",
@@ -428,11 +412,11 @@ Return strictly JSON format:
       agentId: "content_creator",
       data: { message: err.message || "Content generation failed" },
     });
-    onEvent({ type: "agent_completed", agentId: "content_creator" });
+    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
   }
 
   // =========================================================================
-  // 5. VISUALIZER (Real Google Imagen & Veo Generation + Strict Failures)
+  // 5. VISUALIZER (Real Generation + Immediate Halt on Error)
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "visualizer" });
@@ -443,8 +427,6 @@ Return strictly JSON format:
   });
 
   state.generatedAssets = [];
-  let visualizerFailed = false;
-  let visualizerErrorPayload: any = null;
 
   const mediaTasks: { platform: string; contentType: string; item: ContentOutputItem; reqSpec: any }[] = [];
 
@@ -489,7 +471,6 @@ Return strictly JSON format:
         },
       });
 
-      // Attach generated asset URLs to state.generatedContent
       if (state.generatedContent?.platforms?.[platform]?.[contentType]) {
         const targetObj = state.generatedContent.platforms[platform][contentType] as any;
         if (assets.length > 0) {
@@ -514,11 +495,10 @@ Return strictly JSON format:
     } catch (err: any) {
       console.error(`[Visualizer Error] Generation failed for ${platform} ${contentType}:`, err);
 
-      visualizerFailed = true;
       const errorCode = err.code || "VISUALIZER_PROVIDER_ERROR";
       const errorMsg = err.message || "Failed to generate media asset";
 
-      visualizerErrorPayload = {
+      const visualizerErrorPayload = {
         agent: "visualizer",
         status: "failed",
         errorCode,
@@ -537,22 +517,20 @@ Return strictly JSON format:
         data: visualizerErrorPayload,
       });
 
-      // DO NOT MARK VISUALIZER AS COMPLETED ON FAILURE!
-      break;
+      // HALT WORKFLOW IMMEDIATELY SO THE USER CAN SEE THE ERROR IN RED ON VISUALIZER NODE!
+      throw err;
     }
   }
 
-  if (!visualizerFailed) {
-    onEvent({
-      type: "output_ready",
-      agentId: "visualizer",
-      data: { generatedAssets: state.generatedAssets },
-    });
-    onEvent({ type: "agent_completed", agentId: "visualizer" });
-  }
+  onEvent({
+    type: "output_ready",
+    agentId: "visualizer",
+    data: { generatedAssets: state.generatedAssets },
+  });
+  onEvent({ type: "agent_completed", agentId: "visualizer" });
 
   // =========================================================================
-  // 6. CEO AUDITOR (Strict Validation of Visualizer Assets)
+  // 6. CEO AUDITOR (Strict Validation)
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "ceo_auditor" });
@@ -562,12 +540,7 @@ Return strictly JSON format:
     data: { label: "CEO Auditor reviewing campaign...", detail: "Auditing copy, media assets, and platform suitability" },
   });
 
-  // Strict Validation: Validate Visualizer Output
   const auditIssues: string[] = [];
-
-  if (visualizerFailed) {
-    auditIssues.push(`CEO Audit FAILED: Visualizer agent produced error: ${visualizerErrorPayload?.errorCode} - ${visualizerErrorPayload?.message}`);
-  }
 
   for (const task of mediaTasks) {
     const matchingAssets = state.generatedAssets?.filter(
@@ -622,13 +595,11 @@ Return strictly JSON format:
       agentId: "ceo_auditor",
       data: { message: `CEO Audit FAILED: ${auditIssues.join(" | ")}` },
     });
-    onEvent({ type: "agent_completed", agentId: "ceo_auditor" });
 
-    // WORKFLOW FAILS IF CEO AUDIT FAILS - DO NOT CLAIM SUCCESS!
+    // WORKFLOW FAILS AND STOPS IMMEDIATELY - DO NOT CONTINUE OR CLAIM SUCCESS!
     throw new Error(`Campaign CEO Audit Failed: ${auditIssues.join("; ")}`);
   }
 
-  // If all assets pass strict verification, perform final LLM review
   const auditPrompt = `You are a CEO Quality Auditor. Review this complete marketing campaign.
 
 CAMPAIGN CONTENT:
