@@ -8,8 +8,11 @@ export const MODELS = {
   CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
   CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro",
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
-  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3.1-flash-image",
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-fast-generate-001",
+
+  // FIX: In strings ko change kiya hai taake Vertex AI endpoint crash na ho
+  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "imagen-3.0-generate-002",
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-2.0-generate-001",
+
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
 };
 
@@ -39,9 +42,9 @@ function translateMessages(langchainMessages: any[]): any[] {
     } else if (msg.role) {
       role = msg.role;
     }
-    
+
     let content = typeof msg === "string" ? msg : (msg.content || JSON.stringify(msg));
-    
+
     return { role, content };
   });
 }
@@ -49,21 +52,21 @@ function translateMessages(langchainMessages: any[]): any[] {
 class VertexLLMAdapter {
   async invoke(input: any[], options?: any) {
     const messages = translateMessages(input);
-    
+
     // Use options.modelName if provided by caller, otherwise fall back to currentWorkingModel
     const modelName = options?.modelName || currentWorkingModel;
-    
+
     const generateOptions: any = {
       modelName,
       temperature: options?.temperature ?? 0.7,
     };
-    
+
     if (options?.tools) {
       generateOptions.tools = options.tools;
     }
 
     const content = await vertexProvider.generateText(messages, generateOptions);
-    
+
     return { content };
   }
 
@@ -76,9 +79,9 @@ class VertexLLMAdapter {
           modelName,
           temperature: 0.1,
         });
-        
+
         return { content };
-      }
+      },
     };
   }
 }
@@ -92,7 +95,7 @@ export const ceoLlm = {
       modelName: MODELS.CEO_SUPERVISOR,
       temperature: 0.3,
     });
-    
+
     return { content };
-  }
+  },
 };
