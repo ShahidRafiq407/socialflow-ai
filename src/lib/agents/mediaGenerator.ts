@@ -92,9 +92,29 @@ async function generateRealVideo(options: {
     for (const vModel of uniqueVideoModels) {
       try {
         console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel} (${regionTag})`);
-        onProgress?.(`[Visualizer] Connecting to ${regionTag} endpoint for video engine: ${vModel}...`);
+        // 1. Try Interactions API (Native endpoint for Gemini Omni Flash Preview)
+        if (typeof (ai as any)?.interactions?.create === "function") {
+          try {
+            onProgress?.(`[Visualizer] Initiating video via Interactions API (${vModel} on ${regionTag})...`);
+            const interaction = await (ai as any).interactions.create({
+              model: vModel,
+              input: `${prompt}, dynamic engaging commercial video for ${topic}`,
+            });
 
-        // 1. Try generateVideos method
+            if (interaction) {
+              const videoData = interaction.output_video?.data || interaction.outputVideo?.data || interaction.outputs?.[0]?.video?.data;
+              if (videoData) {
+                onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
+                return `data:video/mp4;base64,${videoData}`;
+              }
+            }
+          } catch (iErr: any) {
+            lastErr = iErr;
+            console.warn(`[Visualizer] interactions.create on ${vModel} (${regionTag}) failed:`, iErr?.message || iErr);
+          }
+        }
+
+        // 2. Try generateVideos method
         if (typeof ai?.models?.generateVideos === "function") {
           try {
             onProgress?.(`[Visualizer] Submitting video synthesis job (${vModel} on ${regionTag})...`);
