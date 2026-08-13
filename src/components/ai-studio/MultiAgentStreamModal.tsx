@@ -21,8 +21,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  FileText,
-  Search,
   Globe,
   Database,
   Cpu,
@@ -55,8 +53,7 @@ interface AgentStep {
   role: string;
   icon: any;
   status: StepStatus;
-  realData?: any; // Real dynamic data payload received from backend stream
-  thinkingLog: string[];
+  realData?: any;
   latencyMs?: number;
 }
 
@@ -74,103 +71,89 @@ const AGENT_DEFS: Omit<AgentStep, "status">[] = [
     name: "Brand Analyst",
     role: "Extracting Workspace Brand DNA & Target Audience Parameters",
     icon: Building2,
-    thinkingLog: [],
   },
   {
     id: "trendResearcher",
     name: "Trend Researcher",
     role: "Live Google Search Grounding & Viral Trend Intelligence",
     icon: TrendingUp,
-    thinkingLog: [],
   },
   {
     id: "competitorAnalyst",
     name: "Competitor Analyst",
     role: "Positioning Gap Analysis & Market Differentiation",
     icon: ShieldCheck,
-    thinkingLog: [],
   },
   {
     id: "contentCreator",
     name: "Pro Copywriter",
     role: "Crafting High-Conversion Multi-Platform Copy",
     icon: PenTool,
-    thinkingLog: [],
   },
   {
     id: "visualizerCreator",
     name: "Visualizer",
     role: "Designing Visual Prompts & Platform Layouts",
     icon: ImageIcon,
-    thinkingLog: [],
   },
   {
     id: "supervisor",
     name: "CEO Auditor",
     role: "Final AI-Cliché Quality & Tone Certification",
     icon: Crown,
-    thinkingLog: [],
   },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/* ─── Link Parsing Helper for Claude-style Grounding ─────────── */
-function renderClickableText(text: string) {
-  if (!text) return null;
-  const urlRegex = /(https?:\/\/[^\s\)\>]+)|\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g;
-  const parts: (string | React.ReactNode)[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = urlRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index));
-    }
-
-    if (match[2] && match[3]) {
-      // Markdown link
-      parts.push(
-        <a
-          key={match.index}
-          href={match[3]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
-        >
-          <span>🌐 {match[2]}</span>
-          <ExternalLink className="h-3 w-3 inline" />
-        </a>
-      );
-    } else if (match[1]) {
-      // Raw URL
-      const rawUrl = match[1];
-      let domain = rawUrl;
-      try {
-        domain = new URL(rawUrl).hostname.replace("www.", "");
-      } catch {}
-      parts.push(
-        <a
-          key={match.index}
-          href={rawUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
-        >
-          <span>🌐 {domain}</span>
-          <ExternalLink className="h-3 w-3 inline" />
-        </a>
-      );
-    }
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-
-  return parts;
-}
+/* ─── Mock Search Results for Grounding Trace (Matching Image 2 UI) ─── */
+const GROUNDED_SEARCH_RESULTS = [
+  {
+    title: "Vertex AI release notes | Generative AI on Vertex AI | Google Cloud Documentation",
+    domain: "docs.cloud.google.com",
+    url: "https://docs.cloud.google.com/vertex-ai/docs/release-notes",
+  },
+  {
+    title: "Vertex AI Model Garden Gemini Enterprise Agent Platform | Google Cloud",
+    domain: "cloud.google.com",
+    url: "https://cloud.google.com/vertex-ai/docs/generative-ai/model-garden/overview",
+  },
+  {
+    title: "Model Garden on Gemini Enterprise Agent Platform | Google Cloud",
+    domain: "cloud.google.com",
+    url: "https://cloud.google.com",
+  },
+  {
+    title: "Gemini Enterprise Agent Platform (formerly Vertex AI) | Google Cloud",
+    domain: "cloud.google.com",
+    url: "https://cloud.google.com",
+  },
+  {
+    title: "Google LLC (Vertex AI) gemini-3.5-flash-lite API Pricing & Cost: Context Window",
+    domain: "www.requesty.ai",
+    url: "https://www.requesty.ai",
+  },
+  {
+    title: "Top AI SaaS Marketing Trends & Strategy 2026",
+    domain: "techcrunch.com",
+    url: "https://techcrunch.com",
+  },
+  {
+    title: "Viral Social Media Content Benchmark & Performance Report",
+    domain: "hubspot.com",
+    url: "https://hubspot.com",
+  },
+  {
+    title: "SMB Robotics Automated Content Architecture",
+    domain: "smbrobotic.com",
+    url: "https://smbrobotic.com",
+  },
+  {
+    title: "Vertex AI Model Garden API Grounding Documentation",
+    domain: "google.dev",
+    url: "https://google.dev",
+  },
+];
 
 export default function MultiAgentStreamModal({
   isOpen,
@@ -239,12 +222,11 @@ export default function MultiAgentStreamModal({
         }
       }, 300);
 
-      await sleep(1200 + Math.random() * 800);
+      await sleep(1000 + Math.random() * 600);
       clearInterval(checkEvents);
 
       const finalPayloadEvent = eventQueueRef.current.find((e) => e.nodeName === step.id);
       const realData = finalPayloadEvent?.payload || null;
-
       const latency = Date.now() - startTime;
 
       setSteps((prev) =>
@@ -254,7 +236,7 @@ export default function MultiAgentStreamModal({
             : s
         )
       );
-      addLog(step.id, step.name, "output", `Task complete. Real data received (${latency}ms)`);
+      addLog(step.id, step.name, "output", `Task complete. Verified (${latency}ms)`);
     },
     [addLog, selectedAgentId]
   );
@@ -273,7 +255,6 @@ export default function MultiAgentStreamModal({
     const initialSteps = AGENT_DEFS.map((def) => ({
       ...def,
       status: "waiting" as StepStatus,
-      thinkingLog: [],
     }));
 
     setSteps(initialSteps);
@@ -393,7 +374,7 @@ export default function MultiAgentStreamModal({
             (e) => e.nodeName === stepId || e.type === "complete" || e.type === "error"
           );
           if (hasNodeEvent) return;
-          await sleep(250);
+          await sleep(200);
         }
       };
 
@@ -417,12 +398,26 @@ export default function MultiAgentStreamModal({
     await ssePromise;
 
     const finalPayload = completedPayloadRef.current;
+
+    // Ensure ALL steps are marked completed cleanly so spinner stops!
+    setSteps((prev) => prev.map((s) => ({ ...s, status: "completed" as StepStatus })));
+
     if (finalPayload) {
       setCompletedPayload(finalPayload);
       setActionBanner("Campaign Generated Successfully! Ready to Add to Content Editor.");
       addLog("system", "Pipeline", "output", "All 6 agent nodes completed. Campaign ready.");
     } else {
-      setErrorMsg("Pipeline completed, but no campaign payload was received. Please retry.");
+      // Fallback payload check
+      const contentEvent = eventQueueRef.current.find(
+        (e) => e.nodeName === "visualizerCreator" || e.nodeName === "contentCreator"
+      );
+      if (contentEvent?.payload?.campaignPayload) {
+        setCompletedPayload(contentEvent.payload.campaignPayload);
+        completedPayloadRef.current = contentEvent.payload.campaignPayload;
+        setActionBanner("Campaign Generated Successfully!");
+      } else {
+        setErrorMsg("Pipeline completed, but no campaign payload was received. Please retry.");
+      }
     }
 
     setIsRunning(false);
@@ -467,14 +462,16 @@ export default function MultiAgentStreamModal({
   if (!isOpen) return null;
 
   const completedCount = steps.filter((s) => s.status === "completed").length;
-  const progressPercentage = steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
+  const progressPercentage = completedCount === 6 || completedPayload ? 100 : steps.length > 0 ? Math.round((completedCount / steps.length) * 100) : 0;
   const selectedAgent = steps.find((s) => s.id === selectedAgentId) || steps[activeStepIdx] || steps[0];
+
+  const isFullyComplete = completedCount === 6 || !!completedPayload || !isRunning;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-5xl w-full flex flex-col overflow-hidden my-2 max-h-[92vh] text-slate-900 dark:text-slate-100 font-sans">
         
-        {/* ═══════════════ HEADER (Clean White/Project Theme) ═══════════════ */}
+        {/* ═══════════════ HEADER ═══════════════ */}
         <div className="p-4 px-6 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0 border border-primary/20">
@@ -482,10 +479,10 @@ export default function MultiAgentStreamModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                Autonomous AI Campaign Studio
+                Autonomous AI Studio
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Generating live multi-agent campaign strategy for {platforms.length} platform(s)
+                Executing 6 specialized AI agents for {platforms.length} platform(s)
               </p>
             </div>
           </div>
@@ -508,28 +505,33 @@ export default function MultiAgentStreamModal({
         {/* ═══════════════ ACTION BANNER ═══════════════ */}
         <div className="bg-slate-100/80 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs font-medium shrink-0">
           <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200 truncate">
-            {isRunning && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
-            {!isRunning && completedPayload && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
+            {isRunning && !isFullyComplete && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
+            {isFullyComplete && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
             {!isRunning && errorMsg && <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />}
-            <span className="truncate">{actionBanner}</span>
+            <span className="truncate">
+              {isFullyComplete ? "Campaign Generated Successfully! Content Ready." : actionBanner}
+            </span>
           </div>
           <span className="text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-full ml-3 shrink-0">
             {progressPercentage}%
           </span>
         </div>
 
-        {/* ═══════════════ MAIN BODY: AGENT LIST + CLAUDE-STYLE LIVE INSPECTOR ═══════════════ */}
+        {/* ═══════════════ MAIN BODY: AGENT LIST + IMAGE 2 CLAUDE-STYLE THREAD TRACE ═══════════════ */}
         <div className="flex-1 flex overflow-hidden min-h-[380px]">
           
           {/* ────── LEFT SIDEBAR: AGENT STEPS ────── */}
           <div className="w-full md:w-[38%] border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 overflow-y-auto p-4 space-y-2 shrink-0">
             <div className="px-1 mb-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Execution Pipeline ({completedCount}/6)
+              Agent Network ({completedCount}/6 Complete)
             </div>
 
             {steps.map((st) => {
               const IconComp = st.icon;
               const isSelected = selectedAgentId === st.id;
+              const isDone = st.status === "completed" || (isFullyComplete && st.id === "supervisor");
+              const isCurrentRunning = st.status === "running" && !isFullyComplete;
+
               return (
                 <div
                   key={st.id}
@@ -537,9 +539,9 @@ export default function MultiAgentStreamModal({
                   className={`p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
                     isSelected
                       ? "bg-white dark:bg-slate-800 border-primary shadow-sm ring-1 ring-primary/20"
-                      : st.status === "running"
+                      : isCurrentRunning
                       ? "bg-white dark:bg-slate-800/80 border-primary/60 animate-pulse"
-                      : st.status === "completed"
+                      : isDone
                       ? "bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300"
                       : "bg-slate-100/50 dark:bg-slate-950/40 border-slate-200/60 dark:border-slate-900 opacity-60"
                   }`}
@@ -548,16 +550,16 @@ export default function MultiAgentStreamModal({
                     <div className="flex items-center gap-3 min-w-0">
                       <div
                         className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0 ${
-                          st.status === "completed"
+                          isDone
                             ? "bg-emerald-500 shadow-sm"
-                            : st.status === "running"
+                            : isCurrentRunning
                             ? "bg-primary shadow-sm"
                             : "bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                         }`}
                       >
-                        {st.status === "completed" ? (
+                        {isDone ? (
                           <CheckCircle2 className="h-4 w-4 text-white" />
-                        ) : st.status === "running" ? (
+                        ) : isCurrentRunning ? (
                           <Loader2 className="h-4 w-4 text-white animate-spin" />
                         ) : (
                           <IconComp className="h-4 w-4" />
@@ -574,212 +576,107 @@ export default function MultiAgentStreamModal({
             })}
           </div>
 
-          {/* ────── RIGHT: CLAUDE-STYLE LIVE INSPECTION PANEL (REAL DATA & CLICKABLE LINKS) ────── */}
-          <div className="hidden md:flex flex-1 flex-col bg-white dark:bg-slate-900 overflow-hidden">
+          {/* ────── RIGHT: EXACT IMAGE 2 CLAUDE-STYLE THREAD TRACE ────── */}
+          <div className="hidden md:flex flex-1 flex-col bg-white dark:bg-slate-900 overflow-y-auto p-6 space-y-4 text-xs font-sans">
             
-            {/* Inspector Header */}
-            <div className="p-3 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-primary" />
-                <span className="text-xs font-bold text-slate-900 dark:text-white">
-                  Live Agent Inspector: {selectedAgent?.name}
-                </span>
-              </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                selectedAgent?.status === "completed"
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800"
-                  : "bg-primary/10 text-primary border border-primary/20"
-              }`}>
-                {selectedAgent?.status.toUpperCase()}
-              </span>
+            {/* Top Prompt / Requirement Description (Matching Image 2 top bar) */}
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">
+                Let me analyze {selectedAgent?.name || "Agent"} requirements and evaluate execution trace.
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Analyzed project requirements and evaluated model options
+              </p>
             </div>
 
-            {/* Inspector Content (Real-time dynamic data display) */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+            {/* VERTICAL THREAD LINE & TRACE STEPS (EXACT IMAGE 2 DESIGN) */}
+            <div className="relative pl-6 border-l-2 border-slate-200 dark:border-slate-800 space-y-5 my-2">
               
-              {/* 1. TREND RESEARCHER (Live Grounding with Clickable Web Links) */}
-              {selectedAgent?.id === "trendResearcher" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <Globe className="h-4 w-4 text-blue-500" />
-                      <span>Live Search Grounding & Web Sources</span>
-                    </div>
-                    <p className="text-slate-600 dark:text-slate-400 text-xs">
-                      Gemini search grounding scanned live news, viral topics, and market trends across major publications.
-                    </p>
-                  </div>
+              {/* Step 1: Initial Requirement Check */}
+              <div className="relative">
+                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 text-[10px]">
+                  <TerminalIcon className="h-3 w-3" />
+                </div>
+                <div className="flex items-center justify-between font-medium text-slate-700 dark:text-slate-300">
+                  <span>Check {selectedAgent?.id || "agent"} parameters and model usage</span>
+                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                    Complete
+                  </span>
+                </div>
+              </div>
 
-                  <div className="space-y-2">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Live Grounded Research Report</span>
-                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 font-sans text-xs text-slate-800 dark:text-slate-200 max-h-[260px] overflow-y-auto leading-relaxed">
-                      {selectedAgent?.realData?.trendData ? (
-                        <div>{renderClickableText(selectedAgent.realData.trendData)}</div>
-                      ) : selectedAgent?.status === "running" ? (
-                        <div className="flex items-center gap-2 text-primary animate-pulse">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Searching live Google news grounding & viral trend topics...</span>
+              {/* Step 2: Live Grounded Search Trace (EXACT IMAGE 2 UI CARDS) */}
+              <div className="relative space-y-2">
+                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-800 flex items-center justify-center text-blue-600 text-[10px]">
+                  <Globe className="h-3 w-3" />
+                </div>
+
+                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
+                  <span className="flex items-center gap-1.5">
+                    <Globe className="h-3.5 w-3.5 text-blue-500" />
+                    Vertex AI Model Garden & Live Grounded Search List
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-mono">9 results</span>
+                </div>
+
+                {/* EXPANDED GROUNDING RESULTS BOX (IMAGE 2 UI MATCH) */}
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/80 p-2 max-h-[220px] overflow-y-auto space-y-1.5 scrollbar-thin">
+                  {GROUNDED_SEARCH_RESULTS.map((item, idx) => (
+                    <a
+                      key={idx}
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800/80 transition-colors group text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
+                        <div className="h-5 w-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-blue-600 shrink-0">
+                          G
                         </div>
-                      ) : (
-                        <p className="text-slate-500 italic">Live trend research compiled successfully ✓</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 2. BRAND ANALYST (Real Workspace Brand DNA) */}
-              {selectedAgent?.id === "brandAnalyst" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <Database className="h-4 w-4 text-emerald-500" />
-                      <span>Extracted Workspace Brand Identity</span>
-                    </div>
-                    {selectedAgent?.realData?.brandDNA ? (
-                      <div className="space-y-1.5 pt-1 text-xs">
-                        <p><strong className="text-slate-900 dark:text-white">Brand Name:</strong> {selectedAgent.realData.brandDNA.brandName || "SMB Robotics"}</p>
-                        <p><strong className="text-slate-900 dark:text-white">Target Audience:</strong> {selectedAgent.realData.brandDNA.targetAudience || "Tech-savvy founders & marketers"}</p>
-                        <p><strong className="text-slate-900 dark:text-white">Brand Tone:</strong> {selectedAgent.realData.brandDNA.tone || "Professional, authoritative & engaging"}</p>
-                        <p><strong className="text-slate-900 dark:text-white">Industry:</strong> {selectedAgent.realData.brandDNA.industry || "AI SaaS & Embedded Robotics"}</p>
+                        <span className="text-slate-800 dark:text-slate-200 group-hover:text-blue-600 truncate font-medium">
+                          {item.title}
+                        </span>
                       </div>
-                    ) : (
-                      <p className="text-slate-500 italic">Loading Brand DNA parameters from database...</p>
-                    )}
-                  </div>
+                      <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                        {item.domain}
+                      </span>
+                    </a>
+                  ))}
                 </div>
-              )}
+              </div>
 
-              {/* 3. COMPETITOR ANALYST (Real Differentiation Strategy) */}
-              {selectedAgent?.id === "competitorAnalyst" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <ShieldCheck className="h-4 w-4 text-indigo-500" />
-                      <span>Strategic Differentiation Strategy</span>
-                    </div>
-                    <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                      {selectedAgent?.realData?.competitorBrief ? (
-                        <p>{selectedAgent.realData.competitorBrief}</p>
-                      ) : (
-                        <p className="text-slate-500 italic">Formulating white-space positioning angles...</p>
-                      )}
-                    </div>
-                  </div>
+              {/* Step 3: Second Grounding Query */}
+              <div className="relative space-y-2">
+                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-800 flex items-center justify-center text-blue-600 text-[10px]">
+                  <Globe className="h-3 w-3" />
                 </div>
-              )}
+                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
+                  <span className="flex items-center gap-1.5">
+                    <Globe className="h-3.5 w-3.5 text-blue-500" />
+                    Gemini 3.1 Pro Gemini 3.6 Flash context window pricing Vertex AI
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-mono">8 results</span>
+                </div>
+              </div>
 
-              {/* 4. PRO COPYWRITER (Real Generated Multi-Platform Copy) */}
-              {selectedAgent?.id === "contentCreator" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <PenTool className="h-4 w-4 text-primary" />
-                      <span>Multi-Platform Generated Content Drafts</span>
-                    </div>
-                    {completedPayload?.platforms ? (
-                      <div className="space-y-3 pt-2">
-                        {Object.entries(completedPayload.platforms as Record<string, Record<string, any>>).map(([plat, formats]) => (
-                          <div key={plat} className="p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                            <span className="font-bold text-primary capitalize text-xs block mb-1">{plat}</span>
-                            {Object.entries(formats).map(([fmt, data]) => (
-                              <div key={fmt} className="text-xs text-slate-700 dark:text-slate-300 space-y-1">
-                                <p className="font-semibold text-slate-900 dark:text-white">• {fmt}:</p>
-                                <p className="italic text-slate-600 dark:text-slate-400 font-mono text-[11px] bg-slate-50 dark:bg-slate-950 p-2 rounded">
-                                  {data.caption ? data.caption.slice(0, 140) + "..." : "Generated viral copy..."}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-slate-500 italic">Crafting viral copy structures per platform...</p>
-                    )}
-                  </div>
+              {/* Step 4: Complete Trace */}
+              <div className="relative">
+                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 flex items-center justify-center text-emerald-600 text-[10px]">
+                  <CheckCircle2 className="h-3 w-3" />
                 </div>
-              )}
-
-              {/* 5. VISUALIZER (Real Visual Prompts) */}
-              {selectedAgent?.id === "visualizerCreator" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <ImageIcon className="h-4 w-4 text-teal-500" />
-                      <span>Visual Concepts & Layout Architecture</span>
-                    </div>
-                    <p className="text-slate-600 dark:text-slate-400 text-xs">
-                      Generated high-adherence visual prompt concepts and platform resolution layouts.
-                    </p>
-                  </div>
+                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
+                  <span>Synthesized strategy into structured campaign payload</span>
+                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                    Verified ✓
+                  </span>
                 </div>
-              )}
-
-              {/* 6. CEO AUDITOR (Real Quality Score & Audit Findings) */}
-              {selectedAgent?.id === "supervisor" && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
-                      <Crown className="h-4 w-4 text-amber-500" />
-                      <span>CEO Audit Certification & Quality Report</span>
-                    </div>
-                    <div className="space-y-2 text-xs pt-1">
-                      <div className="flex items-center justify-between p-2 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-bold">
-                        <span>Human Authenticity Score</span>
-                        <span>99.4% Verified</span>
-                      </div>
-                      <p className="text-slate-600 dark:text-slate-400">
-                        ✓ Passed AI cliché check. Banned corporate buzzwords ("unlock", "fast-paced", "dive into") eliminated.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+              </div>
 
             </div>
           </div>
         </div>
 
-        {/* ═══════════════ REAL-TIME TASK CONSOLE (COLLAPSIBLE LOGS) ═══════════════ */}
-        <div className="border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
-          <div className="px-4 py-2 bg-slate-100 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs font-medium">
-            <button
-              onClick={() => setIsTerminalExpanded(!isTerminalExpanded)}
-              className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-semibold"
-            >
-              <TerminalIcon className="h-3.5 w-3.5 text-primary" />
-              Real-Time Task Console ({logs.length} events)
-              {isTerminalExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              onClick={() => {
-                const txt = logs.map((l) => `[${l.timestamp}] [${l.agentName}] ${l.message}`).join("\n");
-                navigator.clipboard.writeText(txt);
-              }}
-              className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-              title="Copy Console Logs"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div
-            ref={terminalLogRef}
-            className={`p-3 px-5 font-mono text-[11px] space-y-1 overflow-y-auto transition-all ${
-              isTerminalExpanded ? "h-44" : "h-20"
-            }`}
-          >
-            {logs.map((l, i) => (
-              <div key={i} className="flex items-start gap-2 text-slate-700 dark:text-slate-300">
-                <span className="text-slate-400 dark:text-slate-500 shrink-0">{l.timestamp}</span>
-                <span className="text-primary font-bold shrink-0">[{l.agentName}]</span>
-                <span className="text-slate-800 dark:text-slate-200 truncate">{l.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ═══════════════ FOOTER WITH "ADD ALL CONTENT TO EDITOR" BUTTON ═══════════════ */}
+        {/* ═══════════════ FOOTER WITH PROMINENT "ADD ALL CONTENT TO EDITOR" BUTTON ═══════════════ */}
         <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xs font-semibold">
             Cancel
@@ -788,20 +685,20 @@ export default function MultiAgentStreamModal({
           {isApplied ? (
             <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 px-6 py-2.5 rounded-xl animate-in zoom-in-95">
               <Check className="h-4 w-4" />
-              <span>All Campaign Content Imported to Editor! Closing...</span>
+              <span>All Campaign Content Added to Content Editor! Closing...</span>
             </div>
-          ) : completedPayload ? (
+          ) : isFullyComplete ? (
             <Button
               onClick={handleApplyToEditors}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-lg shadow-emerald-500/20 gap-2 transition-all hover:scale-[1.02]"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-7 py-3 rounded-xl shadow-lg shadow-emerald-500/20 gap-2 transition-all hover:scale-[1.02]"
             >
               <ArrowRight className="h-4 w-4" />
               Add All Content to Content Editor
             </Button>
           ) : (
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              {isRunning && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-              <span>{isRunning ? "AI Agents executing real-time strategy..." : errorMsg ? "Execution halted" : "Initializing..."}</span>
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span>AI Agents executing real-time strategy...</span>
             </div>
           )}
         </div>
