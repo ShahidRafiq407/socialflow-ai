@@ -58,7 +58,7 @@ Return ONLY valid JSON.`;
       let visualData: any = null;
       try {
         const res = await llm.withStructuredOutput(null).invoke([new HumanMessage(refinementPrompt)], {
-          modelName: MODELS.VISUALIZER
+          modelName: MODELS.CONTENT_CREATOR
         });
         if (typeof res.content === "object" && res.content !== null) {
           visualData = res.content;

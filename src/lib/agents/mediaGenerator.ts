@@ -74,10 +74,12 @@ async function generateRealVideo(options: {
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, onProgress } = options;
 
-  // High fidelity structures only. Cheap/Lite pipelines completely eliminated.
+  // High fidelity structures only.
   const premiumVideoCluster = [
     model,
-    "gemini-omni-flash-preview" // Veo 3.1 Flagship Cinematic Unit
+    "gemini-omni-flash-preview",
+    "veo-3.1-generate-001",
+    "veo-2.0-generate-001",
   ];
   const uniqueVideoModels = [...new Set(premiumVideoCluster.filter(Boolean))];
   const aiClients = [
@@ -88,13 +90,17 @@ async function generateRealVideo(options: {
   ].filter(Boolean);
   let lastErr: any = null;
 
-  for (const ai of aiClients) {
+  for (let cIdx = 0; cIdx < aiClients.length; cIdx++) {
+    const ai = aiClients[cIdx];
+    const regionTag = cIdx === 0 ? "us-central1" : cIdx === 1 ? "media" : cIdx === 2 ? "global" : "primary";
+
     for (const vModel of uniqueVideoModels) {
       try {
-        console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel}`);
+        console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${vModel} (${regionTag})`);
+        onProgress?.(`[Visualizer] Connecting to ${regionTag} endpoint for video engine: ${vModel}...`);
 
         if (typeof ai?.models?.generateVideos === "function") {
-          onProgress?.(`[Visualizer] Initiating video operation (${vModel})...`);
+          onProgress?.(`[Visualizer] Submitting video synthesis job (${vModel})...`);
           let operation = await ai.models.generateVideos({
             model: vModel,
             prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
@@ -124,7 +130,7 @@ async function generateRealVideo(options: {
               );
             }
 
-            onProgress?.(`[Visualizer] Waiting for video generation... (${elapsedSec}s elapsed)`);
+            onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
             if (typeof (ai.operations as any)?.get === "function") {
@@ -147,22 +153,25 @@ async function generateRealVideo(options: {
           const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
 
           if (videoBytes) {
+            onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${vModel})!`);
             console.log(`[Visualizer] ✅ Video generation success with model: ${vModel}`);
             return `data:video/mp4;base64,${videoBytes}`;
           }
           if (videoUri) {
+            onProgress?.(`[Visualizer] ✅ Video asset ready (${vModel})!`);
             console.log(`[Visualizer] ✅ Video generation success (URI) with model: ${vModel}`);
             return videoUri;
           }
         }
       } catch (err: any) {
-        console.warn(`[Visualizer] Target cluster ${vModel} reported processing limits. Attempting fallback instance...`, err?.message || err);
         lastErr = err;
+        console.warn(`[Visualizer] Video attempt on ${vModel} (${regionTag}) failed:`, err?.message || err);
+        onProgress?.(`[Visualizer] ${vModel} (${regionTag}) returned: ${err?.message || "Unavailable"}. Trying next...`);
       }
     }
   }
 
-  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Vertex AI heavy cluster video synthesis execution dropped frame layer. Trace: ${lastErr?.message || lastErr}`);
+  throw new VisualizerError("VIDEO_GENERATION_FAILED", `Vertex AI video synthesis dropped frame layer. Trace: ${lastErr?.message || lastErr}`);
 }
 
 export function resolveVisualRequirements(platform: string, contentType: string) {
@@ -208,7 +217,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const results: MediaAssetOutput[] = [];
 
   if (mediaType === "video") {
-    onProgress?.(`[Visualizer] Compiling premium cinematic narrative canvas via ${MODELS.VIDEO}...`);
+    onProgress?.(`[Visualizer] Compiling cinematic narrative via ${MODELS.VIDEO}...`);
 
     // Injecting strict adherence directives for maximum video realism
     const highEndVideoPrompt = `${prompt}, hyper-realistic photography, 8k resolution, smooth cinematography, cinematic lighting, photorealism style, flawless texture map`;
@@ -245,21 +254,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   if (mediaType === "multi_image") {
     const totalSlides = 3;
-    onProgress?.(`[Visualizer] Processing master grade image arrays (${totalSlides} frames) with engine: ${MODELS.VISUALIZER}...`);
+    onProgress?.(`[Visualizer] Processing multi-frame carousel (${totalSlides} slides) with engine: ${MODELS.VISUALIZER}...`);
 
     for (let slideIdx = 1; slideIdx <= totalSlides; slideIdx++) {
       const slidePrompt = `${prompt} (Slide ${slideIdx} of ${totalSlides}: Commercial studio product capture, ultra detailed textures, raytraced reflections, 8k resolution close-up)`;
-      onProgress?.(`[Visualizer] Directing Frame compilation ${slideIdx}/${totalSlides}...`);
+      onProgress?.(`[Visualizer] Synthesizing carousel slide ${slideIdx}/${totalSlides}...`);
 
       const imageUrl = await generateRealImage({
         prompt: slidePrompt,
         topic,
         aspectRatio,
         model: MODELS.VISUALIZER,
+        onProgress,
       });
 
       if (!imageUrl || !imageUrl.trim()) {
-        throw new VisualizerError("IMAGE_GENERATION_FAILED", `Multi-frame layer compilation failed at block level ${slideIdx}.`);
+        throw new VisualizerError("IMAGE_GENERATION_FAILED", `Multi-frame layer compilation failed at slide ${slideIdx}.`);
       }
 
       validateAssetUrl(imageUrl, "image");
@@ -284,7 +294,6 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   onProgress?.(`[Visualizer] Dispatching master image synthesis via ${MODELS.VISUALIZER}...`);
 
-  // Forcing raw structural fidelity parameters right onto the input parameters
   const commercialPrompt = `${prompt}, highly detailed studio shot, realistic lighting layers, hyper-detailed photography aesthetics, crisp focus, 8k resolution`;
 
   const imageUrl = await generateRealImage({
@@ -292,10 +301,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     topic,
     aspectRatio,
     model: MODELS.VISUALIZER,
+    onProgress,
   });
 
   if (!imageUrl || !imageUrl.trim()) {
-    throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image canvas interface compilation dropped layer bytes.");
+    throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image canvas compilation dropped layer bytes.");
   }
 
   validateAssetUrl(imageUrl, "image");
@@ -324,12 +334,16 @@ async function generateRealImage(options: {
   topic: string;
   aspectRatio: string;
   model: string;
+  onProgress?: (message: string) => void;
 }): Promise<string> {
-  const { prompt, topic, aspectRatio, model } = options;
+  const { prompt, topic, aspectRatio, model, onProgress } = options;
 
   const premiumImageCluster = [
     model,
-    "gemini-3-pro-image" // Flagship Production Photorealism Matrix
+    "gemini-3-pro-image",
+    "gemini-3-pro-image-preview",
+    "imagen-3.0-generate-002",
+    "imagen-3.0-fast-generate-001",
   ];
   const uniqueModels = [...new Set(premiumImageCluster.filter(Boolean))];
   const aiClients = [
@@ -340,18 +354,23 @@ async function generateRealImage(options: {
   ].filter(Boolean);
   let lastErr: any = null;
 
-  for (const ai of aiClients) {
+  for (let cIdx = 0; cIdx < aiClients.length; cIdx++) {
+    const ai = aiClients[cIdx];
+    const regionTag = cIdx === 0 ? "global" : cIdx === 1 ? "media" : cIdx === 2 ? "us-central1" : "primary";
+
     for (const mName of uniqueModels) {
       try {
         if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
           continue;
         }
 
-        console.log(`[Visualizer] Executing generation on engine: ${mName}`);
+        console.log(`[Visualizer] Executing image generation: ${mName} (${regionTag})`);
+        onProgress?.(`[Visualizer] Connecting to ${regionTag} endpoint for model: ${mName}...`);
 
         // 1. Try generateContent with responseModalities for Gemini 3 series image generation
         if (typeof ai.models.generateContent === "function") {
           try {
+            onProgress?.(`[Visualizer] Synthesizing image canvas with ${mName} (${regionTag})...`);
             const genRes = await ai.models.generateContent({
               model: mName,
               contents: `Generate a high quality visual image: ${prompt}`,
@@ -364,19 +383,22 @@ async function generateRealImage(options: {
             for (const cand of candidates) {
               for (const part of cand.content?.parts || []) {
                 if (part.inlineData?.data) {
+                  onProgress?.(`[Visualizer] ✅ Image frame generated successfully (${mName})!`);
                   console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${mName}`);
                   return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
                 }
               }
             }
           } catch (gcErr: any) {
-            console.log(`[Visualizer] generateContent attempt with ${mName}: ${gcErr?.message || gcErr}`);
+            lastErr = gcErr;
+            console.log(`[Visualizer] generateContent attempt with ${mName} (${regionTag}):`, gcErr?.message || gcErr);
           }
         }
 
         // 2. Try generateImages for dedicated image synthesis endpoints
         if (typeof ai.models.generateImages === "function") {
           try {
+            onProgress?.(`[Visualizer] Rendering photorealistic canvas with ${mName} (${regionTag})...`);
             const response = await ai.models.generateImages({
               model: mName,
               prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
@@ -389,22 +411,26 @@ async function generateRealImage(options: {
 
             const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
             if (imageBytes) {
+              onProgress?.(`[Visualizer] ✅ Image frame rendered successfully (${mName})!`);
               console.log(`[Visualizer] ✅ Image generation success with model: ${mName}`);
               return `data:image/png;base64,${imageBytes}`;
             }
           } catch (giErr: any) {
-            console.log(`[Visualizer] generateImages attempt with ${mName}: ${giErr?.message || giErr}`);
+            lastErr = giErr;
+            console.log(`[Visualizer] generateImages attempt with ${mName} (${regionTag}):`, giErr?.message || giErr);
           }
         }
       } catch (err: any) {
-        console.error(`[Visualizer] Processing rejected on model ${mName}:`, err);
         lastErr = err;
+        console.error(`[Visualizer] Processing rejected on model ${mName} (${regionTag}):`, err);
+        onProgress?.(`[Visualizer] ${mName} (${regionTag}) error: ${err?.message || "Failed"}. Trying next...`);
       }
     }
   }
 
+  const errDetail = lastErr?.message || (typeof lastErr === "string" ? lastErr : JSON.stringify(lastErr));
   throw new VisualizerError(
     "IMAGE_GENERATION_FAILED",
-    `All configured visualizer attempts failed. Trace: ${lastErr?.message || lastErr}`
+    `All configured visualizer attempts failed across models and regions. Trace: ${errDetail}`
   );
 }
