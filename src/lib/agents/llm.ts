@@ -8,8 +8,8 @@ export const MODELS = {
   CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
   CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro",
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
-  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3.1-flash-image",
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-2.0-flash",
+  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3-pro-image",
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-lite",
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
 };
 

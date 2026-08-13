@@ -1,4 +1,4 @@
-import { vertexProvider } from "@/lib/agents/llm";
+import { vertexProvider, MODELS } from "@/lib/agents/llm";
 
 export interface GenerateMediaInput {
   platform: string;
@@ -26,11 +26,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const { platform, contentType, mediaType, prompt, aspectRatio, topic = "Marketing", onProgress } = input;
 
   if (mediaType === "video") {
-    onProgress?.(`Creating ${platform} ${contentType} video...`);
+    onProgress?.(`Creating ${platform} ${contentType} video with ${MODELS.VIDEO}...`);
     try {
-      onProgress?.("Video generation in progress...");
+      onProgress?.(`Video generation in progress (${MODELS.VIDEO})...`);
 
-      // Attempt video generation via Google Vertex AI / Veo
+      // Attempt video generation via Google Vertex AI / Veo 3.1 Lite
       const videoUrl = await generateRealVideo(prompt, topic, aspectRatio);
 
       onProgress?.(`${platform} ${contentType} video ready.`);
@@ -61,7 +61,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   }
 
   // Image Generation
-  onProgress?.(`Creating ${platform} ${contentType} image...`);
+  onProgress?.(`Creating ${platform} ${contentType} image with ${MODELS.VISUALIZER}...`);
   try {
     const imageUrl = await generateRealImage(prompt, topic, aspectRatio);
     onProgress?.(`${platform} ${contentType} image generated.`);
@@ -77,7 +77,6 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   } catch (err: any) {
     console.warn(`Image generation notice for ${platform} ${contentType}:`, err?.message || err);
     // Reliable high-quality image URL fallback using Unsplash Source with prompt keywords
-    const keywords = encodeURIComponent(`${topic} ${platform} marketing`);
     const fallbackImageUrl = `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1080&q=80`;
     onProgress?.(`${platform} ${contentType} image generated.`);
     return {
@@ -97,7 +96,7 @@ async function generateRealImage(prompt: string, topic: string, aspectRatio: str
     const ai = (vertexProvider as any).ai;
     if (ai?.models?.generateImages) {
       const response = await ai.models.generateImages({
-        model: "imagen-3.0-generate-002",
+        model: MODELS.VISUALIZER,
         prompt: `${prompt}, high quality professional marketing graphic for ${topic}`,
         config: {
           numberOfImages: 1,
