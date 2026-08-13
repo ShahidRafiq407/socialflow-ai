@@ -39,12 +39,15 @@ export class VertexAIProvider {
       mediaLocation,
     });
 
+    const httpOptions = { headers: { "Api-Revision": "2026-05-20" } };
+
     // Configured primary client
     this.ai = new GoogleGenAI({
       vertexai: true,
       project: projectId,
       location: textLocation,
       googleAuthOptions,
+      httpOptions,
     });
 
     // Configured media client
@@ -53,6 +56,7 @@ export class VertexAIProvider {
       project: projectId,
       location: mediaLocation,
       googleAuthOptions,
+      httpOptions,
     });
 
     // Dedicated global client (for Gemini 3.x frontier text and image models)
@@ -61,6 +65,7 @@ export class VertexAIProvider {
       project: projectId,
       location: "global",
       googleAuthOptions,
+      httpOptions,
     });
 
     // Dedicated us-central1 regional client (for video models like Gemini Omni Flash & Veo)
@@ -69,6 +74,7 @@ export class VertexAIProvider {
       project: projectId,
       location: "us-central1",
       googleAuthOptions,
+      httpOptions,
     });
   }
 

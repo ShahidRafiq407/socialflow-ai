@@ -98,15 +98,41 @@ async function generateRealVideo(options: {
             onProgress?.(`[Visualizer] Initiating video via Interactions API (${vModel} on ${regionTag})...`);
             const interaction = await (ai as any).interactions.create({
               model: vModel,
-              input: `${prompt}, dynamic engaging commercial video for ${topic}`,
+              input: [
+                {
+                  type: "user_input",
+                  content: [
+                    {
+                      type: "text",
+                      text: `${prompt}, dynamic engaging commercial video for ${topic}`,
+                    },
+                  ],
+                },
+              ],
             });
 
-            if (interaction) {
-              const videoData = interaction.output_video?.data || interaction.outputVideo?.data || interaction.outputs?.[0]?.video?.data;
-              if (videoData) {
-                onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
-                return `data:video/mp4;base64,${videoData}`;
+            if (interaction?.steps) {
+              for (const step of interaction.steps) {
+                if (step.type === "model_output" && Array.isArray(step.content)) {
+                  for (const part of step.content) {
+                    if (part.type === "video") {
+                      if (part.data) {
+                        onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
+                        return `data:video/mp4;base64,${part.data}`;
+                      } else if (part.uri) {
+                        onProgress?.(`[Visualizer] ✅ Video asset ready via Interactions API (${vModel})!`);
+                        return part.uri;
+                      }
+                    }
+                  }
+                }
               }
+            }
+
+            const directData = (interaction as any)?.output_video?.data || (interaction as any)?.outputVideo?.data || (interaction as any)?.outputs?.[0]?.video?.data;
+            if (directData) {
+              onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${vModel})!`);
+              return `data:video/mp4;base64,${directData}`;
             }
           } catch (iErr: any) {
             lastErr = iErr;
