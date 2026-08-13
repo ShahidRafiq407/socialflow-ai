@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
 export class VertexAIProvider {
-  private ai: GoogleGenAI;
+  public ai: GoogleGenAI;
+  public mediaAi: GoogleGenAI;
 
   constructor() {
     // Resolve Google Cloud credentials for Vertex AI
@@ -25,20 +26,30 @@ export class VertexAIProvider {
     }
 
     const projectId = credentials?.project_id || process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_PROJECT_ID || "marketing-ai-saas";
-    const location = process.env.GOOGLE_CLOUD_LOCATION || "global";
+    const textLocation = process.env.GOOGLE_CLOUD_LOCATION || "global";
+    const mediaLocation = process.env.GOOGLE_CLOUD_MEDIA_LOCATION || "us-central1"; // Vertex AI Imagen & Veo require regional endpoint (us-central1)
     const googleAuthOptions = credentials ? { credentials } : undefined;
 
     console.log("[Vertex AI Provider Init]", {
       hasCredentials: !!credentials,
       projectId,
-      location,
+      textLocation,
+      mediaLocation,
     });
 
-    // Initialize @google/genai SDK strictly in Vertex AI mode
+    // Initialize @google/genai SDK for text/grounding in textLocation
     this.ai = new GoogleGenAI({
       vertexai: true,
       project: projectId,
-      location: location,
+      location: textLocation,
+      googleAuthOptions,
+    });
+
+    // Initialize @google/genai SDK for media (Imagen & Veo) strictly in us-central1 region
+    this.mediaAi = new GoogleGenAI({
+      vertexai: true,
+      project: projectId,
+      location: mediaLocation,
       googleAuthOptions,
     });
   }

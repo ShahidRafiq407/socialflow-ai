@@ -252,7 +252,7 @@ async function generateRealImage(options: {
 
   for (const mName of uniqueModels) {
     try {
-      const ai = (vertexProvider as any).ai;
+      const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
       if (!ai?.models?.generateImages && !ai?.models?.generateContent) {
         throw new VisualizerError("VISUALIZER_PROVIDER_ERROR", "Google GenAI SDK models interface is not available.");
       }
@@ -326,7 +326,7 @@ async function generateRealVideo(options: {
 
   for (const mName of uniqueModels) {
     try {
-      const ai = (vertexProvider as any).ai;
+      const ai = (vertexProvider as any).mediaAi || (vertexProvider as any).ai;
       console.log(`[Visualizer] Calling Veo Video Generation (Model: ${mName})...`);
 
       if (typeof ai?.models?.generateVideos === "function") {
