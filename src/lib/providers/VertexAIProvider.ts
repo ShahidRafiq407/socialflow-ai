@@ -55,10 +55,18 @@ export class VertexAIProvider {
   }
 
   /**
-   * Get target model for Vertex AI generation (strictly uses model configured in llm.ts)
+   * Get target model for Vertex AI generation with fallbacks from available GCP project models
    */
   private getFallbackModels(primaryModel: string): string[] {
-    return [primaryModel].filter(Boolean);
+    const candidateList = [
+      primaryModel,
+      "gemini-3.1-pro-preview",
+      "gemini-2.5-pro",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-2.5-flash",
+    ];
+    return [...new Set(candidateList.filter(Boolean))];
   }
 
   /**

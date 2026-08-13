@@ -5,18 +5,18 @@ import { VertexAIProvider } from "../providers/VertexAIProvider";
 export const MODELS = {
   BRAND_ANALYST: "none", // Database processing
 
-  // Premium frontier intelligence text infrastructure
+  // Premium frontier intelligence text infrastructure from your exact GCP project models list
   TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
   COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
-  CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
-  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro", // Google's flagship Pro reasoning model for CEO Auditor
-  ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
+  CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
+  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro-preview", // Exact model string from your Google Usage Dashboard
+  ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
   VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "imagen-3.0-generate-002",
   VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-generate-001",
 
-  SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro",
+  SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro-preview",
 };
 
 let currentWorkingModel = MODELS.CONTENT_CREATOR;
