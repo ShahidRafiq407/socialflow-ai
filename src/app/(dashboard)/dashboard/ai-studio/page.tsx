@@ -4,13 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import Link from "next/link";
 import { create } from "zustand";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
-import InstagramPreview from "@/components/previews/InstagramPreview";
-import LinkedInPreview from "@/components/previews/LinkedInPreview";
-import XPreview from "@/components/previews/XPreview";
-import TikTokPreview from "@/components/previews/TikTokPreview";
-import YoutubePreview from "@/components/previews/YoutubePreview";
-import FacebookPreview from "@/components/previews/FacebookPreview";
-import PinterestPreview from "@/components/previews/PinterestPreview";
+import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
 import MultiAgentStreamModal from "@/components/ai-studio/MultiAgentStreamModal";
@@ -2143,32 +2137,20 @@ export default function AIStudioPage() {
                             </p>
                           </div>
                         ) : (
-                          (() => {
-                            const activeIntegration = integrationsList.find(i => i.platformKey === activePlatformTab);
-                            const isConnected = activeIntegration?.isConnected || false;
-                            const activeName = activeIntegration?.pageName || activeIntegration?.handle?.replace(/^@/, '') || "";
-                            const activeHandle = activeIntegration?.handle || "";
-                            const activeImage = activeIntegration?.avatarUrl || null;
-
-                            switch (activePlatformTab) {
-                              case "instagram":
-                                return <InstagramPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} displayImageUrls={displayImageUrls} displayOverlayTexts={displayOverlayTexts} activeSlideIdx={activeSlideIdx} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "linkedin":
-                                return <LinkedInPreview currentFormatName={currentFormatName} displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "x":
-                                return <XPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "tiktok":
-                                return <TikTokPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} userHandle={activeHandle} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "youtube":
-                                return <YoutubePreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "facebook":
-                                return <FacebookPreview displayImageUrl={displayImageUrl} userName={activeName} userImage={activeImage} currentCaption={currentCaption} isVertical={isVertical} isLoading={loadingConnections} isConnected={isConnected} />;
-                              case "pinterest":
-                                return <PinterestPreview currentFormatName={currentFormatName} isHtmlSlideFormat={isHtmlSlideFormat} isCurrentSlideLoading={isCurrentSlideLoading} currentHtmlSlide={currentHtmlSlide} displayImageUrl={displayImageUrl} campaignTopic={campaignTopic} userName={activeName} userImage={activeImage} isLoading={loadingConnections} isConnected={isConnected} />;
-                              default:
-                                return null;
-                            }
-                          })()
+                          <PlatformPreviewWrapper
+                            platformKey={activePlatformTab}
+                            currentFormatName={currentFormatName}
+                            displayImageUrl={displayImageUrl}
+                            displayImageUrls={displayImageUrls}
+                            displayOverlayTexts={displayOverlayTexts}
+                            activeSlideIdx={activeSlideIdx}
+                            currentCaption={currentCaption}
+                            isVertical={isVertical}
+                            isHtmlSlideFormat={isHtmlSlideFormat}
+                            isCurrentSlideLoading={isCurrentSlideLoading}
+                            currentHtmlSlide={currentHtmlSlide}
+                            campaignTopic={campaignTopic}
+                          />
                         )}
                       </div>
                     </div>
@@ -2545,29 +2527,17 @@ export default function AIStudioPage() {
               Live Mockup Preview ({getPlatformDef(manualPost.platform).label})
             </h3>
             <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-4 w-full flex items-center justify-center min-h-[400px]">
-              {(() => {
-                const manualIntegration = integrationsList.find(i => i.platformKey === manualPost.platform);
-                const isConnected = manualIntegration?.isConnected || false;
-                const mName = manualIntegration?.pageName || manualIntegration?.handle?.replace(/^@/, '') || "";
-                const mHandle = manualIntegration?.handle || "";
-                const mImage = manualIntegration?.avatarUrl || null;
-
-                if (manualPost.platform === "instagram") {
-                  return <InstagramPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} displayImageUrls={manualMedia?.url ? [manualMedia.url] : []} displayOverlayTexts={[]} activeSlideIdx={0} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else if (manualPost.platform === "linkedin") {
-                  return <LinkedInPreview currentFormatName={manualPost.format} displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else if (manualPost.platform === "x") {
-                  return <XPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else if (manualPost.platform === "tiktok") {
-                  return <TikTokPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} userHandle={mHandle} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else if (manualPost.platform === "youtube") {
-                  return <YoutubePreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else if (manualPost.platform === "facebook") {
-                  return <FacebookPreview displayImageUrl={manualMedia?.url || null} userName={mName} userImage={mImage} currentCaption={manualPost.caption} isVertical={false} isLoading={loadingConnections} isConnected={isConnected} />;
-                } else {
-                  return <PinterestPreview currentFormatName={manualPost.format} isHtmlSlideFormat={false} isCurrentSlideLoading={false} currentHtmlSlide="" displayImageUrl={manualMedia?.url || null} campaignTopic="Manual Post" userName={mName} userImage={mImage} isLoading={loadingConnections} isConnected={isConnected} />;
-                }
-              })()}
+              <PlatformPreviewWrapper
+                platformKey={manualPost.platform}
+                currentFormatName={manualPost.format}
+                displayImageUrl={manualMedia?.url || null}
+                displayImageUrls={manualMedia?.url ? [manualMedia.url] : []}
+                displayOverlayTexts={[]}
+                activeSlideIdx={0}
+                currentCaption={manualPost.caption}
+                isVertical={false}
+                campaignTopic="Manual Post"
+              />
             </div>
           </Card>
         </div>
