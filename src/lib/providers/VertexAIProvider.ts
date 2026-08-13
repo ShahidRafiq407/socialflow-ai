@@ -51,6 +51,8 @@ export class VertexAIProvider {
 
     if (primaryModel.includes("3.1") || primaryModel.includes("pro")) {
       models.push("gemini-3.1-pro", "gemini-3.1-pro-preview", "gemini-1.5-pro", "gemini-2.0-flash");
+    } else if (primaryModel.includes("3.6") || primaryModel.includes("3.5")) {
+      models.push("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash");
     } else {
       models.push("gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite");
     }

@@ -1,13 +1,15 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 
-// Official Google Vertex AI Gemini model names
+// Recommended per-agent Google Vertex AI model mapping
 export const MODELS = {
-  TREND_RESEARCHER: "gemini-2.0-flash",
-  COMPETITOR_ANALYST: "gemini-2.0-flash",
+  BRAND_ANALYST: "none", // DB read, no LLM required
+  TREND_RESEARCHER: "gemini-3.6-flash",
+  COMPETITOR_ANALYST: "gemini-3.5-flash-lite",
   CONTENT_CREATOR: "gemini-3.1-pro",
   CEO_SUPERVISOR: "gemini-3.1-pro",
   ARTICLE_GENERATOR: "gemini-3.1-pro",
-  VISUALIZER: "gemini-2.0-flash",
+  VISUALIZER: "gemini-3.1-flash-image",
+  SLIDE_REGENERATOR: "gemini-3.5-flash-lite",
   VIDEO: "veo-2.0-flash",
 };
 
