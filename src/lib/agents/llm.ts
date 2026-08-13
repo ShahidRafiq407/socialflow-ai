@@ -9,7 +9,7 @@ export const MODELS = {
   CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro",
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro",
   VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3.1-flash-image",
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-lite-generate-preview",
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-fast-generate-001",
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
 };
 

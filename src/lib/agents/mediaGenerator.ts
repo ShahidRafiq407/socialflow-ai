@@ -315,10 +315,10 @@ async function generateRealVideo(options: {
 
   const candidateModels = [
     model,
-    "veo-3.1-lite-generate-preview",
+    "veo-3.1-fast-generate-001",
+    "veo-3.1-lite-generate-001",
     "veo-3.1-generate-preview",
     "veo-2.0-generate-001",
-    "veo-2.0-flash",
   ];
   const uniqueModels = [...new Set(candidateModels.filter(Boolean))];
 
