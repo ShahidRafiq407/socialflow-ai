@@ -231,7 +231,7 @@ export default function MultiAgentStreamModal({
       if (data?.message) setErrorMessage(data.message);
     } else if (type === "workflow_completed") {
       if (timerRef.current) clearInterval(timerRef.current);
-      const payload = data?.campaign || data?.resultState?.generatedContent;
+      const payload = data?.campaign || data?.resultState?.generatedContent || data;
       if (payload) {
         setCompletedPayload(payload);
       }
@@ -272,8 +272,9 @@ export default function MultiAgentStreamModal({
   };
 
   const handleApplyToEditors = () => {
-    if (completedPayload) {
-      onCompletePayload(completedPayload);
+    const payload = completedPayload || agentOutputs?.content_creator;
+    if (payload) {
+      onCompletePayload(payload);
     }
     onClose();
   };

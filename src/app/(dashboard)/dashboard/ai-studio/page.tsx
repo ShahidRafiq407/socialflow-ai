@@ -116,7 +116,13 @@ export type PostMediaType = "image" | "video" | "carousel" | "none";
 export const isVideoUrl = (url: string | null) => {
   if (!url) return false;
   const lowerUrl = url.toLowerCase();
-  return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+  return (
+    lowerUrl.endsWith('.mp4') ||
+    lowerUrl.endsWith('.webm') ||
+    lowerUrl.includes('.mp4?') ||
+    lowerUrl.includes('pixabay.com/video/') ||
+    lowerUrl.startsWith('data:video/')
+  );
 };
 
 export interface Post {
@@ -551,42 +557,85 @@ export default function AIStudioPage() {
 
   const handleMultiAgentPayload = (campaignPayload: any) => {
     if (!campaignPayload || !campaignPayload.platforms) return;
-    
-    const firstPlatform = selectedPlatforms[0] || Object.keys(campaignPayload.platforms)[0];
 
-    setGeneratedContents(prev => {
+    setGeneratedContents((prev) => {
       const updated = { ...prev };
-      for (const [plt, formats] of Object.entries(campaignPayload.platforms as Record<string, Record<string, any>>)) {
+      for (const [plt, formats] of Object.entries(
+        campaignPayload.platforms as Record<string, Record<string, any>>
+      )) {
         const normalizedPlt = plt.toLowerCase();
         updated[normalizedPlt] = updated[normalizedPlt] || {};
-        for (const [fmt, content] of Object.entries(formats)) {
+
+        const pltDef = PLATFORMS.find((p) => p.id.toLowerCase() === normalizedPlt);
+        const validFmts = pltDef?.contentTypes || [];
+
+        for (const [fmt, rawContent] of Object.entries(formats)) {
+          const content = rawContent || {};
           const caption = content.caption || "";
-          const hashtags = Array.isArray(content.hashtags) 
-            ? content.hashtags.map((h: string) => h.startsWith("#") ? h : `#${h}`) 
+          const hashtags = Array.isArray(content.hashtags)
+            ? content.hashtags.map((h: string) => (h.startsWith("#") ? h : `#${h}`))
             : [];
-          const visualPrompts = Array.isArray(content.visualPrompts) && content.visualPrompts.length > 0 
-            ? content.visualPrompts 
-            : (content.imagePrompt ? [content.imagePrompt] : []);
-          
-          updated[normalizedPlt][fmt] = {
+          const visualPrompts =
+            Array.isArray(content.visualPrompts) && content.visualPrompts.length > 0
+              ? content.visualPrompts
+              : content.imagePrompt || content.visualPrompt
+              ? [content.imagePrompt || content.visualPrompt]
+              : [];
+
+          const imageUrl = content.imageUrl || null;
+          const videoUrl = content.videoUrl || null;
+          const slideUrls = Array.isArray(content.slideUrls)
+            ? content.slideUrls
+            : imageUrl
+            ? [imageUrl]
+            : [];
+
+          const formatData: GeneratedFormat = {
             caption,
             imagePrompt: content.imagePrompt || content.visualPrompt || "",
             hashtags,
             visualPrompts,
             bestTime: content.bestTime || "Best engagement window",
             overlayText: Array.isArray(content.overlayText) ? content.overlayText : [],
+            imageUrl,
+            videoUrl,
+            imageUrls: slideUrls,
           };
+
+          // Store under raw format key
+          updated[normalizedPlt][fmt] = formatData;
+          // Store under lowercase format key
+          updated[normalizedPlt][fmt.toLowerCase()] = formatData;
+
+          // Also match TitleCase from platform content types (e.g. "reel" -> "Reel", "feed" -> "Feed")
+          const matchedTitleCase = validFmts.find(
+            (vf) => vf.toLowerCase() === fmt.toLowerCase()
+          );
+          if (matchedTitleCase) {
+            updated[normalizedPlt][matchedTitleCase] = formatData;
+          }
         }
       }
       return updated;
     });
 
+    const firstPlatform = selectedPlatforms[0] || Object.keys(campaignPayload.platforms)[0];
     if (firstPlatform) {
       const normFirst = firstPlatform.toLowerCase();
       setActivePlatformTab(normFirst);
-      const availableFmts = Object.keys(campaignPayload.platforms[firstPlatform] || campaignPayload.platforms[normFirst] || {});
+      const pltDef = PLATFORMS.find((p) => p.id.toLowerCase() === normFirst);
+      const availableFmts = Object.keys(
+        campaignPayload.platforms[firstPlatform] ||
+          campaignPayload.platforms[normFirst] ||
+          {}
+      );
       if (availableFmts.length > 0) {
-        setActiveFormatTab(prev => ({ ...prev, [normFirst]: availableFmts[0] }));
+        const rawFmt = availableFmts[0];
+        const matchedTitleCase =
+          (pltDef?.contentTypes || []).find(
+            (vf) => vf.toLowerCase() === rawFmt.toLowerCase()
+          ) || rawFmt;
+        setActiveFormatTab((prev) => ({ ...prev, [normFirst]: matchedTitleCase }));
       }
     }
 
@@ -758,7 +807,10 @@ export default function AIStudioPage() {
     currentFormatName = validSelectedFormats[0] || platformDef?.contentTypes[0] || "Feed";
   }
 
-  const currentGenerated = generatedContents[activePlatformTab]?.[currentFormatName];
+  const currentGenerated =
+    generatedContents[activePlatformTab]?.[currentFormatName] ||
+    generatedContents[activePlatformTab]?.[currentFormatName.toLowerCase()] ||
+    Object.values(generatedContents[activePlatformTab] || {})[0];
   const currentCaption = currentGenerated?.caption || "";
   const [currentFirstComment, setCurrentFirstComment] = useState("");
   const currentVisualPrompts = currentGenerated?.visualPrompts || [];
