@@ -1902,15 +1902,22 @@ export default function AIStudioPage() {
                   <div className="p-3">
                     <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex flex-col items-center justify-center min-h-[160px]">
                       {displayImageUrl ? (
-                        <div className="relative group max-h-[220px] w-full overflow-hidden rounded-lg">
+                        <div className={`relative group overflow-hidden rounded-lg mx-auto ${
+                          isVertical
+                            ? "w-full max-w-[220px] aspect-[9/16] max-h-[380px]"
+                            : isSquare
+                            ? "w-full max-w-[280px] aspect-square"
+                            : "w-full max-h-[240px] aspect-[16/9]"
+                        }`}>
                           {isVideoUrl(displayImageUrl) ? (
                             <VideoPreviewPlayer
                               src={displayImageUrl}
-                              className="max-h-[220px] w-full rounded-lg shadow-sm"
+                              className="w-full h-full rounded-lg shadow-sm"
+                              isVertical={isVertical}
                               showAlwaysPlayButton={true}
                             />
                           ) : (
-                            <img src={displayImageUrl} alt="Preview" className="max-h-[220px] w-full object-cover rounded-lg shadow-sm" />
+                            <img src={displayImageUrl} alt="Preview" className="w-full h-full object-cover rounded-lg shadow-sm" />
                           )}
                           <button
                             type="button"

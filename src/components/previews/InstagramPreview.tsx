@@ -31,7 +31,13 @@ export default function InstagramPreview({
   const isVideoUrl = (url: string | null) => {
     if (!url) return false;
     const lowerUrl = url.toLowerCase();
-    return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+    return (
+      lowerUrl.endsWith('.mp4') ||
+      lowerUrl.endsWith('.webm') ||
+      lowerUrl.includes('.mp4?') ||
+      lowerUrl.includes('pixabay.com/video/') ||
+      lowerUrl.startsWith('data:video/')
+    );
   };
 
   const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_instagram";

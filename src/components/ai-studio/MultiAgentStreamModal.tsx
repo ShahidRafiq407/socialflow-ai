@@ -498,36 +498,63 @@ export default function MultiAgentStreamModal({
                       </div>
                     )}
 
-                    {selectedAgentId === "visualizer" && activeAgentOutput?.generatedAssets && (
-                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Generated Media Assets</h5>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {activeAgentOutput.generatedAssets.map((asset: any, aIdx: number) => (
-                            <div key={aIdx} className="bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32] flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {asset.type === "video" ? (
-                                  <Film className="w-4 h-4 text-[#8B5CF6]" />
-                                ) : (
-                                  <ImageIcon className="w-4 h-4 text-[#22C55E]" />
-                                )}
-                                <div>
-                                  <p className="text-white font-medium capitalize">{asset.platform} — {asset.contentType} ({asset.type.toUpperCase()})</p>
-                                  <p className="text-[10px] text-[#6B7280]">Aspect Ratio: {asset.aspectRatio}</p>
+                      {selectedAgentId === "visualizer" && activeAgentOutput?.generatedAssets && (
+                        <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                          <h5 className="font-semibold text-[#9CA3AF] uppercase">Generated Media Assets</h5>
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {activeAgentOutput.generatedAssets.map((asset: any, aIdx: number) => (
+                              <div key={aIdx} className="bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32] flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  {asset.type === "video" ? (
+                                    <Film className="w-4 h-4 text-[#8B5CF6]" />
+                                  ) : (
+                                    <ImageIcon className="w-4 h-4 text-[#22C55E]" />
+                                  )}
+                                  <div>
+                                    <p className="text-white font-medium capitalize">{asset.platform} — {asset.contentType} ({asset.type.toUpperCase()})</p>
+                                    <p className="text-[10px] text-[#6B7280]">Aspect Ratio: {asset.aspectRatio}</p>
+                                  </div>
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (asset.url.startsWith("http://") || asset.url.startsWith("https://")) {
+                                      window.open(asset.url, "_blank");
+                                      return;
+                                    }
+                                    if (asset.url.startsWith("data:")) {
+                                      try {
+                                        const parts = asset.url.split(",");
+                                        const mimeMatch = parts[0].match(/:(.*?);/);
+                                        const mimeType = mimeMatch ? mimeMatch[1] : asset.type === "video" ? "video/mp4" : "image/png";
+                                        const byteCharacters = atob(parts[1]);
+                                        const byteArrays = [];
+                                        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+                                          const slice = byteCharacters.slice(offset, offset + 512);
+                                          const byteNumbers = new Array(slice.length);
+                                          for (let i = 0; i < slice.length; i++) {
+                                            byteNumbers[i] = slice.charCodeAt(i);
+                                          }
+                                          byteArrays.push(new Uint8Array(byteNumbers));
+                                        }
+                                        const blob = new Blob(byteArrays, { type: mimeType });
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        window.open(blobUrl, "_blank");
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+                                      } catch (e) {
+                                        window.open(asset.url, "_blank");
+                                      }
+                                    }
+                                  }}
+                                  className="text-[#8B5CF6] hover:text-[#A78BFA] hover:underline flex items-center gap-1 text-[11px] font-semibold bg-transparent border-0 cursor-pointer p-0"
+                                >
+                                  View <ExternalLink className="w-3 h-3" />
+                                </button>
                               </div>
-                              <a
-                                href={asset.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[#8B5CF6] hover:underline flex items-center gap-1 text-[11px] font-semibold"
-                              >
-                                View <ExternalLink className="w-3 h-3" />
-                              </a>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {selectedAgentId === "ceo_auditor" && activeAgentOutput && (
                       <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
