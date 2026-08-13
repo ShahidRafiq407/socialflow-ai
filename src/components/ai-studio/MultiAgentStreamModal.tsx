@@ -106,55 +106,7 @@ const AGENT_DEFS: Omit<AgentStep, "status">[] = [
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/* ─── Mock Search Results for Grounding Trace (Matching Image 2 UI) ─── */
-const GROUNDED_SEARCH_RESULTS = [
-  {
-    title: "Vertex AI release notes | Generative AI on Vertex AI | Google Cloud Documentation",
-    domain: "docs.cloud.google.com",
-    url: "https://docs.cloud.google.com/vertex-ai/docs/release-notes",
-  },
-  {
-    title: "Vertex AI Model Garden Gemini Enterprise Agent Platform | Google Cloud",
-    domain: "cloud.google.com",
-    url: "https://cloud.google.com/vertex-ai/docs/generative-ai/model-garden/overview",
-  },
-  {
-    title: "Model Garden on Gemini Enterprise Agent Platform | Google Cloud",
-    domain: "cloud.google.com",
-    url: "https://cloud.google.com",
-  },
-  {
-    title: "Gemini Enterprise Agent Platform (formerly Vertex AI) | Google Cloud",
-    domain: "cloud.google.com",
-    url: "https://cloud.google.com",
-  },
-  {
-    title: "Google LLC (Vertex AI) gemini-3.5-flash-lite API Pricing & Cost: Context Window",
-    domain: "www.requesty.ai",
-    url: "https://www.requesty.ai",
-  },
-  {
-    title: "Top AI SaaS Marketing Trends & Strategy 2026",
-    domain: "techcrunch.com",
-    url: "https://techcrunch.com",
-  },
-  {
-    title: "Viral Social Media Content Benchmark & Performance Report",
-    domain: "hubspot.com",
-    url: "https://hubspot.com",
-  },
-  {
-    title: "SMB Robotics Automated Content Architecture",
-    domain: "smbrobotic.com",
-    url: "https://smbrobotic.com",
-  },
-  {
-    title: "Vertex AI Model Garden API Grounding Documentation",
-    domain: "google.dev",
-    url: "https://google.dev",
-  },
-];
-
+/* ─── Removed hardcoded mock results ─── */
 export default function MultiAgentStreamModal({
   isOpen,
   onClose,
@@ -469,20 +421,20 @@ export default function MultiAgentStreamModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-5xl w-full flex flex-col overflow-hidden my-2 max-h-[92vh] text-slate-900 dark:text-slate-100 font-sans">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full flex flex-col overflow-hidden my-2 max-h-[92vh] text-slate-900 dark:text-slate-100 font-sans">
         
         {/* ═══════════════ HEADER ═══════════════ */}
         <div className="p-4 px-6 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0 border border-primary/20">
-              <Bot className="h-5 w-5" />
+              <Sparkles className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                Autonomous AI Studio
+                AI Campaign Generation
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Executing 6 specialized AI agents for {platforms.length} platform(s)
+                Live multi-agent strategy
               </p>
             </div>
           </div>
@@ -494,190 +446,108 @@ export default function MultiAgentStreamModal({
           </button>
         </div>
 
-        {/* ═══════════════ PROGRESS BAR ═══════════════ */}
-        <div className="w-full bg-slate-100 dark:bg-slate-950 h-2 overflow-hidden border-b border-slate-200 dark:border-slate-800">
-          <div
-            className="bg-primary h-full transition-all duration-500 ease-out"
-            style={{ width: `${progressPercentage}%` }}
-          />
-        </div>
-
-        {/* ═══════════════ ACTION BANNER ═══════════════ */}
-        <div className="bg-slate-100/80 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs font-medium shrink-0">
-          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200 truncate">
-            {isRunning && !isFullyComplete && <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />}
-            {isFullyComplete && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
-            {!isRunning && errorMsg && <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />}
-            <span className="truncate">
-              {isFullyComplete ? "Campaign Generated Successfully! Content Ready." : actionBanner}
-            </span>
-          </div>
-          <span className="text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-full ml-3 shrink-0">
-            {progressPercentage}%
-          </span>
-        </div>
-
-        {/* ═══════════════ MAIN BODY: AGENT LIST + IMAGE 2 CLAUDE-STYLE THREAD TRACE ═══════════════ */}
-        <div className="flex-1 flex overflow-hidden min-h-[380px]">
+        {/* ═══════════════ MAIN BODY: CHAT LIKE INTERFACE ═══════════════ */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-white dark:bg-slate-950 min-h-[400px]" ref={terminalLogRef}>
           
-          {/* ────── LEFT SIDEBAR: AGENT STEPS ────── */}
-          <div className="w-full md:w-[38%] border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 overflow-y-auto p-4 space-y-2 shrink-0">
-            <div className="px-1 mb-2 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Agent Network ({completedCount}/6 Complete)
-            </div>
-
-            {steps.map((st) => {
-              const IconComp = st.icon;
-              const isSelected = selectedAgentId === st.id;
-              const isDone = st.status === "completed" || (isFullyComplete && st.id === "supervisor");
-              const isCurrentRunning = st.status === "running" && !isFullyComplete;
-
-              return (
-                <div
-                  key={st.id}
-                  onClick={() => setSelectedAgentId(st.id)}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
-                    isSelected
-                      ? "bg-white dark:bg-slate-800 border-primary shadow-sm ring-1 ring-primary/20"
-                      : isCurrentRunning
-                      ? "bg-white dark:bg-slate-800/80 border-primary/60 animate-pulse"
-                      : isDone
-                      ? "bg-white/60 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300"
-                      : "bg-slate-100/50 dark:bg-slate-950/40 border-slate-200/60 dark:border-slate-900 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0 ${
-                          isDone
-                            ? "bg-emerald-500 shadow-sm"
-                            : isCurrentRunning
-                            ? "bg-primary shadow-sm"
-                            : "bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
-                        }`}
-                      >
-                        {isDone ? (
-                          <CheckCircle2 className="h-4 w-4 text-white" />
-                        ) : isCurrentRunning ? (
-                          <Loader2 className="h-4 w-4 text-white animate-spin" />
-                        ) : (
-                          <IconComp className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">{st.name}</h3>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{st.role}</p>
-                      </div>
-                    </div>
-                  </div>
+          {/* USER MESSAGE BUBBLE */}
+          <div className="flex justify-end">
+            <div className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-5 py-4 rounded-2xl rounded-tr-sm max-w-[85%] text-sm shadow-sm border border-slate-200/60 dark:border-slate-700/50">
+              Please generate an autonomous marketing campaign for the following platforms: <span className="font-semibold">{platforms.join(", ")}</span>.
+              {Object.keys(contentTypes).length > 0 && (
+                <div className="mt-3 space-y-1">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">Requested Formats:</div>
+                  <ul className="text-xs list-disc pl-4 space-y-1 text-slate-700 dark:text-slate-300">
+                    {Object.entries(contentTypes).map(([p, types]) => (
+                      <li key={p}>
+                        <span className="font-medium">{p}:</span> {types.join(", ")}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
 
-          {/* ────── RIGHT: EXACT IMAGE 2 CLAUDE-STYLE THREAD TRACE ────── */}
-          <div className="hidden md:flex flex-1 flex-col bg-white dark:bg-slate-900 overflow-y-auto p-6 space-y-4 text-xs font-sans">
-            
-            {/* Top Prompt / Requirement Description (Matching Image 2 top bar) */}
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">
-                Let me analyze {selectedAgent?.name || "Agent"} requirements and evaluate execution trace.
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Analyzed project requirements and evaluated model options
-              </p>
+          {/* AI RESPONSE BUBBLE */}
+          <div className="flex gap-4 max-w-[95%]">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20 mt-1 shadow-sm">
+              <Bot className="h-6 w-6" />
             </div>
+            <div className="flex-1 space-y-4">
+               {/* Intro text */}
+               <div className="text-sm text-slate-800 dark:text-slate-200">
+                 I'll organize our AI agents to build this campaign for you. Here is the live execution trace:
+               </div>
 
-            {/* VERTICAL THREAD LINE & TRACE STEPS (EXACT IMAGE 2 DESIGN) */}
-            <div className="relative pl-6 border-l-2 border-slate-200 dark:border-slate-800 space-y-5 my-2">
-              
-              {/* Step 1: Initial Requirement Check */}
-              <div className="relative">
-                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 text-[10px]">
-                  <TerminalIcon className="h-3 w-3" />
-                </div>
-                <div className="flex items-center justify-between font-medium text-slate-700 dark:text-slate-300">
-                  <span>Check {selectedAgent?.id || "agent"} parameters and model usage</span>
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                    Complete
-                  </span>
-                </div>
-              </div>
+               {/* CLAUDE-STYLE THINKING/TRACE */}
+               <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-6">
+                 {steps.map((st, idx) => {
+                   if (st.status === "waiting" && activeStepIdx < idx) return null; // Only show started or completed agents
+                   
+                   const isRunning = st.status === "running";
+                   const isDone = st.status === "completed";
+                   
+                   return (
+                     <div key={st.id} className="relative pl-6 border-l-2 border-slate-200 dark:border-slate-800">
+                       <div className={`absolute -left-[11px] top-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center bg-white dark:bg-slate-950 ${isDone ? 'border-emerald-500 text-emerald-500' : 'border-primary text-primary'}`}>
+                         {isDone ? (
+                           <CheckCircle2 className="h-3 w-3" />
+                         ) : (
+                           <Loader2 className="h-3 w-3 animate-spin" />
+                         )}
+                       </div>
+                       
+                       <div className="font-semibold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                         {st.name} 
+                         <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                           {isRunning ? "is working..." : "completed task."}
+                         </span>
+                       </div>
+                       <div className="text-xs text-slate-500 mt-1">{st.role}</div>
 
-              {/* Step 2: Live Grounded Search Trace (EXACT IMAGE 2 UI CARDS) */}
-              <div className="relative space-y-2">
-                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-800 flex items-center justify-center text-blue-600 text-[10px]">
-                  <Globe className="h-3 w-3" />
-                </div>
+                       {/* LIVE LOGS FOR THIS AGENT */}
+                       <div className="mt-3 space-y-2">
+                         {logs.filter(l => l.agentId === st.id).map((log, lIdx) => (
+                           <div key={lIdx} className="flex gap-3 text-xs">
+                             <div className="w-16 text-slate-400 font-mono shrink-0">{log.timestamp}</div>
+                             <div className="flex-1">
+                               <div className={`${log.type === 'error' ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                                 {log.message}
+                               </div>
+                               {log.type === "call" && log.payload && (
+                                 <div className="mt-2 p-3 bg-slate-100 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 overflow-x-auto font-mono text-[10px] text-slate-600 dark:text-slate-400 shadow-inner max-h-32">
+                                   {JSON.stringify(log.payload, null, 2)}
+                                 </div>
+                               )}
+                             </div>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 })}
 
-                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
-                  <span className="flex items-center gap-1.5">
-                    <Globe className="h-3.5 w-3.5 text-blue-500" />
-                    Vertex AI Model Garden & Live Grounded Search List
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">9 results</span>
-                </div>
-
-                {/* EXPANDED GROUNDING RESULTS BOX (IMAGE 2 UI MATCH) */}
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/80 p-2 max-h-[220px] overflow-y-auto space-y-1.5 scrollbar-thin">
-                  {GROUNDED_SEARCH_RESULTS.map((item, idx) => (
-                    <a
-                      key={idx}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800/80 transition-colors group text-xs"
-                    >
-                      <div className="flex items-center gap-2 min-w-0 pr-2">
-                        <div className="h-5 w-5 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-blue-600 shrink-0">
-                          G
-                        </div>
-                        <span className="text-slate-800 dark:text-slate-200 group-hover:text-blue-600 truncate font-medium">
-                          {item.title}
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-slate-400 font-mono shrink-0">
-                        {item.domain}
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-
-              {/* Step 3: Second Grounding Query */}
-              <div className="relative space-y-2">
-                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-800 flex items-center justify-center text-blue-600 text-[10px]">
-                  <Globe className="h-3 w-3" />
-                </div>
-                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
-                  <span className="flex items-center gap-1.5">
-                    <Globe className="h-3.5 w-3.5 text-blue-500" />
-                    Gemini 3.1 Pro Gemini 3.6 Flash context window pricing Vertex AI
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">8 results</span>
-                </div>
-              </div>
-
-              {/* Step 4: Complete Trace */}
-              <div className="relative">
-                <div className="absolute -left-[31px] top-0.5 h-6 w-6 rounded-full bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 flex items-center justify-center text-emerald-600 text-[10px]">
-                  <CheckCircle2 className="h-3 w-3" />
-                </div>
-                <div className="flex items-center justify-between font-medium text-slate-800 dark:text-slate-200">
-                  <span>Synthesized strategy into structured campaign payload</span>
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                    Verified ✓
-                  </span>
-                </div>
-              </div>
-
+                 {/* FINAL STATUS */}
+                 {isFullyComplete && (
+                   <div className="relative pl-6 border-l-2 border-transparent">
+                     <div className="absolute -left-[11px] top-0.5 h-5 w-5 rounded-full border-2 border-emerald-500 bg-white dark:bg-slate-950 text-emerald-500 flex items-center justify-center">
+                       <Check className="h-3 w-3" />
+                     </div>
+                     <div className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                       Campaign Generation Complete
+                     </div>
+                     <div className="text-xs text-slate-500 mt-1">
+                       The multi-agent workflow has finalized the output. You can now add the content to your editor.
+                     </div>
+                   </div>
+                 )}
+               </div>
             </div>
           </div>
         </div>
 
-        {/* ═══════════════ FOOTER WITH PROMINENT "ADD ALL CONTENT TO EDITOR" BUTTON ═══════════════ */}
-        <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between shrink-0">
+        {/* ═══════════════ FOOTER ═══════════════ */}
+        <div className="p-4 px-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between shrink-0">
           <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-slate-900 dark:hover:text-white text-xs font-semibold">
             Cancel
           </Button>
@@ -685,20 +555,20 @@ export default function MultiAgentStreamModal({
           {isApplied ? (
             <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 px-6 py-2.5 rounded-xl animate-in zoom-in-95">
               <Check className="h-4 w-4" />
-              <span>All Campaign Content Added to Content Editor! Closing...</span>
+              <span>Content Added to Editor! Closing...</span>
             </div>
           ) : isFullyComplete ? (
             <Button
               onClick={handleApplyToEditors}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-7 py-3 rounded-xl shadow-lg shadow-emerald-500/20 gap-2 transition-all hover:scale-[1.02]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm px-6 py-2.5 rounded-xl shadow-lg transition-all hover:scale-[1.02] flex items-center gap-2"
             >
+              Add All Content to Editor
               <ArrowRight className="h-4 w-4" />
-              Add All Content to Content Editor
             </Button>
           ) : (
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span>AI Agents executing real-time strategy...</span>
+              <span>Agents are working...</span>
             </div>
           )}
         </div>
