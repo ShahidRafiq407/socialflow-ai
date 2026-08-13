@@ -120,7 +120,7 @@ const AGENT_DEFS: Omit<AgentStep, "status">[] = [
     id: "contentCreator",
     name: "Pro Copywriter",
     role: "Crafting High-Conversion Multi-Platform Copy",
-    model: "gemini-1.5-pro",
+    model: "gemini-3.1-pro",
     icon: PenTool,
     thinkingMessages: [], // Dynamic runtime population
   },
@@ -136,7 +136,7 @@ const AGENT_DEFS: Omit<AgentStep, "status">[] = [
     id: "supervisor",
     name: "CEO Auditor",
     role: "Final AI-Cliché Quality & Tone Certification",
-    model: "gemini-1.5-pro",
+    model: "gemini-3.1-pro",
     icon: Crown,
     thinkingMessages: [
       "Executing AI-cliché & banned word detection...",

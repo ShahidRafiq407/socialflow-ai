@@ -1,12 +1,12 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 
-// Use established GA model names for Google Gemini API and Vertex AI
+// Official Google Vertex AI Gemini model names
 export const MODELS = {
   TREND_RESEARCHER: "gemini-2.0-flash",
   COMPETITOR_ANALYST: "gemini-2.0-flash",
-  CONTENT_CREATOR: "gemini-1.5-pro",
-  CEO_SUPERVISOR: "gemini-1.5-pro",
-  ARTICLE_GENERATOR: "gemini-1.5-pro",
+  CONTENT_CREATOR: "gemini-3.1-pro",
+  CEO_SUPERVISOR: "gemini-3.1-pro",
+  ARTICLE_GENERATOR: "gemini-3.1-pro",
   VISUALIZER: "gemini-2.0-flash",
   VIDEO: "veo-2.0-flash",
 };
