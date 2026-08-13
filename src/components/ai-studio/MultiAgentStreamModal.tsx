@@ -22,17 +22,11 @@ import {
   Globe,
   Database,
   Cpu,
-  Play,
-  Pause,
-  RefreshCw,
-  FileText,
-  Link2,
   Search,
-  Target,
-  Lightbulb,
-  Video,
-  Clock,
-  Activity,
+  Brain,
+  Zap,
+  MessageSquare,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -42,48 +36,31 @@ interface MultiAgentStreamModalProps {
   platforms: string[];
   contentTypes: Record<string, string[]>;
   onCompletePayload: (payload: any) => void;
-  workspaceId?: string;
 }
 
 type StepStatus = "waiting" | "thinking" | "running" | "completed" | "error";
 type AgentActionType = "search" | "analyze" | "write" | "generate" | "review" | "info";
 
-interface AgentOutput {
-  brandDNA?: any;
-  trendData?: string;
-  trendSources?: any[];
-  competitorData?: string;
-  campaignPayload?: any;
-  nextWorker?: string;
-  ceoVerdict?: string;
-  [key: string]: any;
-}
-
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  agentId: string;
-  agentName: string;
-  type: "info" | "thought" | "call" | "output" | "error" | "search" | "source";
-  message: string;
-  payload?: any;
-  sources?: Array<{ url: string; title?: string }>;
-  searchQuery?: string;
+interface AgentAction {
+  type: AgentActionType;
+  label: string;
+  detail?: string;
+  url?: string;
+  timestamp: number;
 }
 
 interface AgentStep {
   id: string;
   name: string;
   role: string;
-  description: string;
   icon: any;
   model: string;
   status: StepStatus;
-  output?: AgentOutput;
+  actions: AgentAction[];
+  thoughts?: string[];
+  output?: any;
   latencyMs?: number;
   startTime?: number;
-  endTime?: number;
-  expanded?: boolean;
 }
 
 interface StreamEvent {
@@ -92,77 +69,40 @@ interface StreamEvent {
   data?: any;
 }
 
-/* ─── Agent Definitions ─────────────────────────────────────── */
-const AGENT_DEFS: Omit<AgentStep, "status">[] = [
-  {
-    id: "brandAnalyst",
-    name: "Brand Analyst",
-    role: "Extract Brand DNA",
-    description: "Analyzes workspace brand profile, target audience, tone, and unique differentiators from database.",
-    icon: Building2,
-  },
-  {
-    id: "trendResearcher",
-    name: "Trend Researcher",
-    role: "Live Web Research",
-    description: "Uses Google Search Grounding to find breaking news and viral trends from the last 24-48 hours.",
-    icon: TrendingUp,
-  },
-  {
-    id: "competitorAnalyst",
-    name: "Competitor Analyst",
-    role: "Market Gap Analysis",
-    description: "Identifies unique angles and differentiation strategies based on competitor weaknesses.",
-    icon: ShieldCheck,
-  },
-  {
-    id: "contentCreator",
-    name: "Pro Copywriter",
-    role: "Viral Content Creation",
-    description: "Crafts human-sounding, platform-optimized copy with pattern interrupts and emotional triggers.",
-    icon: PenTool,
-  },
-  {
-    id: "visualizerCreator",
-    name: "Visual Director",
-    role: "Visual Asset Generation",
-    description: "Generates vivid image prompts, slide overlays, and assigns HD stock media for visual formats.",
-    icon: ImageIcon,
-  },
-  {
-    id: "supervisor",
-    name: "CEO Auditor",
-    role: "Quality Certification",
-    description: "Final review for AI clichés, hook strength, tone authenticity, and professional quality.",
-    icon: Crown,
-  },
+const AGENT_CONFIGS: Omit<AgentStep, "status" | "actions" | "thoughts" | "output" | "latencyMs" | "startTime">[] = [
+  { id: "brandAnalyst", name: "Brand Analyst", role: "Extracting Workspace Brand DNA", icon: Building2, model: "DB/brand DNA, no LLM" },
+  { id: "trendResearcher", name: "Trend Researcher", role: "Live Google Search & Viral Trend Analysis", icon: TrendingUp, model: "Gemini Flash + Google Search Grounding" },
+  { id: "competitorAnalyst", name: "Competitor Analyst", role: "Market Gap Analysis", icon: ShieldCheck, model: "Gemini Flash-Lite" },
+  { id: "contentCreator", name: "Pro Copywriter", role: "Strategic Multi-Platform Content", icon: PenTool, model: "Gemini 3.1 Pro" },
+  { id: "visualizerCreator", name: "Visual Director", role: "AI Visual Generation", icon: ImageIcon, model: "Gemini 3 Pro Image / Veo 3.1 Lite" },
+  { id: "supervisor", name: "CEO Auditor", role: "Human-Quality Verification", icon: Crown, model: "Gemini 3.1 Pro" },
 ];
 
-const formatTime = (ms?: number) => {
-  if (!ms) return "--";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+const getAgentIcon = (type: AgentActionType) => {
+  switch (type) {
+    case "search": return Search;
+    case "analyze": return Brain;
+    case "write": return PenTool;
+    case "generate": return Zap;
+    case "review": return ShieldCheck;
+    default: return MessageSquare;
+  }
 };
 
-const formatTimestamp = () => {
-  return new Date().toLocaleTimeString("en-US", { 
-    hour12: false, 
-    hour: "2-digit", 
-    minute: "2-digit", 
-    second: "2-digit" 
-  });
+const getAgentColor = (type: AgentActionType) => {
+  switch (type) {
+    case "search": return "text-blue-500";
+    case "analyze": return "text-purple-500";
+    case "write": return "text-emerald-500";
+    case "generate": return "text-orange-500";
+    case "review": return "text-amber-500";
+    default: return "text-slate-500";
+  }
 };
-export default function MultiAgentStreamModal({
-  isOpen,
-  onClose,
-  platforms,
-  contentTypes,
-  onCompletePayload,
-}: MultiAgentStreamModalProps) {
-  // State
-  const [steps, setSteps] = useState<AgentStep[]>([]);
-  const [activeStepIdx, setActiveStepIdx] = useState(0);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>("trendResearcher");
+
+export default function MultiAgentStreamModal({ isOpen, onClose, platforms, contentTypes, onCompletePayload }: MultiAgentStreamModalProps) {
+  const [agents, setAgents] = useState<AgentStep[]>([]);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [completedPayload, setCompletedPayload] = useState<any>(null);

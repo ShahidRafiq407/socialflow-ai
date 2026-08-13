@@ -52,4 +52,4 @@ istanbul/
 *.tmp
 *.temp
 .DS_Store
-```
+```google-credentials.json
