@@ -17,13 +17,23 @@ import {
   AlertCircle,
   ArrowRight,
   ExternalLink,
-  Terminal as TerminalIcon,
   ChevronDown,
   ChevronRight,
   Copy,
   Globe,
   Database,
   Cpu,
+  Play,
+  Pause,
+  RefreshCw,
+  FileText,
+  Link2,
+  Search,
+  Target,
+  Lightbulb,
+  Video,
+  Clock,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -34,27 +44,46 @@ interface MultiAgentStreamModalProps {
   platforms: string[];
   contentTypes: Record<string, string[]>;
   onCompletePayload: (payload: any) => void;
+  workspaceId?: string;
 }
 
 type StepStatus = "waiting" | "running" | "completed" | "error";
 
+interface AgentOutput {
+  brandDNA?: any;
+  trendData?: string;
+  trendSources?: any[];
+  competitorData?: string;
+  campaignPayload?: any;
+  nextWorker?: string;
+  ceoVerdict?: string;
+  [key: string]: any;
+}
+
 interface LogEntry {
+  id: string;
   timestamp: string;
   agentId: string;
   agentName: string;
-  type: "info" | "thought" | "call" | "output" | "error";
+  type: "info" | "thought" | "call" | "output" | "error" | "search" | "source";
   message: string;
   payload?: any;
+  sources?: Array<{ url: string; title?: string }>;
+  searchQuery?: string;
 }
 
 interface AgentStep {
   id: string;
   name: string;
   role: string;
+  description: string;
   icon: any;
   status: StepStatus;
-  realData?: any;
+  output?: AgentOutput;
   latencyMs?: number;
+  startTime?: number;
+  endTime?: number;
+  expanded?: boolean;
 }
 
 interface QueuedEvent {
@@ -69,44 +98,61 @@ const AGENT_DEFS: Omit<AgentStep, "status">[] = [
   {
     id: "brandAnalyst",
     name: "Brand Analyst",
-    role: "Extracting Workspace Brand DNA & Target Audience Parameters",
+    role: "Extract Brand DNA",
+    description: "Analyzes workspace brand profile, target audience, tone, and unique differentiators from database.",
     icon: Building2,
   },
   {
     id: "trendResearcher",
     name: "Trend Researcher",
-    role: "Live Google Search Grounding & Viral Trend Intelligence",
+    role: "Live Web Research",
+    description: "Uses Google Search Grounding to find breaking news and viral trends from the last 24-48 hours.",
     icon: TrendingUp,
   },
   {
     id: "competitorAnalyst",
     name: "Competitor Analyst",
-    role: "Positioning Gap Analysis & Market Differentiation",
+    role: "Market Gap Analysis",
+    description: "Identifies unique angles and differentiation strategies based on competitor weaknesses.",
     icon: ShieldCheck,
   },
   {
     id: "contentCreator",
     name: "Pro Copywriter",
-    role: "Crafting High-Conversion Multi-Platform Copy",
+    role: "Viral Content Creation",
+    description: "Crafts human-sounding, platform-optimized copy with pattern interrupts and emotional triggers.",
     icon: PenTool,
   },
   {
     id: "visualizerCreator",
-    name: "Visualizer",
-    role: "Designing Visual Prompts & Platform Layouts",
+    name: "Visual Director",
+    role: "Visual Asset Generation",
+    description: "Generates vivid image prompts, slide overlays, and assigns HD stock media for visual formats.",
     icon: ImageIcon,
   },
   {
     id: "supervisor",
     name: "CEO Auditor",
-    role: "Final AI-Cliché Quality & Tone Certification",
+    role: "Quality Certification",
+    description: "Final review for AI clichés, hook strength, tone authenticity, and professional quality.",
     icon: Crown,
   },
 ];
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const formatTime = (ms?: number) => {
+  if (!ms) return "--";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+};
 
-/* ─── Removed hardcoded mock results ─── */
+const formatTimestamp = () => {
+  return new Date().toLocaleTimeString("en-US", { 
+    hour12: false, 
+    hour: "2-digit", 
+    minute: "2-digit", 
+    second: "2-digit" 
+  });
+};
 export default function MultiAgentStreamModal({
   isOpen,
   onClose,
