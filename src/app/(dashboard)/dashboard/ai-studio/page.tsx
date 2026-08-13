@@ -842,59 +842,15 @@ export default function AIStudioPage() {
   }, [activePlatformTab, currentFormatName]);
 
   const isMultiFormat = currentFormatName === "Carousel" || currentFormatName === "Idea Pin" || currentFormatName === "Story" || currentFormatName === "Thread";
-  const isHtmlSlideFormat = currentFormatName === "Carousel" || currentFormatName === "Idea Pin";
+  const isHtmlSlideFormat = false;
   const displayPrompts = isMultiFormat ? currentVisualPrompts : currentVisualPrompts.slice(0, 1);
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
   const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || campaignTopic || "modern digital marketing abstract";
   const aiGeneratedImageUrls = currentGenerated?.imageUrls && currentGenerated.imageUrls.length > 0 ? currentGenerated.imageUrls : null;
-  const displayImageUrls = aiGeneratedImageUrls || (isHtmlSlideFormat
-    ? (displayOverlayTexts.length > 0
-        ? displayOverlayTexts.map((_, i) => `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(displayPrompts[i] || singleImagePrompt)}&sig=${i}`)
-        : displayPrompts.map((p, i) => `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(p || singleImagePrompt)}&sig=${i}`))
-    : [`https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop&q=${encodeURIComponent(singleImagePrompt)}`]);
+  const displayImageUrls = aiGeneratedImageUrls || (displayPrompts.length > 0
+    ? displayPrompts.map((p, i) => getPollinationsAIUrl(p || singleImagePrompt, currentAspectRatio, i, currentFormatName))
+    : [getPollinationsAIUrl(singleImagePrompt, currentAspectRatio, 0, currentFormatName)]);
   const currentMediaType = getMediaType(currentFormatName);
-
-  const getHtmlSlideKey = (slideIdx: number) => `${activePlatformTab}-${currentFormatName}-${slideIdx}`;
-
-  const fetchHtmlSlide = async (slideIdx: number, customPrompt?: string) => {
-    const overlay = displayOverlayTexts[slideIdx];
-    if (!overlay && !customPrompt) return;
-    const key = getHtmlSlideKey(slideIdx);
-    setLoadingHtmlSlides(prev => ({ ...prev, [key]: true }));
-    try {
-      const res = await fetch("/api/ai-studio/slide-html", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: overlay?.title || "Slide",
-          body: overlay?.body || "",
-          step: (overlay?.step || slideIdx + 1),
-          total: displayOverlayTexts.length || displayPrompts.length,
-          theme: overlay?.theme || "gradient-purple",
-          brandName: defaultUserName,
-          aspectRatio: currentAspectRatio,
-          customPrompt: customPrompt || undefined,
-          imageUrl: displayImageUrls[slideIdx],
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.html) {
-        setHtmlSlidesDict(prev => ({ ...prev, [key]: data.html }));
-      }
-    } catch (e) {
-      console.error("[HTML Slide] Error:", e);
-    } finally {
-      setLoadingHtmlSlides(prev => ({ ...prev, [key]: false }));
-    }
-  };
-
-  useEffect(() => {
-    if (!isHtmlSlideFormat || displayOverlayTexts.length === 0) return;
-    displayOverlayTexts.forEach((_, i) => {
-      const key = getHtmlSlideKey(i);
-      if (!htmlSlidesDict[key]) fetchHtmlSlide(i);
-    });
-  }, [activePlatformTab, currentFormatName, generatedContents]);
 
   const handleFormatChange = (formatVal: string) => {
     setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: formatVal }));
@@ -994,13 +950,6 @@ export default function AIStudioPage() {
 
   const handleRenderMedia = async () => {
     setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
-    if (isHtmlSlideFormat) {
-      const prompt = customPrompt || carouselCustomPrompt || displayOverlayTexts[activeSlideIdx]?.title || campaignTopic;
-      await fetchHtmlSlide(activeSlideIdx, prompt || undefined);
-      setCustomPrompt("");
-      setCarouselCustomPrompt("");
-      return;
-    }
     const activePrompt = customPrompt || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
     setIsRenderingMedia(true);
     const cacheBuster = ` ${Date.now() % 100000}`;
@@ -1021,8 +970,8 @@ export default function AIStudioPage() {
   const rawDisplayUrl = customMedia?.url || renderedImageUrl || aiMediaUrl;
   const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : rawDisplayUrl;
 
-  const currentHtmlSlide = htmlSlidesDict[getHtmlSlideKey(activeSlideIdx)] || null;
-  const isCurrentSlideLoading = loadingHtmlSlides[getHtmlSlideKey(activeSlideIdx)] || false;
+  const currentHtmlSlide = null;
+  const isCurrentSlideLoading = false;
 
   // RESET WITH CONFIRMATION
   const resetAll = () => {
@@ -3534,7 +3483,7 @@ export default function AIStudioPage() {
               <Button variant="outline" onClick={() => setCustomPromptModalOpen(false)}>Cancel</Button>
               <Button
                 onClick={() => {
-                  fetchHtmlSlide(customPromptSlideIdx, customPromptText);
+                  handleRenderMedia();
                   setCustomPromptModalOpen(false);
                 }}
               >
