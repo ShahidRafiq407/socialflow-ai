@@ -149,30 +149,21 @@ export default function MultiAgentStreamModal({
         {/* Processing State */}
         {!isCompleted && (
           <div className="flex flex-col h-full text-white overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[#252A32] shrink-0">
-              <div className="flex items-center gap-3 sm:gap-4">
-                <div>
-                  <h2 className="text-base sm:text-lg font-semibold tracking-tight">AI Studio</h2>
-                  <p className="text-xs sm:text-sm text-[#9CA3AF]">Multi-Agent Campaign</p>
-                </div>
-                <div className="h-4 w-px bg-[#252A32] hidden sm:block mx-1"></div>
-                <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-0.5 sm:py-1 bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-full">
+            {/* Top Bar / Campaign Status */}
+            <div className="px-4 sm:px-6 py-3 flex items-center justify-between border-b border-[#252A32] bg-[#11141A] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-full">
                   <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse"></div>
                   <span className="text-[10px] sm:text-xs font-medium text-[#22C55E]">Live</span>
                 </div>
+                <h3 className="text-[#9CA3AF] font-medium text-xs sm:text-sm truncate">Creating your campaign...</h3>
               </div>
-              <div className="flex items-center gap-1.5 sm:gap-3">
-                <button className="p-1.5 sm:p-2 text-[#9CA3AF] hover:text-white transition-colors hidden sm:block"><Minus className="w-4 h-4" /></button>
-                <button className="p-1.5 sm:p-2 text-[#9CA3AF] hover:text-white transition-colors hidden sm:block"><Maximize2 className="w-4 h-4" /></button>
-                <button onClick={onClose} className="p-1.5 sm:p-2 text-[#9CA3AF] hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-3">
+                <div className="text-xs sm:text-sm font-mono text-[#9CA3AF] shrink-0">{formatTime(elapsedTime)}</div>
+                <button onClick={onClose} className="p-1 text-[#9CA3AF] hover:text-white transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </div>
-
-            {/* Campaign Status */}
-            <div className="px-4 sm:px-6 py-3 flex items-center justify-between border-b border-[#252A32] bg-[#11141A] shrink-0">
-              <h3 className="text-[#9CA3AF] font-medium text-xs sm:text-sm truncate">Creating your campaign...</h3>
-              <div className="text-xs sm:text-sm font-mono text-[#9CA3AF] shrink-0 ml-2">{formatTime(elapsedTime)}</div>
             </div>
 
             {/* Responsive Layout: Stacked on mobile/tablet, 2-column on desktop */}
