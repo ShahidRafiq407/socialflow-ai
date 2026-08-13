@@ -55,20 +55,10 @@ export class VertexAIProvider {
   }
 
   /**
-   * Get fallback Vertex AI candidate models to try sequentially
+   * Get target model for Vertex AI generation (strictly uses model configured in llm.ts)
    */
   private getFallbackModels(primaryModel: string): string[] {
-    const models = [primaryModel];
-
-    if (primaryModel.includes("3.1") || primaryModel.includes("pro")) {
-      models.push("gemini-3.1-pro", "gemini-3.1-pro-preview", "gemini-1.5-pro", "gemini-2.0-flash");
-    } else if (primaryModel.includes("3.6") || primaryModel.includes("3.5")) {
-      models.push("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash");
-    } else {
-      models.push("gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite");
-    }
-
-    return [...new Set(models)];
+    return [primaryModel].filter(Boolean);
   }
 
   /**
