@@ -26,6 +26,44 @@ export default function LinkedInPreview({
   const displayName = isConnected ? userName : "LinkedIn Member / Company";
   const headline = isConnected ? "Thought Leader & Industry Innovator" : "Connect your LinkedIn account";
 
+  const isVideoUrl = (url: string | null) => {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.webm') || lowerUrl.includes('.mp4?') || lowerUrl.includes('pixabay.com/video/');
+  };
+
+  const isShortVideo = currentFormatName === "Short Video";
+
+  if (isShortVideo) {
+    return (
+      <div className="relative border-[8px] border-slate-900 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
+        <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-full bg-[#0A66C2] overflow-hidden shrink-0 flex items-center justify-center text-white text-xs font-bold">
+              {userImage ? <img src={userImage} alt={displayName} className="h-full w-full object-cover" /> : <Briefcase className="h-3 w-3" />}
+            </div>
+            <span className="text-xs font-bold text-white truncate max-w-[120px]">{displayName}</span>
+          </div>
+          <span className="bg-[#0A66C2] text-[10px] font-semibold px-2 py-0.5 rounded text-white">Video</span>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : displayImageUrl ? (
+            <img src={displayImageUrl} alt="Short Video" className="w-full h-full object-cover" />
+          ) : (
+            <div className="text-slate-500 text-xs">LinkedIn Video</div>
+          )}
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 p-3 pt-10 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+          <p className="text-xs font-bold text-white mb-1 truncate">{displayName}</p>
+          <p className="text-[11px] leading-snug line-clamp-3 text-slate-200">{currentCaption}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-[400px] rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1b1f23] shadow-sm overflow-hidden text-left">
       <div className="flex items-start gap-3 p-3.5 pb-2">
@@ -73,11 +111,16 @@ export default function LinkedInPreview({
       </div>
 
       {displayImageUrl && (
-        <div className="w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
-          {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+        <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
+          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
           ) : (
             <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
+          )}
+          {currentFormatName === "Carousel" && (
+            <div className="absolute bottom-2 right-2 bg-black/75 text-white text-[10px] px-2 py-0.5 rounded font-semibold backdrop-blur-xs">
+              Slide 1 of 5
+            </div>
           )}
         </div>
       )}

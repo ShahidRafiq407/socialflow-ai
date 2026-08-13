@@ -29,9 +29,18 @@ export default function PinterestPreview({
   const pinTitle = campaignTopic || "Aesthetics & Strategy Inspiration";
   const pinUser = isConnected ? userName : "Pinterest Creator";
 
+  const isIdeaPin = currentFormatName === "Idea Pin" || isHtmlSlideFormat;
+
   return (
     <div className="w-full max-w-[250px] flex flex-col gap-2.5 mx-auto">
       <div className="relative rounded-[24px] overflow-hidden bg-slate-100 dark:bg-slate-800/50 group max-h-[320px] aspect-[2/3] flex items-center justify-center border border-slate-200 dark:border-slate-800 shadow-sm">
+        {isIdeaPin && (
+          <div className="absolute top-2 left-2 right-2 flex gap-1 z-20">
+            <div className="h-1 bg-white/90 rounded-full flex-1" />
+            <div className="h-1 bg-white/40 rounded-full flex-1" />
+            <div className="h-1 bg-white/40 rounded-full flex-1" />
+          </div>
+        )}
         {isHtmlSlideFormat ? (
           isCurrentSlideLoading ? (
             <div className="w-full h-full bg-slate-200 dark:bg-slate-800 animate-pulse flex items-center justify-center"><Loader2 className="h-6 w-6 text-primary animate-spin" /></div>

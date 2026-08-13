@@ -17,50 +17,73 @@ export interface PlatformProfile {
 }
 
 /**
- * Fetch real-time profile data from Instagram Graph API
+ * Fetch real-time profile data from Instagram Graph API / Basic Display API
  */
-async function fetchInstagramProfile(accessToken: string, accountId: string): Promise<{ username: string; displayName: string; avatarUrl: string } | null> {
+async function fetchInstagramProfile(accessToken: string, accountId: string): Promise<{ username: string; displayName: string; avatarUrl: string | null } | null> {
   try {
-    // Instagram Graph API - get user profile
-    // Try with the Instagram Business Account ID first
-    const url = `https://graph.facebook.com/v19.0/${accountId}?fields=username,profile_picture_url,name&access_token=${accessToken}`;
-    const response = await fetch(url);
-    const data = await response.json();
+    const cleanAccountId = (accountId || "").replace(/^@/, "").trim();
 
-    if (!response.ok) {
-      console.error("Instagram profile fetch error:", data);
-      
-      // If the accountId is not the Instagram Business Account ID, try to get it from the Facebook Page
-      // The accountId stored might be the Facebook Page ID, we need to get the connected Instagram Business Account
-      if (data.error?.code === 100 || data.error?.message?.includes("Unsupported get request")) {
-        // Try to get Instagram Business Account from the Facebook Page
-        const pageUrl = `https://graph.facebook.com/v19.0/${accountId}?fields=instagram_business_account&access_token=${accessToken}`;
-        const pageResponse = await fetch(pageUrl);
-        const pageData = await pageResponse.json();
-        
-        if (pageData.instagram_business_account?.id) {
-          const igAccountId = pageData.instagram_business_account.id;
-          const igUrl = `https://graph.facebook.com/v19.0/${igAccountId}?fields=username,profile_picture_url,name&access_token=${accessToken}`;
-          const igResponse = await fetch(igUrl);
-          const igData = await igResponse.json();
-          
-          if (igResponse.ok) {
-            return {
-              username: igData.username || "",
-              displayName: igData.name || igData.username || "",
-              avatarUrl: igData.profile_picture_url || null,
-            };
-          }
-        }
+    // 1. Try directly with stored numerical accountId
+    if (cleanAccountId && /^\d+$/.test(cleanAccountId)) {
+      const url = `https://graph.facebook.com/v19.0/${cleanAccountId}?fields=username,profile_picture_url,name&access_token=${accessToken}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (response.ok && (data.username || data.name)) {
+        return {
+          username: data.username ? `@${data.username.replace(/^@/, "")}` : `@${cleanAccountId}`,
+          displayName: data.name || data.username || "Instagram User",
+          avatarUrl: data.profile_picture_url || null,
+        };
       }
-      return null;
     }
 
-    return {
-      username: data.username || "",
-      displayName: data.name || data.username || "",
-      avatarUrl: data.profile_picture_url || null,
-    };
+    // 2. Query /me/accounts for Instagram Business Account
+    const pagesUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${accessToken}`;
+    const pagesResponse = await fetch(pagesUrl);
+    const pagesData = await pagesResponse.json();
+
+    if (pagesResponse.ok && pagesData.data && Array.isArray(pagesData.data)) {
+      const igPage = pagesData.data.find((p: any) => p.instagram_business_account);
+      if (igPage?.instagram_business_account) {
+        const ig = igPage.instagram_business_account;
+        return {
+          username: ig.username ? `@${ig.username.replace(/^@/, "")}` : "@instagram_user",
+          displayName: ig.name || ig.username || "Instagram Account",
+          avatarUrl: ig.profile_picture_url || null,
+        };
+      }
+    }
+
+    // 3. Query Graph API /me user endpoint
+    const meUrl = `https://graph.facebook.com/v19.0/me?fields=id,name,username,picture.type(large)&access_token=${accessToken}`;
+    const meResponse = await fetch(meUrl);
+    const meData = await meResponse.json();
+
+    if (meResponse.ok && (meData.name || meData.username)) {
+      const uname = meData.username || meData.name?.toLowerCase().replace(/\s+/g, "") || "instagram_user";
+      return {
+        username: uname.startsWith("@") ? uname : `@${uname}`,
+        displayName: meData.name || uname,
+        avatarUrl: meData.picture?.data?.url || null,
+      };
+    }
+
+    // 4. Try Instagram Basic Display API endpoint
+    const igBasicUrl = `https://graph.instagram.com/me?fields=id,username,account_type&access_token=${accessToken}`;
+    const igBasicResponse = await fetch(igBasicUrl);
+    const igBasicData = await igBasicResponse.json();
+
+    if (igBasicResponse.ok && igBasicData.username) {
+      return {
+        username: `@${igBasicData.username.replace(/^@/, "")}`,
+        displayName: igBasicData.username,
+        avatarUrl: null,
+      };
+    }
+
+    console.error("Instagram profile fetch failed after fallbacks:", { pagesData, meData, igBasicData });
+    return null;
   } catch (error) {
     console.error("Instagram profile fetch exception:", error);
     return null;
@@ -341,7 +364,7 @@ export async function fetchPlatformProfile(platformKey: string): Promise<Platfor
     }
 
     // Fetch real-time profile from platform API
-    let profileData: { username: string; displayName: string; avatarUrl: string } | null = null;
+    let profileData: { username: string; displayName: string; avatarUrl: string | null } | null = null;
 
     switch (platformKey) {
       case "instagram":

@@ -282,7 +282,7 @@ export default function PlatformPreviewWrapper({
       );
     }
 
-    if (error) {
+    if (error && (!profile || (!profile.username && !profile.displayName))) {
       return (
         <div className="w-full max-w-[400px] rounded-xl border-2 border-dashed border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/20 p-8 text-center">
           <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
@@ -327,8 +327,8 @@ export default function PlatformPreviewWrapper({
       isConnected: true,
     };
 
-    // Use a key that includes the format name to force re-mount when format changes
-    const previewKey = `${platformKey}-${currentFormatName}`;
+    // Use a key that includes format name and vertical state to force instant re-render on format switch
+    const previewKey = `${platformKey}-${currentFormatName}-${isVertical ? 'vertical' : 'horizontal'}`;
 
     switch (platformKey) {
       case "instagram":

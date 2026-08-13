@@ -1044,7 +1044,7 @@ export default function AIStudioPage() {
     setAiCampaignId(null);
   };
 
-  const isVertical = ["Reel", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(currentFormatName);
+  const isVertical = ["Reel", "Reels", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(currentFormatName);
   const isSquare = currentFormatName === "Feed";
   const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread";
   const isWidescreen = currentFormatName === "Post";
@@ -2535,7 +2535,7 @@ export default function AIStudioPage() {
                 displayOverlayTexts={[]}
                 activeSlideIdx={0}
                 currentCaption={manualPost.caption}
-                isVertical={false}
+                isVertical={["Reel", "Reels", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(manualPost.format)}
                 campaignTopic="Manual Post"
               />
             </div>

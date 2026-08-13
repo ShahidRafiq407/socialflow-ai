@@ -2,6 +2,7 @@ import React from "react";
 import { Check, MoreHorizontal, MessageCircle, Repeat2, Heart, Bookmark, Share2 } from "lucide-react";
 
 interface XPreviewProps {
+  currentFormatName?: string;
   displayImageUrl: string | null;
   userName: string;
   userImage: string | null;
@@ -12,6 +13,7 @@ interface XPreviewProps {
 }
 
 export default function XPreview({
+  currentFormatName = "Post",
   displayImageUrl,
   userName,
   userImage,
@@ -23,9 +25,15 @@ export default function XPreview({
   const nameText = isConnected ? userName : "X User";
   const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_x_handle";
 
+  const isThread = currentFormatName === "Thread";
+
   return (
-    <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4 rounded-xl shadow-xs">
-      <div className="flex gap-3">
+    <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4 rounded-xl shadow-xs space-y-3">
+      {/* TWEET 1 */}
+      <div className="flex gap-3 relative">
+        {isThread && (
+          <div className="absolute left-[19px] top-10 bottom-0 w-[2px] bg-slate-200 dark:bg-slate-800 z-10" />
+        )}
         {isLoading ? (
           <div className="flex gap-3 w-full animate-pulse">
             <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
@@ -36,7 +44,7 @@ export default function XPreview({
           </div>
         ) : (
           <>
-            <div className="h-10 w-10 rounded-full bg-slate-900 dark:bg-slate-800 text-white font-bold text-sm shrink-0 overflow-hidden flex items-center justify-center border border-slate-800">
+            <div className="h-10 w-10 rounded-full bg-slate-900 dark:bg-slate-800 text-white font-bold text-sm shrink-0 overflow-hidden flex items-center justify-center border border-slate-800 z-20">
               {userImage ? (
                 <img src={userImage} alt={nameText} className="h-full w-full object-cover" />
               ) : (
@@ -73,6 +81,31 @@ export default function XPreview({
           </>
         )}
       </div>
+
+      {/* THREAD SECOND TWEET MOCKUP */}
+      {isThread && (
+        <div className="flex gap-3 pt-2">
+          <div className="h-10 w-10 rounded-full bg-slate-900 dark:bg-slate-800 text-white font-bold text-sm shrink-0 overflow-hidden flex items-center justify-center border border-slate-800 z-20">
+            {userImage ? (
+              <img src={userImage} alt={nameText} className="h-full w-full object-cover" />
+            ) : (
+              <span className="font-extrabold text-xs">𝕏</span>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <span className="text-[14px] font-bold text-slate-900 dark:text-white leading-tight truncate max-w-[140px]">{nameText}</span>
+                <Check className="h-3.5 w-3.5 text-blue-400 bg-black rounded-full" />
+                <span className="text-[13px] text-slate-500 truncate">{handleText} · 1h</span>
+              </div>
+            </div>
+            <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 leading-relaxed">
+              2/2 Here are the key takeaways and implementation insights from our strategy... 🧵
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

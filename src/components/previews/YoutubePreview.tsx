@@ -2,6 +2,7 @@ import React from "react";
 import { ThumbsUp, MessageCircle, Share2, RotateCcw, Video } from "lucide-react";
 
 interface YoutubePreviewProps {
+  currentFormatName?: string;
   displayImageUrl: string | null;
   userName: string;
   userImage: string | null;
@@ -11,6 +12,7 @@ interface YoutubePreviewProps {
 }
 
 export default function YoutubePreview({
+  currentFormatName = "Shorts",
   displayImageUrl,
   userName,
   userImage,
@@ -25,6 +27,41 @@ export default function YoutubePreview({
   };
 
   const channelTitle = isConnected ? userName : "YouTube Channel";
+  const isStandardVideo = currentFormatName === "Video";
+
+  if (isStandardVideo) {
+    return (
+      <div className="w-full max-w-[420px] rounded-xl border border-slate-200 dark:border-slate-800 bg-[#0f0f0f] text-white shadow-md overflow-hidden text-left">
+        <div className="w-full aspect-[16/9] bg-slate-900 flex items-center justify-center overflow-hidden relative">
+          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : displayImageUrl ? (
+            <img src={displayImageUrl} alt="YouTube Video" className="w-full h-full object-cover" />
+          ) : (
+            <div className="text-slate-600 text-xs">Preview Video (16:9)</div>
+          )}
+          <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+            10:24
+          </div>
+        </div>
+        <div className="p-3 space-y-2">
+          <p className="text-[14px] font-bold text-white leading-snug line-clamp-2">{currentCaption || "Video Title"}</p>
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-red-600 shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold text-white">
+                {userImage ? <img src={userImage} alt={channelTitle} className="h-full w-full object-cover" /> : <Video className="h-4 w-4" />}
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white truncate max-w-[130px]">{channelTitle}</p>
+                <p className="text-[10px] text-slate-400">125K subscribers</p>
+              </div>
+            </div>
+            <button className="bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-full shrink-0">Subscribe</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">

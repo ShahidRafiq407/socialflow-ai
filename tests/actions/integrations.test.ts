@@ -11,7 +11,9 @@ vi.mock("@/lib/db", () => ({
 }));
 
 describe("integrations actions", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
 
   it("returns platform definitions when no workspace", async () => {
     (prisma.workspace.findFirst as any).mockResolvedValue(null);
