@@ -1,11 +1,23 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 import prisma from "@/lib/db";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
+
+// Zod schema for structured request validation
+const GenerateCampaignSchema = z.object({
+  step: z.string().optional(),
+  action: z.string().optional(),
+  runId: z.string().optional(),
+  campaignId: z.string().optional(),
+  platforms: z.array(z.string()).optional(),
+  contentTypes: z.record(z.array(z.string())).optional(),
+  topic: z.string().optional(),
+});
 
 // Registry to track active run abort controllers for user cancellation
 const activeRuns = new Map<string, AbortController>();
@@ -17,7 +29,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
+    const rawBody = await req.json();
+    const parseResult = GenerateCampaignSchema.safeParse(rawBody);
+
+    if (!parseResult.success) {
+      return NextResponse.json({ error: "Invalid request payload", details: parseResult.error.format() }, { status: 400 });
+    }
+
+    const body = parseResult.data;
     const { step, action, runId } = body;
 
     // Handle User Cancellation Request
