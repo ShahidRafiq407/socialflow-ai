@@ -7,6 +7,7 @@ import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow 
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
+import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import MultiAgentStreamModal from "@/components/ai-studio/MultiAgentStreamModal";
 import {
   Card,
@@ -962,10 +963,13 @@ export default function AIStudioPage() {
   const currentMediaKey = `${activePlatformTab}-${currentFormatName}-${activeSlideIdx}`;
   const customMedia = customMediaDict[currentMediaKey] || null;
 
+  const [clearedMediaKeys, setClearedMediaKeys] = useState<Record<string, boolean>>({});
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const url = URL.createObjectURL(file);
+      setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
       setCustomMediaDict(prev => {
         // revoke previous blob url if any
         const old = prev[currentMediaKey];
@@ -989,6 +993,7 @@ export default function AIStudioPage() {
   const renderedImageUrl = renderedImageUrlsDict[currentMediaKey] || null;
 
   const handleRenderMedia = async () => {
+    setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
     if (isHtmlSlideFormat) {
       const prompt = customPrompt || carouselCustomPrompt || displayOverlayTexts[activeSlideIdx]?.title || campaignTopic;
       await fetchHtmlSlide(activeSlideIdx, prompt || undefined);
@@ -1012,8 +1017,9 @@ export default function AIStudioPage() {
     setTimeout(() => setIsRenderingMedia(false), 800);
   };
 
-  const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || displayImageUrls[activeSlideIdx] || displayImageUrls[0] || "";
-  const displayImageUrl = customMedia?.url || renderedImageUrl || aiMediaUrl;
+  const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
+  const rawDisplayUrl = customMedia?.url || renderedImageUrl || aiMediaUrl;
+  const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : rawDisplayUrl;
 
   const currentHtmlSlide = htmlSlidesDict[getHtmlSlideKey(activeSlideIdx)] || null;
   const isCurrentSlideLoading = loadingHtmlSlides[getHtmlSlideKey(activeSlideIdx)] || false;
@@ -1895,11 +1901,15 @@ export default function AIStudioPage() {
                   <div className="p-3">
                     <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex flex-col items-center justify-center min-h-[160px]">
                       {displayImageUrl ? (
-                        <div className="relative group max-h-[220px] overflow-hidden rounded-lg">
+                        <div className="relative group max-h-[220px] w-full overflow-hidden rounded-lg">
                           {isVideoUrl(displayImageUrl) ? (
-                            <video src={displayImageUrl} autoPlay loop muted playsInline className="max-h-[220px] w-full object-cover rounded-lg shadow-sm" />
+                            <VideoPreviewPlayer
+                              src={displayImageUrl}
+                              className="max-h-[220px] w-full rounded-lg shadow-sm"
+                              showAlwaysPlayButton={true}
+                            />
                           ) : (
-                            <img src={displayImageUrl} alt="Preview" className="max-h-[220px] object-cover rounded-lg shadow-sm" />
+                            <img src={displayImageUrl} alt="Preview" className="max-h-[220px] w-full object-cover rounded-lg shadow-sm" />
                           )}
                           <button
                             type="button"
@@ -1907,16 +1917,47 @@ export default function AIStudioPage() {
                               revokeMediaUrl(currentMediaKey);
                               setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
                               setRenderedImageUrlsDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
+                              setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: true }));
                             }}
-                            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors"
+                            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors z-30"
+                            title="Remove Media"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       ) : (
-                        <div className="py-8 text-center text-slate-400 text-xs">
-                          <ImageIcon className="h-6 w-6 mx-auto mb-1 opacity-50" />
-                          No media attached yet. Click Upload PC, Stock, or AI Gen above to add media.
+                        <div className="py-6 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
+                          <ImageIcon className="h-7 w-7 opacity-40 text-slate-400" />
+                          <p className="font-semibold text-slate-500 dark:text-slate-400">No media attached for {currentFormatName}</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">Add an image or video matching your format format specifications.</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="h-8 text-xs font-bold gap-1"
+                            >
+                              <Upload className="h-3.5 w-3.5 text-emerald-500" /> Upload PC
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setActiveMediaModal("stock")}
+                              className="h-8 text-xs font-bold gap-1"
+                            >
+                              <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock Media
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleRenderMedia()}
+                              className="h-8 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" /> AI Gen
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>

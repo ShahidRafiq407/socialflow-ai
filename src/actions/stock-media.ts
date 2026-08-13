@@ -4,8 +4,18 @@ export interface StockHit {
   id: string;
   url: string;
   previewUrl: string;
+  thumbnailUrl?: string;
   tags: string;
   type: "image" | "video";
+  width?: number;
+  height?: number;
+  aspectRatio?: number;
+  isVertical?: boolean;
+  duration?: number;
+  user?: string;
+  userImageURL?: string;
+  views?: number;
+  likes?: number;
 }
 
 export async function searchStockMedia(
@@ -53,22 +63,52 @@ export async function searchStockMedia(
       if (data.hits && data.hits.length > 0) {
         if (mediaType === "video") {
           const filteredHits = filterVideosByOrientation(data.hits);
-          const hits: StockHit[] = filteredHits.map((item: any) => ({
-            id: String(item.id),
-            url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
-            previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || item.userImageURL || "",
-            tags: item.tags || "stock video",
-            type: "video",
-          }));
+          const hits: StockHit[] = filteredHits.map((item: any) => {
+            const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
+            const w = Number(v?.width || 1280);
+            const h = Number(v?.height || 720);
+            const isVert = h > w;
+            return {
+              id: String(item.id),
+              url: v?.url || item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
+              previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || item.userImageURL || "",
+              thumbnailUrl: v?.thumbnail || item.videos?.tiny?.thumbnail || item.userImageURL || "",
+              tags: item.tags || "stock video",
+              type: "video",
+              width: w,
+              height: h,
+              aspectRatio: w / h,
+              isVertical: isVert,
+              duration: Number(item.duration || 0),
+              user: item.user || "Pixabay Creator",
+              userImageURL: item.userImageURL || null,
+              views: item.views || 0,
+              likes: item.likes || 0,
+            };
+          });
           return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
         } else {
-          const hits: StockHit[] = data.hits.map((item: any) => ({
-            id: String(item.id),
-            url: item.largeImageURL || item.fullHDURL || item.webformatURL,
-            previewUrl: item.webformatURL || item.previewURL,
-            tags: item.tags || "stock photo",
-            type: "image",
-          }));
+          const hits: StockHit[] = data.hits.map((item: any) => {
+            const w = Number(item.imageWidth || item.webformatWidth || 1920);
+            const h = Number(item.imageHeight || item.webformatHeight || 1080);
+            const isVert = h > w;
+            return {
+              id: String(item.id),
+              url: item.largeImageURL || item.fullHDURL || item.webformatURL,
+              previewUrl: item.webformatURL || item.previewURL,
+              thumbnailUrl: item.previewURL || item.webformatURL,
+              tags: item.tags || "stock photo",
+              type: "image",
+              width: w,
+              height: h,
+              aspectRatio: w / h,
+              isVertical: isVert,
+              user: item.user || "Pixabay Creator",
+              userImageURL: item.userImageURL || null,
+              views: item.views || 0,
+              likes: item.likes || 0,
+            };
+          });
           return { success: true, hits, totalHits };
         }
       }
@@ -86,22 +126,48 @@ export async function searchStockMedia(
       if (fallbackData.hits && fallbackData.hits.length > 0) {
         if (mediaType === "video") {
           const filteredHits = filterVideosByOrientation(fallbackData.hits);
-          const hits: StockHit[] = filteredHits.map((item: any) => ({
-            id: String(item.id),
-            url: item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || "",
-            previewUrl: item.videos?.tiny?.url || item.userImageURL || "",
-            tags: item.tags || "video",
-            type: "video",
-          }));
+          const hits: StockHit[] = filteredHits.map((item: any) => {
+            const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
+            const w = Number(v?.width || 1280);
+            const h = Number(v?.height || 720);
+            const isVert = h > w;
+            return {
+              id: String(item.id),
+              url: v?.url || item.videos?.medium?.url || item.videos?.small?.url || "",
+              previewUrl: item.videos?.tiny?.url || item.userImageURL || "",
+              thumbnailUrl: v?.thumbnail || item.videos?.tiny?.thumbnail || "",
+              tags: item.tags || "video",
+              type: "video",
+              width: w,
+              height: h,
+              aspectRatio: w / h,
+              isVertical: isVert,
+              duration: Number(item.duration || 0),
+              user: item.user || "Pixabay Creator",
+              userImageURL: item.userImageURL || null,
+            };
+          });
           return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
         } else {
-          const hits: StockHit[] = fallbackData.hits.map((item: any) => ({
-            id: String(item.id),
-            url: item.largeImageURL || item.webformatURL,
-            previewUrl: item.webformatURL || item.previewURL,
-            tags: item.tags || "photo",
-            type: "image",
-          }));
+          const hits: StockHit[] = fallbackData.hits.map((item: any) => {
+            const w = Number(item.imageWidth || item.webformatWidth || 1920);
+            const h = Number(item.imageHeight || item.webformatHeight || 1080);
+            const isVert = h > w;
+            return {
+              id: String(item.id),
+              url: item.largeImageURL || item.webformatURL,
+              previewUrl: item.webformatURL || item.previewURL,
+              thumbnailUrl: item.previewURL || item.webformatURL,
+              tags: item.tags || "photo",
+              type: "image",
+              width: w,
+              height: h,
+              aspectRatio: w / h,
+              isVertical: isVert,
+              user: item.user || "Pixabay Creator",
+              userImageURL: item.userImageURL || null,
+            };
+          });
           return { success: true, hits, totalHits };
         }
       }

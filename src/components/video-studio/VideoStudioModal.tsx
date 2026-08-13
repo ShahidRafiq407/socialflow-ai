@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
+import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import { generateAIReelPackage, ReelScene } from "@/actions/ai-reel-generator";
 import { StockHit } from "@/actions/stock-media";
 
@@ -317,39 +318,57 @@ export default function VideoStudioModal({
               
               {currentScene?.videoUrl ? (
                 currentScene.mediaType === "image" ? (
-                  <img src={currentScene.videoUrl} alt="Preview" className="w-full h-full object-cover" />
+                  <div className="relative w-full h-full">
+                    <img src={currentScene.videoUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => setScenes(prev => prev.map((s, idx) => idx === activeSlideIdx ? { ...s, videoUrl: "" } : s))}
+                      className="absolute top-3 right-3 p-2 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors z-30"
+                      title="Remove Media"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : (
-                  <video
-                    ref={videoRef}
-                    key={currentScene.videoUrl + currentScene.id}
-                    src={currentScene.videoUrl}
-                    className="w-full h-full object-cover"
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                  />
+                  <div className="relative w-full h-full">
+                    <VideoPreviewPlayer
+                      src={currentScene.videoUrl}
+                      duration={currentScene.durationSeconds}
+                      className="w-full h-full"
+                      showAlwaysPlayButton={true}
+                    />
+                    <button
+                      onClick={() => setScenes(prev => prev.map((s, idx) => idx === activeSlideIdx ? { ...s, videoUrl: "" } : s))}
+                      className="absolute top-3 right-3 p-2 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors z-30"
+                      title="Remove Media"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 )
               ) : hasGenerated ? (
-                <div className="text-center p-4 text-slate-500 text-xs">
-                  <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin opacity-40" />
-                  Loading media...
+                <div className="text-center p-6 text-slate-400 text-xs">
+                  <Film className="h-8 w-8 mx-auto mb-2 opacity-50 text-purple-400" />
+                  <p className="font-bold text-white mb-2">No Media for Scene {activeSlideIdx + 1}</p>
+                  <div className="flex gap-2 justify-center mt-3">
+                    <button
+                      onClick={() => { setTargetSceneId(currentScene?.id || 1); setIsStockModalOpen(true); }}
+                      className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs shadow-md"
+                    >
+                      + Add Stock
+                    </button>
+                    <button
+                      onClick={() => { setTargetSceneId(currentScene?.id || 1); pcFileRef.current?.click(); }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                    >
+                      + Upload
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center p-6 text-slate-600">
                   <Layers className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p className="text-xs font-semibold">Preview Canvas</p>
                 </div>
-              )}
-
-              {/* OVERLAYS */}
-              {isVideo && hasGenerated && (
-                <button
-                  onClick={togglePlay}
-                  className="absolute inset-0 m-auto h-14 w-14 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 hover:scale-110"
-                >
-                  {isPlaying ? <Pause className="h-7 w-7" /> : <Play className="h-7 w-7 ml-0.5" />}
-                </button>
               )}
 
               {/* CAROUSEL ARROWS */}

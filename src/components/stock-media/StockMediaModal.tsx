@@ -19,6 +19,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { searchStockMedia, type StockHit } from "@/actions/stock-media";
+import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 
 /* ─── CATEGORY DATA ────────────────────────────────────────────── */
 const CATEGORIES = [
@@ -391,87 +392,92 @@ export default function StockMediaModal({ isOpen, onClose, onSelect, allowedType
                   </div>
 
                   {/* Grid */}
-                  <div className={`grid gap-3.5 ${
+                  <div className={`grid gap-4 ${
                     mediaType === "video"
-                      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+                      ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                       : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                   }`}>
-                    {results.map(item => (
-                      <div
-                        key={item.id}
-                        className={`group relative rounded-xl overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-xl hover:shadow-black/20 hover:-translate-y-0.5 ${
-                          selectedId === item.id
-                            ? "ring-3 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-900"
-                            : ""
-                        } ${mediaType === "video" ? "aspect-video" : "aspect-[4/3]"}`}
-                        onClick={() => {
-                          setSelectedId(item.id);
-                          onSelect(item);
-                          onClose();
-                        }}
-                      >
-                        {/* Media */}
-                        {item.type === "video" ? (
-                          <video
-                            src={item.url}
-                            className="w-full h-full object-cover bg-slate-900"
-                            muted
-                            loop
-                            autoPlay
-                            playsInline
-                          />
-                        ) : (
-                          <img
-                            src={item.previewUrl}
-                            alt={item.tags}
-                            loading="lazy"
-                            className="w-full h-full object-cover bg-slate-200 dark:bg-slate-800 group-hover:scale-105 transition-transform duration-300"
-                          />
-                        )}
+                    {results.map(item => {
+                      const isVert = item.isVertical || (item.height && item.width ? item.height > item.width : false);
+                      const aspectClass = isVert ? "aspect-[9/16]" : (item.aspectRatio && item.aspectRatio > 1.2 ? "aspect-[16/9]" : "aspect-[4/3]");
+                      
+                      return (
+                        <div
+                          key={item.id}
+                          className={`group relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:shadow-2xl hover:shadow-black/30 hover:-translate-y-1 bg-slate-900 border border-slate-200/40 dark:border-slate-800 ${
+                            selectedId === item.id
+                              ? "ring-4 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950 scale-[0.98]"
+                              : ""
+                          } ${aspectClass}`}
+                          onClick={() => {
+                            setSelectedId(item.id);
+                            onSelect(item);
+                            onClose();
+                          }}
+                        >
+                          {/* Media */}
+                          {item.type === "video" ? (
+                            <VideoPreviewPlayer
+                              src={item.url}
+                              poster={item.thumbnailUrl || item.previewUrl}
+                              duration={item.duration}
+                              isVertical={isVert}
+                              className="w-full h-full"
+                              showAlwaysPlayButton={true}
+                            />
+                          ) : (
+                            <img
+                              src={item.previewUrl}
+                              alt={item.tags}
+                              loading="lazy"
+                              className="w-full h-full object-cover bg-slate-200 dark:bg-slate-800 group-hover:scale-105 transition-transform duration-300"
+                            />
+                          )}
 
-                        {/* Video badge */}
-                        {item.type === "video" && (
-                          <div className="absolute top-2 left-2 z-10">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-white text-[9px] font-bold uppercase border border-white/10">
-                              <Film className="h-3 w-3 text-rose-400" /> VIDEO
+                          {/* Format & Aspect Badge */}
+                          <div className="absolute top-2 left-2 z-20 pointer-events-none">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg backdrop-blur-md text-white text-[9px] font-extrabold uppercase border border-white/20 shadow-md ${
+                              item.type === "video"
+                                ? isVert ? "bg-purple-600/90 text-purple-100" : "bg-blue-600/90 text-blue-100"
+                                : "bg-black/60 text-white"
+                            }`}>
+                              {item.type === "video" ? (isVert ? "9:16 REEL" : "16:9 VIDEO") : (isVert ? "PORTRAIT" : "PHOTO")}
                             </span>
                           </div>
-                        )}
 
-                        {/* Hover overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-between p-3">
-                          {/* Top row */}
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md hover:bg-white/40 text-white transition-colors"
-                              onClick={e => { e.stopPropagation(); }}
-                            >
-                              <Heart className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          {/* Bottom row */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-[10px] text-white/80 font-medium">
-                              <Eye className="h-3 w-3" />
-                              Free
+                          {/* Hover overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-between p-3 pointer-events-none z-20">
+                            <div className="flex items-center justify-end gap-1.5 pointer-events-auto">
+                              <button
+                                className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md hover:bg-white/40 text-white transition-colors"
+                                onClick={e => { e.stopPropagation(); }}
+                              >
+                                <Heart className="h-3.5 w-3.5" />
+                              </button>
                             </div>
-                            <button className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg transition-colors shadow-lg">
-                              <Download className="h-3 w-3" />
-                              Use This
-                            </button>
+                            <div className="flex items-center justify-between pointer-events-auto">
+                              <div className="flex flex-col text-[10px] text-white/90 font-bold truncate max-w-[110px]">
+                                <span className="truncate">{item.user || "Pixabay"}</span>
+                                {item.tags && <span className="text-[9px] text-slate-300 font-normal truncate opacity-80">{item.tags}</span>}
+                              </div>
+                              <button className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg transition-all shadow-lg hover:scale-105 active:scale-95">
+                                <Download className="h-3 w-3" />
+                                Select
+                              </button>
+                            </div>
                           </div>
+
+                          {/* Selected checkmark */}
+                          {selectedId === item.id && (
+                            <div className="absolute top-2 right-2 z-30">
+                              <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg border border-white">
+                                <Check className="h-3.5 w-3.5 text-white" />
+                              </div>
+                            </div>
+                          )}
                         </div>
-
-                        {/* Selected checkmark */}
-                        {selectedId === item.id && (
-                          <div className="absolute top-2 right-2 z-20">
-                            <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg">
-                              <Check className="h-3.5 w-3.5 text-white" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Load More Button */}

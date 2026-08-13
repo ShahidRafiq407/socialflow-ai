@@ -3135,31 +3135,36 @@ export function ArticleWriterHQ({
                   </div>
                 ) : pixabayResults.length > 0 ? (
                   <div className="grid grid-cols-3 gap-3 max-h-72 overflow-y-auto p-1">
-                    {pixabayResults.map((hit) => (
-                      <div
-                        key={hit.id}
-                        onClick={() => setSelectedPixabayHit(hit)}
-                        className={`relative group rounded-xl overflow-hidden cursor-pointer border-2 transition-all aspect-video bg-slate-900 ${
-                          selectedPixabayHit?.id === hit.id
-                            ? "border-emerald-500 ring-4 ring-emerald-500/30 scale-[0.98]"
-                            : "border-transparent hover:border-slate-400"
-                        }`}
-                      >
-                        <img
-                          src={hit.webformatURL}
-                          alt={hit.tags}
-                          className="w-full h-full object-cover"
-                        />
-                        {selectedPixabayHit?.id === hit.id && (
-                          <div className="absolute top-2 right-2 bg-emerald-600 text-white rounded-full p-1 shadow-md">
-                            <Check className="h-3.5 w-3.5" />
+                    {pixabayResults.map((hit) => {
+                      const isVert = hit.webformatHeight && hit.webformatWidth ? hit.webformatHeight > hit.webformatWidth : false;
+                      return (
+                        <div
+                          key={hit.id}
+                          onClick={() => setSelectedPixabayHit(hit)}
+                          className={`relative group rounded-xl overflow-hidden cursor-pointer border-2 transition-all bg-slate-900 ${
+                            isVert ? "aspect-[9/16]" : "aspect-[16/9]"
+                          } ${
+                            selectedPixabayHit?.id === hit.id
+                              ? "border-emerald-500 ring-4 ring-emerald-500/30 scale-[0.98]"
+                              : "border-transparent hover:border-slate-400"
+                          }`}
+                        >
+                          <img
+                            src={hit.webformatURL}
+                            alt={hit.tags}
+                            className="w-full h-full object-cover"
+                          />
+                          {selectedPixabayHit?.id === hit.id && (
+                            <div className="absolute top-2 right-2 bg-emerald-600 text-white rounded-full p-1 shadow-md">
+                              <Check className="h-3.5 w-3.5" />
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-[10px] text-white truncate">
+                            {hit.tags}
                           </div>
-                        )}
-                        <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-[10px] text-white truncate">
-                          {hit.tags}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="py-12 text-center text-slate-500 text-xs font-semibold">
