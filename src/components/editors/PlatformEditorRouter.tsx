@@ -124,9 +124,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   if (platform === "pinterest" && (format === "Idea Pin" || format === "ideapin")) {
     const ideaPages = props.slides.map((s, i) => ({
       pageNumber: i + 1,
-      title: s.title || `Page ${i + 1}`,
-      body: s.body || "",
-      visualPrompt: s.visualPrompt || "",
+      title: s.title ?? "",
+      body: s.body ?? "",
+      visualPrompt: s.visualPrompt ?? "",
       mediaUrl: props.displayImageUrls[i] || s.imageUrl || "",
       mediaType: "image" as const,
     }));
@@ -134,7 +134,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
     return (
       <PinterestIdeaPinEditor
         capability={capability}
-        title={props.title || props.caption.slice(0, 60)}
+        title={props.title ?? ""}
         onTitleChange={props.onTitleChange}
         description={props.description || props.caption}
         onDescriptionChange={props.onDescriptionChange}
@@ -164,6 +164,12 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isRegeneratingPage={props.isRegeneratingSlide}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
+        onCaptionToPrompt={props.onCaptionToPrompt}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+        onEnhancePrompt={props.onEnhancePrompt}
+        isEnhancingPrompt={props.isEnhancingPrompt}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
       />
     );
   }
@@ -172,16 +178,16 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   if (platform === "instagram" && format === "Carousel") {
     const carouselSlides = props.slides.map((s, i) => ({
       slideNumber: i + 1,
-      title: s.title || `Slide ${i + 1}`,
-      body: s.body || "",
-      visualPrompt: s.visualPrompt || "",
+      title: s.title ?? "",
+      body: s.body ?? "",
+      visualPrompt: s.visualPrompt ?? "",
       imageUrl: props.displayImageUrls[i] || s.imageUrl || "",
     }));
 
     return (
       <InstagramCarouselEditor
         capability={capability}
-        caption={props.caption}
+        caption={props.caption ?? ""}
         onCaptionChange={props.onCaptionChange}
         hashtags={props.hashtags}
         onHashtagsChange={props.onHashtagsChange}
@@ -212,18 +218,18 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
     const docSlides: DocumentSlide[] = props.slides.map((s, i) => ({
       slideNumber: i + 1,
       type: i === 0 ? "hook" : i === props.slides.length - 1 ? "cta" : "content",
-      title: s.title || `Executive Point ${i + 1}`,
-      points: s.body ? s.body.split(". ").filter(Boolean) : ["Strategic insight", "Key data takeaway"],
-      visualPrompt: s.visualPrompt || "",
+      title: s.title ?? "",
+      points: s.body ? s.body.split(". ").filter(Boolean) : [],
+      visualPrompt: s.visualPrompt ?? "",
       imageUrl: props.displayImageUrls[i] || s.imageUrl || "",
     }));
 
     return (
       <LinkedInDocumentEditor
         capability={capability}
-        documentTitle={props.title || "2026 Strategic Playbook"}
+        documentTitle={props.title ?? ""}
         onDocumentTitleChange={props.onTitleChange}
-        commentary={props.caption}
+        commentary={props.caption ?? ""}
         onCommentaryChange={props.onCaptionChange}
         hashtags={props.hashtags}
         onHashtagsChange={props.onHashtagsChange}

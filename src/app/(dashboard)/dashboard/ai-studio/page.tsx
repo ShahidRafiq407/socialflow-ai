@@ -255,20 +255,8 @@ const MOCK_PRODUCTS = [
 ];
 
 // ============================================================================
-// POLLINATIONS AI URL BUILDER (fallback)
+// ASPECT RATIO & FORMAT HELPERS
 // ============================================================================
-const getPollinationsAIUrl = (prompt?: string, aspectRatio?: string, seed: number = 42, format?: string) => {
-  let w = 1080, h = 1080;
-  if (aspectRatio === "9:16") { w = 1080; h = 1920; }
-  else if (aspectRatio === "16:9") { w = 1920; h = 1080; }
-  else if (aspectRatio === "4:5") { w = 1080; h = 1350; }
-  else if (aspectRatio === "2:3") { w = 1000; h = 1500; }
-  let cleanText = (prompt || "modern digital marketing").replace(/[^a-zA-Z0-9 ,.-]/g, " ").trim();
-  if (cleanText.length > 800) cleanText = cleanText.substring(0, 800);
-  let styleSuffix = ", photorealistic 8k, vibrant colors, no watermark";
-  const encoded = encodeURIComponent(cleanText + styleSuffix);
-  return `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
-};
 
 const getAspectRatio = (format: string): "9:16" | "1:1" | "4:5" | "16:9" | "2:3" => {
   if (["Reel", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(format)) return "9:16";
@@ -932,7 +920,7 @@ export default function AIStudioPage() {
   const isHtmlSlideFormat = false;
   const displayPrompts = isMultiFormat ? currentVisualPrompts : currentVisualPrompts.slice(0, 1);
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
-  const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || campaignTopic || "modern digital marketing abstract";
+  const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || "";
   const aiGeneratedImageUrls = currentGenerated?.imageUrls && currentGenerated.imageUrls.length > 0 ? currentGenerated.imageUrls : null;
 
   const totalCarouselSlides = isMultiFormat
@@ -1236,7 +1224,14 @@ export default function AIStudioPage() {
   const [isRenderingMedia, setIsRenderingMedia] = useState(false);
   const [isRenderingAllSlides, setIsRenderingAllSlides] = useState(false);
   const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
-  const [customPrompt, setCustomPrompt] = useState("");
+  const [customPromptDict, setCustomPromptDict] = useState<Record<string, string>>({});
+  const customPrompt = customPromptDict[currentFormatKey] !== undefined
+    ? customPromptDict[currentFormatKey]
+    : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
+
+  const setCustomPrompt = (val: string) => {
+    setCustomPromptDict(prev => ({ ...prev, [currentFormatKey]: val }));
+  };
 
   const renderedImageUrl = renderedImageUrlsDict[currentMediaKey] || null;
 
@@ -1250,32 +1245,19 @@ export default function AIStudioPage() {
 
   const handleRenderMedia = async () => {
     setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
-    const activePrompt = customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
+    const activePrompt = customPrompt !== "" ? customPrompt : (displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`);
     setIsRenderingMedia(true);
+    setVideoError(null);
 
     if (isCurrentVideoFormat) {
       setVideoStatus("processing");
-      setVideoError(null);
-      setGenerationProgress(12);
-      setGenerationStage("Analyzing video prompt & camera motion...");
-
-      let currentP = 12;
-      const progressTimer = setInterval(() => {
-        currentP += Math.floor(Math.random() * 4) + 2;
-        if (currentP > 94) currentP = 94;
-        setGenerationProgress(currentP);
-        if (currentP < 30) {
-          setGenerationStage("Analyzing scene & 9:16 vertical geometry...");
-        } else if (currentP < 60) {
-          setGenerationStage(`Synthesizing ${videoDurationSec}s cinematic motion frames...`);
-        } else if (currentP < 85) {
-          setGenerationStage("Rendering lighting layers & motion physics...");
-        } else {
-          setGenerationStage("Encoding high-definition MP4 stream...");
-        }
-      }, 300);
+      setGenerationProgress(20);
+      setGenerationStage("Initializing video synthesis job with AI engine...");
 
       try {
+        setGenerationProgress(45);
+        setGenerationStage(`Synthesizing ${videoDurationSec}s cinematic video stream...`);
+
         const res = await fetch("/api/ai-studio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1291,9 +1273,18 @@ export default function AIStudioPage() {
           }),
         });
         const data = await res.json();
-        clearInterval(progressTimer);
 
         if (data.success && data.asset?.url) {
+          const isVid = isVideoUrl(data.asset.url) || data.asset.mediaType === "video" || data.asset.type === "video";
+          if (!isVid) {
+            setVideoStatus("failed");
+            setVideoError("Video generation returned an invalid media format.");
+            setGenerationStage("Video generation failed.");
+            setGenerationProgress(0);
+            setIsRenderingMedia(false);
+            return;
+          }
+
           setGenerationProgress(100);
           setGenerationStage("Video synthesis complete!");
           setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
@@ -1305,71 +1296,115 @@ export default function AIStudioPage() {
               name: `${activePlatformTab}-${currentFormatName}.mp4`,
             },
           }));
-          setTimeout(() => {
-            setVideoStatus("completed");
-            setIsRenderingMedia(false);
-          }, 350);
+          setVideoStatus("completed");
+          setIsRenderingMedia(false);
         } else {
           setVideoStatus("failed");
           setVideoError(data.error || "Video synthesis failed on backend provider.");
+          setGenerationStage("Video generation failed.");
+          setGenerationProgress(0);
           setIsRenderingMedia(false);
         }
       } catch (err: any) {
-        clearInterval(progressTimer);
         setVideoStatus("failed");
         setVideoError(err.message || "Video synthesis request failed.");
+        setGenerationStage("Video generation failed.");
+        setGenerationProgress(0);
         setIsRenderingMedia(false);
       }
       return;
     }
 
-    // Image rendering with real-time percentage
-    setGenerationProgress(15);
-    setGenerationStage("Analyzing visual composition...");
-    const imgTimer = setInterval(() => {
-      setGenerationProgress(prev => {
-        const next = prev + 22;
-        if (next >= 90) {
-          clearInterval(imgTimer);
-          return 90;
-        }
-        if (next < 50) setGenerationStage("Synthesizing high-resolution canvas...");
-        else setGenerationStage("Rendering lighting & color grading...");
-        return next;
+    // Real Image Rendering via Backend AI Visualizer (Vertex AI)
+    setGenerationProgress(25);
+    setGenerationStage("Dispatching canvas synthesis to AI Visualizer...");
+
+    try {
+      setGenerationProgress(60);
+      setGenerationStage("Rendering photorealistic lighting & composition layers...");
+
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "generate-media",
+          platform: activePlatformTab,
+          format: currentFormatName,
+          mediaType: "image",
+          prompt: activePrompt,
+          aspectRatio: currentAspectRatio,
+          topic: campaignTopic,
+        }),
       });
-    }, 150);
+      const data = await res.json();
 
-    const cacheBuster = ` ${Date.now() % 100000}`;
-    const url = getPollinationsAIUrl(activePrompt + cacheBuster, currentAspectRatio, Date.now() % 100000, currentFormatName);
-    setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: url }));
-    setCustomMediaDict(prev => {
-      const next = { ...prev };
-      if (next[currentMediaKey]?.url.startsWith("blob:")) {
-        try { URL.revokeObjectURL(next[currentMediaKey].url); } catch {}
+      if (data.success && data.asset?.url) {
+        setGenerationProgress(100);
+        setGenerationStage("Image ready!");
+        setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
+        setCustomMediaDict(prev => {
+          const next = { ...prev };
+          if (next[currentMediaKey]?.url?.startsWith("blob:")) {
+            try { URL.revokeObjectURL(next[currentMediaKey].url); } catch {}
+          }
+          delete next[currentMediaKey];
+          return next;
+        });
+        setTimeout(() => setIsRenderingMedia(false), 250);
+      } else {
+        setGenerationStage("Image generation failed.");
+        setGenerationProgress(0);
+        setIsRenderingMedia(false);
       }
-      delete next[currentMediaKey];
-      return next;
-    });
-
-    setTimeout(() => {
-      clearInterval(imgTimer);
-      setGenerationProgress(100);
-      setGenerationStage("Image ready!");
-      setTimeout(() => setIsRenderingMedia(false), 300);
-    }, 750);
+    } catch (err: any) {
+      console.error("Image generation request failed:", err);
+      setGenerationStage("Image generation failed.");
+      setGenerationProgress(0);
+      setIsRenderingMedia(false);
+    }
   };
 
   const handleRenderAllSlides = async () => {
     setIsRenderingAllSlides(true);
+    setGenerationProgress(0);
+    setGenerationStage("Initializing carousel slide batch generation...");
+
+    const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
-    for (let i = 0; i < totalCarouselSlides; i++) {
+
+    for (let i = 0; i < slideCount; i++) {
       const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
-      const p = displayPrompts[i] || singleImagePrompt;
-      const cacheBuster = ` ${Date.now() % 100000 + i * 43}`;
-      newRendered[slideKey] = getPollinationsAIUrl(p + cacheBuster, currentAspectRatio, (Date.now() % 100000) + i, currentFormatName);
+      const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
+      setGenerationStage(`Generating visual for Slide ${i + 1} of ${slideCount}...`);
+      setGenerationProgress(Math.round(((i) / slideCount) * 100));
+
+      try {
+        const res = await fetch("/api/ai-studio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            step: "generate-media",
+            platform: activePlatformTab,
+            format: currentFormatName,
+            mediaType: "image",
+            prompt: p,
+            aspectRatio: currentAspectRatio,
+            topic: campaignTopic,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.asset?.url) {
+          newRendered[slideKey] = data.asset.url;
+          setRenderedImageUrlsDict({ ...newRendered });
+        }
+      } catch (err) {
+        console.error(`Failed to generate slide ${i + 1}:`, err);
+      }
     }
-    setRenderedImageUrlsDict(newRendered);
-    setTimeout(() => setIsRenderingAllSlides(false), 900);
+
+    setGenerationProgress(100);
+    setGenerationStage("All carousel slides generated!");
+    setTimeout(() => setIsRenderingAllSlides(false), 400);
   };
 
   // MULTI-SLIDE MEDIA URL RESOLVER
@@ -3856,11 +3891,9 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="pollinations">Pollinations AI (Fast High-Res - Free)</option>
-                    <option value="flux">Flux.1 / Imagen 3 Photorealistic</option>
-                    <option value="midjourney">Midjourney v6 Artistic Style</option>
-                    <option value="dalle">DALL-E 3 / ChatGPT Image Model</option>
-                    <option value="banana">Banana SDXL Ultra Speed</option>
+                    <option value="gemini-3-pro-image">Gemini 3 Pro Image (Official High-Res)</option>
+                    <option value="imagen-3.0-generate-002">Google Imagen 3 Photorealistic</option>
+                    <option value="flux">Flux.1 Studio Marketing Style</option>
                   </select>
                 </div>
                 <div>

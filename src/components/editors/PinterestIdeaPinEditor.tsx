@@ -25,6 +25,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 
+import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+
 export interface IdeaPinPage {
   pageNumber: number;
   title: string;
@@ -56,6 +58,12 @@ interface PinterestIdeaPinEditorProps {
   isRegeneratingPage: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
+  onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
+  onEnhancePrompt?: () => void;
+  isEnhancingPrompt?: boolean;
+  generationProgress?: number;
+  generationStage?: string;
 }
 
 export default function PinterestIdeaPinEditor({
@@ -80,6 +88,12 @@ export default function PinterestIdeaPinEditor({
   isRegeneratingPage,
   onOpenUpload,
   onOpenStock,
+  onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
+  onEnhancePrompt,
+  isEnhancingPrompt = false,
+  generationProgress = 0,
+  generationStage = "Rendering Idea Pin page...",
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
 
@@ -304,7 +318,15 @@ export default function PinterestIdeaPinEditor({
         {/* LEFT: ACTIVE PAGE MEDIA FRAME (9:16 VERTICAL) */}
         <div className="md:col-span-5 space-y-3">
           <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[320px] aspect-[9/16] overflow-hidden group shadow-2xs">
-            {activePage.mediaUrl ? (
+            {isRegeneratingPage ? (
+              <GenerationProgressIndicator
+                progress={generationProgress}
+                stage={generationStage}
+                title={`Generating Page ${currentIdx + 1}`}
+                isVertical={true}
+                accentColor="red"
+              />
+            ) : activePage.mediaUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <img
                   src={activePage.mediaUrl}
@@ -336,19 +358,6 @@ export default function PinterestIdeaPinEditor({
               </div>
             )}
           </div>
-
-          {/* PER-PAGE REGENERATE BUTTON */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isRegeneratingPage}
-            onClick={() => onRegeneratePageAI(currentIdx)}
-            className="w-full h-8 text-xs font-bold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-          >
-            {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>Regenerate Page {currentIdx + 1} with AI</span>
-          </Button>
         </div>
 
         {/* RIGHT: ACTIVE PAGE TEXT & PROMPTS */}
@@ -378,17 +387,54 @@ export default function PinterestIdeaPinEditor({
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Wand2 className="h-3 w-3 text-red-500" /> Page {currentIdx + 1} Visual AI Prompt
-            </label>
+          {/* UNIFIED PAGE PROMPT CONTROLS */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                <Wand2 className="h-3 w-3 text-red-500" /> Page {currentIdx + 1} Visual AI Prompt
+              </label>
+              <div className="flex items-center gap-3">
+                {onCaptionToPrompt && (
+                  <button
+                    type="button"
+                    disabled={isGeneratingPromptFromScript}
+                    onClick={onCaptionToPrompt}
+                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                  >
+                    {isGeneratingPromptFromScript ? "Generating..." : "Auto-Prompt"}
+                  </button>
+                )}
+                {onEnhancePrompt && (
+                  <button
+                    type="button"
+                    disabled={isEnhancingPrompt}
+                    onClick={onEnhancePrompt}
+                    className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                  >
+                    <span>Enhance Prompt ✨</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
             <Textarea
               rows={2}
               value={activePage.visualPrompt}
               onChange={(e) => handleUpdateActivePage("visualPrompt", e.target.value)}
-              placeholder="Describe background scene and visual aesthetics for this page..."
-              className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300"
+              placeholder="Describe vertical 9:16 background scene and visual aesthetics for this page..."
+              className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300 leading-relaxed"
             />
+
+            <Button
+              type="button"
+              size="sm"
+              disabled={isRegeneratingPage}
+              onClick={() => onRegeneratePageAI(currentIdx)}
+              className="w-full h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
+            >
+              {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isRegeneratingPage ? `Generating Page ${currentIdx + 1}...` : `Generate Page ${currentIdx + 1} Visual`}</span>
+            </Button>
           </div>
 
           {/* TAG PRODUCTS SECTION */}

@@ -138,8 +138,8 @@ export default function InstagramPreview({
           </div>
         )}
 
-        {/* STEP OVERLAY (for Carousels / Idea Pins / Stories) */}
-        {displayOverlayTexts[activeSlideIdx] && (
+        {/* STEP OVERLAY (ONLY for Carousels / Stories / Idea Pins) */}
+        {(currentFormatName === "Carousel" || currentFormatName === "Story" || currentFormatName === "Idea Pin") && displayOverlayTexts[activeSlideIdx] && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-4 z-10 pointer-events-none">
             <div className="bg-primary/95 text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-1.5 backdrop-blur-sm shadow-sm border border-white/20">
               Step {displayOverlayTexts[activeSlideIdx].step || activeSlideIdx + 1}
@@ -154,14 +154,14 @@ export default function InstagramPreview({
         )}
 
         {/* CAROUSEL PAGINATION BADGE */}
-        {totalSlides > 1 && (
+        {currentFormatName === "Carousel" && totalSlides > 1 && (
           <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-xs rounded-full px-2 py-0.5 text-[10px] text-white font-bold tracking-wide z-20 shadow-sm border border-white/10">
             {activeSlideIdx + 1}/{totalSlides}
           </div>
         )}
 
         {/* INTERACTIVE CAROUSEL ARROWS */}
-        {totalSlides > 1 && onSlideChange && (
+        {currentFormatName === "Carousel" && totalSlides > 1 && onSlideChange && (
           <>
             {activeSlideIdx > 0 && (
               <button
