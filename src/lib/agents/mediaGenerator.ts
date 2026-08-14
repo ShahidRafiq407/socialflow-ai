@@ -1,4 +1,5 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
+import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 
 export type VisualErrorCode =
   | "VISUALIZER_PROVIDER_ERROR"
@@ -306,13 +307,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Video thread compilation returned an empty frame link.");
     }
 
-    validateAssetUrl(videoUrl, "video");
+    let finalVideoUrl = videoUrl;
+    if (videoUrl.startsWith("data:") && isSupabaseConfigured()) {
+      onProgress?.(`[Visualizer] Persisting video asset to Supabase Storage CDN...`);
+      const supabaseUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4");
+      if (supabaseUrl) {
+        finalVideoUrl = supabaseUrl;
+      }
+    }
+
+    validateAssetUrl(finalVideoUrl, "video");
     results.push({
       id: `asset_vid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       platform,
       contentType,
       type: "video",
-      url: videoUrl,
+      url: finalVideoUrl,
       prompt: highEndVideoPrompt,
       aspectRatio,
       status: "completed",
@@ -344,13 +354,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         throw new VisualizerError("IMAGE_GENERATION_FAILED", `Multi-frame layer compilation failed at slide ${slideIdx}.`);
       }
 
-      validateAssetUrl(imageUrl, "image");
+      let finalImageUrl = imageUrl;
+      if (imageUrl.startsWith("data:") && isSupabaseConfigured()) {
+        onProgress?.(`[Visualizer] Persisting slide ${slideIdx} to Supabase Storage CDN...`);
+        const supabaseUrl = await uploadBase64ToStorage(imageUrl, `slide-${platform}-${contentType}-${slideIdx}-${Date.now()}.png`, "image/png");
+        if (supabaseUrl) {
+          finalImageUrl = supabaseUrl;
+        }
+      }
+
+      validateAssetUrl(finalImageUrl, "image");
       results.push({
         id: `asset_img_${Date.now()}_slide${slideIdx}_${Math.random().toString(36).substring(2, 7)}`,
         platform,
         contentType,
         type: "image",
-        url: imageUrl,
+        url: finalImageUrl,
         prompt: slidePrompt,
         aspectRatio,
         status: "completed",
@@ -380,13 +399,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image canvas compilation dropped layer bytes.");
   }
 
-  validateAssetUrl(imageUrl, "image");
+  let finalImageUrl = imageUrl;
+  if (imageUrl.startsWith("data:") && isSupabaseConfigured()) {
+    onProgress?.(`[Visualizer] Persisting visual asset to Supabase Storage CDN...`);
+    const supabaseUrl = await uploadBase64ToStorage(imageUrl, `image-${platform}-${contentType}-${Date.now()}.png`, "image/png");
+    if (supabaseUrl) {
+      finalImageUrl = supabaseUrl;
+    }
+  }
+
+  validateAssetUrl(finalImageUrl, "image");
   results.push({
     id: `asset_img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     platform,
     contentType,
     type: "image",
-    url: imageUrl,
+    url: finalImageUrl,
     prompt: commercialPrompt,
     aspectRatio,
     status: "completed",

@@ -5,6 +5,7 @@ import { llm, vertexProvider, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -47,6 +48,14 @@ export async function POST(req: Request) {
       const capability = getPlatformCapability(platform, format);
       const campaignTopic = topic || customPrompt || "Exciting new innovations and strategic insights";
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+
+      // Check Redis Cache
+      const copyCacheKey = `aistudio:copy:${platform}:${format}:${Buffer.from(campaignTopic).toString("base64").slice(0, 36)}:${duration || 5}`;
+      const cachedCopy = await cacheGet<any>(copyCacheKey);
+      if (cachedCopy) {
+        console.log(`[AI Studio] Returning Redis cached copy for ${platform} ${format}`);
+        return NextResponse.json({ success: true, data: cachedCopy, fromCache: true });
+      }
 
       // 1. Trend Research with Google Search Grounding
       let trendInsights = "Audience favors problem-first hooks and authentic value delivery.";
@@ -185,16 +194,21 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
         ? (parsed.videoPrompt || parsed.mediaGenerationPrompt || parsed.imagePrompt || "")
         : (parsed.imagePrompt || parsed.mediaGenerationPrompt || "");
 
+      const resultPayload = {
+        ...parsed,
+        prompt: finalPrompt,
+        videoPrompt: isVideoFormat ? finalPrompt : undefined,
+        imagePrompt: !isVideoFormat ? finalPrompt : undefined,
+        mediaGenerationPrompt: finalPrompt,
+        ceoAudit: { score: ceoScore, feedback: ceoFeedback },
+      };
+
+      // Save to Redis Cache (24 hours TTL)
+      await cacheSet(copyCacheKey, resultPayload, 86400);
+
       return NextResponse.json({
         success: true,
-        data: {
-          ...parsed,
-          prompt: finalPrompt,
-          videoPrompt: isVideoFormat ? finalPrompt : undefined,
-          imagePrompt: !isVideoFormat ? finalPrompt : undefined,
-          mediaGenerationPrompt: finalPrompt,
-          ceoAudit: { score: ceoScore, feedback: ceoFeedback },
-        },
+        data: resultPayload,
       });
     }
 
@@ -211,6 +225,13 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
 
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+
+      // Check Redis Cache
+      const scriptPromptCacheKey = `aistudio:script_prompt:${platform}:${format}:${Buffer.from(caption.trim().slice(0, 120)).toString("base64").slice(0, 36)}`;
+      const cachedPrompt = await cacheGet<any>(scriptPromptCacheKey);
+      if (cachedPrompt) {
+        return NextResponse.json({ success: true, prompt: cachedPrompt.prompt, mediaType: cachedPrompt.mediaType, fromCache: true });
+      }
 
       const promptGenInstruction = isVideoFormat
         ? `You are an elite video director.
@@ -252,6 +273,9 @@ Return ONLY the prompt string.`;
       const res = await llm.invoke([new HumanMessage(promptGenInstruction)], { modelName: MODELS.CONTENT_CREATOR });
       const promptResult = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");
 
+      const promptPayload = { prompt: promptResult, mediaType: capability.mediaType };
+      await cacheSet(scriptPromptCacheKey, promptPayload, 86400);
+
       return NextResponse.json({
         success: true,
         prompt: promptResult,
@@ -280,6 +304,14 @@ Return ONLY the prompt string.`;
 
       const targetAspect = aspectRatio || capability.defaultAspectRatio || "9:16";
 
+      // Check Redis Cache for identical media prompt & settings
+      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
+      const cachedMedia = await cacheGet<any>(mediaCacheKey);
+      if (cachedMedia) {
+        console.log(`[AI Studio] Returning Redis cached media asset for ${platform} ${format}`);
+        return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+      }
+
       try {
         console.log(`[AI Studio] Generating ${targetMediaType} for ${platform} ${format} with prompt: "${prompt.slice(0, 60)}..."`);
         const mediaAssets = await generateMediaAsset({
@@ -296,23 +328,28 @@ Return ONLY the prompt string.`;
           throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Visualizer failed to return an asset URL.");
         }
 
+        const assetPayload = {
+          assetId: asset.id,
+          platform,
+          format,
+          mediaType: asset.type,
+          status: "completed",
+          url: asset.url,
+          thumbnailUrl: asset.url,
+          prompt: asset.prompt,
+          model: asset.model,
+          settings: {
+            aspectRatio: targetAspect,
+            duration: isVideoFormat ? `${duration || 5}s` : undefined,
+          },
+        };
+
+        // Cache media asset in Redis (24 hours TTL)
+        await cacheSet(mediaCacheKey, assetPayload, 86400);
+
         return NextResponse.json({
           success: true,
-          asset: {
-            assetId: asset.id,
-            platform,
-            format,
-            mediaType: asset.type,
-            status: "completed",
-            url: asset.url,
-            thumbnailUrl: asset.url,
-            prompt: asset.prompt,
-            model: asset.model,
-            settings: {
-              aspectRatio: targetAspect,
-              duration: isVideoFormat ? `${duration || 5}s` : undefined,
-            },
-          },
+          asset: assetPayload,
         });
       } catch (err: any) {
         console.error(`[AI Studio] Media generation failed:`, err);
@@ -330,6 +367,14 @@ Return ONLY the prompt string.`;
     if (step === "generate-trend-suggestions") {
       const { platform, format } = body;
       const capability = getPlatformCapability(platform, format);
+
+      // Check Redis Cache (1 hour TTL for live trend signals)
+      const trendCacheKey = `aistudio:trends:${platform}:${format}:${Buffer.from(brandDNA.industry).toString("base64").slice(0, 36)}`;
+      const cachedTrends = await cacheGet<any>(trendCacheKey);
+      if (cachedTrends) {
+        console.log(`[AI Studio] Returning Redis cached trend suggestions for ${platform} ${format}`);
+        return NextResponse.json({ success: true, trends: cachedTrends, fromCache: true });
+      }
 
       const searchQuery = `Trending ${platform} content ideas and viral angles for ${brandDNA.industry} 2026`;
       let sources: any[] = [];
@@ -374,6 +419,9 @@ Return ONLY JSON array of 3 objects:
       if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
 
       const trends = JSON.parse(text);
+      // Cache trends in Redis (1 hour TTL)
+      await cacheSet(trendCacheKey, trends, 3600);
+
       return NextResponse.json({ success: true, trends, sources });
     }
 
@@ -384,6 +432,13 @@ Return ONLY JSON array of 3 objects:
       const { prompt, platform, format, mediaType, topic } = body;
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+
+      // Check Redis Cache
+      const enhanceCacheKey = `aistudio:enhanced_prompt:${platform}:${format}:${Buffer.from((prompt || topic || "").trim().slice(0, 120)).toString("base64").slice(0, 36)}`;
+      const cachedEnhanced = await cacheGet<string>(enhanceCacheKey);
+      if (cachedEnhanced) {
+        return NextResponse.json({ success: true, enhancedPrompt: cachedEnhanced, fromCache: true });
+      }
 
       const enhancePrompt = isVideoFormat
         ? `You are a visual video director for ${brandDNA.name}.
@@ -416,6 +471,8 @@ Return ONLY the enhanced prompt string without quotes.`;
 
       const res = await llm.invoke([new HumanMessage(enhancePrompt)], { modelName: MODELS.CONTENT_CREATOR });
       const enhanced = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");
+
+      await cacheSet(enhanceCacheKey, enhanced, 86400);
 
       return NextResponse.json({ success: true, enhancedPrompt: enhanced });
     }
