@@ -183,6 +183,12 @@ export const useContentStudioStore = create<ContentStudioStore>((set) => ({
     })),
 }));
 
+import PlatformEditorRouter from "@/components/editors/PlatformEditorRouter";
+import AITrendSuggestions, { TrendSuggestionItem } from "@/components/editors/AITrendSuggestions";
+import { CarouselSlideItem } from "@/components/editors/InstagramCarouselEditor";
+import { MultiMediaItem } from "@/components/editors/MultiMediaEditor";
+import { getPlatformCapability, PlatformCapability } from "@/lib/capabilities/platformCapabilities";
+
 // ============================================================================
 // PLATFORM CONSTANTS & CHARACTER LIMITS
 // ============================================================================
@@ -198,20 +204,26 @@ interface PlatformDef {
 }
 
 const PLATFORMS: PlatformDef[] = [
-  { id: "instagram", label: "Instagram", icon: Camera, contentTypes: ["Feed", "Reel", "Story", "Carousel"], captionLimit: 2200, firstCommentLimit: 1000, hashtagLimit: 30, color: "from-pink-500 to-purple-600" },
-  { id: "facebook", label: "Facebook", icon: Globe, contentTypes: ["Feed", "Story", "Reel"], captionLimit: 63206, firstCommentLimit: 8000, hashtagLimit: 30, color: "from-blue-500 to-blue-700" },
-  { id: "linkedin", label: "LinkedIn", icon: Briefcase, contentTypes: ["Post", "Carousel", "Short Video"], captionLimit: 3000, firstCommentLimit: 1250, hashtagLimit: 30, color: "from-blue-600 to-blue-800" },
+  { id: "instagram", label: "Instagram", icon: Camera, contentTypes: ["Feed", "Carousel", "Reel", "Story"], captionLimit: 2200, firstCommentLimit: 1000, hashtagLimit: 30, color: "from-pink-500 to-purple-600" },
+  { id: "pinterest", label: "Pinterest", icon: Bookmark, contentTypes: ["Pin", "Video Pin", "Idea Pin"], captionLimit: 500, firstCommentLimit: 0, hashtagLimit: 20, color: "from-red-500 to-red-600" },
+  { id: "linkedin", label: "LinkedIn", icon: Briefcase, contentTypes: ["Post", "Multi-Image", "Document", "Video"], captionLimit: 3000, firstCommentLimit: 1250, hashtagLimit: 10, color: "from-blue-600 to-blue-800" },
+  { id: "facebook", label: "Facebook", icon: Globe, contentTypes: ["Feed", "Multiple Photos", "Reel", "Story"], captionLimit: 63206, firstCommentLimit: 8000, hashtagLimit: 30, color: "from-blue-500 to-blue-700" },
+  { id: "tiktok", label: "TikTok", icon: Video, contentTypes: ["Video", "Photo"], captionLimit: 2200, firstCommentLimit: 0, hashtagLimit: 10, color: "from-slate-900 to-pink-600" },
+  { id: "youtube", label: "YouTube", icon: PlayCircle, contentTypes: ["Shorts", "Video"], captionLimit: 5000, firstCommentLimit: 5000, hashtagLimit: 15, color: "from-red-500 to-red-700" },
   { id: "x", label: "X", icon: MessageSquare, contentTypes: ["Post", "Thread"], captionLimit: 280, firstCommentLimit: 280, hashtagLimit: 5, color: "from-slate-800 to-black" },
-  { id: "youtube", label: "YouTube", icon: PlayCircle, contentTypes: ["Shorts"], captionLimit: 5000, firstCommentLimit: 5000, hashtagLimit: 15, color: "from-red-500 to-red-700" },
-  { id: "tiktok", label: "TikTok", icon: Video, contentTypes: ["Video"], captionLimit: 2200, firstCommentLimit: 0, hashtagLimit: 5, color: "from-slate-900 to-pink-600" },
-  { id: "pinterest", label: "Pinterest", icon: Bookmark, contentTypes: ["Pin", "Idea Pin"], captionLimit: 500, firstCommentLimit: 0, hashtagLimit: 20, color: "from-red-500 to-red-600" },
 ];
 
 const getPlatformDef = (id: string) => PLATFORMS.find((p) => p.id === id)!;
 
 // AI-generated content per format
 interface GeneratedFormat {
+  title?: string;
   caption: string;
+  description?: string;
+  destinationUrl?: string;
+  board?: string;
+  taggedTopics?: string[];
+  altText?: string;
   imagePrompt: string;
   visualPrompts: string[];
   overlayText: { step: number; title: string; body: string; theme: string }[];
@@ -899,14 +911,181 @@ export default function AIStudioPage() {
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
   const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || campaignTopic || "modern digital marketing abstract";
   const aiGeneratedImageUrls = currentGenerated?.imageUrls && currentGenerated.imageUrls.length > 0 ? currentGenerated.imageUrls : null;
-  const displayImageUrls = aiGeneratedImageUrls || (displayPrompts.length > 0
-    ? displayPrompts.map((p, i) => getPollinationsAIUrl(p || singleImagePrompt, currentAspectRatio, i, currentFormatName))
-    : [getPollinationsAIUrl(singleImagePrompt, currentAspectRatio, 0, currentFormatName)]);
+
+  const totalCarouselSlides = isMultiFormat
+    ? Math.max(displayPrompts.length, displayOverlayTexts.length, aiGeneratedImageUrls?.length || 0, 3)
+    : 1;
+
   const currentMediaType = getMediaType(currentFormatName);
 
   const handleFormatChange = (formatVal: string) => {
     setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: formatVal }));
     setActiveSlideIdx(0);
+  };
+
+  // ============================================================================
+  // PLATFORM-NATIVE FIELD DICTIONARIES
+  // ============================================================================
+  const currentFormatKey = `${activePlatformTab}-${currentFormatName}`;
+  const [titleDict, setTitleDict] = useState<Record<string, string>>({});
+  const [descriptionDict, setDescriptionDict] = useState<Record<string, string>>({});
+  const [destinationUrlDict, setDestinationUrlDict] = useState<Record<string, string>>({});
+  const [boardDict, setBoardDict] = useState<Record<string, string>>({});
+  const [taggedTopicsDict, setTaggedTopicsDict] = useState<Record<string, string[]>>({});
+  const [altTextDict, setAltTextDict] = useState<Record<string, string>>({});
+  const [mediaItemsDict, setMediaItemsDict] = useState<Record<string, MultiMediaItem[]>>({});
+  const [activeMediaIndexDict, setActiveMediaIndexDict] = useState<Record<string, number>>({});
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
+  const [isApplyingTrend, setIsApplyingTrend] = useState(false);
+
+  const currentTitle = titleDict[currentFormatKey] || "";
+  const currentDescription = descriptionDict[currentFormatKey] || "";
+  const currentDestinationUrl = destinationUrlDict[currentFormatKey] || "";
+  const currentBoard = boardDict[currentFormatKey] || "Smart Robotics & AI";
+  const currentTaggedTopics = taggedTopicsDict[currentFormatKey] || [];
+  const currentAltText = altTextDict[currentFormatKey] || "";
+  const currentMediaItems = mediaItemsDict[currentFormatKey] || [
+    { id: "item_1", url: "", type: "image", prompt: "Visual asset" }
+  ];
+  const currentActiveMediaIdx = activeMediaIndexDict[currentFormatKey] || 0;
+
+  // ============================================================================
+  // REAL MULTI-AGENT PLATFORM COPY GENERATOR
+  // ============================================================================
+  const handleGeneratePlatformCopyAI = async () => {
+    setAiGeneratingCaption(true);
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "generate-platform-copy",
+          platform: activePlatformTab,
+          format: currentFormatName,
+          topic: campaignTopic,
+          customPrompt,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        const item = data.data;
+        if (item.caption) updateCaption(item.caption);
+        if (item.title) {
+          setTitleDict(prev => ({ ...prev, [currentFormatKey]: item.title }));
+        }
+        if (item.description) {
+          setDescriptionDict(prev => ({ ...prev, [currentFormatKey]: item.description }));
+        }
+        if (item.taggedTopics) {
+          setTaggedTopicsDict(prev => ({ ...prev, [currentFormatKey]: item.taggedTopics }));
+        }
+        if (item.altText) {
+          setAltTextDict(prev => ({ ...prev, [currentFormatKey]: item.altText }));
+        }
+        if (item.imagePrompt) {
+          setCustomPrompt(item.imagePrompt);
+        }
+        setGeneratedContents(prev => {
+          const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {};
+          return {
+            ...prev,
+            [activePlatformTab]: {
+              ...prev[activePlatformTab],
+              [currentFormatName]: {
+                ...currentFmt,
+                caption: item.caption || currentFmt.caption,
+                hashtags: item.hashtags || currentFmt.hashtags,
+                imagePrompt: item.imagePrompt || currentFmt.imagePrompt,
+                visualPrompts: item.visualPrompts || currentFmt.visualPrompts,
+                overlayText: item.slides?.map((s: any, idx: number) => ({
+                  step: s.step || idx + 1,
+                  title: s.title || `Slide ${idx + 1}`,
+                  body: s.body || "",
+                  theme: "gradient-purple",
+                })) || currentFmt.overlayText,
+              }
+            }
+          };
+        });
+      }
+    } catch (e) {
+      console.error("Platform copy AI generation error:", e);
+    } finally {
+      setAiGeneratingCaption(false);
+    }
+  };
+
+  const handleEnhancePromptAI = async () => {
+    setIsEnhancingPrompt(true);
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "enhance-prompt",
+          prompt: customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt,
+          platform: activePlatformTab,
+          format: currentFormatName,
+          topic: campaignTopic,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.enhancedPrompt) {
+        setCustomPrompt(data.enhancedPrompt);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsEnhancingPrompt(false);
+    }
+  };
+
+  const handleApplyTrend = async (trend: TrendSuggestionItem) => {
+    setCampaignTopic(trend.topic);
+    setIsApplyingTrend(true);
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "generate-platform-copy",
+          platform: activePlatformTab,
+          format: currentFormatName,
+          topic: `${trend.topic} (Hook: ${trend.suggestedHook})`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        const item = data.data;
+        if (item.caption) updateCaption(item.caption);
+        if (item.title) {
+          setTitleDict(prev => ({ ...prev, [currentFormatKey]: item.title }));
+        }
+        if (item.description) {
+          setDescriptionDict(prev => ({ ...prev, [currentFormatKey]: item.description }));
+        }
+        if (item.taggedTopics) {
+          setTaggedTopicsDict(prev => ({ ...prev, [currentFormatKey]: item.taggedTopics }));
+        }
+        if (item.hashtags) {
+          setGeneratedContents(prev => ({
+            ...prev,
+            [activePlatformTab]: {
+              ...prev[activePlatformTab],
+              [currentFormatName]: {
+                ...(prev[activePlatformTab]?.[currentFormatName] || {}),
+                hashtags: item.hashtags,
+                caption: item.caption,
+              }
+            }
+          }));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsApplyingTrend(false);
+    }
   };
 
   // ============================================================================
@@ -945,7 +1124,7 @@ export default function AIStudioPage() {
   };
 
   // ============================================================================
-  // MEDIA UPLOAD (with memory leak fix)
+  // MEDIA UPLOAD & MULTI-SLIDE RESOLUTION (with memory leak fix)
   // ============================================================================
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [customMediaDict, setCustomMediaDict] = useState<Record<string, { url: string; type: "image" | "video" }>>({});
@@ -995,6 +1174,7 @@ export default function AIStudioPage() {
   };
 
   const [isRenderingMedia, setIsRenderingMedia] = useState(false);
+  const [isRenderingAllSlides, setIsRenderingAllSlides] = useState(false);
   const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
   const [customPrompt, setCustomPrompt] = useState("");
 
@@ -1002,7 +1182,7 @@ export default function AIStudioPage() {
 
   const handleRenderMedia = async () => {
     setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
-    const activePrompt = customPrompt || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
+    const activePrompt = customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
     setIsRenderingMedia(true);
     const cacheBuster = ` ${Date.now() % 100000}`;
     const url = getPollinationsAIUrl(activePrompt + cacheBuster, currentAspectRatio, Date.now() % 100000, currentFormatName);
@@ -1018,12 +1198,213 @@ export default function AIStudioPage() {
     setTimeout(() => setIsRenderingMedia(false), 800);
   };
 
+  const handleRenderAllSlides = async () => {
+    setIsRenderingAllSlides(true);
+    const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
+    for (let i = 0; i < totalCarouselSlides; i++) {
+      const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+      const p = displayPrompts[i] || singleImagePrompt;
+      const cacheBuster = ` ${Date.now() % 100000 + i * 43}`;
+      newRendered[slideKey] = getPollinationsAIUrl(p + cacheBuster, currentAspectRatio, (Date.now() % 100000) + i, currentFormatName);
+    }
+    setRenderedImageUrlsDict(newRendered);
+    setTimeout(() => setIsRenderingAllSlides(false), 900);
+  };
+
+  // MULTI-SLIDE MEDIA URL RESOLVER
+  const displayImageUrls = useMemo(() => {
+    const count = isMultiFormat ? totalCarouselSlides : 1;
+    const urls: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+      if (clearedMediaKeys[slideKey]) {
+        urls.push("");
+      } else if (customMediaDict[slideKey]?.url) {
+        urls.push(customMediaDict[slideKey].url);
+      } else if (renderedImageUrlsDict[slideKey]) {
+        urls.push(renderedImageUrlsDict[slideKey]);
+      } else if (aiGeneratedImageUrls && aiGeneratedImageUrls[i]) {
+        urls.push(aiGeneratedImageUrls[i]);
+      } else {
+        const p = displayPrompts[i] || singleImagePrompt;
+        urls.push(getPollinationsAIUrl(p, currentAspectRatio, i, currentFormatName));
+      }
+    }
+    return urls;
+  }, [
+    isMultiFormat,
+    totalCarouselSlides,
+    displayPrompts,
+    displayOverlayTexts,
+    aiGeneratedImageUrls,
+    activePlatformTab,
+    currentFormatName,
+    clearedMediaKeys,
+    customMediaDict,
+    renderedImageUrlsDict,
+    singleImagePrompt,
+    currentAspectRatio
+  ]);
+
   const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
-  const rawDisplayUrl = customMedia?.url || renderedImageUrl || aiMediaUrl;
+  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? displayImageUrls[activeSlideIdx] : aiMediaUrl);
   const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : rawDisplayUrl;
 
   const currentHtmlSlide = null;
   const isCurrentSlideLoading = false;
+
+  // MULTI-SLIDE OVERLAY & PROMPT MUTATORS
+  const updateActiveSlideOverlay = (field: "title" | "body", value: string) => {
+    setGeneratedContents((prev) => {
+      const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {
+        caption: currentCaption,
+        imagePrompt: singleImagePrompt,
+        visualPrompts: [...currentVisualPrompts],
+        overlayText: [...currentOverlayTexts],
+        hashtags: currentHashtags,
+        bestTime: currentBestTime,
+      };
+
+      const nextOverlays = [...(currentFmt.overlayText || [])];
+      while (nextOverlays.length <= activeSlideIdx) {
+        nextOverlays.push({
+          step: nextOverlays.length + 1,
+          title: `Slide ${nextOverlays.length + 1}`,
+          body: "",
+          theme: "gradient-purple",
+        });
+      }
+
+      nextOverlays[activeSlideIdx] = {
+        ...nextOverlays[activeSlideIdx],
+        [field]: value,
+        step: activeSlideIdx + 1,
+      };
+
+      return {
+        ...prev,
+        [activePlatformTab]: {
+          ...prev[activePlatformTab],
+          [currentFormatName]: {
+            ...currentFmt,
+            overlayText: nextOverlays,
+          },
+        },
+      };
+    });
+  };
+
+  const updateActiveSlidePrompt = (value: string) => {
+    setGeneratedContents((prev) => {
+      const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {
+        caption: currentCaption,
+        imagePrompt: singleImagePrompt,
+        visualPrompts: [...currentVisualPrompts],
+        overlayText: [...currentOverlayTexts],
+        hashtags: currentHashtags,
+        bestTime: currentBestTime,
+      };
+
+      const nextPrompts = [...(currentFmt.visualPrompts || [])];
+      while (nextPrompts.length <= activeSlideIdx) {
+        nextPrompts.push("");
+      }
+      nextPrompts[activeSlideIdx] = value;
+
+      return {
+        ...prev,
+        [activePlatformTab]: {
+          ...prev[activePlatformTab],
+          [currentFormatName]: {
+            ...currentFmt,
+            visualPrompts: nextPrompts,
+          },
+        },
+      };
+    });
+  };
+
+  const handleAddSlide = () => {
+    const currentCount = totalCarouselSlides;
+    if (currentCount >= 10) return;
+    setGeneratedContents((prev) => {
+      const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {
+        caption: currentCaption,
+        imagePrompt: singleImagePrompt,
+        visualPrompts: [...currentVisualPrompts],
+        overlayText: [...currentOverlayTexts],
+        hashtags: currentHashtags,
+        bestTime: currentBestTime,
+      };
+
+      const nextOverlays = [...(currentFmt.overlayText || [])];
+      while (nextOverlays.length < currentCount) {
+        nextOverlays.push({
+          step: nextOverlays.length + 1,
+          title: `Slide ${nextOverlays.length + 1}`,
+          body: "Key insight or strategy.",
+          theme: "gradient-blue",
+        });
+      }
+      nextOverlays.push({
+        step: nextOverlays.length + 1,
+        title: `Slide ${nextOverlays.length + 1} Strategy`,
+        body: "Actionable takeaway for your audience.",
+        theme: "gradient-emerald",
+      });
+
+      const nextPrompts = [...(currentFmt.visualPrompts || [])];
+      while (nextPrompts.length < currentCount) {
+        nextPrompts.push(`Visual for slide ${nextPrompts.length + 1}`);
+      }
+      nextPrompts.push(`Visual design aesthetic for slide ${nextPrompts.length + 1} ${campaignTopic || activePlatformTab}`);
+
+      return {
+        ...prev,
+        [activePlatformTab]: {
+          ...prev[activePlatformTab],
+          [currentFormatName]: {
+            ...currentFmt,
+            overlayText: nextOverlays,
+            visualPrompts: nextPrompts,
+          },
+        },
+      };
+    });
+    setActiveSlideIdx(currentCount);
+  };
+
+  const handleRemoveSlide = (idxToRemove: number) => {
+    if (totalCarouselSlides <= 2) return;
+    setGeneratedContents((prev) => {
+      const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {
+        caption: currentCaption,
+        imagePrompt: singleImagePrompt,
+        visualPrompts: [...currentVisualPrompts],
+        overlayText: [...currentOverlayTexts],
+        hashtags: currentHashtags,
+        bestTime: currentBestTime,
+      };
+
+      const nextOverlays = (currentFmt.overlayText || [])
+        .filter((_, i) => i !== idxToRemove)
+        .map((item, i) => ({ ...item, step: i + 1 }));
+      const nextPrompts = (currentFmt.visualPrompts || []).filter((_, i) => i !== idxToRemove);
+
+      return {
+        ...prev,
+        [activePlatformTab]: {
+          ...prev[activePlatformTab],
+          [currentFormatName]: {
+            ...currentFmt,
+            overlayText: nextOverlays,
+            visualPrompts: nextPrompts,
+          },
+        },
+      };
+    });
+    setActiveSlideIdx((prev) => Math.max(0, Math.min(prev, totalCarouselSlides - 2)));
+  };
 
   // RESET WITH CONFIRMATION
   const resetAll = () => {
@@ -1053,7 +1434,7 @@ export default function AIStudioPage() {
 
   const isVertical = ["Reel", "Reels", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(currentFormatName);
   const isSquare = currentFormatName === "Feed";
-  const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread";
+  const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
   const isWidescreen = currentFormatName === "Post";
   const isPin = currentFormatName === "Pin";
 
@@ -1076,7 +1457,7 @@ export default function AIStudioPage() {
   const buildCurrentPost = (status: PostStatus = "draft"): Post | null => {
     if (!hasContent && viewMode === "ai") return null;
     const mediaUrl = displayImageUrl || "";
-    const mediaType: PostMediaType = customMedia?.type === "video" ? "video" : currentMediaType === "video" ? "video" : currentMediaType === "carousel" ? "carousel" : "image";
+    const mediaType: PostMediaType = customMedia?.type === "video" ? "video" : currentMediaType === "video" ? "video" : (isCarousel || isMultiFormat) ? "carousel" : "image";
     return {
       id: `post_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       platform: activePlatformTab,
@@ -1084,7 +1465,7 @@ export default function AIStudioPage() {
       caption: currentCaption,
       firstComment: currentFirstComment,
       hashtags: currentHashtags,
-      mediaUrls: mediaUrl ? [mediaUrl] : [],
+      mediaUrls: (isCarousel || isMultiFormat) ? displayImageUrls.filter(Boolean) : (mediaUrl ? [mediaUrl] : []),
       mediaType,
       overlayTexts: displayOverlayTexts,
       productTags: selectedProducts,
@@ -1105,11 +1486,18 @@ export default function AIStudioPage() {
       const res = await apiSaveDraft({
         platform: post.platform,
         content: post.caption,
-        imageUrl: post.mediaUrls[0],
+        imageUrl: post.mediaUrls[0] || "",
         format: post.format,
         hashtags: post.hashtags,
         mediaType: post.mediaType,
         source: post.source,
+        campaignTopic,
+        campaignHook,
+        mediaHistory: {
+          mediaUrls: post.mediaUrls,
+          overlayTexts: post.overlayTexts,
+          visualPrompts: currentVisualPrompts,
+        },
       });
       post.id = res.id;
       store.addPost(post);
@@ -1167,11 +1555,18 @@ export default function AIStudioPage() {
       const draftRes = await apiSaveDraft({
         platform: post.platform,
         content: post.caption,
-        imageUrl: post.mediaUrls[0],
+        imageUrl: post.mediaUrls[0] || "",
         format: post.format,
         hashtags: post.hashtags,
         mediaType: post.mediaType,
         source: post.source,
+        campaignTopic,
+        campaignHook,
+        mediaHistory: {
+          mediaUrls: post.mediaUrls,
+          overlayTexts: post.overlayTexts,
+          visualPrompts: currentVisualPrompts,
+        },
       });
       post.id = draftRes.id;
       await apiSchedulePost(post.id, schedDate);
@@ -1204,11 +1599,18 @@ export default function AIStudioPage() {
       const draftRes = await apiSaveDraft({
         platform: post.platform,
         content: post.caption,
-        imageUrl: post.mediaUrls[0],
+        imageUrl: post.mediaUrls[0] || "",
         format: post.format,
         hashtags: post.hashtags,
         mediaType: post.mediaType,
         source: post.source,
+        campaignTopic,
+        campaignHook,
+        mediaHistory: {
+          mediaUrls: post.mediaUrls,
+          overlayTexts: post.overlayTexts,
+          visualPrompts: currentVisualPrompts,
+        },
       });
       post.id = draftRes.id;
       await apiPublishNow(post.id);
@@ -1766,342 +2168,150 @@ export default function AIStudioPage() {
                               : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
                           }`}
                         >
-                          {option}
+                        {option}
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
 
-              <CardContent className="p-3 sm:p-4 space-y-4 !overflow-visible">
+              <CardContent className="p-4 sm:p-5 space-y-6 !overflow-visible">
                 {/* ---------------------------------------------------------------------------- */}
-                {/* SECTION 1: DYNAMIC CAPTION / TITLE EDITOR & AI GENERATOR */}
+                {/* PLATFORM-AWARE NATIVE STUDIO ROUTER */}
                 {/* ---------------------------------------------------------------------------- */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <Edit3 className="h-3.5 w-3.5 text-primary" />
-                        {activePlatformTab === "youtube"
-                          ? "Video Title & Description"
-                          : activePlatformTab === "pinterest"
-                          ? "Pin Title & Description"
-                          : "Caption / Post Content"}
-                      </label>
-                      <div className="flex gap-1">
-                        <button onClick={handleUndo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Undo">
-                          <Undo2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button onClick={handleRedo} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500" title="Redo">
-                          <Redo2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <CharacterCounter current={currentCaption.length} max={getPlatformDef(activePlatformTab).captionLimit} />
-                  </div>
-
-                  <Textarea
-                    rows={4}
-                    value={currentCaption}
-                    onChange={(e) => updateCaption(e.target.value)}
-                    placeholder={`Type or paste your ${activePlatformTab === "youtube" ? "video description" : "post caption"} here, or generate one with AI...`}
-                    className="w-full text-xs sm:text-sm leading-relaxed p-3 border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-primary/20 bg-white dark:bg-slate-900 shadow-2xs"
-                  />
-
-                  {/* AI CAPTION GENERATE / REGENERATE BUTTON */}
-                  <div className="flex items-center justify-between gap-2 pt-0.5">
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={aiGeneratingCaption}
-                      onClick={async () => {
-                        setAiGeneratingCaption(true);
-                        const topic = campaignTopic || "Exciting new product launch and special offer for our community";
-                        setTimeout(() => {
-                          const generated = activePlatformTab === "pinterest"
-                            ? `📍 ${topic.toUpperCase()} - Complete Guide & Creative Ideas\n\nLooking to elevate your ${topic}? Here are the top proven strategies, tips, and visual inspiration to get maximum results.\n\nSave this Pin for later and click the link to read full article!`
-                            : activePlatformTab === "youtube"
-                            ? `🎥 ${topic} (Complete 2026 Overview)\n\nWelcome back to our channel! In this video, we cover everything about ${topic}. Timestamps & links below:\n\n0:00 - Introduction\n1:30 - Key Strategies\n3:45 - Live Demo\n\n👍 Like, Subscribe & Hit the Bell Icon!`
-                            : `🚀 Exciting news! We're thrilled to introduce our latest breakthrough in ${topic}.\n\n✨ Key Highlights:\n- Premium quality & unmatched performance\n- Designed for maximum efficiency\n- Special early-bird access available now!\n\n👇 Drop a comment below or click the link in bio to learn more!\n#marketing #innovation #b2b #tech #growth`;
-                          updateCaption(generated);
-                          setAiGeneratingCaption(false);
-                        }, 1000);
-                      }}
-                      className="h-7 text-xs font-semibold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-xs hover:opacity-90"
-                    >
-                      {aiGeneratingCaption ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      <span>
-                        {currentCaption
-                          ? `Regenerate ${activePlatformTab === "youtube" ? "Title & Description" : activePlatformTab === "pinterest" ? "Pin Title & Description" : "Caption"} with AI`
-                          : `Generate ${activePlatformTab === "youtube" ? "Title & Description" : activePlatformTab === "pinterest" ? "Pin Title & Description" : "Caption"} with AI`}
-                      </span>
-                    </Button>
-
-                    <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-                      Auto-tailored for {PLATFORMS.find(p => p.id === activePlatformTab)?.label}
-                    </span>
-                  </div>
-                </div>
-
-                {/* ---------------------------------------------------------------------------- */}
-                {/* SECTION 2: FORMAT-AWARE MEDIA CREATION STUDIO (3 MODAL TRIGGERS) */}
-                {/* ---------------------------------------------------------------------------- */}
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 space-y-0">
-                  {/* MEDIA STUDIO HEADER & 3 MODAL BUTTONS */}
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <ImageIcon className="h-4 w-4 text-primary" />
-                      <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                        {currentMediaType === "video" ? "Video Studio" : isCarousel ? "Carousel Studio" : "Image Studio"}
-                      </span>
-                      <Badge variant="outline" className="text-[10px] uppercase font-bold border-slate-300 dark:border-slate-700">
-                        {currentFormatName}
-                      </Badge>
-                    </div>
-
-                    {/* 3 POPUP MODAL BUTTONS */}
-                    <div className="flex items-center gap-1.5 text-xs font-semibold">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setActiveMediaModal("upload")}
-                        className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs hover:bg-slate-100"
-                      >
-                        <Upload className="h-3 w-3 text-emerald-500" />
-                        <span>Upload PC</span>
-                      </Button>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={async () => {
-                          setActiveMediaModal("stock");
-                        }}
-                        className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs hover:bg-slate-100"
-                      >
-                        <ImageIcon className="h-3 w-3 text-pink-500" />
-                        <span>Stock</span>
-                      </Button>
-
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setActiveMediaModal("ai")}
-                        className="h-7 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-2xs hover:opacity-90"
-                      >
-                        <Sparkles className="h-3 w-3 text-white" />
-                        <span>AI Gen</span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* MEDIA STUDIO WORKSPACE CONTAINER */}
-                  <div className="p-3">
-                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-3 flex flex-col items-center justify-center min-h-[160px]">
-                      {displayImageUrl ? (
-                        <div className={`relative group overflow-hidden rounded-lg mx-auto ${
-                          isVertical
-                            ? "w-full max-w-[220px] aspect-[9/16] max-h-[380px]"
-                            : isSquare
-                            ? "w-full max-w-[280px] aspect-square"
-                            : "w-full max-h-[240px] aspect-[16/9]"
-                        }`}>
-                          {isVideoUrl(displayImageUrl) ? (
-                            <VideoPreviewPlayer
-                              src={displayImageUrl}
-                              className="w-full h-full rounded-lg shadow-sm"
-                              isVertical={isVertical}
-                              showAlwaysPlayButton={true}
-                            />
-                          ) : (
-                            <img src={displayImageUrl} alt="Preview" className="w-full h-full object-cover rounded-lg shadow-sm" />
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              revokeMediaUrl(currentMediaKey);
-                              setCustomMediaDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
-                              setRenderedImageUrlsDict(prev => { const next = { ...prev }; delete next[currentMediaKey]; return next; });
-                              setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: true }));
-                            }}
-                            className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors z-30"
-                            title="Remove Media"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="py-6 text-center text-slate-400 text-xs flex flex-col items-center gap-2">
-                          <ImageIcon className="h-7 w-7 opacity-40 text-slate-400" />
-                          <p className="font-semibold text-slate-500 dark:text-slate-400">No media attached for {currentFormatName}</p>
-                          <p className="text-[11px] text-slate-400 max-w-xs">Add an image or video matching your format format specifications.</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => fileInputRef.current?.click()}
-                              className="h-8 text-xs font-bold gap-1"
-                            >
-                              <Upload className="h-3.5 w-3.5 text-emerald-500" /> Upload PC
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setActiveMediaModal("stock")}
-                              className="h-8 text-xs font-bold gap-1"
-                            >
-                              <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock Media
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => handleRenderMedia()}
-                              className="h-8 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" /> AI Gen
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <PlatformEditorRouter
+                  platform={activePlatformTab}
+                  format={currentFormatName}
+                  title={currentTitle}
+                  onTitleChange={(val) => {
+                    setTitleDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  caption={currentCaption}
+                  onCaptionChange={updateCaption}
+                  description={currentDescription}
+                  onDescriptionChange={(val) => {
+                    setDescriptionDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  destinationUrl={currentDestinationUrl}
+                  onDestinationUrlChange={(val) => {
+                    setDestinationUrlDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  board={currentBoard}
+                  onBoardChange={(val) => {
+                    setBoardDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  taggedTopics={currentTaggedTopics}
+                  onTaggedTopicsChange={(val) => {
+                    setTaggedTopicsDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  altText={currentAltText}
+                  onAltTextChange={(val) => {
+                    setAltTextDict((prev) => ({ ...prev, [currentFormatKey]: val }));
+                  }}
+                  hashtags={currentHashtags}
+                  onHashtagsChange={(val) => {
+                    setGeneratedContents((prev) => ({
+                      ...prev,
+                      [activePlatformTab]: {
+                        ...prev[activePlatformTab],
+                        [currentFormatName]: {
+                          ...(prev[activePlatformTab]?.[currentFormatName] || {}),
+                          hashtags: val,
+                        },
+                      },
+                    }));
+                  }}
+                  firstComment={currentFirstComment}
+                  onFirstCommentChange={setCurrentFirstComment}
+                  displayImageUrl={displayImageUrl}
+                  displayImageUrls={displayImageUrls}
+                  onRemoveMedia={() => {
+                    setClearedMediaKeys((prev) => ({ ...prev, [currentMediaKey]: true }));
+                    setCustomMediaDict((prev) => {
+                      const next = { ...prev };
+                      delete next[currentMediaKey];
+                      return next;
+                    });
+                    setRenderedImageUrlsDict((prev) => {
+                      const next = { ...prev };
+                      delete next[currentMediaKey];
+                      return next;
+                    });
+                  }}
+                  onOpenUpload={() => fileInputRef.current?.click()}
+                  onOpenStock={() => setActiveMediaModal("stock")}
+                  onRenderAI={() => handleRenderMedia()}
+                  isRenderingMedia={isRenderingMedia}
+                  slides={displayOverlayTexts.map((item, idx) => ({
+                    slideNumber: idx + 1,
+                    title: item.title || `Slide ${idx + 1}`,
+                    body: item.body || "",
+                    visualPrompt: displayPrompts[idx] || customPrompt || singleImagePrompt,
+                    imageUrl: displayImageUrls[idx] || "",
+                  }))}
+                  onSlidesChange={(newSlides) => {
+                    setGeneratedContents((prev) => ({
+                      ...prev,
+                      [activePlatformTab]: {
+                        ...prev[activePlatformTab],
+                        [currentFormatName]: {
+                          ...(prev[activePlatformTab]?.[currentFormatName] || {}),
+                          visualPrompts: newSlides.map((s) => s.visualPrompt),
+                          overlayText: newSlides.map((s, i) => ({
+                            step: s.slideNumber || i + 1,
+                            title: s.title,
+                            body: s.body,
+                            theme: "gradient-purple",
+                          })),
+                        },
+                      },
+                    }));
+                  }}
+                  activeSlideIndex={activeSlideIdx}
+                  onActiveSlideChange={setActiveSlideIdx}
+                  mediaItems={currentMediaItems}
+                  onMediaItemsChange={(items) => {
+                    setMediaItemsDict((prev) => ({ ...prev, [currentFormatKey]: items }));
+                  }}
+                  activeMediaIndex={currentActiveMediaIdx}
+                  onActiveMediaChange={(idx) => {
+                    setActiveMediaIndexDict((prev) => ({ ...prev, [currentFormatKey]: idx }));
+                    setActiveSlideIdx(idx);
+                  }}
+                  prompt={customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt}
+                  onPromptChange={setCustomPrompt}
+                  onEnhancePrompt={handleEnhancePromptAI}
+                  isEnhancingPrompt={isEnhancingPrompt}
+                  onCaptionToPrompt={() => {
+                    const extracted = currentCaption.slice(0, 100).replace(/#/g, "").trim();
+                    setCustomPrompt(`Photorealistic high-end visual representing ${extracted}`);
+                  }}
+                  onGenerateCopyAI={handleGeneratePlatformCopyAI}
+                  isGeneratingCopy={aiGeneratingCaption}
+                  onRegenerateSlideAI={async (slideIdx) => {
+                    setActiveSlideIdx(slideIdx);
+                    await handleRenderMedia();
+                  }}
+                  isRegeneratingSlide={isRenderingMedia}
+                  onGenerateFullCarouselAI={async () => {
+                    await handleGeneratePlatformCopyAI();
+                    await handleRenderAllSlides();
+                  }}
+                  isGeneratingFullCarousel={aiGeneratingCaption || isRenderingAllSlides}
+                  onExportPDF={() => {
+                    window.print();
+                  }}
+                />
 
                 {/* ---------------------------------------------------------------------------- */}
-                {/* SECTION 3: HASHTAGS, FIRST COMMENT, PRODUCTS & AI REFINEMENT */}
+                {/* AI TREND SUGGESTIONS (GOOGLE SEARCH GROUNDING + BRAND DNA) */}
                 {/* ---------------------------------------------------------------------------- */}
-                <div className="space-y-3 pt-1 border-t border-slate-100 dark:border-slate-800">
-                  {/* FIRST COMMENT */}
-                  {getPlatformDef(activePlatformTab).firstCommentLimit > 0 && (
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <MessageSquareText className="h-3 w-3" />
-                          First Comment (Auto-Posted)
-                        </label>
-                        <CharacterCounter current={currentFirstComment.length} max={getPlatformDef(activePlatformTab).firstCommentLimit} />
-                      </div>
-                      <Textarea
-                        rows={2}
-                        value={currentFirstComment}
-                        onChange={(e) => setCurrentFirstComment(e.target.value)}
-                        placeholder="Add hashtags or call-to-action that posts automatically as first comment..."
-                        className="w-full text-xs p-2 border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900"
-                      />
-                    </div>
-                  )}
-
-                  {/* HASHTAG GROUPS */}
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Hashtags:</span>
-                      <div className="relative">
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setHashtagDropdownOpen(!hashtagDropdownOpen)}>
-                          <Tag className="h-3 w-3" /> Insert Group <ChevronDown className="h-3 w-3" />
-                        </Button>
-                        {hashtagDropdownOpen && (
-                          <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 p-2 space-y-2">
-                            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 flex justify-between items-center">
-                              <span>Hashtag Groups</span>
-                              <button onClick={() => setIsCreatingHashtagGroup(!isCreatingHashtagGroup)} className="text-primary hover:underline text-[10px] font-semibold flex items-center gap-0.5">
-                                <Plus className="h-3 w-3" /> New
-                              </button>
-                            </div>
-                            {isCreatingHashtagGroup && (
-                              <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-1.5 border border-slate-200 dark:border-slate-700">
-                                <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Group Name" className="h-7 text-xs" />
-                                <Input value={newGroupTags} onChange={e => setNewGroupTags(e.target.value)} placeholder="#saas #ai #marketing" className="h-7 text-xs" />
-                                <div className="flex gap-1 justify-end">
-                                  <Button size="sm" variant="ghost" className="h-6 text-[10px]" onClick={() => setIsCreatingHashtagGroup(false)}>Cancel</Button>
-                                  <Button size="sm" className="h-6 text-[10px]" onClick={handleCreateHashtagGroup}>Save Group</Button>
-                                </div>
-                              </div>
-                            )}
-                            <div className="max-h-48 overflow-y-auto space-y-1">
-                              {hashtagGroups.map(g => (
-                                <div key={g.id} className="group/item flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-                                  <button onClick={() => insertHashtagGroup(g.id)} className="flex-1 text-left truncate pr-2">
-                                    <div className="font-semibold text-slate-800 dark:text-slate-200">{g.name}</div>
-                                    <div className="text-[10px] text-slate-500 truncate">{g.tags.map(t => (t.startsWith("#") ? t : `#${t}`)).join(" ")}</div>
-                                  </button>
-                                  <Trash2 className="h-3 w-3 text-slate-400 hover:text-red-500 cursor-pointer opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0" onClick={() => handleDeleteHashtagGroup(g.id)} />
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-1 flex-1">
-                        {currentHashtags.map((tag, i) => (
-                          <span key={i} className="text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                            {tag.startsWith("#") ? tag : `#${tag}`}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* PRODUCT TAGS */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                        <ShoppingBag className="h-3 w-3" /> Products:
-                      </span>
-                      <div className="relative">
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => setProductDropdownOpen(!productDropdownOpen)}>
-                          <Plus className="h-3 w-3" /> Tag product
-                        </Button>
-                        {productDropdownOpen && (
-                          <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-10 p-1 max-h-48 overflow-y-auto">
-                            {MOCK_PRODUCTS.map(p => (
-                              <button key={p.id}
-                                onClick={() => {
-                                  if (!selectedProducts.find(sp => sp.id === p.id)) {
-                                    setSelectedProducts([...selectedProducts, p]);
-                                  }
-                                  setProductDropdownOpen(false);
-                                }}
-                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-800 rounded flex justify-between">
-                                <span>{p.name}</span>
-                                <span className="text-slate-500 font-mono">{p.price}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {selectedProducts.map(p => (
-                        <Badge key={p.id} variant="secondary" className="text-[10px] gap-1">
-                          {p.name} <X className="h-2.5 w-2.5 cursor-pointer" onClick={() => setSelectedProducts(selectedProducts.filter(sp => sp.id !== p.id))} />
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* AI REFINEMENT BUTTONS */}
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    {[
-                      { action: "regenerate", label: "Regenerate", icon: Wand2, color: "text-primary" },
-                      { action: "boost-hook", label: "Boost Hook", icon: Sparkles, color: "text-amber-500" },
-                      { action: "executive-tone", label: "Executive Tone", icon: RefreshCw, color: "text-indigo-500" },
-                      { action: "add-hashtags", label: "Add Hashtags", icon: Hash, color: "text-emerald-500" },
-                    ].map(({ action, label, icon: BtnIcon, color }) => (
-                      <Button key={action} type="button" variant="outline" size="sm"
-                        disabled={isRefining}
-                        onClick={() => handleAIRefine(action)}
-                        className="h-7 text-xs font-semibold gap-1.5 bg-white dark:bg-slate-800 hover:border-primary/50 shadow-2xs"
-                      >
-                        {isRefining && refiningAction === action
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <BtnIcon className={`h-3.5 w-3.5 ${color}`} />
-                        }
-                        <span>{label}</span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                <AITrendSuggestions
+                  platform={activePlatformTab}
+                  format={currentFormatName}
+                  onSelectTrend={handleApplyTrend}
+                  isApplyingTrend={isApplyingTrend}
+                />
               </CardContent>
             </Card>
 
@@ -2193,6 +2403,7 @@ export default function AIStudioPage() {
                             displayImageUrls={displayImageUrls}
                             displayOverlayTexts={displayOverlayTexts}
                             activeSlideIdx={activeSlideIdx}
+                            onSlideChange={(idx) => setActiveSlideIdx(idx)}
                             currentCaption={currentCaption}
                             isVertical={isVertical}
                             isHtmlSlideFormat={isHtmlSlideFormat}

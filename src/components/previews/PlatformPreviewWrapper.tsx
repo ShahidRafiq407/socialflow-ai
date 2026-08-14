@@ -19,6 +19,7 @@ interface PlatformPreviewWrapperProps {
   displayImageUrls?: string[];
   displayOverlayTexts?: any[];
   activeSlideIdx?: number;
+  onSlideChange?: (idx: number) => void;
   currentCaption?: string;
   // Facebook
   isVertical?: boolean;
@@ -42,6 +43,7 @@ export default function PlatformPreviewWrapper({
   displayImageUrls = [],
   displayOverlayTexts = [],
   activeSlideIdx = 0,
+  onSlideChange,
   currentCaption = "",
   isVertical = false,
   isHtmlSlideFormat = false,
@@ -322,6 +324,7 @@ export default function PlatformPreviewWrapper({
       displayImageUrls,
       displayOverlayTexts,
       activeSlideIdx,
+      onSlideChange,
       currentCaption,
       isLoading: false,
       isConnected: true,

@@ -25,6 +25,18 @@ export default function XPreview({
   const nameText = isConnected ? userName : "X User";
   const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_x_handle";
 
+  const isVideoUrl = (url: string | null) => {
+    if (!url) return false;
+    const lowerUrl = url.toLowerCase();
+    return (
+      lowerUrl.endsWith('.mp4') ||
+      lowerUrl.endsWith('.webm') ||
+      lowerUrl.includes('.mp4?') ||
+      lowerUrl.includes('pixabay.com/video/') ||
+      lowerUrl.startsWith('data:video/')
+    );
+  };
+
   const isThread = currentFormatName === "Thread";
 
   return (
@@ -63,7 +75,7 @@ export default function XPreview({
               <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 mb-2 leading-relaxed whitespace-pre-wrap">{currentCaption}</p>
               {displayImageUrl && (
                 <div className="w-full max-h-[280px] bg-slate-900 rounded-2xl overflow-hidden mt-3 border border-slate-200 dark:border-slate-800 flex items-center justify-center">
-                  {displayImageUrl && (displayImageUrl.toLowerCase().endsWith('.mp4') || displayImageUrl.toLowerCase().endsWith('.webm') || displayImageUrl.includes('.mp4?') || displayImageUrl.includes('pixabay.com/video/')) ? (
+                  {isVideoUrl(displayImageUrl) ? (
                     <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
                   ) : (
                     <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />

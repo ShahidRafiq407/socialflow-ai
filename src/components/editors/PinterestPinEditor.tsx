@@ -1,0 +1,504 @@
+"use client";
+
+import React, { useState } from "react";
+import {
+  Upload,
+  Sparkles,
+  ImageIcon,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Link as LinkIcon,
+  Tag,
+  ShoppingBag,
+  Info,
+  Layers,
+  Wand2,
+  Loader2,
+  Calendar,
+  Check,
+  Edit2
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
+import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
+
+interface PinterestPinEditorProps {
+  capability: PlatformCapability;
+  title: string;
+  onTitleChange: (val: string) => void;
+  description: string;
+  onDescriptionChange: (val: string) => void;
+  destinationUrl: string;
+  onDestinationUrlChange: (val: string) => void;
+  board: string;
+  onBoardChange: (val: string) => void;
+  taggedTopics: string[];
+  onTaggedTopicsChange: (topics: string[]) => void;
+  altText: string;
+  onAltTextChange: (val: string) => void;
+  displayImageUrl: string | null;
+  onRemoveMedia: () => void;
+  onOpenUpload: () => void;
+  onOpenStock: () => void;
+  onRenderAI: () => void;
+  isRenderingMedia: boolean;
+  onGenerateCopyAI: () => void;
+  isGeneratingCopy: boolean;
+  prompt: string;
+  onPromptChange: (val: string) => void;
+  onEnhancePrompt: () => void;
+  isEnhancingPrompt: boolean;
+  isVideo?: boolean;
+}
+
+export default function PinterestPinEditor({
+  capability,
+  title,
+  onTitleChange,
+  description,
+  onDescriptionChange,
+  destinationUrl,
+  onDestinationUrlChange,
+  board,
+  onBoardChange,
+  taggedTopics,
+  onTaggedTopicsChange,
+  altText,
+  onAltTextChange,
+  displayImageUrl,
+  onRemoveMedia,
+  onOpenUpload,
+  onOpenStock,
+  onRenderAI,
+  isRenderingMedia,
+  onGenerateCopyAI,
+  isGeneratingCopy,
+  prompt,
+  onPromptChange,
+  onEnhancePrompt,
+  isEnhancingPrompt,
+  isVideo = false,
+}: PinterestPinEditorProps) {
+  // Pinterest Native Form State
+  const [topicInput, setTopicInput] = useState("");
+  const [publishLater, setPublishLater] = useState(false);
+  const [isAiModified, setIsAiModified] = useState(true);
+  const [includesAiPerson, setIncludesAiPerson] = useState(false);
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(true);
+  const [allowComments, setAllowComments] = useState(true);
+  const [showSimilarProducts, setShowSimilarProducts] = useState(true);
+
+  const handleAddTopic = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && topicInput.trim()) {
+      e.preventDefault();
+      if (!taggedTopics.includes(topicInput.trim())) {
+        onTaggedTopicsChange([...taggedTopics, topicInput.trim()]);
+      }
+      setTopicInput("");
+    }
+  };
+
+  const handleRemoveTopic = (topic: string) => {
+    onTaggedTopicsChange(taggedTopics.filter((t) => t !== topic));
+  };
+
+  return (
+    <div className="space-y-6 text-left">
+      {/* HEADER & AI ACTION BAR */}
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Badge className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase px-2.5 py-0.5">
+            Pinterest {capability.format}
+          </Badge>
+          <span className="text-xs text-slate-500 font-medium">
+            2:3 Vertical Recommended (1000 × 1500 px)
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            disabled={isGeneratingCopy}
+            onClick={onGenerateCopyAI}
+            className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
+          >
+            {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            <span>Auto-Generate Pin Copy & SEO</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* TWO-COLUMN PINTEREST LAYOUT */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+        {/* LEFT COLUMN: LARGE PINTEREST MEDIA CONTAINER (MATCHES SCREENSHOT) */}
+        <div className="md:col-span-5 space-y-3">
+          <div className="relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] aspect-[2/3] overflow-hidden group shadow-2xs">
+            {displayImageUrl ? (
+              <div className="relative w-full h-full rounded-xl overflow-hidden">
+                {isVideo ? (
+                  <VideoPreviewPlayer
+                    src={displayImageUrl}
+                    className="w-full h-full object-cover rounded-xl"
+                    isVertical={true}
+                    showAlwaysPlayButton={true}
+                  />
+                ) : (
+                  <img
+                    src={displayImageUrl}
+                    alt={title || "Pinterest Pin Preview"}
+                    className="w-full h-full object-cover rounded-xl"
+                  />
+                )}
+
+                {/* EDIT/DELETE ACTIONS */}
+                <div className="absolute top-3 right-3 flex items-center gap-1.5 z-20">
+                  <button
+                    type="button"
+                    onClick={onOpenUpload}
+                    className="p-2 rounded-full bg-black/70 hover:bg-black text-white transition-colors shadow-md"
+                    title="Replace Media"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onRemoveMedia}
+                    className="p-2 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors shadow-md"
+                    title="Remove Media"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 text-center space-y-3">
+                <div className="h-14 w-14 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 flex items-center justify-center mx-auto">
+                  <ImageIcon className="h-7 w-7" />
+                </div>
+                <div>
+                  <p className="font-bold text-sm text-slate-800 dark:text-slate-200">Choose a file or drag and drop it here</p>
+                  <p className="text-xs text-slate-400 mt-1">We recommend high quality .jpg or .mp4 files under 20MB</p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenUpload}
+                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto"
+                  >
+                    <Upload className="h-3.5 w-3.5 text-emerald-500" /> Upload PC
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenStock}
+                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isRenderingMedia}
+                    onClick={onRenderAI}
+                    className="h-8 text-xs font-bold gap-1 bg-gradient-to-r from-red-600 to-pink-600 text-white shadow-xs w-full sm:w-auto"
+                  >
+                    {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    <span>AI Gen</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI VISUAL PROMPT ENHANCER */}
+          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                <Wand2 className="h-3 w-3 text-red-500" /> AI Image / Visual Prompt
+              </span>
+              <button
+                type="button"
+                disabled={isEnhancingPrompt}
+                onClick={onEnhancePrompt}
+                className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1"
+              >
+                {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                <span>Enhance Prompt ✨</span>
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={prompt}
+                onChange={(e) => onPromptChange(e.target.value)}
+                placeholder="Describe vertical Pin visual style..."
+                className="h-8 text-xs bg-white dark:bg-slate-900"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={isRenderingMedia}
+                onClick={onRenderAI}
+                className="h-8 px-2.5 text-xs bg-red-600 hover:bg-red-700 text-white shrink-0"
+              >
+                Generate
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: PINTEREST NATIVE FIELDS (MATCHES SCREENSHOT EXACTLY) */}
+        <div className="md:col-span-7 space-y-4">
+          {/* TITLE */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Title</label>
+              <span className="text-[11px] text-slate-400 font-mono">{title.length} / 100</span>
+            </div>
+            <Input
+              value={title}
+              maxLength={100}
+              onChange={(e) => onTitleChange(e.target.value)}
+              placeholder="Tell everyone what your Pin is about"
+              className="h-10 text-sm font-semibold rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+            />
+          </div>
+
+          {/* DESCRIPTION */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Description</label>
+              <span className="text-[11px] text-slate-400 font-mono">{description.length} / 500</span>
+            </div>
+            <Textarea
+              rows={4}
+              maxLength={500}
+              value={description}
+              onChange={(e) => onDescriptionChange(e.target.value)}
+              placeholder="Describe your Pin"
+              className="w-full text-xs sm:text-sm leading-relaxed p-3 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+            />
+          </div>
+
+          {/* DESTINATION LINK */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Link</label>
+            <div className="relative">
+              <LinkIcon className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <Input
+                value={destinationUrl}
+                onChange={(e) => onDestinationUrlChange(e.target.value)}
+                placeholder="Add a link (e.g. https://yourwebsite.com/article)"
+                className="h-10 pl-9 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+              />
+            </div>
+          </div>
+
+          {/* BOARD SELECTOR */}
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Board</label>
+            <div className="relative">
+              <select
+                value={board}
+                onChange={(e) => onBoardChange(e.target.value)}
+                className="w-full h-10 px-3 pr-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-800 dark:text-slate-200 appearance-none focus:ring-2 focus:ring-red-500/20"
+              >
+                <option value="Smart Robotics & AI">Smart Robotics & AI</option>
+                <option value="Tech Inspiration">Tech Inspiration</option>
+                <option value="DIY Electronics">DIY Electronics</option>
+                <option value="Digital Marketing Strategies">Digital Marketing Strategies</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* TAGGED TOPICS */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Tagged topics ({taggedTopics.length})
+              </label>
+              <span className="text-[10px] text-slate-400">Press Enter to add tag</span>
+            </div>
+            <Input
+              value={topicInput}
+              onChange={(e) => setTopicInput(e.target.value)}
+              onKeyDown={handleAddTopic}
+              placeholder="Search for a tag (e.g. Robotics, Artificial Intelligence, Automation)"
+              className="h-10 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+            />
+            <p className="text-[11px] text-slate-400">Don't worry, people won't see your tags</p>
+
+            {taggedTopics.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {taggedTopics.map((topic, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-full"
+                  >
+                    <span>{topic}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTopic(topic)}
+                      className="hover:text-red-500 ml-0.5"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* TAG PRODUCTS */}
+          <div className="pt-1">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">Tag Products</label>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-xs font-semibold gap-1.5 rounded-lg">
+              <ShoppingBag className="h-3.5 w-3.5 text-slate-500" />
+              <span>Add products</span>
+            </Button>
+          </div>
+
+          {/* TOGGLES: PUBLISH LATER & AI MODIFIED (MATCHES SCREENSHOT) */}
+          <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+            {/* PUBLISH AT A LATER DATE */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Publish at a later date</span>
+              <button
+                type="button"
+                onClick={() => setPublishLater(!publishLater)}
+                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                  publishLater ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
+                }`}
+              >
+                <div
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                    publishLater ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* MARK AS AI-MODIFIED */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">Mark as AI-Modified</span>
+                  <span className="text-[11px] text-slate-400 block">Content that was made completely or partly with AI</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAiModified(!isAiModified)}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                    isAiModified ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
+                  }`}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                      isAiModified ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {isAiModified && (
+                <div className="pl-6 pt-1 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="ai-person"
+                    checked={includesAiPerson}
+                    onChange={(e) => setIncludesAiPerson(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                  />
+                  <label htmlFor="ai-person" className="text-xs text-slate-500 dark:text-slate-400">
+                    This Pin includes an AI-generated person
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* MORE OPTIONS (COLLAPSIBLE - MATCHES SCREENSHOT) */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+            <button
+              type="button"
+              onClick={() => setMoreOptionsOpen(!moreOptionsOpen)}
+              className="flex items-center justify-between w-full text-xs font-bold text-slate-800 dark:text-slate-200"
+            >
+              <span>More options</span>
+              {moreOptionsOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+
+            {moreOptionsOpen && (
+              <div className="space-y-4 pt-1">
+                {/* ALLOW COMMENTS */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-700 dark:text-slate-300">Allow people to comment</span>
+                  <button
+                    type="button"
+                    onClick={() => setAllowComments(!allowComments)}
+                    className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                      allowComments ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                        allowComments ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* SHOW SIMILAR PRODUCTS */}
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-700 dark:text-slate-300">Show similar products</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowSimilarProducts(!showSimilarProducts)}
+                      className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                        showSimilarProducts ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
+                      }`}
+                    >
+                      <div
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                          showSimilarProducts ? "translate-x-5" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    People can shop products similar to what's shown in this Pin using visual search.
+                  </p>
+                </div>
+
+                {/* ALT TEXT */}
+                <div className="space-y-1 pt-1">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Alt Text</label>
+                  <Textarea
+                    rows={2}
+                    value={altText}
+                    onChange={(e) => onAltTextChange(e.target.value)}
+                    placeholder="Describe your Pin's visual details"
+                    className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    This helps people using screen readers understand what your Pin is about.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

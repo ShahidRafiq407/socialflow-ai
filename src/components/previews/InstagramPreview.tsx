@@ -1,5 +1,5 @@
 import React from "react";
-import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Camera } from "lucide-react";
+import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Camera, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface InstagramPreviewProps {
   currentFormatName: string;
@@ -7,6 +7,7 @@ interface InstagramPreviewProps {
   displayImageUrls: string[];
   displayOverlayTexts: any[];
   activeSlideIdx: number;
+  onSlideChange?: (idx: number) => void;
   userName: string;
   userImage: string | null;
   userHandle: string;
@@ -21,6 +22,7 @@ export default function InstagramPreview({
   displayImageUrls,
   displayOverlayTexts,
   activeSlideIdx,
+  onSlideChange,
   userName,
   userImage,
   userHandle,
@@ -42,6 +44,9 @@ export default function InstagramPreview({
 
   const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_instagram";
   const nameText = isConnected ? (userName || userHandle.replace(/^@/, '')) : "Instagram Account";
+
+  const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
+  const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
 
   if (currentFormatName === "Story" || currentFormatName === "Reel") {
     return (
@@ -70,10 +75,10 @@ export default function InstagramPreview({
           <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
-            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : displayImageUrl ? (
-            <img src={displayImageUrl} alt="Reel" className="w-full h-full object-cover" />
+          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : currentSlideMedia ? (
+            <img src={currentSlideMedia} alt="Reel" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full bg-slate-900 flex items-center justify-center text-slate-600 text-xs">Preview Media</div>
           )}
@@ -93,7 +98,7 @@ export default function InstagramPreview({
   }
 
   return (
-    <div className="w-full max-w-[340px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md rounded-xl overflow-hidden">
+    <div className="w-full max-w-[340px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md rounded-xl overflow-hidden text-left">
       <div className="flex items-center justify-between p-3">
         {isLoading ? (
           <div className="flex items-center gap-2.5 animate-pulse">
@@ -116,39 +121,91 @@ export default function InstagramPreview({
         )}
         <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
       </div>
-      <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-900 flex items-center justify-center">
-        {displayImageUrl && isVideoUrl(displayImageUrl) ? (
-          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-        ) : displayImageUrl ? (
-          <img src={displayImageUrl} alt="Feed" className="w-full h-full object-cover" />
+
+      <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-900 flex items-center justify-center group">
+        {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+          <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+        ) : currentSlideMedia ? (
+          <img src={currentSlideMedia} alt={`Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
         ) : (
           <div className="text-slate-600 text-xs">Preview Media</div>
         )}
+
+        {/* STEP OVERLAY (for Carousels / Idea Pins / Stories) */}
         {displayOverlayTexts[activeSlideIdx] && (
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-5 z-10">
-            <div className="bg-primary/90 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-2 backdrop-blur-sm shadow-sm border border-white/20">
-              Step {activeSlideIdx + 1}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-4 z-10 pointer-events-none">
+            <div className="bg-primary/95 text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-1.5 backdrop-blur-sm shadow-sm border border-white/20">
+              Step {displayOverlayTexts[activeSlideIdx].step || activeSlideIdx + 1}
             </div>
-            <h3 className="text-white font-extrabold text-lg sm:text-xl leading-tight mb-1.5 drop-shadow-md">
+            <h3 className="text-white font-extrabold text-base sm:text-lg leading-tight mb-1 drop-shadow-md">
               {displayOverlayTexts[activeSlideIdx].title}
             </h3>
-            <p className="text-slate-200 text-xs sm:text-sm font-medium leading-snug drop-shadow-sm max-w-[95%]">
+            <p className="text-slate-200 text-[11px] sm:text-xs font-medium leading-snug drop-shadow-sm max-w-[95%]">
               {displayOverlayTexts[activeSlideIdx].body}
             </p>
           </div>
         )}
-        {displayImageUrls.length > 1 && (
-          <div className="absolute top-3 right-3 bg-black/60 rounded-full px-2 py-0.5 text-[10px] text-white font-semibold z-20">
-            {activeSlideIdx + 1}/{displayImageUrls.length}
+
+        {/* CAROUSEL PAGINATION BADGE */}
+        {totalSlides > 1 && (
+          <div className="absolute top-3 right-3 bg-black/70 backdrop-blur-xs rounded-full px-2 py-0.5 text-[10px] text-white font-bold tracking-wide z-20 shadow-sm border border-white/10">
+            {activeSlideIdx + 1}/{totalSlides}
           </div>
         )}
+
+        {/* INTERACTIVE CAROUSEL ARROWS */}
+        {totalSlides > 1 && onSlideChange && (
+          <>
+            {activeSlideIdx > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSlideChange(activeSlideIdx - 1);
+                }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center z-20 shadow-md backdrop-blur-xs transition-transform hover:scale-105"
+                title="Previous Slide"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+            {activeSlideIdx < totalSlides - 1 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSlideChange(activeSlideIdx + 1);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center z-20 shadow-md backdrop-blur-xs transition-transform hover:scale-105"
+                title="Next Slide"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+          </>
+        )}
       </div>
+
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-4 text-slate-900 dark:text-white">
-            <Heart className="h-6 w-6" /><MessageCircle className="h-6 w-6" /><Send className="h-[22px] w-[22px]" />
+            <Heart className="h-6 w-6 cursor-pointer" /><MessageCircle className="h-6 w-6 cursor-pointer" /><Send className="h-[22px] w-[22px] cursor-pointer" />
           </div>
-          <Bookmark className="h-6 w-6 text-slate-900 dark:text-white" />
+          {totalSlides > 1 && (
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalSlides }).map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onSlideChange && onSlideChange(i)}
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === activeSlideIdx ? "w-4 bg-primary" : "w-1.5 bg-slate-300 dark:bg-slate-700"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+          <Bookmark className="h-6 w-6 text-slate-900 dark:text-white cursor-pointer" />
         </div>
         <p className="text-[13px] font-semibold text-slate-900 dark:text-white mb-1">1,234 likes</p>
         <p className="text-[13px] text-slate-900 dark:text-white leading-snug line-clamp-3">
@@ -159,3 +216,4 @@ export default function InstagramPreview({
     </div>
   );
 }
+

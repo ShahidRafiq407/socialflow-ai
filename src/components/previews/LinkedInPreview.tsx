@@ -1,9 +1,13 @@
 import React, { useState } from "react";
-import { MoreHorizontal, Globe, ThumbsUp, Heart, MessageCircle, Repeat2, Send, Briefcase } from "lucide-react";
+import { MoreHorizontal, Globe, ThumbsUp, Heart, MessageCircle, Repeat2, Send, Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface LinkedInPreviewProps {
   currentFormatName: string;
   displayImageUrl: string | null;
+  displayImageUrls?: string[];
+  displayOverlayTexts?: any[];
+  activeSlideIdx?: number;
+  onSlideChange?: (idx: number) => void;
   userName: string;
   userImage: string | null;
   currentCaption: string;
@@ -14,6 +18,10 @@ interface LinkedInPreviewProps {
 export default function LinkedInPreview({
   currentFormatName,
   displayImageUrl,
+  displayImageUrls = [],
+  displayOverlayTexts = [],
+  activeSlideIdx = 0,
+  onSlideChange,
   userName,
   userImage,
   currentCaption,
@@ -39,6 +47,8 @@ export default function LinkedInPreview({
   };
 
   const isShortVideo = currentFormatName === "Short Video";
+  const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
+  const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
 
   if (isShortVideo) {
     return (
@@ -54,10 +64,10 @@ export default function LinkedInPreview({
           <span className="bg-[#0A66C2] text-[10px] font-semibold px-2 py-0.5 rounded text-white">Video</span>
         </div>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
-            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : displayImageUrl ? (
-            <img src={displayImageUrl} alt="Short Video" className="w-full h-full object-cover" />
+          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+          ) : currentSlideMedia ? (
+            <img src={currentSlideMedia} alt="Short Video" className="w-full h-full object-cover" />
           ) : (
             <div className="text-slate-500 text-xs">LinkedIn Video</div>
           )}
@@ -116,17 +126,66 @@ export default function LinkedInPreview({
         )}
       </div>
 
-      {displayImageUrl && (
-        <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
-            <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+      {currentSlideMedia && (
+        <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group">
+          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
           ) : (
-            <img src={displayImageUrl} alt="LinkedIn Post" className="w-full h-full object-cover" />
+            <img src={currentSlideMedia} alt={`LinkedIn Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
           )}
-          {currentFormatName === "Carousel" && (
-            <div className="absolute bottom-2 right-2 bg-black/75 text-white text-[10px] px-2 py-0.5 rounded font-semibold backdrop-blur-xs">
-              Slide 1 of 5
+
+          {/* STEP OVERLAY */}
+          {displayOverlayTexts[activeSlideIdx] && (
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-4 z-10 pointer-events-none">
+              <div className="bg-[#0A66C2] text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-1.5 shadow-sm">
+                Insight {displayOverlayTexts[activeSlideIdx].step || activeSlideIdx + 1}
+              </div>
+              <h3 className="text-white font-extrabold text-base leading-tight mb-1 drop-shadow-md">
+                {displayOverlayTexts[activeSlideIdx].title}
+              </h3>
+              <p className="text-slate-200 text-xs font-medium leading-snug drop-shadow-sm max-w-[95%]">
+                {displayOverlayTexts[activeSlideIdx].body}
+              </p>
             </div>
+          )}
+
+          {/* SLIDE PAGINATION PILL */}
+          {currentFormatName === "Carousel" && (
+            <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wide backdrop-blur-xs z-20 border border-white/10 shadow-sm">
+              Slide {activeSlideIdx + 1} of {totalSlides}
+            </div>
+          )}
+
+          {/* INTERACTIVE CAROUSEL ARROWS */}
+          {totalSlides > 1 && onSlideChange && (
+            <>
+              {activeSlideIdx > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSlideChange(activeSlideIdx - 1);
+                  }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center z-20 shadow-md backdrop-blur-xs transition-transform hover:scale-105"
+                  title="Previous Slide"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              )}
+              {activeSlideIdx < totalSlides - 1 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSlideChange(activeSlideIdx + 1);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center z-20 shadow-md backdrop-blur-xs transition-transform hover:scale-105"
+                  title="Next Slide"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

@@ -95,9 +95,11 @@ Return ONLY valid JSON.`;
             topic: payload.topic,
           });
           content.imageUrls = mediaRes.map((m) => m.url);
+          content.slideUrls = content.imageUrls;
           content.imageUrl = content.imageUrls[0];
         } catch (e) {
           content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, isCarousel ? "4:5" : "2:3", i));
+          content.slideUrls = content.imageUrls;
           content.imageUrl = content.imageUrls[0];
         }
       } else if (isVideo) {

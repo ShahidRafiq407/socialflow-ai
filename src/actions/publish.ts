@@ -8,7 +8,7 @@ export async function saveDraft(postData: any) {
   const { userId } = await auth();
   if (!userId) throw new Error('Unauthorized');
 
-  let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook } = postData;
+  let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook, mediaHistory, captionHistory, agentLogs } = postData;
 
   if (!workspaceId) {
     const workspace = await prisma.workspace.findFirst({ where: { userId } });
@@ -16,7 +16,7 @@ export async function saveDraft(postData: any) {
     workspaceId = workspace.id;
   }
 
-  const data = {
+  const data: any = {
     workspaceId,
     platform,
     content,
@@ -31,6 +31,16 @@ export async function saveDraft(postData: any) {
     campaignHook,
     status: 'DRAFT',
   };
+
+  if (mediaHistory !== undefined) {
+    data.mediaHistory = mediaHistory;
+  }
+  if (captionHistory !== undefined) {
+    data.captionHistory = captionHistory;
+  }
+  if (agentLogs !== undefined) {
+    data.agentLogs = agentLogs;
+  }
 
   if (id) {
     return await prisma.post.update({
@@ -78,7 +88,7 @@ export async function publishNow(postId: string) {
     tiktok: 'TIKTOK',
     pinterest: 'PINTEREST',
   };
-  const basePlatform = post.platform.split(' ')[0].toLowerCase();
+  const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
   const platformEnum = platformEnumMap[basePlatform];
 
   if (!platformEnum) throw new Error(`Unknown platform: ${post.platform}`);
