@@ -483,7 +483,7 @@ export default function AIStudioPage() {
   const [selectedStockCategory, setSelectedStockCategory] = useState<string>("Business");
   const [carouselSlideCount, setCarouselSlideCount] = useState<number>(5);
   const [carouselCustomPrompt, setCarouselCustomPrompt] = useState<string>("");
-  const [selectedAiImageModel, setSelectedAiImageModel] = useState<string>("pollinations");
+  const [selectedAiImageModel, setSelectedAiImageModel] = useState<string>("gemini-3-pro-image");
   const [selectedAiVideoModel, setSelectedAiVideoModel] = useState<string>("template");
   const [videoPromptText, setVideoPromptText] = useState<string>("");
   const [aiGeneratingCaption, setAiGeneratingCaption] = useState<boolean>(false);
@@ -3449,11 +3449,9 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="pollinations">Pollinations AI (Fast High-Res - Free)</option>
-                    <option value="flux">Flux.1 / Imagen 3 Photorealistic</option>
-                    <option value="midjourney">Midjourney v6 Artistic Style</option>
-                    <option value="dalle">DALL-E 3 / ChatGPT Image Model</option>
-                    <option value="banana">Banana SDXL Ultra Speed</option>
+                    <option value="gemini-3-pro-image">Gemini 3 Pro Image (Official High-Res)</option>
+                    <option value="imagen-3.0-generate-002">Google Imagen 3 Photorealistic</option>
+                    <option value="flux">Flux.1 Studio Marketing Style</option>
                   </select>
                 </div>
                 <div>
