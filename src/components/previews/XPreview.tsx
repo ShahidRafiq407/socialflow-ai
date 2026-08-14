@@ -76,7 +76,7 @@ export default function XPreview({
               {displayImageUrl && (
                 <div className="w-full max-h-[280px] bg-slate-900 rounded-2xl overflow-hidden mt-3 border border-slate-200 dark:border-slate-800 flex items-center justify-center">
                   {isVideoUrl(displayImageUrl) ? (
-                    <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+                    <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
                   ) : (
                     <img src={displayImageUrl} alt="Tweet" className="w-full h-full object-cover" />
                   )}

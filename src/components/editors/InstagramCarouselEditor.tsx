@@ -240,6 +240,7 @@ export default function InstagramCarouselEditor({
                 title={`Slide ${currentIdx + 1} Visual`}
                 isVertical={false}
                 accentColor="pink"
+                mediaType="carousel"
               />
             ) : activeSlide.imageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">

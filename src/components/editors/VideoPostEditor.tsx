@@ -138,6 +138,7 @@ export default function VideoPostEditor({
                 title={`Generating ${durationSec}s Video`}
                 isVertical={isVertical}
                 accentColor="indigo"
+                mediaType="video"
               />
             ) : videoStatus === "failed" ? (
               <div className="text-center p-4 space-y-2.5">

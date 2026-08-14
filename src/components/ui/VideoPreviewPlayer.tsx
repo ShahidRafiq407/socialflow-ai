@@ -53,7 +53,13 @@ export default function VideoPreviewPlayer({
     video.addEventListener("pause", handlePause);
 
     if (autoPlay) {
-      video.play().catch(() => setIsPlaying(false));
+      video.muted = true;
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => setIsPlaying(true))
+          .catch(() => setIsPlaying(false));
+      }
     }
 
     return () => {
@@ -105,6 +111,7 @@ export default function VideoPreviewPlayer({
         muted={isMuted}
         loop={loop}
         playsInline
+        preload="auto"
         className="w-full h-full object-cover"
       />
 

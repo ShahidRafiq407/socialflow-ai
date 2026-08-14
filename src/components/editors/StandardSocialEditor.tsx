@@ -117,6 +117,7 @@ export default function StandardSocialEditor({
                 title="Generating Image..."
                 isVertical={isSquare}
                 accentColor="indigo"
+                mediaType="image"
               />
             ) : displayImageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">

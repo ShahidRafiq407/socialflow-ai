@@ -64,16 +64,16 @@ function validateAssetUrl(url: string, type: "image" | "video") {
 
 const VERIFIED_MARKETING_VIDEOS = {
   vertical: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyBlazes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+    "https://cdn.pixabay.com/video/2023/10/22/185984-876939989_tiny.mp4", // Modern Tech/Digital
+    "https://cdn.pixabay.com/video/2021/04/12/70889-536417726_tiny.mp4", // Business Strategy Meeting
+    "https://cdn.pixabay.com/video/2020/09/20/50534-461421685_tiny.mp4", // Creative Workspace
+    "https://cdn.pixabay.com/video/2022/11/04/137648-767931398_tiny.mp4", // Social Media/Mobile Content
+    "https://cdn.pixabay.com/video/2022/05/18/117387-711904791_tiny.mp4", // Growth & Neural Analytics
   ],
   widescreen: [
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+    "https://cdn.pixabay.com/video/2023/10/22/185984-876939989_tiny.mp4",
+    "https://cdn.pixabay.com/video/2021/04/12/70889-536417726_tiny.mp4",
+    "https://cdn.pixabay.com/video/2022/05/18/117387-711904791_tiny.mp4",
   ],
 };
 

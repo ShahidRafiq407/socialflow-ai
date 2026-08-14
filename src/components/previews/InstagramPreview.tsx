@@ -76,7 +76,7 @@ export default function InstagramPreview({
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : currentFormatName === "Story" && currentSlideMedia ? (
             <img src={currentSlideMedia} alt="Story" className="w-full h-full object-cover" />
           ) : (

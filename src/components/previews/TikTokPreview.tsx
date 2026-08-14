@@ -39,7 +39,7 @@ export default function TikTokPreview({
     <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-black text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
         {displayImageUrl && isVideoUrl(displayImageUrl) ? (
-          <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover opacity-90" />
+          <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover opacity-90" />
         ) : (
           <div className="w-full h-full bg-black flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
             <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">TikTok Video Preview</span>

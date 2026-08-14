@@ -65,7 +65,7 @@ export default function LinkedInPreview({
         </div>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
               <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">LinkedIn Video Preview</span>
@@ -130,7 +130,7 @@ export default function LinkedInPreview({
       {currentSlideMedia && (
         <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
+            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <img src={currentSlideMedia} alt={`LinkedIn Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
           )}

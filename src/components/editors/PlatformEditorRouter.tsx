@@ -116,6 +116,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
         isVideo={format === "Video Pin" || capability.mediaType === "video"}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
       />
     );
   }

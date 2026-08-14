@@ -80,7 +80,7 @@ export default function PinterestPreview({
           )
         ) : currentFormatName === "Video Pin" ? (
           currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (
             <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-3 text-center">
               <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Video Pin Preview</span>
@@ -89,7 +89,7 @@ export default function PinterestPreview({
           )
         ) : currentSlideMedia ? (
           isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (
             <img src={currentSlideMedia} alt={`Pin Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           )

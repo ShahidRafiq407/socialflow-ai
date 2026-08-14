@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
+import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 
 interface PinterestPinEditorProps {
   capability: PlatformCapability;
@@ -55,6 +56,8 @@ interface PinterestPinEditorProps {
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
   isVideo?: boolean;
+  generationProgress?: number;
+  generationStage?: string;
 }
 
 export default function PinterestPinEditor({
@@ -84,6 +87,8 @@ export default function PinterestPinEditor({
   onEnhancePrompt,
   isEnhancingPrompt,
   isVideo = false,
+  generationProgress,
+  generationStage,
 }: PinterestPinEditorProps) {
   // Pinterest Native Form State
   const [topicInput, setTopicInput] = useState("");
@@ -166,7 +171,16 @@ export default function PinterestPinEditor({
         {/* LEFT COLUMN: LARGE PINTEREST MEDIA CONTAINER (MATCHES SCREENSHOT) */}
         <div className="md:col-span-5 space-y-3">
           <div className="relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] aspect-[2/3] overflow-hidden group shadow-2xs">
-            {displayImageUrl ? (
+            {isRenderingMedia ? (
+              <GenerationProgressIndicator
+                progress={generationProgress || 0}
+                stage={generationStage}
+                title={isVideo ? "Generating Video Pin" : "Generating Pin Visual"}
+                isVertical={true}
+                accentColor="red"
+                mediaType={isVideo ? "video" : "image"}
+              />
+            ) : displayImageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 {isVideo ? (
                   <VideoPreviewPlayer
@@ -269,7 +283,7 @@ export default function PinterestPinEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-xs"
             >
               {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingMedia ? "Generating Pin Visual..." : "Generate Pin Visual"}</span>
+              <span>{isRenderingMedia ? `Generating Pin Visual (${generationProgress || 0}%)...` : "Generate Pin Visual"}</span>
             </Button>
           </div>
         </div>

@@ -325,6 +325,7 @@ export default function PinterestIdeaPinEditor({
                 title={`Generating Page ${currentIdx + 1}`}
                 isVertical={true}
                 accentColor="red"
+                mediaType="ideapin"
               />
             ) : activePage.mediaUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
