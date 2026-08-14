@@ -946,8 +946,12 @@ export default function AIStudioPage() {
   const [altTextDict, setAltTextDict] = useState<Record<string, string>>({});
   const [mediaItemsDict, setMediaItemsDict] = useState<Record<string, MultiMediaItem[]>>({});
   const [activeMediaIndexDict, setActiveMediaIndexDict] = useState<Record<string, number>>({});
-  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const [isApplyingTrend, setIsApplyingTrend] = useState(false);
+
+  // Format-Scoped Parallel Generation States
+  const [generatingCopyKeys, setGeneratingCopyKeys] = useState<Record<string, boolean>>({});
+  const [enhancingPromptKeys, setEnhancingPromptKeys] = useState<Record<string, boolean>>({});
+  const [scriptPromptKeys, setScriptPromptKeys] = useState<Record<string, boolean>>({});
 
   const currentTitle = titleDict[currentFormatKey] || "";
   const currentDescription = descriptionDict[currentFormatKey] || "";
@@ -961,53 +965,45 @@ export default function AIStudioPage() {
   const currentActiveMediaIdx = activeMediaIndexDict[currentFormatKey] || 0;
 
   // ============================================================================
-  // REAL MULTI-AGENT PLATFORM COPY GENERATOR
+  // REAL MULTI-AGENT PLATFORM COPY GENERATOR (PARALLEL & TAB-ISOLATED)
   // ============================================================================
   const handleGeneratePlatformCopyAI = async () => {
-    setAiGeneratingCaption(true);
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetKey = `${targetPlatform}-${targetFormat}`;
+    const targetPrompt = customPromptDict[targetKey] || "";
+    const targetTopic = campaignTopic;
+
+    setGeneratingCopyKeys(prev => ({ ...prev, [targetKey]: true }));
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "generate-platform-copy",
-          platform: activePlatformTab,
-          format: currentFormatName,
-          topic: campaignTopic,
-          customPrompt,
+          platform: targetPlatform,
+          format: targetFormat,
+          topic: targetTopic,
+          customPrompt: targetPrompt,
+          duration: videoDurationSec,
         }),
       });
       const data = await res.json();
       if (data.success && data.data) {
         const item = data.data;
-        if (item.caption) updateCaption(item.caption);
-        if (item.title) {
-          setTitleDict(prev => ({ ...prev, [currentFormatKey]: item.title }));
-        }
-        if (item.description) {
-          setDescriptionDict(prev => ({ ...prev, [currentFormatKey]: item.description }));
-        }
-        if (item.taggedTopics) {
-          setTaggedTopicsDict(prev => ({ ...prev, [currentFormatKey]: item.taggedTopics }));
-        }
-        if (item.altText) {
-          setAltTextDict(prev => ({ ...prev, [currentFormatKey]: item.altText }));
-        }
-        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
-        if (generatedPrompt) {
-          setCustomPrompt(generatedPrompt);
-        }
+
         setGeneratedContents(prev => {
-          const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {};
+          const currentPlat = prev[targetPlatform] || {};
+          const currentFmt = currentPlat[targetFormat] || {};
           return {
             ...prev,
-            [activePlatformTab]: {
-              ...prev[activePlatformTab],
-              [currentFormatName]: {
+            [targetPlatform]: {
+              ...currentPlat,
+              [targetFormat]: {
                 ...currentFmt,
                 caption: item.caption || currentFmt.caption,
                 hashtags: item.hashtags || currentFmt.hashtags,
-                imagePrompt: generatedPrompt || currentFmt.imagePrompt,
+                imagePrompt: item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || currentFmt.imagePrompt,
                 visualPrompts: item.slides && Array.isArray(item.slides)
                   ? item.slides.map((s: any) => s.visualPrompt || "")
                   : (item.visualPrompts || currentFmt.visualPrompts),
@@ -1023,63 +1019,107 @@ export default function AIStudioPage() {
             }
           };
         });
+
+        if (item.title) {
+          setTitleDict(prev => ({ ...prev, [targetKey]: item.title }));
+        }
+        if (item.description) {
+          setDescriptionDict(prev => ({ ...prev, [targetKey]: item.description }));
+        }
+        if (item.taggedTopics) {
+          setTaggedTopicsDict(prev => ({ ...prev, [targetKey]: item.taggedTopics }));
+        }
+        if (item.altText) {
+          setAltTextDict(prev => ({ ...prev, [targetKey]: item.altText }));
+        }
+        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
+        if (generatedPrompt) {
+          setCustomPromptDict(prev => ({ ...prev, [targetKey]: generatedPrompt }));
+        }
       }
     } catch (e) {
       console.error("Platform copy AI generation error:", e);
     } finally {
-      setAiGeneratingCaption(false);
+      setGeneratingCopyKeys(prev => {
+        const next = { ...prev };
+        delete next[targetKey];
+        return next;
+      });
     }
   };
 
   const handleEnhancePromptAI = async () => {
-    setIsEnhancingPrompt(true);
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetKey = `${targetPlatform}-${targetFormat}`;
+    const targetPrompt = customPromptDict[targetKey] !== undefined && customPromptDict[targetKey] !== ""
+      ? customPromptDict[targetKey]
+      : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
+
+    setEnhancingPromptKeys(prev => ({ ...prev, [targetKey]: true }));
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "enhance-prompt",
-          prompt: customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt,
-          platform: activePlatformTab,
-          format: currentFormatName,
+          prompt: targetPrompt,
+          platform: targetPlatform,
+          format: targetFormat,
           topic: campaignTopic,
         }),
       });
       const data = await res.json();
       if (data.success && data.enhancedPrompt) {
-        setCustomPrompt(data.enhancedPrompt);
+        setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.enhancedPrompt }));
       }
     } catch (e) {
-      console.error(e);
+      console.error("Enhance prompt error:", e);
     } finally {
-      setIsEnhancingPrompt(false);
+      setEnhancingPromptKeys(prev => {
+        const next = { ...prev };
+        delete next[targetKey];
+        return next;
+      });
     }
   };
 
-  const [isGeneratingPromptFromScript, setIsGeneratingPromptFromScript] = useState(false);
   const handleCaptionToPrompt = async () => {
-    setIsGeneratingPromptFromScript(true);
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetKey = `${targetPlatform}-${targetFormat}`;
+    const targetCaption = generatedContents[targetPlatform]?.[targetFormat]?.caption || currentCaption;
+
+    if (!targetCaption || !targetCaption.trim()) {
+      return;
+    }
+
+    setScriptPromptKeys(prev => ({ ...prev, [targetKey]: true }));
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "auto-prompt-from-script",
-          caption: currentCaption,
-          platform: activePlatformTab,
-          format: currentFormatName,
+          caption: targetCaption,
+          platform: targetPlatform,
+          format: targetFormat,
           topic: campaignTopic,
           duration: videoDurationSec,
         }),
       });
       const data = await res.json();
       if (data.success && data.prompt) {
-        setCustomPrompt(data.prompt);
+        setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.prompt }));
       }
     } catch (err) {
       console.error("Auto prompt from script failed:", err);
     } finally {
-      setIsGeneratingPromptFromScript(false);
+      setScriptPromptKeys(prev => {
+        const next = { ...prev };
+        delete next[targetKey];
+        return next;
+      });
     }
   };
 
@@ -1237,9 +1277,8 @@ export default function AIStudioPage() {
     }
   };
 
-  const [isRenderingMedia, setIsRenderingMedia] = useState(false);
-  const [isRenderingAllSlides, setIsRenderingAllSlides] = useState(false);
-  const [renderingFormatKey, setRenderingFormatKey] = useState<string | null>(null);
+  const [renderingMediaKeys, setRenderingMediaKeys] = useState<Record<string, boolean>>({});
+  const [renderingAllSlidesKeys, setRenderingAllSlidesKeys] = useState<Record<string, boolean>>({});
   const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
   const [customPromptDict, setCustomPromptDict] = useState<Record<string, string>>({});
   const customPrompt = customPromptDict[currentFormatKey] !== undefined
@@ -1253,40 +1292,55 @@ export default function AIStudioPage() {
   const renderedImageUrl = renderedImageUrlsDict[currentMediaKey] || null;
 
   const [videoDurationSec, setVideoDurationSec] = useState<number>(5);
-  const [videoStatus, setVideoStatus] = useState<"idle" | "queued" | "processing" | "completed" | "failed">("idle");
-  const [videoError, setVideoError] = useState<string | null>(null);
-  const [generationProgress, setGenerationProgress] = useState<number>(0);
-  const [generationStage, setGenerationStage] = useState<string>("");
+  const [videoStatusDict, setVideoStatusDict] = useState<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>({});
+  const [videoErrorDict, setVideoErrorDict] = useState<Record<string, string | null>>({});
+  const [generationProgressDict, setGenerationProgressDict] = useState<Record<string, number>>({});
+  const [generationStageDict, setGenerationStageDict] = useState<Record<string, string>>({});
+
+  const videoStatus = videoStatusDict[currentFormatKey] || "idle";
+  const videoError = videoErrorDict[currentFormatKey] || null;
+  const generationProgress = generationProgressDict[currentFormatKey] || 0;
+  const generationStage = generationStageDict[currentFormatKey] || "";
+  const isRenderingMedia = Boolean(renderingMediaKeys[currentFormatKey]);
 
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
   const handleRenderMedia = async () => {
-    setRenderingFormatKey(currentFormatKey);
-    setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
-    const activePrompt = customPrompt !== "" ? customPrompt : (displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`);
-    setIsRenderingMedia(true);
-    setVideoError(null);
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetFormatKey = `${targetPlatform}-${targetFormat}`;
+    const targetSlideIdx = activeSlideIdx;
+    const targetMediaKey = `${targetPlatform}-${targetFormat}-${targetSlideIdx}`;
+    const isVideo = getPlatformCapability(targetPlatform, targetFormat).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(targetFormat);
+    const targetPrompt = customPromptDict[targetFormatKey] !== undefined && customPromptDict[targetFormatKey] !== ""
+      ? customPromptDict[targetFormatKey]
+      : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`);
+    const targetAspect = currentAspectRatio;
 
-    if (isCurrentVideoFormat) {
-      setVideoStatus("processing");
-      setGenerationProgress(20);
-      setGenerationStage("Initializing video synthesis job with AI engine...");
+    setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
+    setClearedMediaKeys(prev => ({ ...prev, [targetMediaKey]: false }));
+    setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+
+    if (isVideo) {
+      setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "processing" }));
+      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 20 }));
+      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Initializing video synthesis job with AI engine..." }));
 
       try {
-        setGenerationProgress(45);
-        setGenerationStage(`Synthesizing ${videoDurationSec}s cinematic video stream...`);
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 45 }));
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Synthesizing ${videoDurationSec}s cinematic video stream...` }));
 
         const res = await fetch("/api/ai-studio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             step: "generate-media",
-            platform: activePlatformTab,
-            format: currentFormatName,
+            platform: targetPlatform,
+            format: targetFormat,
             mediaType: "video",
-            prompt: activePrompt,
+            prompt: targetPrompt,
             duration: videoDurationSec,
-            aspectRatio: currentAspectRatio,
+            aspectRatio: targetAspect,
             topic: campaignTopic,
           }),
         });
@@ -1295,107 +1349,116 @@ export default function AIStudioPage() {
         if (data.success && data.asset?.url) {
           const isVid = isVideoUrl(data.asset.url) || data.asset.mediaType === "video" || data.asset.type === "video";
           if (!isVid) {
-            setVideoStatus("failed");
-            setVideoError("Video generation returned an invalid media format.");
-            setGenerationStage("Video generation failed.");
-            setGenerationProgress(0);
+            setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+            setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: "Video generation returned an invalid media format." }));
+            setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation failed." }));
+            setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
             return;
           }
 
-          setGenerationProgress(100);
-          setGenerationStage("Video synthesis complete!");
-          setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video synthesis complete!" }));
+          setRenderedImageUrlsDict(prev => ({ ...prev, [targetMediaKey]: data.asset.url }));
           setCustomMediaDict(prev => ({
             ...prev,
-            [currentMediaKey]: {
+            [targetMediaKey]: {
               url: data.asset.url,
               type: "video",
-              name: `${activePlatformTab}-${currentFormatName}.mp4`,
+              name: `${targetPlatform}-${targetFormat}.mp4`,
             },
           }));
-          setVideoStatus("completed");
+          setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "completed" }));
         } else {
-          setVideoStatus("failed");
-          setVideoError(data.error || "Video synthesis failed on backend provider.");
-          setGenerationStage("Video generation failed.");
-          setGenerationProgress(0);
+          setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+          setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: data.error || "Video synthesis failed on backend provider." }));
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation failed." }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
         }
       } catch (err: any) {
-        setVideoStatus("failed");
-        setVideoError(err.message || "Video synthesis request failed.");
-        setGenerationStage("Video generation failed.");
-        setGenerationProgress(0);
+        setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+        setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Video synthesis request failed." }));
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation failed." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
       } finally {
-        setIsRenderingMedia(false);
-        setRenderingFormatKey(null);
+        setRenderingMediaKeys(prev => {
+          const next = { ...prev };
+          delete next[targetFormatKey];
+          return next;
+        });
       }
       return;
     }
 
     // Real Image Rendering via Backend AI Visualizer (Vertex AI)
-    setGenerationProgress(25);
-    setGenerationStage("Dispatching canvas synthesis to AI Visualizer...");
+    setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 25 }));
+    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Dispatching canvas synthesis to AI Visualizer..." }));
 
     try {
-      setGenerationProgress(60);
-      setGenerationStage("Rendering photorealistic lighting & composition layers...");
+      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 60 }));
+      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Rendering photorealistic lighting & composition layers..." }));
 
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           step: "generate-media",
-          platform: activePlatformTab,
-          format: currentFormatName,
+          platform: targetPlatform,
+          format: targetFormat,
           mediaType: "image",
-          prompt: activePrompt,
-          aspectRatio: currentAspectRatio,
+          prompt: targetPrompt,
+          aspectRatio: targetAspect,
           topic: campaignTopic,
         }),
       });
       const data = await res.json();
 
       if (data.success && data.asset?.url) {
-        setGenerationProgress(100);
-        setGenerationStage("Image ready!");
-        setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image ready!" }));
+        setRenderedImageUrlsDict(prev => ({ ...prev, [targetMediaKey]: data.asset.url }));
         setCustomMediaDict(prev => {
           const next = { ...prev };
-          if (next[currentMediaKey]?.url?.startsWith("blob:")) {
-            try { URL.revokeObjectURL(next[currentMediaKey].url); } catch {}
+          if (next[targetMediaKey]?.url?.startsWith("blob:")) {
+            try { URL.revokeObjectURL(next[targetMediaKey].url); } catch {}
           }
-          delete next[currentMediaKey];
+          delete next[targetMediaKey];
           return next;
         });
       } else {
-        setGenerationStage("Image generation failed.");
-        setGenerationProgress(0);
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
       }
     } catch (err: any) {
       console.error("Image generation request failed:", err);
-      setGenerationStage("Image generation failed.");
-      setGenerationProgress(0);
+      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
+      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
     } finally {
-      setIsRenderingMedia(false);
-      setRenderingFormatKey(null);
+      setRenderingMediaKeys(prev => {
+        const next = { ...prev };
+        delete next[targetFormatKey];
+        return next;
+      });
     }
   };
 
   const handleRenderAllSlides = async () => {
-    setRenderingFormatKey(currentFormatKey);
-    setIsRenderingAllSlides(true);
-    setGenerationProgress(0);
-    setGenerationStage("Initializing storyboard slide batch generation...");
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetFormatKey = `${targetPlatform}-${targetFormat}`;
+
+    setRenderingAllSlidesKeys(prev => ({ ...prev, [targetFormatKey]: true }));
+    setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Initializing storyboard slide batch generation..." }));
 
     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
 
     try {
       for (let i = 0; i < slideCount; i++) {
-        const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+        const slideKey = `${targetPlatform}-${targetFormat}-${i}`;
         const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
-        setGenerationStage(`Generating visual for Slide ${i + 1} of ${slideCount}...`);
-        setGenerationProgress(Math.round(((i) / slideCount) * 100));
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Generating visual for Slide ${i + 1} of ${slideCount}...` }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: Math.round(((i) / slideCount) * 100) }));
 
         try {
           const res = await fetch("/api/ai-studio", {
@@ -1403,8 +1466,8 @@ export default function AIStudioPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               step: "generate-media",
-              platform: activePlatformTab,
-              format: currentFormatName,
+              platform: targetPlatform,
+              format: targetFormat,
               mediaType: "image",
               prompt: p,
               aspectRatio: currentAspectRatio,
@@ -1421,11 +1484,14 @@ export default function AIStudioPage() {
         }
       }
 
-      setGenerationProgress(100);
-      setGenerationStage("All slides generated!");
+      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
+      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "All slides generated!" }));
     } finally {
-      setIsRenderingAllSlides(false);
-      setRenderingFormatKey(null);
+      setRenderingAllSlidesKeys(prev => {
+        const next = { ...prev };
+        delete next[targetFormatKey];
+        return next;
+      });
     }
   };
 
@@ -2454,7 +2520,7 @@ export default function AIStudioPage() {
                   onOpenUpload={() => fileInputRef.current?.click()}
                   onOpenStock={() => setActiveMediaModal("stock")}
                   onRenderAI={() => handleRenderMedia()}
-                  isRenderingMedia={isRenderingMedia && renderingFormatKey === currentFormatKey}
+                  isRenderingMedia={Boolean(renderingMediaKeys[currentFormatKey])}
                   slides={(() => {
                     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
                     const items = [];
@@ -2504,30 +2570,30 @@ export default function AIStudioPage() {
                   prompt={customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt}
                   onPromptChange={setCustomPrompt}
                   onEnhancePrompt={handleEnhancePromptAI}
-                  isEnhancingPrompt={isEnhancingPrompt}
+                  isEnhancingPrompt={Boolean(enhancingPromptKeys[currentFormatKey])}
                   onCaptionToPrompt={handleCaptionToPrompt}
-                  isGeneratingPromptFromScript={isGeneratingPromptFromScript}
-                  videoStatus={videoStatus}
-                  videoError={videoError}
+                  isGeneratingPromptFromScript={Boolean(scriptPromptKeys[currentFormatKey])}
+                  videoStatus={videoStatusDict[currentFormatKey] || "idle"}
+                  videoError={videoErrorDict[currentFormatKey] || null}
                   durationSec={videoDurationSec}
                   onDurationChange={setVideoDurationSec}
                   onGenerateCopyAI={handleGeneratePlatformCopyAI}
-                  isGeneratingCopy={aiGeneratingCaption}
+                  isGeneratingCopy={Boolean(generatingCopyKeys[currentFormatKey])}
                   onRegenerateSlideAI={async (slideIdx) => {
                     setActiveSlideIdx(slideIdx);
                     await handleRenderMedia();
                   }}
-                  isRegeneratingSlide={isRenderingMedia && renderingFormatKey === currentFormatKey}
+                  isRegeneratingSlide={Boolean(renderingMediaKeys[currentFormatKey])}
                   onGenerateFullCarouselAI={async () => {
                     await handleGeneratePlatformCopyAI();
                     await handleRenderAllSlides();
                   }}
-                  isGeneratingFullCarousel={aiGeneratingCaption || (isRenderingAllSlides && renderingFormatKey === currentFormatKey)}
+                  isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
                   onExportPDF={() => {
                     window.print();
                   }}
-                  generationProgress={renderingFormatKey === currentFormatKey ? generationProgress : 0}
-                  generationStage={renderingFormatKey === currentFormatKey ? generationStage : ""}
+                  generationProgress={generationProgressDict[currentFormatKey] || 0}
+                  generationStage={generationStageDict[currentFormatKey] || ""}
                 />
 
                 {/* ---------------------------------------------------------------------------- */}
