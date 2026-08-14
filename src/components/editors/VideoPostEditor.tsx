@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
+import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import CharacterCounter from "@/components/CharacterCounter";
 
 interface VideoPostEditorProps {
@@ -50,6 +51,8 @@ interface VideoPostEditorProps {
   isGeneratingPromptFromScript?: boolean;
   durationSec: number;
   onDurationChange: (sec: number) => void;
+  generationProgress?: number;
+  generationStage?: string;
 }
 
 export default function VideoPostEditor({
@@ -82,6 +85,8 @@ export default function VideoPostEditor({
   isGeneratingPromptFromScript = false,
   durationSec,
   onDurationChange,
+  generationProgress = 0,
+  generationStage = "Synthesizing cinematic motion...",
 }: VideoPostEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
@@ -127,15 +132,13 @@ export default function VideoPostEditor({
             }`}
           >
             {isRenderingVideo ? (
-              <div className="text-center p-4 space-y-3">
-                <Loader2 className="h-9 w-9 text-indigo-400 mx-auto animate-spin" />
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-slate-200">Generating video...</p>
-                  <p className="text-[10px] text-slate-400">
-                    Synthesizing {durationSec}s {capability.defaultAspectRatio} cinematic motion
-                  </p>
-                </div>
-              </div>
+              <GenerationProgressIndicator
+                progress={generationProgress}
+                stage={generationStage}
+                title={`Generating ${durationSec}s Video`}
+                isVertical={isVertical}
+                accentColor="indigo"
+              />
             ) : videoStatus === "failed" ? (
               <div className="text-center p-4 space-y-2.5">
                 <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />

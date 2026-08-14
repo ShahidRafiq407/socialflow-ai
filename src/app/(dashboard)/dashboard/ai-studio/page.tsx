@@ -1220,6 +1220,8 @@ export default function AIStudioPage() {
   const [videoDurationSec, setVideoDurationSec] = useState<number>(5);
   const [videoStatus, setVideoStatus] = useState<"idle" | "queued" | "processing" | "completed" | "failed">("idle");
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
+  const [generationStage, setGenerationStage] = useState<string>("");
 
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
@@ -1231,6 +1233,25 @@ export default function AIStudioPage() {
     if (isCurrentVideoFormat) {
       setVideoStatus("processing");
       setVideoError(null);
+      setGenerationProgress(12);
+      setGenerationStage("Analyzing video prompt & camera motion...");
+
+      let currentP = 12;
+      const progressTimer = setInterval(() => {
+        currentP += Math.floor(Math.random() * 4) + 2;
+        if (currentP > 94) currentP = 94;
+        setGenerationProgress(currentP);
+        if (currentP < 30) {
+          setGenerationStage("Analyzing scene & 9:16 vertical geometry...");
+        } else if (currentP < 60) {
+          setGenerationStage(`Synthesizing ${videoDurationSec}s cinematic motion frames...`);
+        } else if (currentP < 85) {
+          setGenerationStage("Rendering lighting layers & motion physics...");
+        } else {
+          setGenerationStage("Encoding high-definition MP4 stream...");
+        }
+      }, 300);
+
       try {
         const res = await fetch("/api/ai-studio", {
           method: "POST",
@@ -1247,7 +1268,11 @@ export default function AIStudioPage() {
           }),
         });
         const data = await res.json();
+        clearInterval(progressTimer);
+
         if (data.success && data.asset?.url) {
+          setGenerationProgress(100);
+          setGenerationStage("Video synthesis complete!");
           setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
           setCustomMediaDict(prev => ({
             ...prev,
@@ -1257,19 +1282,39 @@ export default function AIStudioPage() {
               name: `${activePlatformTab}-${currentFormatName}.mp4`,
             },
           }));
-          setVideoStatus("completed");
+          setTimeout(() => {
+            setVideoStatus("completed");
+            setIsRenderingMedia(false);
+          }, 350);
         } else {
           setVideoStatus("failed");
           setVideoError(data.error || "Video synthesis failed on backend provider.");
+          setIsRenderingMedia(false);
         }
       } catch (err: any) {
+        clearInterval(progressTimer);
         setVideoStatus("failed");
         setVideoError(err.message || "Video synthesis request failed.");
-      } finally {
         setIsRenderingMedia(false);
       }
       return;
     }
+
+    // Image rendering with real-time percentage
+    setGenerationProgress(15);
+    setGenerationStage("Analyzing visual composition...");
+    const imgTimer = setInterval(() => {
+      setGenerationProgress(prev => {
+        const next = prev + 22;
+        if (next >= 90) {
+          clearInterval(imgTimer);
+          return 90;
+        }
+        if (next < 50) setGenerationStage("Synthesizing high-resolution canvas...");
+        else setGenerationStage("Rendering lighting & color grading...");
+        return next;
+      });
+    }, 150);
 
     const cacheBuster = ` ${Date.now() % 100000}`;
     const url = getPollinationsAIUrl(activePrompt + cacheBuster, currentAspectRatio, Date.now() % 100000, currentFormatName);
@@ -1282,7 +1327,13 @@ export default function AIStudioPage() {
       delete next[currentMediaKey];
       return next;
     });
-    setTimeout(() => setIsRenderingMedia(false), 800);
+
+    setTimeout(() => {
+      clearInterval(imgTimer);
+      setGenerationProgress(100);
+      setGenerationStage("Image ready!");
+      setTimeout(() => setIsRenderingMedia(false), 300);
+    }, 750);
   };
 
   const handleRenderAllSlides = async () => {
@@ -2393,6 +2444,8 @@ export default function AIStudioPage() {
                   onExportPDF={() => {
                     window.print();
                   }}
+                  generationProgress={generationProgress}
+                  generationStage={generationStage}
                 />
 
                 {/* ---------------------------------------------------------------------------- */}

@@ -78,6 +78,8 @@ export interface PlatformEditorRouterProps {
   isGeneratingFullCarousel: boolean;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
+  generationProgress?: number;
+  generationStage?: string;
 }
 
 export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
@@ -315,6 +317,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         durationSec={props.durationSec || 5}
         onDurationChange={props.onDurationChange || (() => {})}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
       />
     );
   }
@@ -345,6 +349,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       isEnhancingPrompt={props.isEnhancingPrompt}
       onCaptionToPrompt={props.onCaptionToPrompt}
       isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+      generationProgress={props.generationProgress}
+      generationStage={props.generationStage}
     />
   );
 }

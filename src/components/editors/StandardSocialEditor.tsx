@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 
+import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+
 interface StandardSocialEditorProps {
   capability: PlatformCapability;
   caption: string;
@@ -41,6 +43,8 @@ interface StandardSocialEditorProps {
   isEnhancingPrompt: boolean;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
+  generationProgress?: number;
+  generationStage?: string;
 }
 
 export default function StandardSocialEditor({
@@ -67,6 +71,8 @@ export default function StandardSocialEditor({
   isEnhancingPrompt,
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
+  generationProgress = 0,
+  generationStage = "Rendering image canvas...",
 }: StandardSocialEditorProps) {
   const isSquare = capability.defaultAspectRatio === "1:1";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
@@ -104,7 +110,15 @@ export default function StandardSocialEditor({
           <div className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto ${
             isSquare ? "w-full aspect-square max-w-[280px]" : "w-full aspect-[16/9]"
           }`}>
-            {displayImageUrl ? (
+            {isRenderingMedia ? (
+              <GenerationProgressIndicator
+                progress={generationProgress}
+                stage={generationStage}
+                title="Generating Image..."
+                isVertical={isSquare}
+                accentColor="indigo"
+              />
+            ) : displayImageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <img
                   src={displayImageUrl}
