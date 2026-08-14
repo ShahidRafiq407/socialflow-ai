@@ -190,6 +190,12 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
     // =========================================================================
     if (step === "auto-prompt-from-script") {
       const { caption, platform, format, topic, duration } = body;
+      if (!caption || !caption.trim()) {
+        return NextResponse.json({
+          error: "Caption is required for auto-prompt generation. Please write or generate a caption first.",
+        }, { status: 400 });
+      }
+
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
 
@@ -197,7 +203,7 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
         ? `You are an elite video director.
 Read this video script / caption:
 """
-${caption || topic || "Modern smart automation"}
+${caption.trim()}
 """
 
 Platform: ${platform} (${format})

@@ -343,6 +343,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       onPromptChange={props.onPromptChange}
       onEnhancePrompt={props.onEnhancePrompt}
       isEnhancingPrompt={props.isEnhancingPrompt}
+      onCaptionToPrompt={props.onCaptionToPrompt}
+      isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
     />
   );
 }

@@ -1,17 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   Sparkles,
   Upload,
   ImageIcon,
   Trash2,
-  Wand2,
   Loader2,
   Hash,
-  MessageSquare,
-  Eye,
-  FileText
+  MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +39,8 @@ interface StandardSocialEditorProps {
   onPromptChange: (val: string) => void;
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
+  onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
 }
 
 export default function StandardSocialEditor({
@@ -66,9 +65,11 @@ export default function StandardSocialEditor({
   onPromptChange,
   onEnhancePrompt,
   isEnhancingPrompt,
+  onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
 }: StandardSocialEditorProps) {
   const isSquare = capability.defaultAspectRatio === "1:1";
-  const isWide = capability.defaultAspectRatio === "16:9" || capability.defaultAspectRatio === "1.91:1";
+  const hasCaption = Boolean(caption && caption.trim().length > 0);
 
   return (
     <div className="space-y-6 text-left">
@@ -97,8 +98,9 @@ export default function StandardSocialEditor({
 
       {/* TWO COLUMN WORKSPACE */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: IMAGE PREVIEW & CONTROLS */}
-        <div className="md:col-span-5 space-y-3">
+        {/* LEFT: IMAGE PREVIEW & UNIFIED PROMPT SECTION */}
+        <div className="md:col-span-5 space-y-4">
+          {/* IMAGE PREVIEW CONTAINER */}
           <div className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto ${
             isSquare ? "w-full aspect-square max-w-[280px]" : "w-full aspect-[16/9]"
           }`}>
@@ -112,72 +114,86 @@ export default function StandardSocialEditor({
                 <button
                   type="button"
                   onClick={onRemoveMedia}
-                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30"
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30 shadow-md"
                   title="Remove Image"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
-              <div className="text-center p-4 space-y-2">
+              <div className="text-center p-4 space-y-2.5">
                 <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
-                <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  No Image Attached
-                </p>
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 block mb-0.5">
+                    Image Preview
+                  </span>
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    No image attached
+                  </p>
+                </div>
                 <div className="flex gap-1.5 justify-center pt-1">
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px]">
-                    <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload
+                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
+                    <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload PC
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px]">
-                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isRenderingMedia}
-                    onClick={onRenderAI}
-                    className="h-7 text-[11px] bg-gradient-to-r from-primary to-indigo-600 text-white"
-                  >
-                    {isRenderingMedia ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Gen
+                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
+                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock Media
                   </Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* AI IMAGE PROMPT CONTROLS */}
-          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                <Wand2 className="h-3.5 w-3.5 text-primary" /> Visual Prompt
-              </span>
-              <button
-                type="button"
-                disabled={isEnhancingPrompt}
-                onClick={onEnhancePrompt}
-                className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1"
-              >
-                {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Enhance ✨</span>
-              </button>
+          {/* UNIFIED PROMPT CONTROLS (ORGANIZED & LARGE LIKE REEL) */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Prompt
+              </label>
+              <div className="flex items-center gap-3">
+                {onCaptionToPrompt && (
+                  <button
+                    type="button"
+                    disabled={isGeneratingPromptFromScript || !hasCaption}
+                    onClick={onCaptionToPrompt}
+                    title={hasCaption ? "Generate image prompt from current caption" : "Please enter a caption first"}
+                    className={`text-[11px] font-semibold transition-colors ${
+                      hasCaption
+                        ? "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                        : "text-slate-400 cursor-not-allowed opacity-60"
+                    }`}
+                  >
+                    {isGeneratingPromptFromScript ? "Generating Prompt..." : "Auto-Prompt from Caption"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={isEnhancingPrompt}
+                  onClick={onEnhancePrompt}
+                  className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                >
+                  <span>Enhance Prompt ✨</span>
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Input
-                value={prompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                placeholder="Describe image visual design..."
-                className="h-9 text-xs bg-white dark:bg-slate-900 flex-1"
-              />
-              <Button
-                type="button"
-                size="sm"
-                disabled={isRenderingMedia}
-                onClick={onRenderAI}
-                className="h-9 px-3 text-xs bg-primary hover:bg-primary/90 text-white shrink-0"
-              >
-                Generate
-              </Button>
-            </div>
+
+            <Textarea
+              rows={3}
+              value={prompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="Describe photographic visual style, subject composition, lighting, and textures..."
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
+            />
+
+            <Button
+              type="button"
+              size="sm"
+              disabled={isRenderingMedia || !prompt.trim()}
+              onClick={onRenderAI}
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-xs hover:opacity-90"
+            >
+              {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isRenderingMedia ? "Generating Image..." : "Generate Image"}</span>
+            </Button>
           </div>
         </div>
 
@@ -202,8 +218,8 @@ export default function StandardSocialEditor({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {capability.supportsHashtags && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <Hash className="h-3.5 w-3.5 text-primary" /> Hashtags
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Hashtags
                 </label>
                 <Input
                   value={hashtags.join(" ")}
@@ -216,8 +232,8 @@ export default function StandardSocialEditor({
 
             {capability.supportsFirstComment && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <MessageSquare className="h-3.5 w-3.5 text-slate-400" /> First Comment
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  First Comment
                 </label>
                 <Input
                   value={firstComment}

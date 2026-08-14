@@ -191,7 +191,7 @@ export default function PinterestPinEditor({
                     variant="outline"
                     size="sm"
                     onClick={onOpenUpload}
-                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto"
+                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                   >
                     <Upload className="h-3.5 w-3.5 text-emerald-500" /> Upload PC
                   </Button>
@@ -200,19 +200,9 @@ export default function PinterestPinEditor({
                     variant="outline"
                     size="sm"
                     onClick={onOpenStock}
-                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto"
+                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                   >
-                    <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isRenderingMedia}
-                    onClick={onRenderAI}
-                    className="h-8 text-xs font-bold gap-1 bg-gradient-to-r from-red-600 to-pink-600 text-white shadow-xs w-full sm:w-auto"
-                  >
-                    {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    <span>AI Gen</span>
+                    <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock Media
                   </Button>
                 </div>
               </div>
@@ -220,38 +210,39 @@ export default function PinterestPinEditor({
           </div>
 
           {/* AI VISUAL PROMPT ENHANCER */}
-          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                <Wand2 className="h-3 w-3 text-red-500" /> AI Image / Visual Prompt
-              </span>
-              <button
-                type="button"
-                disabled={isEnhancingPrompt}
-                onClick={onEnhancePrompt}
-                className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1"
-              >
-                {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Enhance Prompt ✨</span>
-              </button>
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Prompt
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={isEnhancingPrompt}
+                  onClick={onEnhancePrompt}
+                  className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                >
+                  <span>Enhance Prompt ✨</span>
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <Input
-                value={prompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                placeholder="Describe vertical Pin visual style..."
-                className="h-8 text-xs bg-white dark:bg-slate-900"
-              />
-              <Button
-                type="button"
-                size="sm"
-                disabled={isRenderingMedia}
-                onClick={onRenderAI}
-                className="h-8 px-2.5 text-xs bg-red-600 hover:bg-red-700 text-white shrink-0"
-              >
-                Generate
-              </Button>
-            </div>
+            <Textarea
+              rows={3}
+              value={prompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="Describe 2:3 vertical Pin visual style, typography, and aesthetic..."
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={isRenderingMedia || !prompt.trim()}
+              onClick={onRenderAI}
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-xs"
+            >
+              {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isRenderingMedia ? "Generating Pin Visual..." : "Generate Pin Visual"}</span>
+            </Button>
           </div>
         </div>
 

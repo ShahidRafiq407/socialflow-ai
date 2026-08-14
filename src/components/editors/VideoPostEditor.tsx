@@ -1,23 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   Sparkles,
   Upload,
   Video as VideoIcon,
-  Play,
   Film,
   Trash2,
   Settings2,
-  Wand2,
   Loader2,
-  Hash,
-  Info,
-  Clock,
-  CheckCircle2,
   AlertCircle,
-  RefreshCw,
-  MessageSquare
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,11 +84,12 @@ export default function VideoPostEditor({
   onDurationChange,
 }: VideoPostEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
+  const hasCaption = Boolean(caption && caption.trim().length > 0);
 
   // TikTok / Shorts Settings
-  const [allowDuet, setAllowDuet] = useState(true);
-  const [allowStitch, setAllowStitch] = useState(true);
-  const [aiDisclosure, setAiDisclosure] = useState(true);
+  const [allowDuet, setAllowDuet] = React.useState(true);
+  const [allowStitch, setAllowStitch] = React.useState(true);
+  const [aiDisclosure, setAiDisclosure] = React.useState(true);
 
   return (
     <div className="space-y-6 text-left">
@@ -249,30 +243,29 @@ export default function VideoPostEditor({
           {/* UNIFIED PROMPT SECTION */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1.5">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                <Wand2 className="h-3.5 w-3.5 text-indigo-600" /> Prompt
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Prompt
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  disabled={isGeneratingPromptFromScript}
+                  disabled={isGeneratingPromptFromScript || !hasCaption}
                   onClick={onCaptionToPrompt}
-                  className="text-[11px] font-bold text-indigo-600 hover:underline flex items-center gap-0.5"
+                  title={hasCaption ? "Generate video prompt from current caption" : "Please enter a caption first"}
+                  className={`text-[11px] font-semibold transition-colors ${
+                    hasCaption
+                      ? "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                      : "text-slate-400 cursor-not-allowed opacity-60"
+                  }`}
                 >
-                  {isGeneratingPromptFromScript ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Wand2 className="h-3 w-3" />
-                  )}
-                  <span>Auto-Prompt from Script</span>
+                  {isGeneratingPromptFromScript ? "Generating Prompt..." : "Auto-Prompt from Caption"}
                 </button>
                 <button
                   type="button"
                   disabled={isEnhancingPrompt}
                   onClick={onEnhancePrompt}
-                  className="text-[11px] font-bold text-pink-600 hover:underline flex items-center gap-0.5"
+                  className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
                 >
-                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                   <span>Enhance Prompt ✨</span>
                 </button>
               </div>
@@ -343,8 +336,8 @@ export default function VideoPostEditor({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {capability.supportsHashtags && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <Hash className="h-3.5 w-3.5 text-pink-500" /> Video Hashtags
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Hashtags
                 </label>
                 <Input
                   value={hashtags.join(" ")}
@@ -357,8 +350,8 @@ export default function VideoPostEditor({
 
             {capability.supportsFirstComment && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <MessageSquare className="h-3.5 w-3.5 text-indigo-500" /> Auto First Comment
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  First Comment
                 </label>
                 <Input
                   value={firstComment}
