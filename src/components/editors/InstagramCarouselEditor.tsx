@@ -151,7 +151,7 @@ export default function InstagramCarouselEditor({
           className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 text-white shadow-xs hover:opacity-90"
         >
           {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>Generate Full Carousel with AI</span>
+          <span>{isGeneratingAI ? `Generating Full Carousel (${generationProgress || 0}%)...` : "Generate Full Carousel with AI"}</span>
         </Button>
       </div>
 
@@ -329,7 +329,7 @@ export default function InstagramCarouselEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingSlideMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingSlideMedia ? "Generating Slide Visual..." : `Generate Slide ${currentIdx + 1} Visual`}</span>
+              <span>{isRenderingSlideMedia ? `Generating Slide ${currentIdx + 1} (${generationProgress || 0}%)...` : `Generate Slide ${currentIdx + 1} Visual`}</span>
             </Button>
           </div>
         </div>

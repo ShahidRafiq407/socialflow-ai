@@ -106,7 +106,18 @@ STRICT PRO WRITER DIRECTIVES:
    }
 
 3. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), rich Pin Description, SEO Keywords/Tagged Topics, and Alt Text.
-4. If format is Carousel/Idea Pin/Document: Generate a 3-5 slide storyboard with titles, body insights, and visual prompts.
+4. If format is Carousel / Idea Pin / Document / Multi-Image:
+   - Must generate a 3 to 5 slide high-value educational teaching infographic storyboard.
+   - Slide 1: High-impact Hook Headline + Sub-hook insight
+   - Slide 2: Core Problem Breakdown / Technical challenge
+   - Slide 3: Deep Strategic Insight / Step-by-step actionable framework
+   - Slide 4: Real-world Implementation / Case benchmark
+   - Slide 5: High-leverage Takeaway / Call to action (CTA)
+   - For each slide:
+     - "step": 1, 2, 3, etc.
+     - "title": Punchy, bold headline (e.g. "The 2026 Robotics Shift", "Why Physical AI Changes Scaling", "Key Architecture Blueprint")
+     - "body": Rich, informative, educational teaching takeaway text (2-3 sentences packed with value, metrics, or actionable advice).
+     - "visualPrompt": Clean aesthetic background description with modern negative space tailored for typography overlay, high-tech engineering or brand context.
 
 Return ONLY raw JSON with this EXACT structure:
 {
@@ -122,9 +133,11 @@ Return ONLY raw JSON with this EXACT structure:
   "imagePrompt": "${!isVideoFormat ? "Vivid image prompt" : ""}",
   "mediaGenerationPrompt": "Complete prompt for AI media engine",
   "slides": [
-    {"step": 1, "title": "Slide 1 Title", "body": "Key insight or hook.", "visualPrompt": "Vivid description"},
-    {"step": 2, "title": "Slide 2 Title", "body": "Core breakdown and actionable advice.", "visualPrompt": "Vivid description"},
-    {"step": 3, "title": "Slide 3 Title", "body": "Strong takeaway and call to action.", "visualPrompt": "Vivid description"}
+    {"step": 1, "title": "Slide 1 Hook Headline", "body": "High-impact opening insight and premise.", "visualPrompt": "Vivid clean aesthetic backdrop"},
+    {"step": 2, "title": "Slide 2 Problem Breakdown", "body": "Core technical or business challenge explained clearly.", "visualPrompt": "Vivid clean aesthetic backdrop"},
+    {"step": 3, "title": "Slide 3 Key Actionable Framework", "body": "Actionable steps, benchmarks, or educational takeaway.", "visualPrompt": "Vivid clean aesthetic backdrop"},
+    {"step": 4, "title": "Slide 4 Real-World Case", "body": "Measurable results and implementation strategy.", "visualPrompt": "Vivid clean aesthetic backdrop"},
+    {"step": 5, "title": "Slide 5 Executive Summary & CTA", "body": "Final conclusion with high-converting call to action.", "visualPrompt": "Vivid clean aesthetic backdrop"}
   ],
   "bestTime": "9:30 AM"
 }`;

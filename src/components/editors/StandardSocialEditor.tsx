@@ -206,7 +206,7 @@ export default function StandardSocialEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingMedia ? "Generating Image..." : "Generate Image"}</span>
+              <span>{isRenderingMedia ? `Generating Image (${generationProgress || 0}%)...` : "Generate Image"}</span>
             </Button>
           </div>
         </div>

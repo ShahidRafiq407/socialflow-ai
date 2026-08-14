@@ -290,7 +290,7 @@ export default function VideoPostEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingVideo ? "Generating Video..." : `Generate ${durationSec}s Video`}</span>
+              <span>{isRenderingVideo ? `Generating Video (${generationProgress || 0}%)...` : `Generate ${durationSec}s Video`}</span>
             </Button>
           </div>
         </div>

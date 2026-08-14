@@ -1008,13 +1008,17 @@ export default function AIStudioPage() {
                 caption: item.caption || currentFmt.caption,
                 hashtags: item.hashtags || currentFmt.hashtags,
                 imagePrompt: generatedPrompt || currentFmt.imagePrompt,
-                visualPrompts: item.visualPrompts || currentFmt.visualPrompts,
-                overlayText: item.slides?.map((s: any, idx: number) => ({
-                  step: s.step || idx + 1,
-                  title: s.title || `Slide ${idx + 1}`,
-                  body: s.body || "",
-                  theme: "gradient-purple",
-                })) || currentFmt.overlayText,
+                visualPrompts: item.slides && Array.isArray(item.slides)
+                  ? item.slides.map((s: any) => s.visualPrompt || "")
+                  : (item.visualPrompts || currentFmt.visualPrompts),
+                overlayText: item.slides && Array.isArray(item.slides)
+                  ? item.slides.map((s: any, idx: number) => ({
+                      step: s.step || idx + 1,
+                      title: s.title || `Slide ${idx + 1}`,
+                      body: s.body || "",
+                      theme: "gradient-purple",
+                    }))
+                  : currentFmt.overlayText,
               }
             }
           };
@@ -1114,20 +1118,32 @@ export default function AIStudioPage() {
         if (generatedPrompt) {
           setCustomPrompt(generatedPrompt);
         }
-        if (item.hashtags) {
-          setGeneratedContents(prev => ({
+        setGeneratedContents(prev => {
+          const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {};
+          return {
             ...prev,
             [activePlatformTab]: {
               ...prev[activePlatformTab],
               [currentFormatName]: {
-                ...(prev[activePlatformTab]?.[currentFormatName] || {}),
-                hashtags: item.hashtags,
-                caption: item.caption || currentCaption,
-                imagePrompt: generatedPrompt || prev[activePlatformTab]?.[currentFormatName]?.imagePrompt,
+                ...currentFmt,
+                hashtags: item.hashtags || currentFmt.hashtags,
+                caption: item.caption || currentCaption || currentFmt.caption,
+                imagePrompt: generatedPrompt || currentFmt.imagePrompt,
+                visualPrompts: item.slides && Array.isArray(item.slides)
+                  ? item.slides.map((s: any) => s.visualPrompt || "")
+                  : (item.visualPrompts || currentFmt.visualPrompts),
+                overlayText: item.slides && Array.isArray(item.slides)
+                  ? item.slides.map((s: any, idx: number) => ({
+                      step: s.step || idx + 1,
+                      title: s.title || `Slide ${idx + 1}`,
+                      body: s.body || "",
+                      theme: "gradient-purple",
+                    }))
+                  : currentFmt.overlayText,
               }
             }
-          }));
-        }
+          };
+        });
       }
     } catch (e) {
       console.error(e);
@@ -1223,6 +1239,7 @@ export default function AIStudioPage() {
 
   const [isRenderingMedia, setIsRenderingMedia] = useState(false);
   const [isRenderingAllSlides, setIsRenderingAllSlides] = useState(false);
+  const [renderingFormatKey, setRenderingFormatKey] = useState<string | null>(null);
   const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
   const [customPromptDict, setCustomPromptDict] = useState<Record<string, string>>({});
   const customPrompt = customPromptDict[currentFormatKey] !== undefined
@@ -1244,6 +1261,7 @@ export default function AIStudioPage() {
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
   const handleRenderMedia = async () => {
+    setRenderingFormatKey(currentFormatKey);
     setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
     const activePrompt = customPrompt !== "" ? customPrompt : (displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`);
     setIsRenderingMedia(true);
@@ -1281,7 +1299,6 @@ export default function AIStudioPage() {
             setVideoError("Video generation returned an invalid media format.");
             setGenerationStage("Video generation failed.");
             setGenerationProgress(0);
-            setIsRenderingMedia(false);
             return;
           }
 
@@ -1297,20 +1314,20 @@ export default function AIStudioPage() {
             },
           }));
           setVideoStatus("completed");
-          setIsRenderingMedia(false);
         } else {
           setVideoStatus("failed");
           setVideoError(data.error || "Video synthesis failed on backend provider.");
           setGenerationStage("Video generation failed.");
           setGenerationProgress(0);
-          setIsRenderingMedia(false);
         }
       } catch (err: any) {
         setVideoStatus("failed");
         setVideoError(err.message || "Video synthesis request failed.");
         setGenerationStage("Video generation failed.");
         setGenerationProgress(0);
+      } finally {
         setIsRenderingMedia(false);
+        setRenderingFormatKey(null);
       }
       return;
     }
@@ -1350,61 +1367,66 @@ export default function AIStudioPage() {
           delete next[currentMediaKey];
           return next;
         });
-        setTimeout(() => setIsRenderingMedia(false), 250);
       } else {
         setGenerationStage("Image generation failed.");
         setGenerationProgress(0);
-        setIsRenderingMedia(false);
       }
     } catch (err: any) {
       console.error("Image generation request failed:", err);
       setGenerationStage("Image generation failed.");
       setGenerationProgress(0);
+    } finally {
       setIsRenderingMedia(false);
+      setRenderingFormatKey(null);
     }
   };
 
   const handleRenderAllSlides = async () => {
+    setRenderingFormatKey(currentFormatKey);
     setIsRenderingAllSlides(true);
     setGenerationProgress(0);
-    setGenerationStage("Initializing carousel slide batch generation...");
+    setGenerationStage("Initializing storyboard slide batch generation...");
 
     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
 
-    for (let i = 0; i < slideCount; i++) {
-      const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
-      const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
-      setGenerationStage(`Generating visual for Slide ${i + 1} of ${slideCount}...`);
-      setGenerationProgress(Math.round(((i) / slideCount) * 100));
+    try {
+      for (let i = 0; i < slideCount; i++) {
+        const slideKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+        const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
+        setGenerationStage(`Generating visual for Slide ${i + 1} of ${slideCount}...`);
+        setGenerationProgress(Math.round(((i) / slideCount) * 100));
 
-      try {
-        const res = await fetch("/api/ai-studio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            step: "generate-media",
-            platform: activePlatformTab,
-            format: currentFormatName,
-            mediaType: "image",
-            prompt: p,
-            aspectRatio: currentAspectRatio,
-            topic: campaignTopic,
-          }),
-        });
-        const data = await res.json();
-        if (data.success && data.asset?.url) {
-          newRendered[slideKey] = data.asset.url;
-          setRenderedImageUrlsDict({ ...newRendered });
+        try {
+          const res = await fetch("/api/ai-studio", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              step: "generate-media",
+              platform: activePlatformTab,
+              format: currentFormatName,
+              mediaType: "image",
+              prompt: p,
+              aspectRatio: currentAspectRatio,
+              topic: campaignTopic,
+            }),
+          });
+          const data = await res.json();
+          if (data.success && data.asset?.url) {
+            newRendered[slideKey] = data.asset.url;
+            setRenderedImageUrlsDict({ ...newRendered });
+          }
+        } catch (err) {
+          console.error(`Failed to generate slide ${i + 1}:`, err);
         }
-      } catch (err) {
-        console.error(`Failed to generate slide ${i + 1}:`, err);
       }
-    }
 
-    setGenerationProgress(100);
-    setGenerationStage("All carousel slides generated!");
-    setTimeout(() => setIsRenderingAllSlides(false), 400);
+      setGenerationProgress(100);
+      setGenerationStage("All slides generated!");
+    } finally {
+      setIsRenderingAllSlides(false);
+      setRenderingFormatKey(null);
+    }
   };
 
   // MULTI-SLIDE MEDIA URL RESOLVER
@@ -2432,16 +2454,16 @@ export default function AIStudioPage() {
                   onOpenUpload={() => fileInputRef.current?.click()}
                   onOpenStock={() => setActiveMediaModal("stock")}
                   onRenderAI={() => handleRenderMedia()}
-                  isRenderingMedia={isRenderingMedia}
+                  isRenderingMedia={isRenderingMedia && renderingFormatKey === currentFormatKey}
                   slides={(() => {
                     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
                     const items = [];
                     for (let idx = 0; idx < slideCount; idx++) {
                       items.push({
                         slideNumber: idx + 1,
-                        title: displayOverlayTexts[idx]?.title || `Slide ${idx + 1}`,
-                        body: displayOverlayTexts[idx]?.body || "",
-                        visualPrompt: displayPrompts[idx] || customPrompt || singleImagePrompt,
+                        title: displayOverlayTexts[idx]?.title ?? "",
+                        body: displayOverlayTexts[idx]?.body ?? "",
+                        visualPrompt: displayPrompts[idx] ?? "",
                         imageUrl: displayImageUrls[idx] || "",
                       });
                     }
@@ -2495,17 +2517,17 @@ export default function AIStudioPage() {
                     setActiveSlideIdx(slideIdx);
                     await handleRenderMedia();
                   }}
-                  isRegeneratingSlide={isRenderingMedia}
+                  isRegeneratingSlide={isRenderingMedia && renderingFormatKey === currentFormatKey}
                   onGenerateFullCarouselAI={async () => {
                     await handleGeneratePlatformCopyAI();
                     await handleRenderAllSlides();
                   }}
-                  isGeneratingFullCarousel={aiGeneratingCaption || isRenderingAllSlides}
+                  isGeneratingFullCarousel={aiGeneratingCaption || (isRenderingAllSlides && renderingFormatKey === currentFormatKey)}
                   onExportPDF={() => {
                     window.print();
                   }}
-                  generationProgress={generationProgress}
-                  generationStage={generationStage}
+                  generationProgress={renderingFormatKey === currentFormatKey ? generationProgress : 0}
+                  generationStage={renderingFormatKey === currentFormatKey ? generationStage : ""}
                 />
 
                 {/* ---------------------------------------------------------------------------- */}

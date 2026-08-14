@@ -53,7 +53,7 @@ export default function GenerationProgressIndicator({
   const currentTheme = colorMap[accentColor] || colorMap.indigo;
 
   return (
-    <div className="flex flex-col items-center justify-center p-4 text-center space-y-3 w-full h-full">
+    <div className="relative flex flex-col items-center justify-center p-6 text-center space-y-3.5 w-full h-full bg-slate-950/95 text-white rounded-2xl shadow-2xl backdrop-blur-md border border-slate-800/80 z-20">
       {/* SVG CIRCULAR PROGRESS WITH PERCENTAGE */}
       <div className="relative flex items-center justify-center">
         <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 96 96">
@@ -63,8 +63,8 @@ export default function GenerationProgressIndicator({
             cy="48"
             r={radius}
             stroke="currentColor"
-            strokeWidth="6"
-            className="text-slate-800/80"
+            strokeWidth="7"
+            className="text-slate-800/90"
             fill="transparent"
           />
           {/* Active progress stroke */}
@@ -73,40 +73,40 @@ export default function GenerationProgressIndicator({
             cy="48"
             r={radius}
             stroke={currentTheme.stroke}
-            strokeWidth="6"
+            strokeWidth="7"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
             fill="transparent"
             className="transition-all duration-300 ease-out"
             style={{
-              filter: `drop-shadow(0 0 6px ${currentTheme.glow})`,
+              filter: `drop-shadow(0 0 8px ${currentTheme.glow})`,
             }}
           />
         </svg>
 
         {/* Center Percentage Display */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-extrabold text-white tracking-tight font-mono">
+          <span className="text-xl font-black text-white tracking-tight font-mono drop-shadow-md">
             {clampedProgress}%
           </span>
         </div>
       </div>
 
       {/* STAGE & STATUS TEXT */}
-      <div className="space-y-1 max-w-[220px]">
-        <p className="text-xs font-bold text-white tracking-wide">
+      <div className="space-y-1 max-w-[240px]">
+        <p className="text-xs font-black text-white tracking-wider uppercase drop-shadow-sm">
           {title}
         </p>
-        <p className="text-[11px] text-slate-400 leading-snug min-h-[28px] transition-all">
+        <p className="text-xs text-slate-200 font-medium leading-snug min-h-[32px] transition-all drop-shadow-sm">
           {stage || "Synthesizing visual frames..."}
         </p>
       </div>
 
       {/* LINEAR PROGRESS BAR */}
-      <div className="w-full max-w-[180px] bg-slate-800/80 h-1.5 rounded-full overflow-hidden p-[1px]">
+      <div className="w-full max-w-[200px] bg-slate-800/90 h-2 rounded-full overflow-hidden p-[1px] shadow-inner">
         <div
-          className={`h-full rounded-full bg-gradient-to-r ${currentTheme.barGrad} transition-all duration-300 ease-out`}
+          className={`h-full rounded-full bg-gradient-to-r ${currentTheme.barGrad} transition-all duration-300 ease-out shadow-sm`}
           style={{ width: `${clampedProgress}%` }}
         />
       </div>
