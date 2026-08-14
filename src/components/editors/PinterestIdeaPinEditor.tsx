@@ -15,16 +15,17 @@ import {
   Loader2,
   Link as LinkIcon,
   Tag,
-  ShoppingBag
+  ShoppingBag,
+  X,
+  Check
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
-import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 
-interface IdeaPinPage {
+export interface IdeaPinPage {
   pageNumber: number;
   title: string;
   body: string;
@@ -81,31 +82,56 @@ export default function PinterestIdeaPinEditor({
   onOpenStock,
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
-  const activePage = pages[activePageIndex] || pages[0] || {
-    pageNumber: 1,
-    title: "Intro Page",
-    body: "Start with an eye-catching visual and problem statement.",
-    visualPrompt: "Vertical aesthetic design",
-    mediaUrl: ""
+
+  // Tag Products State
+  const [taggedProducts, setTaggedProducts] = useState<Array<{ id: string; name: string; price: string; url: string }>>([]);
+  const [isTagProductDialogOpen, setIsTagProductDialogOpen] = useState(false);
+  const [newProductName, setNewProductName] = useState("");
+  const [newProductPrice, setNewProductPrice] = useState("");
+  const [newProductUrl, setNewProductUrl] = useState("");
+
+  const handleAddProduct = () => {
+    if (!newProductName.trim()) return;
+    const newProd = {
+      id: `prod_${Date.now()}`,
+      name: newProductName.trim(),
+      price: newProductPrice.trim(),
+      url: newProductUrl.trim() || destinationUrl || "https://smbrobotic.com",
+    };
+    setTaggedProducts((prev) => [...prev, newProd]);
+    setNewProductName("");
+    setNewProductPrice("");
+    setNewProductUrl("");
+    setIsTagProductDialogOpen(false);
   };
 
+  const handleRemoveProduct = (id: string) => {
+    setTaggedProducts((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const effectivePages = pages && pages.length > 0 ? pages : [
+    { pageNumber: 1, title: "Intro Page", body: "Start with an eye-catching visual and problem statement.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
+    { pageNumber: 2, title: "Step 2", body: "Actionable tip or process breakdown.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
+    { pageNumber: 3, title: "Summary & CTA", body: "Wrap up and call to action.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
+  ];
+
+  const currentIdx = Math.min(Math.max(activePageIndex, 0), effectivePages.length - 1);
+  const activePage = effectivePages[currentIdx] || effectivePages[0];
+
   const handleUpdateActivePage = (field: keyof IdeaPinPage, value: any) => {
-    const updated = [...pages];
-    if (!updated[activePageIndex]) {
-      updated[activePageIndex] = { ...activePage };
-    }
-    updated[activePageIndex] = {
-      ...updated[activePageIndex],
+    const updated = [...effectivePages];
+    updated[currentIdx] = {
+      ...updated[currentIdx],
       [field]: value,
     };
     onPagesChange(updated);
   };
 
   const handleAddPage = () => {
-    if (pages.length >= 10) return;
-    const newPageNum = pages.length + 1;
+    if (effectivePages.length >= 10) return;
+    const newPageNum = effectivePages.length + 1;
     const updated = [
-      ...pages,
+      ...effectivePages,
       {
         pageNumber: newPageNum,
         title: `Page ${newPageNum} Step`,
@@ -116,16 +142,30 @@ export default function PinterestIdeaPinEditor({
       },
     ];
     onPagesChange(updated);
-    onActivePageChange(pages.length);
+    onActivePageChange(effectivePages.length);
   };
 
   const handleDeletePage = (idx: number) => {
-    if (pages.length <= 2) return;
-    const updated = pages
+    if (effectivePages.length <= 1) return;
+    const updated = effectivePages
       .filter((_, i) => i !== idx)
       .map((p, i) => ({ ...p, pageNumber: i + 1 }));
     onPagesChange(updated);
-    onActivePageChange(Math.max(0, activePageIndex - 1));
+    onActivePageChange(Math.max(0, currentIdx - 1));
+  };
+
+  const handleAddTopic = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && topicInput.trim()) {
+      e.preventDefault();
+      if (!taggedTopics.includes(topicInput.trim())) {
+        onTaggedTopicsChange([...taggedTopics, topicInput.trim()]);
+      }
+      setTopicInput("");
+    }
+  };
+
+  const handleRemoveTopic = (topic: string) => {
+    onTaggedTopicsChange(taggedTopics.filter((t) => t !== topic));
   };
 
   return (
@@ -153,7 +193,7 @@ export default function PinterestIdeaPinEditor({
         </Button>
       </div>
 
-      {/* OVERALL IDEA PIN TITLE & DESCRIPTION */}
+      {/* OVERALL IDEA PIN TITLE & BOARD */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="space-y-1">
           <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Idea Pin Title</label>
@@ -191,30 +231,31 @@ export default function PinterestIdeaPinEditor({
         <div className="flex items-center justify-between">
           <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
             <Layers className="h-3.5 w-3.5 text-red-600" />
-            Storyboard Pages ({pages.length} Total)
+            Storyboard Pages ({effectivePages.length} Total)
           </span>
           <span className="text-[11px] text-slate-400 font-medium">
-            Active: Page {activePageIndex + 1} of {pages.length}
+            Active: Page {currentIdx + 1} of {effectivePages.length}
           </span>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           <button
             type="button"
-            disabled={activePageIndex === 0}
-            onClick={() => onActivePageChange(Math.max(0, activePageIndex - 1))}
+            disabled={currentIdx === 0}
+            onClick={() => onActivePageChange(Math.max(0, currentIdx - 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            title="Previous Page"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          {pages.map((p, idx) => (
+          {effectivePages.map((p, idx) => (
             <button
               key={idx}
               type="button"
               onClick={() => onActivePageChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                activePageIndex === idx
+                currentIdx === idx
                   ? "bg-red-600 text-white shadow-xs ring-2 ring-red-500/30"
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
               }`}
@@ -226,14 +267,15 @@ export default function PinterestIdeaPinEditor({
 
           <button
             type="button"
-            disabled={activePageIndex >= pages.length - 1}
-            onClick={() => onActivePageChange(Math.min(pages.length - 1, activePageIndex + 1))}
+            disabled={currentIdx >= effectivePages.length - 1}
+            onClick={() => onActivePageChange(Math.min(effectivePages.length - 1, currentIdx + 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            title="Next Page"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
 
-          {pages.length < 10 && (
+          {effectivePages.length < 10 && (
             <button
               type="button"
               onClick={handleAddPage}
@@ -243,15 +285,15 @@ export default function PinterestIdeaPinEditor({
             </button>
           )}
 
-          {pages.length > 1 && (
+          {effectivePages.length > 1 && (
             <button
               type="button"
-              onClick={() => handleDeletePage(activePageIndex)}
+              onClick={() => handleDeletePage(currentIdx)}
               className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 hover:bg-red-100 flex items-center gap-1 ml-auto shrink-0 transition-colors"
-              title={`Delete Page ${activePageIndex + 1}`}
+              title={`Delete Page ${currentIdx + 1}`}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              <span>Delete Page {activePageIndex + 1}</span>
+              <span>Delete Page {currentIdx + 1}</span>
             </button>
           )}
         </div>
@@ -266,13 +308,13 @@ export default function PinterestIdeaPinEditor({
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <img
                   src={activePage.mediaUrl}
-                  alt={`Page ${activePageIndex + 1}`}
+                  alt={`Page ${currentIdx + 1}`}
                   className="w-full h-full object-cover rounded-xl"
                 />
                 {/* STEP OVERLAY BADGE */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none">
                   <span className="bg-red-600 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
-                    Page {activePageIndex + 1}
+                    Page {currentIdx + 1}
                   </span>
                   <p className="text-white text-xs font-bold line-clamp-1">{activePage.title}</p>
                 </div>
@@ -281,7 +323,7 @@ export default function PinterestIdeaPinEditor({
               <div className="text-center p-4 space-y-2">
                 <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
                 <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  Page {activePageIndex + 1} Visual
+                  Page {currentIdx + 1} Visual
                 </p>
                 <div className="flex gap-1.5 justify-center pt-1">
                   <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px]">
@@ -301,11 +343,11 @@ export default function PinterestIdeaPinEditor({
             variant="outline"
             size="sm"
             disabled={isRegeneratingPage}
-            onClick={() => onRegeneratePageAI(activePageIndex)}
+            onClick={() => onRegeneratePageAI(currentIdx)}
             className="w-full h-8 text-xs font-bold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
           >
             {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>Regenerate Page {activePageIndex + 1} with AI</span>
+            <span>Regenerate Page {currentIdx + 1} with AI</span>
           </Button>
         </div>
 
@@ -313,19 +355,19 @@ export default function PinterestIdeaPinEditor({
         <div className="md:col-span-7 space-y-4">
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Page {activePageIndex + 1} Title / Step Header
+              Page {currentIdx + 1} Title / Step Header
             </label>
             <Input
               value={activePage.title}
               onChange={(e) => handleUpdateActivePage("title", e.target.value)}
-              placeholder={`e.g. Step ${activePageIndex + 1}: Key Strategy`}
+              placeholder={`e.g. Step ${currentIdx + 1}: Key Strategy`}
               className="h-10 text-xs sm:text-sm font-semibold rounded-xl bg-white dark:bg-slate-900"
             />
           </div>
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Page {activePageIndex + 1} Key Insight / Body Text
+              Page {currentIdx + 1} Key Insight / Body Text
             </label>
             <Textarea
               rows={3}
@@ -338,7 +380,7 @@ export default function PinterestIdeaPinEditor({
 
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Wand2 className="h-3 w-3 text-red-500" /> Page {activePageIndex + 1} Visual AI Prompt
+              <Wand2 className="h-3 w-3 text-red-500" /> Page {currentIdx + 1} Visual AI Prompt
             </label>
             <Textarea
               rows={2}
@@ -348,8 +390,146 @@ export default function PinterestIdeaPinEditor({
               className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300"
             />
           </div>
+
+          {/* TAG PRODUCTS SECTION */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">Tag Products</label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTagProductDialogOpen(true)}
+              className="h-8 text-xs font-semibold gap-1.5 rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50"
+            >
+              <ShoppingBag className="h-3.5 w-3.5 text-red-600" />
+              <span>Add products</span>
+            </Button>
+
+            {taggedProducts.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {taggedProducts.map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-300 px-2.5 py-1 rounded-lg text-xs font-medium"
+                  >
+                    <ShoppingBag className="h-3 w-3 text-red-600 shrink-0" />
+                    <span className="font-bold">{prod.name}</span>
+                    {prod.price && <span className="text-[11px] text-red-600 dark:text-red-400 font-mono">({prod.price})</span>}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveProduct(prod.id)}
+                      className="hover:text-red-700 ml-1 text-slate-400 hover:text-red-600"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* TAG PRODUCTS MODAL */}
+      {isTagProductDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="h-4 w-4 text-red-600" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Tag Product to Idea Pin</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTagProductDialogOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Title / Name</label>
+                <Input
+                  value={newProductName}
+                  onChange={(e) => setNewProductName(e.target.value)}
+                  placeholder="e.g. Smart Robotic Gripper Kit"
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Price (optional)</label>
+                  <Input
+                    value={newProductPrice}
+                    onChange={(e) => setNewProductPrice(e.target.value)}
+                    placeholder="e.g. $49.99"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product URL</label>
+                  <Input
+                    value={newProductUrl}
+                    onChange={(e) => setNewProductUrl(e.target.value)}
+                    placeholder="https://smbrobotic.com/..."
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* QUICK PRESET PICKS */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                <span className="text-[11px] font-semibold text-slate-400">Quick Pick SMB Robotics Products:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { name: "Smart Robot Arm Kit", price: "$299", url: "https://smbrobotic.com" },
+                    { name: "AI Vision Sensor", price: "$149", url: "https://smbrobotic.com" },
+                    { name: "Industrial Servo Pack", price: "$450", url: "https://smbrobotic.com" },
+                    { name: "STEM Learning Bundle", price: "$199", url: "https://smbrobotic.com" },
+                  ].map((p, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setNewProductName(p.name);
+                        setNewProductPrice(p.price);
+                        setNewProductUrl(p.url);
+                      }}
+                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-600 transition-colors"
+                    >
+                      + {p.name} ({p.price})
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsTagProductDialogOpen(false)}
+                className="h-8 text-xs"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!newProductName.trim()}
+                onClick={handleAddProduct}
+                className="h-8 text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
+              >
+                Add Tag
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

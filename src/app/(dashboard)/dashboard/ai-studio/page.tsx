@@ -523,11 +523,23 @@ export default function AIStudioPage() {
     x: ["Post"],
     youtube: ["Shorts"],
     tiktok: ["Video"],
+    pinterest: ["Pin", "Idea Pin"],
   });
 
   useEffect(() => {
     if (connectedPlatforms.length > 0 && selectedPlatforms.length === 0) {
-      setSelectedPlatforms(connectedPlatforms.filter(p => PLATFORMS.some(pl => pl.id === p)));
+      const valid = connectedPlatforms.filter(p => PLATFORMS.some(pl => pl.id === p));
+      setSelectedPlatforms(valid);
+      setSelectedContentTypes((prev) => {
+        const next = { ...prev };
+        valid.forEach((pId) => {
+          if (!next[pId] || next[pId].length === 0) {
+            const pDef = getPlatformDef(pId);
+            if (pDef) next[pId] = pDef.contentTypes.slice(0, 2);
+          }
+        });
+        return next;
+      });
     }
   }, [connectedPlatforms]);
 
@@ -537,6 +549,16 @@ export default function AIStudioPage() {
       if (prev.includes(platformId)) {
         if (prev.length === 1) return prev;
         return prev.filter((id) => id !== platformId);
+      }
+      // Ensure platform has default content types selected
+      const pDef = getPlatformDef(platformId);
+      if (pDef) {
+        setSelectedContentTypes((ct) => {
+          if (!ct[platformId] || ct[platformId].length === 0) {
+            return { ...ct, [platformId]: pDef.contentTypes.slice(0, 2) };
+          }
+          return ct;
+        });
       }
       return [...prev, platformId];
     });
@@ -548,9 +570,10 @@ export default function AIStudioPage() {
       setSelectedPlatforms((prev) => [...prev, platformId]);
     }
     setSelectedContentTypes((prev) => {
-      const currentList = prev[platformId] || [];
+      const pDef = getPlatformDef(platformId);
+      const currentList = prev[platformId] || pDef?.contentTypes.slice(0, 2) || ["Feed"];
       if (currentList.includes(type)) {
-        if (currentList.length === 1) return prev;
+        if (currentList.length === 1) return prev; // Keep at least 1 format active
         return { ...prev, [platformId]: currentList.filter((item) => item !== type) };
       }
       return { ...prev, [platformId]: [...currentList, type] };
@@ -2375,13 +2398,20 @@ export default function AIStudioPage() {
                   onOpenStock={() => setActiveMediaModal("stock")}
                   onRenderAI={() => handleRenderMedia()}
                   isRenderingMedia={isRenderingMedia}
-                  slides={displayOverlayTexts.map((item, idx) => ({
-                    slideNumber: idx + 1,
-                    title: item.title || `Slide ${idx + 1}`,
-                    body: item.body || "",
-                    visualPrompt: displayPrompts[idx] || customPrompt || singleImagePrompt,
-                    imageUrl: displayImageUrls[idx] || "",
-                  }))}
+                  slides={(() => {
+                    const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
+                    const items = [];
+                    for (let idx = 0; idx < slideCount; idx++) {
+                      items.push({
+                        slideNumber: idx + 1,
+                        title: displayOverlayTexts[idx]?.title || `Slide ${idx + 1}`,
+                        body: displayOverlayTexts[idx]?.body || "",
+                        visualPrompt: displayPrompts[idx] || customPrompt || singleImagePrompt,
+                        imageUrl: displayImageUrls[idx] || "",
+                      });
+                    }
+                    return items;
+                  })()}
                   onSlidesChange={(newSlides) => {
                     setGeneratedContents((prev) => ({
                       ...prev,
@@ -2399,6 +2429,9 @@ export default function AIStudioPage() {
                         },
                       },
                     }));
+                    if (activeSlideIdx >= newSlides.length) {
+                      setActiveSlideIdx(Math.max(0, newSlides.length - 1));
+                    }
                   }}
                   activeSlideIndex={activeSlideIdx}
                   onActiveSlideChange={setActiveSlideIdx}
