@@ -135,8 +135,8 @@ export default function LinkedInPreview({
             <img src={currentSlideMedia} alt={`LinkedIn Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
           )}
 
-          {/* STEP OVERLAY */}
-          {displayOverlayTexts[activeSlideIdx] && (
+          {/* STEP OVERLAY (ONLY for Document/Carousel) */}
+          {(currentFormatName === "Document" || currentFormatName === "Carousel") && displayOverlayTexts[activeSlideIdx] && (
             <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent flex flex-col justify-end p-4 z-10 pointer-events-none">
               <div className="bg-[#0A66C2] text-white text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-sm w-max mb-1.5 shadow-sm">
                 Insight {displayOverlayTexts[activeSlideIdx].step || activeSlideIdx + 1}
@@ -151,14 +151,14 @@ export default function LinkedInPreview({
           )}
 
           {/* SLIDE PAGINATION PILL */}
-          {currentFormatName === "Carousel" && (
+          {(currentFormatName === "Carousel" || currentFormatName === "Document") && totalSlides > 1 && (
             <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-2.5 py-0.5 rounded-full font-bold tracking-wide backdrop-blur-xs z-20 border border-white/10 shadow-sm">
               Slide {activeSlideIdx + 1} of {totalSlides}
             </div>
           )}
 
           {/* INTERACTIVE CAROUSEL ARROWS */}
-          {totalSlides > 1 && onSlideChange && (
+          {(currentFormatName === "Carousel" || currentFormatName === "Document" || currentFormatName === "Multi-Image") && totalSlides > 1 && onSlideChange && (
             <>
               {activeSlideIdx > 0 && (
                 <button

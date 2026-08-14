@@ -100,8 +100,8 @@ export default function PinterestPreview({
           </div>
         )}
 
-        {/* STEP OVERLAY (for Idea Pins) */}
-        {displayOverlayTexts[activeSlideIdx] && (
+        {/* STEP OVERLAY (ONLY for Idea Pins) */}
+        {isIdeaPin && displayOverlayTexts[activeSlideIdx] && (
           <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent flex flex-col justify-end p-3.5 z-10 pointer-events-none">
             <div className="bg-[#e60023] text-white text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-sm w-max mb-1 shadow-sm">
               Idea {displayOverlayTexts[activeSlideIdx].step || activeSlideIdx + 1}
