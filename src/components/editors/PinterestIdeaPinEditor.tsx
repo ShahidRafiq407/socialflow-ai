@@ -243,14 +243,15 @@ export default function PinterestIdeaPinEditor({
             </button>
           )}
 
-          {pages.length > 2 && (
+          {pages.length > 1 && (
             <button
               type="button"
               onClick={() => handleDeletePage(activePageIndex)}
-              className="p-1.5 text-slate-400 hover:text-red-500 ml-auto shrink-0 transition-colors"
-              title="Delete Active Page"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 hover:bg-red-100 flex items-center gap-1 ml-auto shrink-0 transition-colors"
+              title={`Delete Page ${activePageIndex + 1}`}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Delete Page {activePageIndex + 1}</span>
             </button>
           )}
         </div>

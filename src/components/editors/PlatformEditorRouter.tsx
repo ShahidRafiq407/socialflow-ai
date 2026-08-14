@@ -199,6 +199,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onOpenStock={props.onOpenStock}
         onRenderSlideMedia={props.onRenderAI}
         isRenderingSlideMedia={props.isRenderingMedia}
+        onCaptionToPrompt={props.onCaptionToPrompt}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
       />
     );
   }

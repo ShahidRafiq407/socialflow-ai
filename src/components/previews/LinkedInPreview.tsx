@@ -66,10 +66,11 @@ export default function LinkedInPreview({
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : currentSlideMedia ? (
-            <img src={currentSlideMedia} alt="Short Video" className="w-full h-full object-cover" />
           ) : (
-            <div className="text-slate-500 text-xs">LinkedIn Video</div>
+            <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">LinkedIn Video Preview</span>
+              <span className="text-[11px] text-slate-500">No video generated yet</span>
+            </div>
           )}
         </div>
         <div className="absolute bottom-0 left-0 right-0 p-3 pt-10 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent">

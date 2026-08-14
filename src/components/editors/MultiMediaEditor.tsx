@@ -237,20 +237,11 @@ export default function MultiMediaEditor({
                   Asset {activeMediaIndex + 1}
                 </p>
                 <div className="flex gap-1.5 justify-center pt-1">
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px]">
-                    <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload
+                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
+                    <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload PC
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px]">
-                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isRenderingSingleAI}
-                    onClick={onRenderSingleAI}
-                    className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    {isRenderingSingleAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Gen
+                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
+                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock Media
                   </Button>
                 </div>
               </div>

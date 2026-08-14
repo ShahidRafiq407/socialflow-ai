@@ -125,13 +125,17 @@ export default function InstagramPreview({
         <MoreHorizontal className="h-4 w-4 text-slate-900 dark:text-white" />
       </div>
 
-      <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-900 flex items-center justify-center group">
+      <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-950 flex items-center justify-center group">
         {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
           <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
         ) : currentSlideMedia ? (
           <img src={currentSlideMedia} alt={`Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
         ) : (
-          <div className="text-slate-600 text-xs">Preview Media</div>
+          <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1.5 p-4 text-center">
+            <Camera className="h-7 w-7 text-slate-700 mx-auto" />
+            <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Instagram {currentFormatName} Preview</span>
+            <span className="text-[11px] text-slate-500">No visual generated yet</span>
+          </div>
         )}
 
         {/* STEP OVERLAY (for Carousels / Idea Pins / Stories) */}

@@ -94,7 +94,10 @@ export default function PinterestPreview({
             <img src={currentSlideMedia} alt={`Pin Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           )
         ) : (
-          <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-500 text-xs">Preview Visual</div>
+          <div className="w-full h-full bg-slate-100 dark:bg-slate-900 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-3 text-center">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Pin Visual</span>
+            <span className="text-[11px] text-slate-500">No visual generated yet</span>
+          </div>
         )}
 
         {/* STEP OVERLAY (for Idea Pins) */}

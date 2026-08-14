@@ -1363,9 +1363,6 @@ export default function AIStudioPage() {
         urls.push(renderedImageUrlsDict[slideKey]);
       } else if (aiGeneratedImageUrls && aiGeneratedImageUrls[i]) {
         urls.push(aiGeneratedImageUrls[i]);
-      } else if (!isCurrentVideoFormat) {
-        const p = displayPrompts[i] || singleImagePrompt;
-        urls.push(getPollinationsAIUrl(p, currentAspectRatio, i, currentFormatName));
       } else {
         urls.push("");
       }
@@ -1374,22 +1371,17 @@ export default function AIStudioPage() {
   }, [
     isMultiFormat,
     totalCarouselSlides,
-    displayPrompts,
-    displayOverlayTexts,
     aiGeneratedImageUrls,
     activePlatformTab,
     currentFormatName,
     clearedMediaKeys,
     customMediaDict,
     renderedImageUrlsDict,
-    singleImagePrompt,
-    currentAspectRatio,
-    isCurrentVideoFormat
   ]);
 
-  const aiMediaUrl = currentGenerated?.videoUrl || (!isCurrentVideoFormat ? currentGenerated?.imageUrl : "") || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
-  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? displayImageUrls[activeSlideIdx] : (aiMediaUrl || null));
-  const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : rawDisplayUrl;
+  const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
+  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? (displayImageUrls[activeSlideIdx] || null) : (aiMediaUrl || null));
+  const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : (rawDisplayUrl || null);
 
   const currentHtmlSlide = null;
   const isCurrentSlideLoading = false;
