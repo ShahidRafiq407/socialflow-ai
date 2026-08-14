@@ -79,10 +79,17 @@ export default function FacebookPreview({
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           {displayImageUrl && isVideoUrl(displayImageUrl) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : displayImageUrl ? (
-            <img src={displayImageUrl} alt={isStoryFormat ? "Story" : "Reel"} className="w-full h-full object-cover" />
+          ) : isStoryFormat && displayImageUrl ? (
+            <img src={displayImageUrl} alt="Story" className="w-full h-full object-cover" />
           ) : (
-            <div className="text-slate-600 text-xs">Preview Media</div>
+            <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">
+                {isStoryFormat ? "Story Preview" : "Reel Video Preview"}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {isStoryFormat ? "No media added yet" : "No video generated yet"}
+              </span>
+            </div>
           )}
         </div>
 

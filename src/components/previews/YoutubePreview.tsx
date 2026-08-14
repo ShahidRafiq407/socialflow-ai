@@ -41,10 +41,11 @@ export default function YoutubePreview({
         <div className="w-full aspect-[16/9] bg-slate-900 flex items-center justify-center overflow-hidden relative">
           {displayImageUrl && isVideoUrl(displayImageUrl) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : displayImageUrl ? (
-            <img src={displayImageUrl} alt="YouTube Video" className="w-full h-full object-cover" />
           ) : (
-            <div className="text-slate-600 text-xs">Preview Video (16:9)</div>
+            <div className="w-full h-full bg-[#0f0f0f] flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">YouTube Video Preview (16:9)</span>
+              <span className="text-[11px] text-slate-500">No video generated yet</span>
+            </div>
           )}
           <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
             10:24
@@ -74,10 +75,11 @@ export default function YoutubePreview({
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
         {displayImageUrl && isVideoUrl(displayImageUrl) ? (
           <video src={displayImageUrl} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-        ) : displayImageUrl ? (
-          <img src={displayImageUrl} alt="Shorts" className="w-full h-full object-cover" />
         ) : (
-          <div className="text-slate-600 text-xs">Preview Video</div>
+          <div className="w-full h-full bg-[#0f0f0f] flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">YouTube Shorts Preview</span>
+            <span className="text-[11px] text-slate-500">No video generated yet</span>
+          </div>
         )}
       </div>
       <div className="absolute right-2 bottom-16 flex flex-col items-center gap-5 z-20">

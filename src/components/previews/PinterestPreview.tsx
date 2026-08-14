@@ -78,6 +78,15 @@ export default function PinterestPreview({
           ) : (
             <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center"><Sparkles className="h-5 w-5 text-slate-400" /></div>
           )
+        ) : currentFormatName === "Video Pin" ? (
+          currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+            <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          ) : (
+            <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-3 text-center">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Video Pin Preview</span>
+              <span className="text-[11px] text-slate-500">No video generated yet</span>
+            </div>
+          )
         ) : currentSlideMedia ? (
           isVideoUrl(currentSlideMedia) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -85,7 +94,7 @@ export default function PinterestPreview({
             <img src={currentSlideMedia} alt={`Pin Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           )
         ) : (
-          <div className="w-full h-full bg-slate-200 dark:bg-slate-800 animate-pulse flex items-center justify-center text-slate-500 text-xs">Preview Visual</div>
+          <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-500 text-xs">Preview Visual</div>
         )}
 
         {/* STEP OVERLAY (for Idea Pins) */}

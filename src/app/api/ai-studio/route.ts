@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import { llm, vertexProvider, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
+import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,12 +40,13 @@ export async function POST(req: Request) {
     };
 
     // =========================================================================
-    // STEP: Generate Platform-Specific Copy (Full Multi-Agent Pipeline)
+    // STEP: Generate Platform-Specific Copy & Media Prompt (Multi-Agent)
     // =========================================================================
     if (step === "generate-platform-copy") {
-      const { platform, format, topic, customPrompt } = body;
+      const { platform, format, topic, customPrompt, duration } = body;
       const capability = getPlatformCapability(platform, format);
       const campaignTopic = topic || customPrompt || "Exciting new innovations and strategic insights";
+      const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
 
       // 1. Trend Research with Google Search Grounding
       let trendInsights = "Audience favors problem-first hooks and authentic value delivery.";
@@ -58,14 +60,14 @@ export async function POST(req: Request) {
           trendInsights = groundingRes.text.slice(0, 1000);
         }
       } catch (e) {
-        console.warn("[AI Studio] Grounding search fallback to core intelligence:", e);
+        console.warn("[AI Studio] Grounding search fallback:", e);
       }
 
       // 2. Competitor Angle
       const competitorAngle = `Focus on distinct value proposition, clarity, and actionable takeaways over generic hype.`;
 
-      // 3. Content Creator with 12 Viral Hook Archetypes & Anti-AI Writing Style
-      const contentPrompt = `You are a world-class elite social media copywriter.
+      // 3. Content Creator Agent with 12 Viral Hook Archetypes & Format-Native Directives
+      const contentPrompt = `You are a world-class elite social media copywriter and creative director.
 Create platform-native content specifically for ${capability.platform.toUpperCase()} (${capability.format}).
 
 BRAND DNA:
@@ -80,44 +82,55 @@ COMPETITOR ANGLE: ${competitorAngle}
 
 PLATFORM REQUIREMENTS:
 - Platform: ${capability.platform}
-- Format: ${capability.format} (${capability.mediaType})
-- Supports Title: ${capability.supportsTitle}
-- Supports Description: ${capability.supportsDescription}
-- Supports Caption: ${capability.supportsCaption}
-- Supports Hashtags: ${capability.supportsHashtags}
-- Supports Alt Text: ${capability.supportsAltText}
+- Format: ${capability.format}
+- Media Type: ${capability.mediaType.toUpperCase()}
+- Default Aspect Ratio: ${capability.defaultAspectRatio}
 - Character Limit: ${capability.captionLimit || capability.descriptionLimit || 2200}
 
 STRICT PRO WRITER DIRECTIVES:
-1. First sentence MUST be a high-converting pattern interrupt or curiosity hook (evaluate curiosity gap, problem/solution, contrarian, or surprising fact).
-2. Human-like cadence: Vary sentence lengths, use conversational natural rhythm, avoid corporate jargon.
-3. STRICT BANS: NO "In today's fast-paced world", NO "Unleash/Unlock", NO "Dive deep", NO "Game changer", NO excessive em dashes, NO robotic emoji spam.
-4. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), a rich Pin Description, SEO Keywords/Tagged Topics, and descriptive Alt Text for accessibility.
-5. If format is Instagram Carousel / Pinterest Idea Pin / LinkedIn Document: Generate a 3-5 slide storyboard structure with titles, body insights, and visual prompts.
-6. Provide a vivid visual prompt for image or video generation matching the aspect ratio ${capability.defaultAspectRatio}.
+1. CAPTION:
+   - First sentence MUST be a high-converting pattern interrupt or curiosity hook (curiosity gap, problem/solution, contrarian, or surprising fact).
+   - Vary sentence lengths for conversational, human rhythm.
+   - STRICT BANS: NO "In today's fast-paced world", NO "Unleash/Unlock", NO "Dive deep", NO "Game changer", NO excessive em dashes, NO robotic emoji spam.
+   - Include a single, strong call to action (CTA) and relevant hashtags.
 
-Return ONLY raw JSON with this structure:
+2. MEDIA GENERATION PROMPT (${isVideoFormat ? "CRITICAL: VIDEO PROMPT REQUIRED" : "IMAGE PROMPT"}):
+   ${
+     isVideoFormat
+       ? `- The prompt MUST be for a REAL VIDEO generation (NEVER an image prompt).
+   - Framing: ${capability.defaultAspectRatio} vertical social media video.
+   - Describe: subject, scene environment, dynamic physical action, camera movement (e.g. tracking shot, close-up to wide reveal), lighting, visual style, pacing, and visual hook in the first 1-2 seconds.
+   - Duration-aware storytelling (approx ${duration || 5} seconds).
+   - NO text in the prompt itself.`
+       : `- Describe a high-end, vivid visual image composition matching ${capability.defaultAspectRatio} aspect ratio, lighting, color grading, photorealism style.`
+   }
+
+3. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), rich Pin Description, SEO Keywords/Tagged Topics, and Alt Text.
+4. If format is Carousel/Idea Pin/Document: Generate a 3-5 slide storyboard with titles, body insights, and visual prompts.
+
+Return ONLY raw JSON with this EXACT structure:
 {
   "title": "${capability.supportsTitle ? "Concise, clickable title under 100 chars" : ""}",
   "caption": "Full platform-tailored copy with natural paragraphs. Starts with an irresistible hook.",
   "description": "${capability.supportsDescription ? "Rich SEO-optimized description" : ""}",
   "hook": "Opening hook line",
-  "hookReason": "Why this hook wins over 12 candidate archetypes",
+  "hookReason": "Why this hook wins",
   "hashtags": ["tag1", "tag2", "tag3"],
   "taggedTopics": ["Topic 1", "Topic 2", "Topic 3"],
-  "altText": "Descriptive visual alt text for screen readers",
-  "imagePrompt": "Short vivid prompt for AI image or video generation",
-  "visualPrompts": ["Slide 1 visual prompt", "Slide 2 visual prompt", "Slide 3 visual prompt"],
+  "altText": "Descriptive visual alt text for accessibility",
+  "videoPrompt": "${isVideoFormat ? "Complete, production-ready video generation prompt describing subject, scene, action, camera movement, lighting, and 9:16 framing" : ""}",
+  "imagePrompt": "${!isVideoFormat ? "Vivid image prompt" : ""}",
+  "mediaGenerationPrompt": "Complete prompt for AI media engine",
   "slides": [
-    {"step": 1, "title": "Slide 1 Title", "body": "Key insight or hook.", "visualPrompt": "Vivid image description"},
-    {"step": 2, "title": "Slide 2 Title", "body": "Core breakdown and actionable advice.", "visualPrompt": "Vivid image description"},
-    {"step": 3, "title": "Slide 3 Title", "body": "Strong takeaway and call to action.", "visualPrompt": "Vivid image description"}
+    {"step": 1, "title": "Slide 1 Title", "body": "Key insight or hook.", "visualPrompt": "Vivid description"},
+    {"step": 2, "title": "Slide 2 Title", "body": "Core breakdown and actionable advice.", "visualPrompt": "Vivid description"},
+    {"step": 3, "title": "Slide 3 Title", "body": "Strong takeaway and call to action.", "visualPrompt": "Vivid description"}
   ],
   "bestTime": "9:30 AM"
 }`;
 
       const res = await llm.invoke([
-        new SystemMessage("You are an expert social media copywriter. Output valid JSON only."),
+        new SystemMessage("You are an expert social media copywriter and creative director. Output valid JSON only."),
         new HumanMessage(contentPrompt),
       ], { modelName: MODELS.CONTENT_CREATOR });
 
@@ -135,16 +148,16 @@ Return ONLY raw JSON with this structure:
       }
 
       // 4. CEO Auditor Review (Auto-Audit)
-      const auditPrompt = `You are the CEO Auditor. Review this social copy for ${brandDNA.name} on ${capability.platform} (${capability.format}):
+      const auditPrompt = `You are the CEO Auditor. Review this social copy and visual prompt for ${brandDNA.name} on ${capability.platform} (${capability.format}):
 Title: ${parsed.title || "N/A"}
 Caption: ${parsed.caption || parsed.description || "N/A"}
 Hook: ${parsed.hook || "N/A"}
+Media Prompt: ${parsed.videoPrompt || parsed.imagePrompt || parsed.mediaGenerationPrompt || "N/A"}
 
 Criteria:
-1. Is it human and conversational?
-2. Are banned AI words absent?
-3. Is hook strong?
-Respond with JSON: {"approved": true, "score": 95, "feedback": "Excellent human-first copy"}`;
+1. Is it human and conversational without AI clichés?
+2. Is the visual prompt appropriate for ${capability.mediaType.toUpperCase()} (${capability.defaultAspectRatio})?
+Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
 
       let ceoScore = 95;
       let ceoFeedback = "Approved by Creative Director";
@@ -155,13 +168,141 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Excellent human-
         ceoFeedback = auditParsed.feedback || ceoFeedback;
       } catch {}
 
+      const finalPrompt = isVideoFormat
+        ? (parsed.videoPrompt || parsed.mediaGenerationPrompt || parsed.imagePrompt || "")
+        : (parsed.imagePrompt || parsed.mediaGenerationPrompt || "");
+
       return NextResponse.json({
         success: true,
         data: {
           ...parsed,
+          prompt: finalPrompt,
+          videoPrompt: isVideoFormat ? finalPrompt : undefined,
+          imagePrompt: !isVideoFormat ? finalPrompt : undefined,
+          mediaGenerationPrompt: finalPrompt,
           ceoAudit: { score: ceoScore, feedback: ceoFeedback },
         },
       });
+    }
+
+    // =========================================================================
+    // STEP: Auto-Prompt From Script (Complete & Format-Aware)
+    // =========================================================================
+    if (step === "auto-prompt-from-script") {
+      const { caption, platform, format, topic, duration } = body;
+      const capability = getPlatformCapability(platform, format);
+      const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+
+      const promptGenInstruction = isVideoFormat
+        ? `You are an elite video director.
+Read this video script / caption:
+"""
+${caption || topic || "Modern smart automation"}
+"""
+
+Platform: ${platform} (${format})
+Aspect Ratio: ${capability.defaultAspectRatio}
+Duration: ${duration || 5} seconds
+Brand: ${brandDNA.name} (${brandDNA.industry})
+
+Write a COMPLETE, production-ready AI VIDEO GENERATION PROMPT.
+Directives:
+- Framing: ${capability.defaultAspectRatio} vertical framing for short-form social video.
+- Structure:
+  1. Scene & Environment: Set the visual location and atmosphere.
+  2. Subject & Action: Clear, dynamic subject performing engaging physical action.
+  3. Camera Movement: Dynamic motion (e.g. close-up hook to tracking wide shot).
+  4. Lighting & Style: Photorealistic, cinematic lighting, crisp detail.
+  5. Pacing: Engaging first 1-2 seconds visual hook.
+- NO text overlays or watermarks in prompt.
+- Length: 45-80 words of vivid, high-density cinematic detail.
+
+Return ONLY the plain text prompt string with no quotes or extra text.`
+        : `You are an elite visual director.
+Read this post caption:
+"""
+${caption || topic || "Modern business technology"}
+"""
+Platform: ${platform} (${format})
+Aspect Ratio: ${capability.defaultAspectRatio}
+Brand: ${brandDNA.name}
+
+Write a complete, vivid AI image generation prompt describing composition, lighting, subject, and style.
+Return ONLY the prompt string.`;
+
+      const res = await llm.invoke([new HumanMessage(promptGenInstruction)], { modelName: MODELS.CONTENT_CREATOR });
+      const promptResult = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");
+
+      return NextResponse.json({
+        success: true,
+        prompt: promptResult,
+        mediaType: capability.mediaType,
+      });
+    }
+
+    // =========================================================================
+    // STEP: Real Media Generation (Visualizer Agent + Validation)
+    // =========================================================================
+    if (step === "generate-media") {
+      const { platform, format, mediaType, prompt, aspectRatio, duration, topic } = body;
+      const capability = getPlatformCapability(platform, format);
+      const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+      const targetMediaType = isVideoFormat ? "video" : (mediaType || capability.mediaType || "image");
+
+      if (isVideoFormat && targetMediaType !== "video") {
+        return NextResponse.json({
+          error: "Validation failed: Reel and video formats strictly require mediaType='video'.",
+        }, { status: 400 });
+      }
+
+      if (!prompt || !prompt.trim()) {
+        return NextResponse.json({ error: "Prompt is required for media generation." }, { status: 400 });
+      }
+
+      const targetAspect = aspectRatio || capability.defaultAspectRatio || "9:16";
+
+      try {
+        console.log(`[AI Studio] Generating ${targetMediaType} for ${platform} ${format} with prompt: "${prompt.slice(0, 60)}..."`);
+        const mediaAssets = await generateMediaAsset({
+          platform,
+          contentType: format,
+          mediaType: targetMediaType as any,
+          prompt,
+          aspectRatio: targetAspect,
+          topic: topic || brandDNA.name,
+        });
+
+        const asset = mediaAssets[0];
+        if (!asset || !asset.url) {
+          throw new VisualizerError("VISUALIZER_ASSET_MISSING", "Visualizer failed to return an asset URL.");
+        }
+
+        return NextResponse.json({
+          success: true,
+          asset: {
+            assetId: asset.id,
+            platform,
+            format,
+            mediaType: asset.type,
+            status: "completed",
+            url: asset.url,
+            thumbnailUrl: asset.url,
+            prompt: asset.prompt,
+            model: asset.model,
+            settings: {
+              aspectRatio: targetAspect,
+              duration: isVideoFormat ? `${duration || 5}s` : undefined,
+            },
+          },
+        });
+      } catch (err: any) {
+        console.error(`[AI Studio] Media generation failed:`, err);
+        return NextResponse.json({
+          success: false,
+          status: "failed",
+          error: err.message || "Media synthesis failed on backend provider.",
+        }, { status: 500 });
+      }
     }
 
     // =========================================================================
@@ -199,7 +340,7 @@ Return ONLY JSON array of 3 objects:
   {
     "id": "trend_1",
     "topic": "Trending Angle Title",
-    "whyItFits": "Why this resonates with the audience",
+    "whyItFits": "Short 1-sentence reason why this matches your brand positioning",
     "suggestedHook": "Specific scroll-stopping hook line",
     "contentAngle": "How to execute this in a ${format} format",
     "recommendedFormat": "${format}",
@@ -223,9 +364,25 @@ Return ONLY JSON array of 3 objects:
     if (step === "enhance-prompt") {
       const { prompt, platform, format, mediaType, topic } = body;
       const capability = getPlatformCapability(platform, format);
+      const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
 
-      const enhancePrompt = `You are a visual director for ${brandDNA.name}.
-Enhance this visual prompt for ${platform} ${format} (${mediaType || capability.mediaType}):
+      const enhancePrompt = isVideoFormat
+        ? `You are a visual video director for ${brandDNA.name}.
+Enhance this video prompt for ${platform} ${format} (${capability.defaultAspectRatio} vertical short-form video):
+
+User Prompt: "${prompt || topic || "Modern business automation"}"
+Aspect Ratio: ${capability.defaultAspectRatio}
+Industry: ${brandDNA.industry}
+
+Directives:
+- Enhance camera movement (tracking, pan, cinematic dolly), lighting, motion physics, color grading, photorealism style.
+- Maintain a strong opening 1-2s visual hook.
+- NO text or watermarks in the prompt.
+- Length: 40-70 words.
+
+Return ONLY the enhanced video prompt string without quotes.`
+        : `You are a visual director for ${brandDNA.name}.
+Enhance this visual image prompt for ${platform} ${format}:
 
 User Prompt: "${prompt || topic || "Modern business automation"}"
 Aspect Ratio: ${capability.defaultAspectRatio}
@@ -233,7 +390,6 @@ Industry: ${brandDNA.industry}
 
 Directives:
 - Enhance visual composition, lighting, camera angle, color grading, photorealism style, raytraced reflections.
-- Keep the user's original core concept intact.
 - NO text or watermarks in the prompt.
 - Length: 25-45 words.
 

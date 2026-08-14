@@ -982,8 +982,9 @@ export default function AIStudioPage() {
         if (item.altText) {
           setAltTextDict(prev => ({ ...prev, [currentFormatKey]: item.altText }));
         }
-        if (item.imagePrompt) {
-          setCustomPrompt(item.imagePrompt);
+        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
+        if (generatedPrompt) {
+          setCustomPrompt(generatedPrompt);
         }
         setGeneratedContents(prev => {
           const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {};
@@ -995,7 +996,7 @@ export default function AIStudioPage() {
                 ...currentFmt,
                 caption: item.caption || currentFmt.caption,
                 hashtags: item.hashtags || currentFmt.hashtags,
-                imagePrompt: item.imagePrompt || currentFmt.imagePrompt,
+                imagePrompt: generatedPrompt || currentFmt.imagePrompt,
                 visualPrompts: item.visualPrompts || currentFmt.visualPrompts,
                 overlayText: item.slides?.map((s: any, idx: number) => ({
                   step: s.step || idx + 1,
@@ -1040,6 +1041,33 @@ export default function AIStudioPage() {
     }
   };
 
+  const [isGeneratingPromptFromScript, setIsGeneratingPromptFromScript] = useState(false);
+  const handleCaptionToPrompt = async () => {
+    setIsGeneratingPromptFromScript(true);
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "auto-prompt-from-script",
+          caption: currentCaption,
+          platform: activePlatformTab,
+          format: currentFormatName,
+          topic: campaignTopic,
+          duration: videoDurationSec,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.prompt) {
+        setCustomPrompt(data.prompt);
+      }
+    } catch (err) {
+      console.error("Auto prompt from script failed:", err);
+    } finally {
+      setIsGeneratingPromptFromScript(false);
+    }
+  };
+
   const handleApplyTrend = async (trend: TrendSuggestionItem) => {
     setCampaignTopic(trend.topic);
     setIsApplyingTrend(true);
@@ -1052,6 +1080,7 @@ export default function AIStudioPage() {
           platform: activePlatformTab,
           format: currentFormatName,
           topic: `${trend.topic} (Hook: ${trend.suggestedHook})`,
+          duration: videoDurationSec,
         }),
       });
       const data = await res.json();
@@ -1067,6 +1096,13 @@ export default function AIStudioPage() {
         if (item.taggedTopics) {
           setTaggedTopicsDict(prev => ({ ...prev, [currentFormatKey]: item.taggedTopics }));
         }
+        if (item.altText) {
+          setAltTextDict(prev => ({ ...prev, [currentFormatKey]: item.altText }));
+        }
+        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
+        if (generatedPrompt) {
+          setCustomPrompt(generatedPrompt);
+        }
         if (item.hashtags) {
           setGeneratedContents(prev => ({
             ...prev,
@@ -1075,7 +1111,8 @@ export default function AIStudioPage() {
               [currentFormatName]: {
                 ...(prev[activePlatformTab]?.[currentFormatName] || {}),
                 hashtags: item.hashtags,
-                caption: item.caption,
+                caption: item.caption || currentCaption,
+                imagePrompt: generatedPrompt || prev[activePlatformTab]?.[currentFormatName]?.imagePrompt,
               }
             }
           }));
@@ -1180,10 +1217,60 @@ export default function AIStudioPage() {
 
   const renderedImageUrl = renderedImageUrlsDict[currentMediaKey] || null;
 
+  const [videoDurationSec, setVideoDurationSec] = useState<number>(5);
+  const [videoStatus, setVideoStatus] = useState<"idle" | "queued" | "processing" | "completed" | "failed">("idle");
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
+
   const handleRenderMedia = async () => {
     setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
     const activePrompt = customPrompt || displayPrompts[activeSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${activePlatformTab} ${currentFormatName} visual design`;
     setIsRenderingMedia(true);
+
+    if (isCurrentVideoFormat) {
+      setVideoStatus("processing");
+      setVideoError(null);
+      try {
+        const res = await fetch("/api/ai-studio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            step: "generate-media",
+            platform: activePlatformTab,
+            format: currentFormatName,
+            mediaType: "video",
+            prompt: activePrompt,
+            duration: videoDurationSec,
+            aspectRatio: currentAspectRatio,
+            topic: campaignTopic,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.asset?.url) {
+          setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: data.asset.url }));
+          setCustomMediaDict(prev => ({
+            ...prev,
+            [currentMediaKey]: {
+              url: data.asset.url,
+              type: "video",
+              name: `${activePlatformTab}-${currentFormatName}.mp4`,
+            },
+          }));
+          setVideoStatus("completed");
+        } else {
+          setVideoStatus("failed");
+          setVideoError(data.error || "Video synthesis failed on backend provider.");
+        }
+      } catch (err: any) {
+        setVideoStatus("failed");
+        setVideoError(err.message || "Video synthesis request failed.");
+      } finally {
+        setIsRenderingMedia(false);
+      }
+      return;
+    }
+
     const cacheBuster = ` ${Date.now() % 100000}`;
     const url = getPollinationsAIUrl(activePrompt + cacheBuster, currentAspectRatio, Date.now() % 100000, currentFormatName);
     setRenderedImageUrlsDict(prev => ({ ...prev, [currentMediaKey]: url }));
@@ -1225,9 +1312,11 @@ export default function AIStudioPage() {
         urls.push(renderedImageUrlsDict[slideKey]);
       } else if (aiGeneratedImageUrls && aiGeneratedImageUrls[i]) {
         urls.push(aiGeneratedImageUrls[i]);
-      } else {
+      } else if (!isCurrentVideoFormat) {
         const p = displayPrompts[i] || singleImagePrompt;
         urls.push(getPollinationsAIUrl(p, currentAspectRatio, i, currentFormatName));
+      } else {
+        urls.push("");
       }
     }
     return urls;
@@ -1243,11 +1332,12 @@ export default function AIStudioPage() {
     customMediaDict,
     renderedImageUrlsDict,
     singleImagePrompt,
-    currentAspectRatio
+    currentAspectRatio,
+    isCurrentVideoFormat
   ]);
 
-  const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
-  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? displayImageUrls[activeSlideIdx] : aiMediaUrl);
+  const aiMediaUrl = currentGenerated?.videoUrl || (!isCurrentVideoFormat ? currentGenerated?.imageUrl : "") || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
+  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? displayImageUrls[activeSlideIdx] : (aiMediaUrl || null));
   const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : rawDisplayUrl;
 
   const currentHtmlSlide = null;
@@ -2282,10 +2372,12 @@ export default function AIStudioPage() {
                   onPromptChange={setCustomPrompt}
                   onEnhancePrompt={handleEnhancePromptAI}
                   isEnhancingPrompt={isEnhancingPrompt}
-                  onCaptionToPrompt={() => {
-                    const extracted = currentCaption.slice(0, 100).replace(/#/g, "").trim();
-                    setCustomPrompt(`Photorealistic high-end visual representing ${extracted}`);
-                  }}
+                  onCaptionToPrompt={handleCaptionToPrompt}
+                  isGeneratingPromptFromScript={isGeneratingPromptFromScript}
+                  videoStatus={videoStatus}
+                  videoError={videoError}
+                  durationSec={videoDurationSec}
+                  onDurationChange={setVideoDurationSec}
                   onGenerateCopyAI={handleGeneratePlatformCopyAI}
                   isGeneratingCopy={aiGeneratingCaption}
                   onRegenerateSlideAI={async (slideIdx) => {

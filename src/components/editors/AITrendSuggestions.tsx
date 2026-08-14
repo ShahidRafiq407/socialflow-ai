@@ -9,7 +9,9 @@ import {
   ExternalLink,
   ArrowRight,
   Zap,
-  CheckCircle2
+  Info,
+  X,
+  Layers
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +42,7 @@ export default function AITrendSuggestions({
   const [trends, setTrends] = useState<TrendSuggestionItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedTrendId, setSelectedTrendId] = useState<string | null>(null);
+  const [detailModalTrend, setDetailModalTrend] = useState<TrendSuggestionItem | null>(null);
 
   const fetchTrends = async () => {
     setIsLoading(true);
@@ -69,99 +72,193 @@ export default function AITrendSuggestions({
   }, [platform, format]);
 
   return (
-    <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-50 to-indigo-50/30 dark:from-slate-900 dark:to-indigo-950/20 space-y-3 text-left">
+    <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-3 text-left">
+      {/* COMPACT HEADER */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-            <TrendingUp className="h-4 w-4" />
+          <div className="h-6 w-6 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+            <TrendingUp className="h-3.5 w-3.5" />
           </div>
-          <div>
+          <div className="flex items-center gap-2">
             <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-              Trending for {platform.charAt(0).toUpperCase() + platform.slice(1)} ({format})
+              Trending Now
             </h4>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Live Google Search Grounding filtered by your Brand DNA
-            </p>
+            <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-4 border-slate-300 dark:border-slate-700">
+              {platform} {format}
+            </Badge>
           </div>
         </div>
 
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           disabled={isLoading}
           onClick={fetchTrends}
-          className="h-7 text-xs font-bold gap-1 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+          className="h-6 px-2 text-xs font-semibold gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
         >
           {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-          <span>Refresh Trends</span>
+          <span>Refresh</span>
         </Button>
       </div>
 
       {isLoading ? (
-        <div className="py-6 flex flex-col items-center justify-center text-slate-400 text-xs gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
-          <span>Searching live trends & matching Brand DNA...</span>
+        <div className="py-6 flex flex-col items-center justify-center text-slate-400 text-xs gap-1.5">
+          <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+          <span className="text-[11px]">Searching live trends for {platform} {format}...</span>
         </div>
       ) : trends.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-0.5">
           {trends.map((t, idx) => (
             <div
               key={t.id || idx}
-              className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 hover:border-primary/50 transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group"
+              className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-500/50 transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group"
             >
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    Trend Angle #{idx + 1}
-                  </span>
-                  <span className="text-[10px] text-slate-400 truncate max-w-[120px]" title={t.source}>
-                    {t.source || "Google Grounding"}
-                  </span>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-1">
+                  <Badge variant="secondary" className="text-[9px] font-extrabold uppercase tracking-wide py-0 h-4 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                    Trend #{idx + 1}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setDetailModalTrend(t)}
+                    className="text-[10px] text-slate-400 hover:text-indigo-600 flex items-center gap-0.5 font-medium"
+                    title="View Full Research"
+                  >
+                    <Info className="h-3 w-3" />
+                    <span>Details</span>
+                  </button>
                 </div>
 
-                <h5 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-primary transition-colors line-clamp-1">
+                <h5 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors line-clamp-1">
                   {t.topic}
                 </h5>
 
-                <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
-                    Viral Hook
-                  </span>
-                  <p className="text-[11px] font-medium text-slate-700 dark:text-slate-300 italic line-clamp-2">
-                    "{t.suggestedHook}"
-                  </p>
-                </div>
-
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                   {t.whyItFits}
                 </p>
               </div>
 
-              <Button
-                type="button"
-                size="sm"
-                disabled={isApplyingTrend && selectedTrendId === t.id}
-                onClick={() => {
-                  setSelectedTrendId(t.id);
-                  onSelectTrend(t);
-                }}
-                className="w-full h-7 text-xs font-bold gap-1 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-2xs hover:opacity-90 mt-1"
-              >
-                {isApplyingTrend && selectedTrendId === t.id ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Zap className="h-3 w-3 text-amber-300" />
-                )}
-                <span>Use This Trend</span>
-                <ArrowRight className="h-3 w-3 ml-auto" />
-              </Button>
+              <div className="flex items-center gap-1.5 pt-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isApplyingTrend && selectedTrendId === t.id}
+                  onClick={() => {
+                    setSelectedTrendId(t.id);
+                    onSelectTrend(t);
+                  }}
+                  className="flex-1 h-7 text-xs font-bold gap-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs"
+                >
+                  {isApplyingTrend && selectedTrendId === t.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Zap className="h-3 w-3 text-amber-300" />
+                  )}
+                  <span>Use Trend</span>
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDetailModalTrend(t)}
+                  className="h-7 px-2 text-[11px] font-semibold border-slate-200 dark:border-slate-800"
+                >
+                  Details
+                </Button>
+              </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="py-4 text-center text-xs text-slate-400">
-          No trend suggestions available. Click Refresh to query live trends.
+          No live trend recommendations available. Click Refresh to query trends.
+        </div>
+      )}
+
+      {/* TREND DETAILS MODAL */}
+      {detailModalTrend && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <Badge className="bg-indigo-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 mb-1.5">
+                  {platform} • {format}
+                </Badge>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white leading-snug">
+                  {detailModalTrend.topic}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModalTrend(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Suggested Viral Hook
+                </span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 italic leading-relaxed">
+                  "{detailModalTrend.suggestedHook}"
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Content Execution Angle
+                </span>
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {detailModalTrend.contentAngle}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Brand DNA Alignment
+                </span>
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                  {detailModalTrend.whyItFits}
+                </p>
+              </div>
+
+              <div className="pt-1 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                <span>Source: {detailModalTrend.source}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDetailModalTrend(null)}
+                className="h-8 text-xs font-semibold"
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={isApplyingTrend}
+                onClick={() => {
+                  const t = detailModalTrend;
+                  setDetailModalTrend(null);
+                  setSelectedTrendId(t.id);
+                  onSelectTrend(t);
+                }}
+                className="h-8 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+              >
+                <Zap className="h-3.5 w-3.5 text-amber-300" />
+                <span>Use This Trend</span>
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

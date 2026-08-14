@@ -15,8 +15,8 @@ import {
   Info,
   Clock,
   CheckCircle2,
-  Sliders,
-  Eye,
+  AlertCircle,
+  RefreshCw,
   MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,8 @@ interface VideoPostEditorProps {
   firstComment: string;
   onFirstCommentChange: (val: string) => void;
   displayVideoUrl: string | null;
+  videoStatus?: "idle" | "queued" | "processing" | "completed" | "failed";
+  videoError?: string | null;
   onRemoveVideo: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
@@ -52,6 +54,9 @@ interface VideoPostEditorProps {
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
   onCaptionToPrompt: () => void;
+  isGeneratingPromptFromScript?: boolean;
+  durationSec: number;
+  onDurationChange: (sec: number) => void;
 }
 
 export default function VideoPostEditor({
@@ -67,6 +72,8 @@ export default function VideoPostEditor({
   firstComment,
   onFirstCommentChange,
   displayVideoUrl,
+  videoStatus = "idle",
+  videoError = null,
   onRemoveVideo,
   onOpenUpload,
   onOpenStock,
@@ -79,17 +86,16 @@ export default function VideoPostEditor({
   onEnhancePrompt,
   isEnhancingPrompt,
   onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
+  durationSec,
+  onDurationChange,
 }: VideoPostEditorProps) {
-  // Video Generation Settings (Strictly Gemini Omni Flash Specs)
-  const [durationSec, setDurationSec] = useState<number>(5);
-  const [selectedModel, setSelectedModel] = useState<string>("gemini-omni-flash-preview");
   const isVertical = capability.defaultAspectRatio === "9:16";
 
   // TikTok / Shorts Settings
   const [allowDuet, setAllowDuet] = useState(true);
   const [allowStitch, setAllowStitch] = useState(true);
   const [aiDisclosure, setAiDisclosure] = useState(true);
-  const [privacy, setPrivacy] = useState("Public");
 
   return (
     <div className="space-y-6 text-left">
@@ -118,12 +124,43 @@ export default function VideoPostEditor({
 
       {/* TWO COLUMN WORKSPACE */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: VIDEO PLAYER / PREVIEW (FORMAT ADAPTIVE) */}
-        <div className="md:col-span-5 space-y-3">
-          <div className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
-            isVertical ? "w-full max-w-[240px] aspect-[9/16]" : "w-full aspect-[16/9]"
-          }`}>
-            {displayVideoUrl ? (
+        {/* LEFT: VIDEO PLAYER / PREVIEW + VIDEO CONTROLS */}
+        <div className="md:col-span-5 space-y-4">
+          {/* VIDEO PREVIEW FRAME */}
+          <div
+            className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
+              isVertical ? "w-full max-w-[240px] aspect-[9/16]" : "w-full aspect-[16/9]"
+            }`}
+          >
+            {isRenderingVideo ? (
+              <div className="text-center p-4 space-y-3">
+                <Loader2 className="h-9 w-9 text-indigo-400 mx-auto animate-spin" />
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-slate-200">Generating video...</p>
+                  <p className="text-[10px] text-slate-400">
+                    Synthesizing {durationSec}s {capability.defaultAspectRatio} cinematic motion
+                  </p>
+                </div>
+              </div>
+            ) : videoStatus === "failed" ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-300">Video generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{videoError || "Synthesis could not be completed."}</p>
+                </div>
+                <div className="flex items-center justify-center gap-1.5 pt-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={onRenderAIVideo}
+                    className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                  >
+                    <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                  </Button>
+                </div>
+              </div>
+            ) : displayVideoUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <VideoPreviewPlayer
                   src={displayVideoUrl}
@@ -134,7 +171,7 @@ export default function VideoPostEditor({
                 <button
                   type="button"
                   onClick={onRemoveVideo}
-                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30"
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30 shadow-md"
                   title="Remove Video"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -144,119 +181,121 @@ export default function VideoPostEditor({
               <div className="text-center p-4 space-y-2.5">
                 <Film className="h-9 w-9 text-slate-400 mx-auto opacity-60" />
                 <div>
-                  <p className="text-xs font-bold text-slate-200">
-                    No Video Attached
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Generate cinematic AI video or upload MP4
-                  </p>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 block mb-0.5">
+                    Video Preview
+                  </span>
+                  <p className="text-xs font-bold text-slate-200">No video generated yet</p>
                 </div>
 
                 <div className="flex flex-wrap gap-1.5 justify-center pt-1">
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px] bg-slate-900 border-slate-700 text-slate-200">
-                    <Upload className="h-3 w-3 mr-1 text-emerald-400" /> Upload
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px] bg-slate-900 border-slate-700 text-slate-200">
-                    <VideoIcon className="h-3 w-3 mr-1 text-pink-400" /> Stock
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenUpload}
+                    className="h-7 text-[11px] bg-slate-900 border-slate-700 text-slate-200"
+                  >
+                    <Upload className="h-3 w-3 mr-1 text-emerald-400" /> Upload PC
                   </Button>
                   <Button
                     type="button"
+                    variant="outline"
                     size="sm"
-                    disabled={isRenderingVideo}
-                    onClick={onRenderAIVideo}
-                    className="h-7 text-[11px] bg-gradient-to-r from-indigo-600 to-pink-600 text-white"
+                    onClick={onOpenStock}
+                    className="h-7 text-[11px] bg-slate-900 border-slate-700 text-slate-200"
                   >
-                    {isRenderingVideo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Gen
+                    <VideoIcon className="h-3 w-3 mr-1 text-pink-400" /> Stock Media
                   </Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* AI VIDEO ENGINE CONTROLS */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+          {/* VIDEO SETTINGS & DURATION */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Settings2 className="h-3.5 w-3.5 text-indigo-600" />
-                Video AI Engine Settings
+                Video Settings
               </span>
-              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
-                720p HD Ready
+              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full font-mono">
+                {capability.defaultAspectRatio} Vertical
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Duration</label>
-                <select
-                  value={durationSec}
-                  onChange={(e) => setDurationSec(Number(e.target.value))}
-                  className="w-full h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
-                >
-                  {[3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
-                    <option key={s} value={s}>{s} seconds</option>
-                  ))}
-                </select>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                Duration
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => onDurationChange(s)}
+                    className={`py-1 rounded-lg text-xs font-bold transition-all border ${
+                      durationSec === s
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {s}s
+                  </button>
+                ))}
               </div>
+            </div>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">Model Tier</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
+          {/* UNIFIED PROMPT SECTION */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                <Wand2 className="h-3.5 w-3.5 text-indigo-600" /> Prompt
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isGeneratingPromptFromScript}
+                  onClick={onCaptionToPrompt}
+                  className="text-[11px] font-bold text-indigo-600 hover:underline flex items-center gap-0.5"
                 >
-                  <option value="gemini-omni-flash-preview">Gemini Omni Flash (Fast)</option>
-                  <option value="veo-3.1-generate-001">Google Veo 3.1 (Cinematic)</option>
-                </select>
+                  {isGeneratingPromptFromScript ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-3 w-3" />
+                  )}
+                  <span>Auto-Prompt from Script</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isEnhancingPrompt}
+                  onClick={onEnhancePrompt}
+                  className="text-[11px] font-bold text-pink-600 hover:underline flex items-center gap-0.5"
+                >
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  <span>Enhance Prompt ✨</span>
+                </button>
               </div>
             </div>
 
-            {/* VIDEO PROMPT */}
-            <div className="space-y-1.5 pt-1">
-              <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                  <Wand2 className="h-3 w-3 text-indigo-600" /> Video Motion Prompt
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={onCaptionToPrompt}
-                    className="text-[10px] font-bold text-indigo-600 hover:underline"
-                  >
-                    Auto-Prompt from Script
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isEnhancingPrompt}
-                    onClick={onEnhancePrompt}
-                    className="text-[10px] font-bold text-pink-600 hover:underline flex items-center gap-0.5"
-                  >
-                    {isEnhancingPrompt ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
-                    <span>Enhance ✨</span>
-                  </button>
-                </div>
-              </div>
+            <Textarea
+              rows={4}
+              value={prompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="Describe 9:16 vertical video scene, subject action, camera movement, cinematic lighting, and 1-2s hook..."
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
+            />
 
-              <Textarea
-                rows={2}
-                value={prompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                placeholder="Cinematic motion, dynamic subject action, moody studio lighting..."
-                className="w-full text-xs p-2 rounded-lg bg-white dark:bg-slate-900 font-mono"
-              />
-
-              <Button
-                type="button"
-                size="sm"
-                disabled={isRenderingVideo}
-                onClick={onRenderAIVideo}
-                className="w-full h-8 text-xs font-bold gap-1 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs"
-              >
-                {isRenderingVideo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Synthesize {durationSec}s AI Video</span>
-              </Button>
-            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isRenderingVideo || !prompt.trim()}
+              onClick={onRenderAIVideo}
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs hover:opacity-90"
+            >
+              {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isRenderingVideo ? "Generating Video..." : `Generate ${durationSec}s Video`}</span>
+            </Button>
           </div>
         </div>
 
@@ -267,7 +306,11 @@ export default function VideoPostEditor({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Video Title</label>
-                {capability.titleLimit && <span className="text-[11px] text-slate-400 font-mono">{title.length} / {capability.titleLimit}</span>}
+                {capability.titleLimit && (
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {title.length} / {capability.titleLimit}
+                  </span>
+                )}
               </div>
               <Input
                 value={title}

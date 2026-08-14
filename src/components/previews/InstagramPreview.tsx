@@ -77,10 +77,13 @@ export default function InstagramPreview({
         <div className="absolute inset-0 flex items-center justify-center">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
-          ) : currentSlideMedia ? (
-            <img src={currentSlideMedia} alt="Reel" className="w-full h-full object-cover" />
+          ) : currentFormatName === "Story" && currentSlideMedia ? (
+            <img src={currentSlideMedia} alt="Story" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full bg-slate-900 flex items-center justify-center text-slate-600 text-xs">Preview Media</div>
+            <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Reel Video Preview</span>
+              <span className="text-[11px] text-slate-500">No video generated yet</span>
+            </div>
           )}
         </div>
         <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">

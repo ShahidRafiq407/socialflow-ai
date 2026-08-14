@@ -43,6 +43,12 @@ export interface PlatformEditorRouterProps {
   onRenderAI: () => void;
   isRenderingMedia: boolean;
 
+  // Video State
+  videoStatus?: "idle" | "queued" | "processing" | "completed" | "failed";
+  videoError?: string | null;
+  durationSec?: number;
+  onDurationChange?: (sec: number) => void;
+
   // Multi-Slide Carousel / Idea Pin / Document state
   slides: CarouselSlideItem[];
   onSlidesChange: (slides: CarouselSlideItem[]) => void;
@@ -61,6 +67,7 @@ export interface PlatformEditorRouterProps {
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
   onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
 
   // AI Operations
   onGenerateCopyAI: () => void;
@@ -291,6 +298,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         firstComment={props.firstComment}
         onFirstCommentChange={props.onFirstCommentChange}
         displayVideoUrl={props.displayImageUrl}
+        videoStatus={props.videoStatus}
+        videoError={props.videoError}
         onRemoveVideo={props.onRemoveMedia}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
@@ -303,6 +312,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
         onCaptionToPrompt={props.onCaptionToPrompt || (() => {})}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+        durationSec={props.durationSec || 5}
+        onDurationChange={props.onDurationChange || (() => {})}
       />
     );
   }
