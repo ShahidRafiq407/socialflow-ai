@@ -348,10 +348,15 @@ export default function InstagramCarouselEditor({
                 )}
                 <button
                   type="button"
+                  disabled={!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()}
                   onClick={() => {
-                    handleUpdateActiveSlide("visualPrompt", `${activeSlide.visualPrompt || "clean modern aesthetic"}, hyper-detailed photography, professional studio lighting, 8k resolution`);
+                    handleUpdateActiveSlide("visualPrompt", `${activeSlide.visualPrompt}, hyper-detailed photography, professional studio lighting, 8k resolution`);
                   }}
-                  className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                  className={`text-[11px] font-semibold flex items-center gap-0.5 transition-all ${
+                    !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
+                      ? "text-slate-400 cursor-not-allowed opacity-50"
+                      : "text-purple-600 hover:text-purple-700 hover:underline cursor-pointer"
+                  }`}
                 >
                   <span>Enhance Prompt ✨</span>
                 </button>

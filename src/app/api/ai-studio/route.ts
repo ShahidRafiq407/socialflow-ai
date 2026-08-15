@@ -287,7 +287,7 @@ Return ONLY the prompt string.`;
     // STEP: Real Media Generation (Visualizer Agent + Validation)
     // =========================================================================
     if (step === "generate-media") {
-      const { platform, format, mediaType, prompt, aspectRatio, duration, topic } = body;
+      const { platform, format, mediaType, prompt, aspectRatio, duration, topic, videoTask, sourceImage, sourceVideo } = body;
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
       const targetMediaType = isVideoFormat ? "video" : (mediaType || capability.mediaType || "image");
@@ -304,16 +304,18 @@ Return ONLY the prompt string.`;
 
       const targetAspect = aspectRatio || capability.defaultAspectRatio || "9:16";
 
-      // Check Redis Cache for identical media prompt & settings
-      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
-      const cachedMedia = await cacheGet<any>(mediaCacheKey);
-      if (cachedMedia) {
-        console.log(`[AI Studio] Returning Redis cached media asset for ${platform} ${format}`);
-        return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+      // Check Redis Cache for identical media prompt & settings (only if no source attachment)
+      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
+      if (!sourceImage && !sourceVideo) {
+        const cachedMedia = await cacheGet<any>(mediaCacheKey);
+        if (cachedMedia) {
+          console.log(`[AI Studio] Returning Redis cached media asset for ${platform} ${format}`);
+          return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+        }
       }
 
       try {
-        console.log(`[AI Studio] Generating ${targetMediaType} for ${platform} ${format} with prompt: "${prompt.slice(0, 60)}..."`);
+        console.log(`[AI Studio] Generating ${targetMediaType} for ${platform} ${format} (Task: ${videoTask || "auto"}) with prompt: "${prompt.slice(0, 60)}..."`);
         const mediaAssets = await generateMediaAsset({
           platform,
           contentType: format,
@@ -321,6 +323,9 @@ Return ONLY the prompt string.`;
           prompt,
           aspectRatio: targetAspect,
           topic: topic || brandDNA.name,
+          videoTask,
+          sourceImage,
+          sourceVideo,
         });
 
         const asset = mediaAssets[0];

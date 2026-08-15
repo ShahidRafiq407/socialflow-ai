@@ -1005,51 +1005,63 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (data.success && data.data) {
         const item = data.data;
+        const currentFamily = getFormatFamily(targetPlatform, targetFormat);
+        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
 
         setGeneratedContents(prev => {
-          const currentPlat = prev[targetPlatform] || {};
-          const currentFmt = currentPlat[targetFormat] || {};
-          return {
-            ...prev,
-            [targetPlatform]: {
-              ...currentPlat,
-              [targetFormat]: {
-                ...currentFmt,
-                caption: item.caption || currentFmt.caption,
-                hashtags: item.hashtags || currentFmt.hashtags,
-                imagePrompt: item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || currentFmt.imagePrompt,
-                visualPrompts: item.slides && Array.isArray(item.slides)
-                  ? item.slides.map((s: any) => s.visualPrompt || "")
-                  : (item.visualPrompts || currentFmt.visualPrompts),
-                overlayText: item.slides && Array.isArray(item.slides)
-                  ? item.slides.map((s: any, idx: number) => ({
-                      step: s.step || idx + 1,
-                      title: s.title || `Slide ${idx + 1}`,
-                      body: s.body || "",
-                      theme: "gradient-purple",
-                    }))
-                  : currentFmt.overlayText,
+          const updated = { ...prev };
+          selectedPlatforms.forEach(pId => {
+            const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
+              ? selectedContentTypes[pId]
+              : (getPlatformDef(pId)?.contentTypes || []);
+
+            availableFormats.forEach(otherFmt => {
+              if (getFormatFamily(pId, otherFmt) === currentFamily) {
+                const currentPlat = updated[pId] || {};
+                const currentFmt = currentPlat[otherFmt] || {};
+                updated[pId] = {
+                  ...currentPlat,
+                  [otherFmt]: {
+                    ...currentFmt,
+                    caption: item.caption || currentFmt.caption,
+                    hashtags: item.hashtags || currentFmt.hashtags,
+                    imagePrompt: generatedPrompt || currentFmt.imagePrompt,
+                    visualPrompts: item.slides && Array.isArray(item.slides)
+                      ? item.slides.map((s: any) => s.visualPrompt || "")
+                      : (item.visualPrompts || currentFmt.visualPrompts),
+                    overlayText: item.slides && Array.isArray(item.slides)
+                      ? item.slides.map((s: any, idx: number) => ({
+                          step: s.step || idx + 1,
+                          title: s.title || `Slide ${idx + 1}`,
+                          body: s.body || "",
+                          theme: "gradient-purple",
+                        }))
+                      : currentFmt.overlayText,
+                  }
+                };
               }
-            }
-          };
+            });
+          });
+          return updated;
         });
 
-        if (item.title) {
-          setTitleDict(prev => ({ ...prev, [targetKey]: item.title }));
-        }
-        if (item.description) {
-          setDescriptionDict(prev => ({ ...prev, [targetKey]: item.description }));
-        }
-        if (item.taggedTopics) {
-          setTaggedTopicsDict(prev => ({ ...prev, [targetKey]: item.taggedTopics }));
-        }
-        if (item.altText) {
-          setAltTextDict(prev => ({ ...prev, [targetKey]: item.altText }));
-        }
-        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
-        if (generatedPrompt) {
-          setCustomPromptDict(prev => ({ ...prev, [targetKey]: generatedPrompt }));
-        }
+        // Sync auxiliary dictionaries (title, description, taggedTopics, altText, customPrompt) for matching family
+        selectedPlatforms.forEach(pId => {
+          const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
+            ? selectedContentTypes[pId]
+            : (getPlatformDef(pId)?.contentTypes || []);
+
+          availableFormats.forEach(otherFmt => {
+            if (getFormatFamily(pId, otherFmt) === currentFamily) {
+              const otherKey = `${pId}-${otherFmt}`;
+              if (item.title) setTitleDict(prev => ({ ...prev, [otherKey]: item.title }));
+              if (item.description) setDescriptionDict(prev => ({ ...prev, [otherKey]: item.description }));
+              if (item.taggedTopics) setTaggedTopicsDict(prev => ({ ...prev, [otherKey]: item.taggedTopics }));
+              if (item.altText) setAltTextDict(prev => ({ ...prev, [otherKey]: item.altText }));
+              if (generatedPrompt) setCustomPromptDict(prev => ({ ...prev, [otherKey]: generatedPrompt }));
+            }
+          });
+        });
       }
     } catch (e) {
       console.error("Platform copy AI generation error:", e);
@@ -1319,7 +1331,15 @@ export default function AIStudioPage() {
 
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
-  const handleRenderMedia = async (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => {
+  const handleRenderMedia = async (options?: {
+    mediaType?: "image" | "video";
+    duration?: number;
+    prompt?: string;
+    aspectRatio?: string;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
+  }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
@@ -1337,7 +1357,7 @@ export default function AIStudioPage() {
         : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`)
     );
     const duration = options?.duration || videoDurationSec || 5;
-    const targetAspect = currentAspectRatio;
+    const targetAspect = options?.aspectRatio || currentAspectRatio;
 
     setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
     setClearedMediaKeys(prev => ({ ...prev, [targetMediaKey]: false }));
@@ -1361,6 +1381,9 @@ export default function AIStudioPage() {
             duration: duration,
             aspectRatio: targetAspect,
             topic: campaignTopic,
+            videoTask: options?.videoTask,
+            sourceImage: options?.sourceImage,
+            sourceVideo: options?.sourceVideo,
           }),
         });
         const data = await res.json();

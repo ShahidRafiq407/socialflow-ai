@@ -380,11 +380,13 @@ export default function StandardSocialEditor({
                 )}
                 <button
                 type="button"
-                disabled={isEnhancingPrompt}
+                disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                 onClick={onEnhancePrompt}
                 className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
                   isEnhancingPrompt
                     ? "text-pink-400 cursor-wait opacity-80"
+                    : !prompt || !prompt.trim()
+                    ? "text-slate-400 cursor-not-allowed opacity-50"
                     : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                 }`}
               >

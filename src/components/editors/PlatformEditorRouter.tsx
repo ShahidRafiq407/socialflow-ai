@@ -40,7 +40,15 @@ export interface PlatformEditorRouterProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
+  onRenderAI: (options?: {
+    mediaType?: "image" | "video";
+    duration?: number;
+    prompt?: string;
+    aspectRatio?: string;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
+  }) => void;
   isRenderingMedia: boolean;
 
   // Video State

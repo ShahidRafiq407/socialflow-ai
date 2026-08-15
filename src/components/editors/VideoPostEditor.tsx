@@ -43,7 +43,15 @@ interface VideoPostEditorProps {
   onRemoveVideo: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAIVideo: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
+  onRenderAIVideo: (options?: {
+    mediaType?: "image" | "video";
+    duration?: number;
+    prompt?: string;
+    aspectRatio?: string;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
+  }) => void;
   isRenderingVideo: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -99,6 +107,7 @@ export default function VideoPostEditor({
   const [videoModel, setVideoModel] = useState<string>("gemini-omni-flash");
   const [videoAspectRatio, setVideoAspectRatio] = useState<string>("auto");
   const [videoTask, setVideoTask] = useState<string>("auto");
+  const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
 
   const handleDownloadVideo = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -274,8 +283,6 @@ export default function VideoPostEditor({
                 className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
               >
                 <option value="gemini-omni-flash">Gemini Omni Flash</option>
-                <option value="veo-3">Veo 3.1 Cinema Ultra</option>
-                <option value="imagen-video">Imagen Video Studio FX</option>
               </select>
             </div>
 
@@ -289,9 +296,9 @@ export default function VideoPostEditor({
                 onChange={(e) => setVideoAspectRatio(e.target.value)}
                 className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
               >
-                <option value="auto">Auto (Platform Native - 9:16)</option>
-                <option value="16:9">16:9 Widescreen</option>
-                <option value="9:16">9:16 Vertical Reel/Short</option>
+                <option value="auto">Auto</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
               </select>
             </div>
 
@@ -302,7 +309,12 @@ export default function VideoPostEditor({
               </label>
               <select
                 value={videoTask}
-                onChange={(e) => setVideoTask(e.target.value)}
+                onChange={(e) => {
+                  setVideoTask(e.target.value);
+                  if (e.target.value === "text_to_video") {
+                    setAttachedSourceImage(null);
+                  }
+                }}
                 className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
               >
                 <option value="auto">Auto</option>
@@ -313,31 +325,26 @@ export default function VideoPostEditor({
               </select>
             </div>
 
-            {/* 4. Duration Selector */}
-            <div className="space-y-1.5 pt-0.5">
+            {/* 4. Duration Dropdown */}
+            <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                 Duration
               </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {[3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => onDurationChange(s)}
-                    className={`py-1 rounded-lg text-xs font-bold transition-all border ${
-                      durationSec === s
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                        : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    {s}s
-                  </button>
+              <select
+                value={durationSec}
+                onChange={(e) => onDurationChange(Number(e.target.value))}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none font-mono"
+              >
+                {[3, 4, 5, 6, 7, 8, 9, 10, 15, 30].map((s) => (
+                  <option key={s} value={s}>
+                    {s} seconds
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
           </div>
 
-          {/* UNIFIED PROMPT SECTION */}
+          {/* UNIFIED PROMPT & REAL TASK ATTACHMENT SECTION */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1.5">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -365,11 +372,13 @@ export default function VideoPostEditor({
                 </button>
                 <button
                   type="button"
-                  disabled={isEnhancingPrompt}
+                  disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                   onClick={onEnhancePrompt}
                   className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
                     isEnhancingPrompt
                       ? "text-pink-400 cursor-wait opacity-80"
+                      : !prompt || !prompt.trim()
+                      ? "text-slate-400 cursor-not-allowed opacity-50"
                       : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                   }`}
                 >
@@ -385,11 +394,75 @@ export default function VideoPostEditor({
               </div>
             </div>
 
+            {/* REAL TASK SOURCE ATTACHMENT */}
+            {(videoTask === "image_to_video" || videoTask === "reference_to_video") && (
+              <div className="p-2.5 rounded-lg border border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                  <span className="flex items-center gap-1">
+                    <Film className="h-3.5 w-3.5" /> Source Image for Image-to-Video
+                  </span>
+                  {attachedSourceImage && (
+                    <button
+                      type="button"
+                      onClick={() => setAttachedSourceImage(null)}
+                      className="text-red-500 hover:underline text-[10px]"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {attachedSourceImage ? (
+                  <div className="flex items-center gap-2">
+                    <img src={attachedSourceImage} alt="Source for video" className="h-12 w-12 object-cover rounded-md border border-indigo-300 dark:border-indigo-700" />
+                    <span className="text-[10px] text-slate-500 font-mono">Image attached for animation</span>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="source-image-upload"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => setAttachedSourceImage(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="source-image-upload"
+                      className="cursor-pointer flex items-center justify-center gap-1.5 p-2 rounded-lg border border-dashed border-indigo-400 bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                    >
+                      <Upload className="h-3.5 w-3.5" /> Upload Image to Animate into Video
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {videoTask === "edit" && (
+              <div className="p-2 rounded-lg border border-pink-500/30 bg-pink-50/50 dark:bg-pink-950/20 text-[11px] font-medium text-pink-700 dark:text-pink-300 flex items-center gap-1.5">
+                <Film className="h-3.5 w-3.5" />
+                {displayVideoUrl
+                  ? "Editing active video stream. Type instructions below (e.g. adjust lighting, camera angle, action)."
+                  : "No video generated yet. Upload or generate a video first to use the Edit task."}
+              </div>
+            )}
+
             <Textarea
               rows={4}
               value={prompt}
               onChange={(e) => onPromptChange(e.target.value)}
-              placeholder="Describe 9:16 vertical video scene, subject action, camera movement, cinematic lighting, and 1-2s hook..."
+              placeholder={
+                videoTask === "image_to_video"
+                  ? "Describe how this source image should animate and move in 9:16 vertical video..."
+                  : videoTask === "edit"
+                  ? "Describe modifications to the current video (e.g. increase motion speed, dramatic cinematic lighting)..."
+                  : "Describe 9:16 vertical video scene, subject action, camera movement, cinematic lighting, and 1-2s hook..."
+              }
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
 
@@ -397,7 +470,17 @@ export default function VideoPostEditor({
               type="button"
               size="sm"
               disabled={isRenderingVideo || !prompt.trim()}
-              onClick={() => onRenderAIVideo({ mediaType: "video", duration: durationSec, prompt })}
+              onClick={() =>
+                onRenderAIVideo({
+                  mediaType: "video",
+                  duration: durationSec,
+                  prompt,
+                  aspectRatio: videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio,
+                  videoTask,
+                  sourceImage: attachedSourceImage,
+                  sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
+                })
+              }
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}

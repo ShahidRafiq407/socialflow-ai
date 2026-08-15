@@ -34,6 +34,9 @@ export interface GenerateMediaInput {
   aspectRatio: string;
   caption?: string;
   topic?: string;
+  videoTask?: string;
+  sourceImage?: string | null;
+  sourceVideo?: string | null;
   onProgress?: (message: string) => void;
 }
 
@@ -72,14 +75,17 @@ async function generateRealVideo(options: {
   topic: string;
   aspectRatio: string;
   model: string;
+  videoTask?: string;
+  sourceImage?: string | null;
+  sourceVideo?: string | null;
   onProgress?: (message: string) => void;
 }): Promise<string> {
-  const { prompt, topic, aspectRatio, model, onProgress } = options;
+  const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, onProgress } = options;
   const targetVideoModel = model || "gemini-omni-flash-preview";
   const ai = (vertexProvider as any).ai;
   let lastErr: any = null;
 
-  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}"`);
+  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}" (Task: ${videoTask || "auto"})`);
 
   // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
   if (typeof (ai as any)?.interactions?.create === "function") {
@@ -88,10 +94,54 @@ async function generateRealVideo(options: {
       
       onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
 
+      let formattedInput: any = fullPrompt;
+      const inputParts: any[] = [];
+
+      if (sourceImage) {
+        if (sourceImage.startsWith("data:")) {
+          const match = sourceImage.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            inputParts.push({
+              type: "image",
+              mime_type: match[1],
+              data: match[2],
+            });
+          }
+        } else if (sourceImage.startsWith("http://") || sourceImage.startsWith("https://")) {
+          inputParts.push({
+            type: "image",
+            uri: sourceImage,
+          });
+        }
+      }
+
+      if (sourceVideo) {
+        if (sourceVideo.startsWith("data:")) {
+          const match = sourceVideo.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            inputParts.push({
+              type: "video",
+              mime_type: match[1],
+              data: match[2],
+            });
+          }
+        } else if (sourceVideo.startsWith("http://") || sourceVideo.startsWith("https://")) {
+          inputParts.push({
+            type: "video",
+            uri: sourceVideo,
+          });
+        }
+      }
+
+      if (inputParts.length > 0) {
+        inputParts.push({ type: "text", text: fullPrompt });
+        formattedInput = inputParts;
+      }
+
       const interaction = await Promise.race([
         (ai as any).interactions.create({
           model: targetVideoModel,
-          input: fullPrompt,
+          input: formattedInput,
         }),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Video synthesis timeout after 120s")), 120000)
@@ -266,6 +316,9 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       topic,
       aspectRatio,
       model: MODELS.VIDEO,
+      videoTask: input.videoTask,
+      sourceImage: input.sourceImage,
+      sourceVideo: input.sourceVideo,
       onProgress,
     });
 
