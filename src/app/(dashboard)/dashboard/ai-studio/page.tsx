@@ -416,7 +416,7 @@ export default function AIStudioPage() {
   const [openEditorPlatformDropdown, setOpenEditorPlatformDropdown] = useState<boolean>(false);
 
   const { user } = useUser();
-  const defaultUserName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "SMB Robotics";
+  const defaultUserName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : (user?.fullName || "Your Brand");
   const defaultUserHandle = defaultUserName.toLowerCase().replace(/\s/g, "");
   const defaultUserImage = user?.imageUrl || null;
 
@@ -3445,7 +3445,7 @@ export default function AIStudioPage() {
                     rows={3}
                     value={carouselCustomPrompt}
                     onChange={e => setCarouselCustomPrompt(e.target.value)}
-                    placeholder="e.g. Create 5 slides showing step-by-step how SMB Robotics builds IoT automation systems..."
+                    placeholder="e.g. Create 5 slides showing step-by-step how our product solves common customer challenges..."
                     className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
@@ -3586,7 +3586,7 @@ export default function AIStudioPage() {
                       <Input
                         value={templateSubheadline}
                         onChange={e => setTemplateSubheadline(e.target.value)}
-                        placeholder="e.g. Automate your social channels with SMB Robotics AI"
+                        placeholder="e.g. Automate your social channels with AI-powered marketing"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>
@@ -3883,7 +3883,7 @@ export default function AIStudioPage() {
                     rows={3}
                     value={carouselCustomPrompt}
                     onChange={e => setCarouselCustomPrompt(e.target.value)}
-                    placeholder="e.g. Create 5 slides showing step-by-step how SMB Robotics builds IoT automation systems..."
+                    placeholder="e.g. Create 5 slides showing step-by-step how our product solves common customer challenges..."
                     className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
@@ -4024,7 +4024,7 @@ export default function AIStudioPage() {
                       <Input
                         value={templateSubheadline}
                         onChange={e => setTemplateSubheadline(e.target.value)}
-                        placeholder="e.g. Automate your social channels with SMB Robotics AI"
+                        placeholder="e.g. Automate your social channels with AI-powered marketing"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>

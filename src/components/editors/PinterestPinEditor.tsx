@@ -718,13 +718,13 @@ export default function PinterestPinEditor({
 
               {/* QUICK PRESET PICKS */}
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-400">Quick Pick SMB Robotics Products:</span>
+                <span className="text-[11px] font-semibold text-slate-400">Quick Pick Sample Products:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { name: "Smart Robot Arm Kit", price: "$299", url: "https://smbrobotic.com" },
-                    { name: "AI Vision Sensor", price: "$149", url: "https://smbrobotic.com" },
-                    { name: "Industrial Servo Pack", price: "$450", url: "https://smbrobotic.com" },
-                    { name: "STEM Learning Bundle", price: "$199", url: "https://smbrobotic.com" },
+                    { name: "Pro Starter Kit", price: "$99", url: "https://example.com/starter" },
+                    { name: "Premium Plan", price: "$149", url: "https://example.com/premium" },
+                    { name: "Enterprise Solution", price: "$299", url: "https://example.com/enterprise" },
+                    { name: "Digital Guide Bundle", price: "$49", url: "https://example.com/guide" },
                   ].map((p, idx) => (
                     <button
                       key={idx}
