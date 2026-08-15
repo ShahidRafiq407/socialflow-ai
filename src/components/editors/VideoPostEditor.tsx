@@ -325,7 +325,7 @@ export default function VideoPostEditor({
               </select>
             </div>
 
-            {/* 4. Duration Dropdown */}
+            {/* 4. Duration Dropdown (Google Omni Flash 3s - 10s Specification) */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                 Duration
@@ -335,9 +335,9 @@ export default function VideoPostEditor({
                 onChange={(e) => onDurationChange(Number(e.target.value))}
                 className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none font-mono"
               >
-                {[3, 4, 5, 6, 7, 8, 9, 10, 15, 30].map((s) => (
+                {[3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
                   <option key={s} value={s}>
-                    {s} seconds
+                    {s} seconds {s === 5 ? "(Recommended)" : ""}
                   </option>
                 ))}
               </select>
