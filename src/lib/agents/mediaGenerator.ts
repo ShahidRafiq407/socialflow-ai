@@ -413,16 +413,21 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             if (imageUrl) break;
             try {
               console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")}`);
-              const genRes = await ai.models.generateContent({
-                model: tryModel,
-                contents: slidePrompt,
-                config: {
-                  responseModalities: modalities,
-                  imageConfig: {
-                    aspectRatio: targetImageAspect,
+              const genRes = await Promise.race([
+                ai.models.generateContent({
+                  model: tryModel,
+                  contents: slidePrompt,
+                  config: {
+                    responseModalities: modalities,
+                    imageConfig: {
+                      aspectRatio: targetImageAspect,
+                    },
                   },
-                },
-              });
+                }),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error("Image generation timeout after 60s")), 60000)
+                )
+              ]);
 
               const candidates = (genRes as any)?.candidates || [];
               for (const cand of candidates) {
@@ -456,11 +461,16 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       // 2. interactions.create fallback if available
       if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
         try {
-          const interaction = await (ai as any).interactions.create({
-            model: modelName,
-            input: slidePrompt,
-            aspect_ratio: targetImageAspect,
-          });
+          const interaction = await Promise.race([
+            (ai as any).interactions.create({
+              model: modelName,
+              input: slidePrompt,
+              aspect_ratio: targetImageAspect,
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("Image interactions.create timeout after 60s")), 60000)
+            )
+          ]);
 
           const directImg = (interaction as any)?.output_image || (interaction as any)?.outputImage;
           if (directImg?.data) {
