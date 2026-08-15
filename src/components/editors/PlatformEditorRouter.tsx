@@ -40,7 +40,7 @@ export interface PlatformEditorRouterProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: () => void;
+  onRenderAI: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
   isRenderingMedia: boolean;
 
   // Video State
@@ -335,7 +335,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
     );
   }
 
-  // 7. DEFAULT STANDARD SOCIAL EDITOR (Feed Single Image / Text Post)
+  // 7. DEFAULT STANDARD SOCIAL EDITOR (Feed Single Image / Story / Text Post)
   return (
     <StandardSocialEditor
       capability={capability}
@@ -361,6 +361,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       isEnhancingPrompt={props.isEnhancingPrompt}
       onCaptionToPrompt={props.onCaptionToPrompt}
       isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+      videoStatus={props.videoStatus}
+      videoError={props.videoError}
+      durationSec={props.durationSec}
+      onDurationChange={props.onDurationChange}
       generationProgress={props.generationProgress}
       generationStage={props.generationStage}
     />

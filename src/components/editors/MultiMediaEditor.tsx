@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
+import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 
 export interface MultiMediaItem {
   id: string;
@@ -223,13 +224,13 @@ export default function MultiMediaEditor({
         <div className="md:col-span-5 space-y-3">
           <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[240px] aspect-square overflow-hidden group shadow-2xs">
             {activeMedia.url ? (
-              <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <img
-                  src={activeMedia.url}
-                  alt={`Asset ${activeMediaIndex + 1}`}
-                  className="w-full h-full object-cover rounded-xl"
-                />
-              </div>
+              <ContentMediaRenderer
+                url={activeMedia.url}
+                mediaType={activeMedia.type}
+                isVertical={false}
+                showRemoveButton={false}
+                alt={`Asset ${activeMediaIndex + 1}`}
+              />
             ) : (
               <div className="text-center p-4 space-y-2">
                 <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />

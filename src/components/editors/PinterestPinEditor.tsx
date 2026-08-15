@@ -283,7 +283,7 @@ export default function PinterestPinEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-xs"
             >
               {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingMedia ? `Generating Pin Visual (${generationProgress || 0}%)...` : "Generate Pin Visual"}</span>
+              <span>{isRenderingMedia ? "Generating Pin Visual..." : "Generate Pin Visual"}</span>
             </Button>
           </div>
         </div>

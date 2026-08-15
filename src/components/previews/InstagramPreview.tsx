@@ -77,25 +77,56 @@ export default function InstagramPreview({
         <div className="absolute inset-0 flex items-center justify-center">
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
-          ) : currentFormatName === "Story" && currentSlideMedia ? (
-            <img src={currentSlideMedia} alt="Story" className="w-full h-full object-cover" />
+          ) : currentSlideMedia ? (
+            <img src={currentSlideMedia} alt={currentFormatName} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Reel Video Preview</span>
-              <span className="text-[11px] text-slate-500">No video generated yet</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">
+                {currentFormatName === "Story" ? "Story Preview" : "Reel Video Preview"}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {currentFormatName === "Story" ? "No story media attached yet" : "No video generated yet"}
+              </span>
             </div>
           )}
         </div>
-        <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">
-          <div className="flex flex-col items-center gap-1"><Heart className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">12k</span></div>
-          <div className="flex flex-col items-center gap-1"><MessageCircle className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">456</span></div>
-          <div className="flex flex-col items-center gap-1"><Send className="h-5 w-5 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">Share</span></div>
-          <MoreHorizontal className="h-5 w-5 text-white drop-shadow-md mt-2" />
-        </div>
-        <div className="absolute bottom-0 left-0 right-16 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-12 z-20">
-          <p className="text-xs font-semibold text-white mb-1">{handleText}</p>
-          <p className="text-[11px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
-        </div>
+
+        {currentFormatName === "Reel" ? (
+          <>
+            <div className="absolute right-3 bottom-24 flex flex-col items-center gap-4 z-20">
+              <div className="flex flex-col items-center gap-1"><Heart className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">12k</span></div>
+              <div className="flex flex-col items-center gap-1"><MessageCircle className="h-6 w-6 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">456</span></div>
+              <div className="flex flex-col items-center gap-1"><Send className="h-5 w-5 text-white drop-shadow-md" /><span className="text-[10px] font-semibold">Share</span></div>
+              <MoreHorizontal className="h-5 w-5 text-white drop-shadow-md mt-2" />
+            </div>
+            <div className="absolute bottom-0 left-0 right-16 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-12 z-20">
+              <p className="text-xs font-semibold text-white mb-1">{handleText}</p>
+              <p className="text-[11px] leading-snug line-clamp-2 text-white">{currentCaption}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Top Story Progress Bar */}
+            <div className="absolute top-2 left-3 right-3 flex gap-1 z-30">
+              <div className="h-0.5 flex-1 bg-white/90 rounded-full" />
+            </div>
+            {/* Bottom Story Message Bar */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-8 z-20 space-y-1.5">
+              {currentCaption && (
+                <p className="text-[11px] leading-snug line-clamp-2 text-white text-center drop-shadow-md">
+                  {currentCaption}
+                </p>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 py-1 px-3 rounded-full border border-white/40 bg-black/30 backdrop-blur-xs text-[10px] text-white/80">
+                  Send message...
+                </div>
+                <Heart className="h-5 w-5 text-white drop-shadow-md" />
+                <Send className="h-5 w-5 text-white drop-shadow-md" />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   }

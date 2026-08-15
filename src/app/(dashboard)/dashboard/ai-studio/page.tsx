@@ -1305,16 +1305,24 @@ export default function AIStudioPage() {
 
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
-  const handleRenderMedia = async () => {
+  const handleRenderMedia = async (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
     const targetSlideIdx = activeSlideIdx;
     const targetMediaKey = `${targetPlatform}-${targetFormat}-${targetSlideIdx}`;
-    const isVideo = getPlatformCapability(targetPlatform, targetFormat).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(targetFormat);
-    const targetPrompt = customPromptDict[targetFormatKey] !== undefined && customPromptDict[targetFormatKey] !== ""
-      ? customPromptDict[targetFormatKey]
-      : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`);
+    
+    const capability = getPlatformCapability(targetPlatform, targetFormat);
+    const isVideo = options?.mediaType
+      ? options.mediaType === "video"
+      : capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(targetFormat);
+
+    const targetPrompt = options?.prompt || (
+      customPromptDict[targetFormatKey] !== undefined && customPromptDict[targetFormatKey] !== ""
+        ? customPromptDict[targetFormatKey]
+        : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`)
+    );
+    const duration = options?.duration || videoDurationSec || 5;
     const targetAspect = currentAspectRatio;
 
     setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
@@ -1323,13 +1331,10 @@ export default function AIStudioPage() {
 
     if (isVideo) {
       setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "processing" }));
-      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 20 }));
-      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Initializing video synthesis job with AI engine..." }));
+      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Synthesizing ${duration}s cinematic video stream...` }));
 
       try {
-        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 45 }));
-        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Synthesizing ${videoDurationSec}s cinematic video stream...` }));
-
         const res = await fetch("/api/ai-studio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1339,7 +1344,7 @@ export default function AIStudioPage() {
             format: targetFormat,
             mediaType: "video",
             prompt: targetPrompt,
-            duration: videoDurationSec,
+            duration: duration,
             aspectRatio: targetAspect,
             topic: campaignTopic,
           }),
@@ -1390,13 +1395,10 @@ export default function AIStudioPage() {
     }
 
     // Real Image Rendering via Backend AI Visualizer (Vertex AI)
-    setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 25 }));
-    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Dispatching canvas synthesis to AI Visualizer..." }));
+    setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Synthesizing visual canvas with AI Visualizer..." }));
 
     try {
-      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 60 }));
-      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Rendering photorealistic lighting & composition layers..." }));
-
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1421,8 +1423,14 @@ export default function AIStudioPage() {
           if (next[targetMediaKey]?.url?.startsWith("blob:")) {
             try { URL.revokeObjectURL(next[targetMediaKey].url); } catch {}
           }
-          delete next[targetMediaKey];
-          return next;
+          return {
+            ...next,
+            [targetMediaKey]: {
+              url: data.asset.url,
+              type: "image",
+              name: `${targetPlatform}-${targetFormat}.png`,
+            },
+          };
         });
       } else {
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
@@ -2519,7 +2527,7 @@ export default function AIStudioPage() {
                   }}
                   onOpenUpload={() => fileInputRef.current?.click()}
                   onOpenStock={() => setActiveMediaModal("stock")}
-                  onRenderAI={() => handleRenderMedia()}
+                  onRenderAI={(opts) => handleRenderMedia(opts)}
                   isRenderingMedia={Boolean(renderingMediaKeys[currentFormatKey])}
                   slides={(() => {
                     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;

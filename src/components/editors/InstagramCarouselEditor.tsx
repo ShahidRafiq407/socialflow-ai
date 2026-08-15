@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 
 export interface CarouselSlideItem {
   slideNumber: number;
@@ -151,7 +152,7 @@ export default function InstagramCarouselEditor({
           className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 text-white shadow-xs hover:opacity-90"
         >
           {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>{isGeneratingAI ? `Generating Full Carousel (${generationProgress || 0}%)...` : "Generate Full Carousel with AI"}</span>
+          <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel with AI...") : "Generate Full Carousel with AI"}</span>
         </Button>
       </div>
 
@@ -244,13 +245,14 @@ export default function InstagramCarouselEditor({
               />
             ) : activeSlide.imageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <img
-                  src={activeSlide.imageUrl}
+                <ContentMediaRenderer
+                  url={activeSlide.imageUrl}
+                  isVertical={false}
+                  showRemoveButton={false}
                   alt={`Slide ${currentIdx + 1}`}
-                  className="w-full h-full object-cover rounded-xl"
                 />
                 {/* OVERLAY BADGE */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
                   <span className="bg-gradient-to-r from-pink-500 to-purple-600 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
                     Slide {currentIdx + 1} of {effectiveSlides.length}
                   </span>
@@ -330,7 +332,7 @@ export default function InstagramCarouselEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingSlideMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingSlideMedia ? `Generating Slide ${currentIdx + 1} (${generationProgress || 0}%)...` : `Generate Slide ${currentIdx + 1} Visual`}</span>
+              <span>{isRenderingSlideMedia ? `Generating Slide ${currentIdx + 1} Visual...` : `Generate Slide ${currentIdx + 1} Visual`}</span>
             </Button>
           </div>
         </div>

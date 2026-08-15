@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 
 export interface IdeaPinPage {
   pageNumber: number;
@@ -203,7 +204,7 @@ export default function PinterestIdeaPinEditor({
           className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
         >
           {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>{isGeneratingAI ? `Generating Full Idea Pin (${generationProgress || 0}%)...` : "Generate Full Idea Pin with AI"}</span>
+          <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin with AI...") : "Generate Full Idea Pin with AI"}</span>
         </Button>
       </div>
 
@@ -329,13 +330,15 @@ export default function PinterestIdeaPinEditor({
               />
             ) : activePage.mediaUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <img
-                  src={activePage.mediaUrl}
+                <ContentMediaRenderer
+                  url={activePage.mediaUrl}
+                  mediaType={activePage.mediaType}
+                  isVertical={true}
+                  showRemoveButton={false}
                   alt={`Page ${currentIdx + 1}`}
-                  className="w-full h-full object-cover rounded-xl"
                 />
                 {/* STEP OVERLAY BADGE */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
                   <span className="bg-red-600 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
                     Page {currentIdx + 1}
                   </span>
@@ -434,7 +437,7 @@ export default function PinterestIdeaPinEditor({
               className="w-full h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
             >
               {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRegeneratingPage ? `Generating Page ${currentIdx + 1} (${generationProgress || 0}%)...` : `Generate Page ${currentIdx + 1} Visual`}</span>
+              <span>{isRegeneratingPage ? `Generating Page ${currentIdx + 1} Visual...` : `Generate Page ${currentIdx + 1} Visual`}</span>
             </Button>
           </div>
 

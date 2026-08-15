@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import CharacterCounter from "@/components/CharacterCounter";
 
 interface VideoPostEditorProps {
@@ -159,22 +160,13 @@ export default function VideoPostEditor({
                 </div>
               </div>
             ) : displayVideoUrl ? (
-              <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <VideoPreviewPlayer
-                  src={displayVideoUrl}
-                  className="w-full h-full object-cover rounded-xl"
-                  isVertical={isVertical}
-                  showAlwaysPlayButton={true}
-                />
-                <button
-                  type="button"
-                  onClick={onRemoveVideo}
-                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30 shadow-md"
-                  title="Remove Video"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <ContentMediaRenderer
+                url={displayVideoUrl}
+                mediaType="video"
+                isVertical={isVertical}
+                onRemove={onRemoveVideo}
+                alt={`${capability.label} video preview`}
+              />
             ) : (
               <div className="text-center p-4 space-y-2.5">
                 <Film className="h-9 w-9 text-slate-400 mx-auto opacity-60" />
@@ -291,7 +283,7 @@ export default function VideoPostEditor({
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingVideo ? `Generating Video (${generationProgress || 0}%)...` : `Generate ${durationSec}s Video`}</span>
+              <span>{isRenderingVideo ? "Generating Video..." : `Generate ${durationSec}s Video`}</span>
             </Button>
           </div>
         </div>

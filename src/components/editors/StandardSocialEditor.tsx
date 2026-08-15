@@ -1,14 +1,15 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Sparkles,
   Upload,
   ImageIcon,
-  Trash2,
+  Video as VideoIcon,
+  Settings2,
   Loader2,
-  Hash,
-  MessageSquare
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
-
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 
 interface StandardSocialEditorProps {
   capability: PlatformCapability;
@@ -33,7 +34,7 @@ interface StandardSocialEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: () => void;
+  onRenderAI: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -43,6 +44,10 @@ interface StandardSocialEditorProps {
   isEnhancingPrompt: boolean;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
+  videoStatus?: "idle" | "queued" | "processing" | "completed" | "failed";
+  videoError?: string | null;
+  durationSec?: number;
+  onDurationChange?: (sec: number) => void;
   generationProgress?: number;
   generationStage?: string;
 }
@@ -71,11 +76,53 @@ export default function StandardSocialEditor({
   isEnhancingPrompt,
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
+  videoStatus = "idle",
+  videoError = null,
+  durationSec = 5,
+  onDurationChange,
   generationProgress = 0,
-  generationStage = "Rendering image canvas...",
+  generationStage = "Rendering media canvas...",
 }: StandardSocialEditorProps) {
+  const isVertical = capability.defaultAspectRatio === "9:16";
   const isSquare = capability.defaultAspectRatio === "1:1";
+  const isFourFive = capability.defaultAspectRatio === "4:5";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
+
+  // For formats supporting both Image and Video (such as Instagram Story)
+  const supportsBothMedia = capability.supportsAIVideo && capability.supportsAIImage;
+  const [selectedMediaType, setSelectedMediaType] = useState<"image" | "video">(
+    capability.mediaType === "video" ? "video" : "image"
+  );
+  const [videoDuration, setVideoDuration] = useState(durationSec || 5);
+
+  const handleDurationSelect = (sec: number) => {
+    setVideoDuration(sec);
+    if (onDurationChange) onDurationChange(sec);
+  };
+
+  const handleTriggerGenerate = () => {
+    if (supportsBothMedia) {
+      onRenderAI({
+        mediaType: selectedMediaType,
+        duration: selectedMediaType === "video" ? videoDuration : undefined,
+        prompt,
+      });
+    } else {
+      onRenderAI({
+        mediaType: capability.mediaType === "video" ? "video" : "image",
+        duration: capability.mediaType === "video" ? videoDuration : undefined,
+        prompt,
+      });
+    }
+  };
+
+  const mediaTitle = capability.format === "Story"
+    ? `Story ${selectedMediaType === "video" ? "Video" : "Image"}`
+    : isVertical
+    ? "Vertical Media"
+    : isSquare
+    ? "Square Image"
+    : "Image";
 
   return (
     <div className="space-y-6 text-left">
@@ -86,7 +133,7 @@ export default function StandardSocialEditor({
             {capability.label}
           </Badge>
           <span className="text-xs text-slate-500 font-medium">
-            Standard Post ({capability.defaultAspectRatio} Aspect Ratio)
+            {capability.format} ({capability.defaultAspectRatio} Aspect Ratio)
           </span>
         </div>
 
@@ -104,61 +151,165 @@ export default function StandardSocialEditor({
 
       {/* TWO COLUMN WORKSPACE */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: IMAGE PREVIEW & UNIFIED PROMPT SECTION */}
+        {/* LEFT: MEDIA PREVIEW & UNIFIED PROMPT SECTION */}
         <div className="md:col-span-5 space-y-4">
-          {/* IMAGE PREVIEW CONTAINER */}
-          <div className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto ${
-            isSquare ? "w-full aspect-square max-w-[280px]" : "w-full aspect-[16/9]"
-          }`}>
+          {/* MEDIA PREVIEW CONTAINER */}
+          <div
+            className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto ${
+              isVertical
+                ? "w-full max-w-[240px] aspect-[9/16]"
+                : isSquare
+                ? "w-full aspect-square max-w-[280px]"
+                : isFourFive
+                ? "w-full aspect-[4/5] max-w-[280px]"
+                : "w-full aspect-[16/9]"
+            }`}
+          >
             {isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
                 stage={generationStage}
-                title="Generating Image..."
-                isVertical={isSquare}
-                accentColor="indigo"
-                mediaType="image"
+                title={`Generating ${mediaTitle}...`}
+                isVertical={isVertical}
+                accentColor={selectedMediaType === "video" ? "pink" : "indigo"}
+                mediaType={selectedMediaType === "video" ? "video" : "image"}
               />
-            ) : displayImageUrl ? (
-              <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <img
-                  src={displayImageUrl}
-                  alt="Post preview"
-                  className="w-full h-full object-cover rounded-xl"
-                />
-                <button
+            ) : videoStatus === "failed" && selectedMediaType === "video" ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{videoError || "Synthesis failed."}</p>
+                </div>
+                <Button
                   type="button"
-                  onClick={onRemoveMedia}
-                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30 shadow-md"
-                  title="Remove Image"
+                  size="sm"
+                  onClick={handleTriggerGenerate}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
               </div>
+            ) : displayImageUrl ? (
+              <ContentMediaRenderer
+                url={displayImageUrl}
+                isVertical={isVertical}
+                onRemove={onRemoveMedia}
+                alt={`${capability.format} preview`}
+              />
             ) : (
               <div className="text-center p-4 space-y-2.5">
-                <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
+                {selectedMediaType === "video" ? (
+                  <VideoIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
+                ) : (
+                  <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
+                )}
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 block mb-0.5">
-                    Image Preview
+                    {capability.format} Preview
                   </span>
                   <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    No image attached
+                    No media attached yet
                   </p>
                 </div>
-                <div className="flex gap-1.5 justify-center pt-1">
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
+                <div className="flex flex-wrap gap-1.5 justify-center pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenUpload}
+                    className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                  >
                     <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload PC
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={onOpenStock} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
-                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock Media
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenStock}
+                    className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                  >
+                    {selectedMediaType === "video" ? (
+                      <VideoIcon className="h-3 w-3 mr-1 text-pink-500" />
+                    ) : (
+                      <ImageIcon className="h-3 w-3 mr-1 text-pink-500" />
+                    )}
+                    Stock Media
                   </Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* UNIFIED PROMPT CONTROLS (ORGANIZED & LARGE LIKE REEL) */}
+          {/* DUAL MEDIA TYPE SELECTOR (FOR STORY FORMATS) */}
+          {supportsBothMedia && (
+            <div className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Media Type
+                </span>
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full font-mono">
+                  9:16 Vertical
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedMediaType("image")}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+                    selectedMediaType === "image"
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>Story Image</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMediaType("video")}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all border flex items-center justify-center gap-1.5 ${
+                    selectedMediaType === "video"
+                      ? "bg-pink-600 text-white border-pink-600 shadow-xs"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <VideoIcon className="h-3.5 w-3.5" />
+                  <span>Story Video</span>
+                </button>
+              </div>
+
+              {/* VIDEO DURATION SETTINGS WHEN VIDEO SELECTED */}
+              {selectedMediaType === "video" && (
+                <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Settings2 className="h-3 w-3 text-pink-500" /> Duration
+                    </span>
+                    <span className="font-mono">{videoDuration}s</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[3, 5, 8, 10].map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleDurationSelect(s)}
+                        className={`py-1 rounded-md text-[11px] font-bold transition-all border ${
+                          videoDuration === s
+                            ? "bg-pink-600 text-white border-pink-600 shadow-xs"
+                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {s}s
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* UNIFIED PROMPT CONTROLS */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1.5">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -170,7 +321,7 @@ export default function StandardSocialEditor({
                     type="button"
                     disabled={isGeneratingPromptFromScript || !hasCaption}
                     onClick={onCaptionToPrompt}
-                    title={hasCaption ? "Generate image prompt from current caption" : "Please enter a caption first"}
+                    title={hasCaption ? "Generate media prompt from current caption" : "Please enter a caption first"}
                     className={`text-[11px] font-semibold transition-colors ${
                       hasCaption
                         ? "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
@@ -195,7 +346,13 @@ export default function StandardSocialEditor({
               rows={3}
               value={prompt}
               onChange={(e) => onPromptChange(e.target.value)}
-              placeholder="Describe photographic visual style, subject composition, lighting, and textures..."
+              placeholder={
+                isVertical
+                  ? selectedMediaType === "video"
+                    ? "Describe 9:16 vertical video scene, dynamic physical motion, cinematic lighting..."
+                    : "Describe vertical 9:16 visual style, composition, lighting, textures..."
+                  : "Describe photographic visual style, subject composition, lighting, and textures..."
+              }
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
 
@@ -203,11 +360,27 @@ export default function StandardSocialEditor({
               type="button"
               size="sm"
               disabled={isRenderingMedia || !prompt.trim()}
-              onClick={onRenderAI}
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-primary to-indigo-600 text-white shadow-xs hover:opacity-90"
+              onClick={handleTriggerGenerate}
+              className={`w-full h-9 text-xs font-bold gap-1.5 text-white shadow-xs hover:opacity-90 ${
+                selectedMediaType === "video"
+                  ? "bg-gradient-to-r from-pink-600 to-purple-600"
+                  : "bg-gradient-to-r from-primary to-indigo-600"
+              }`}
             >
-              {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingMedia ? `Generating Image (${generationProgress || 0}%)...` : "Generate Image"}</span>
+              {isRenderingMedia ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              <span>
+                {isRenderingMedia
+                  ? selectedMediaType === "video"
+                    ? "Generating Video..."
+                    : "Generating Image..."
+                  : selectedMediaType === "video"
+                  ? `Generate ${videoDuration}s Video`
+                  : `Generate ${capability.format === "Story" ? "Story Image" : "Image"}`}
+              </span>
             </Button>
           </div>
         </div>
