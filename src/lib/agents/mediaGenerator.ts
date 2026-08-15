@@ -84,7 +84,7 @@ async function generateRealVideo(options: {
   // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
   if (typeof (ai as any)?.interactions?.create === "function") {
     try {
-      const fullPrompt = `${prompt}, high definition ${aspectRatio === "9:16" ? "9:16 vertical" : "16:9 widescreen"} cinematic commercial video for ${topic || "brand"}`;
+      const fullPrompt = `${prompt}, with high quality natural spoken voiceover narration, clear vocal speech, synchronized dynamic sound effects, and immersive background audio matching the scene, high definition ${aspectRatio === "9:16" ? "9:16 vertical" : "16:9 widescreen"} cinematic commercial video for ${topic || "brand"}`;
       
       onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
 
@@ -259,7 +259,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   if (mediaType === "video") {
     onProgress?.(`[Visualizer] Compiling cinematic narrative via ${MODELS.VIDEO}...`);
 
-    const highEndVideoPrompt = `${prompt}, hyper-realistic photography, 8k resolution, smooth cinematography, cinematic lighting, photorealism style, flawless texture map`;
+    const highEndVideoPrompt = `${prompt}, hyper-realistic, 8k resolution, smooth cinematography, cinematic lighting, natural spoken voiceover narration, rich synchronized sound effects, immersive audio`;
 
     const videoUrl = await generateRealVideo({
       prompt: highEndVideoPrompt,

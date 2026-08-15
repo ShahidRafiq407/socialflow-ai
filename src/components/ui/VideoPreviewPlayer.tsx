@@ -106,6 +106,8 @@ export default function VideoPreviewPlayer({
       video.pause();
       setIsPlaying(false);
     } else {
+      video.muted = false;
+      setIsMuted(false);
       video
         .play()
         .then(() => setIsPlaying(true))
@@ -120,8 +122,12 @@ export default function VideoPreviewPlayer({
     e.stopPropagation();
     const video = videoRef.current;
     if (!video) return;
-    video.muted = !isMuted;
-    setIsMuted(!isMuted);
+    const nextMuted = !isMuted;
+    video.muted = nextMuted;
+    setIsMuted(nextMuted);
+    if (!nextMuted && video.paused) {
+      video.play().catch(() => {});
+    }
   };
 
   const handleRetry = (e: React.MouseEvent) => {
@@ -212,10 +218,24 @@ export default function VideoPreviewPlayer({
         <button
           type="button"
           onClick={toggleMute}
-          className="pointer-events-auto p-1.5 rounded-full bg-black/60 backdrop-blur-md text-white/90 hover:text-white hover:bg-black/80 transition-all border border-white/10 ml-auto"
-          title={isMuted ? "Unmute" : "Mute"}
+          className={`pointer-events-auto px-2 py-1 rounded-full backdrop-blur-md text-white text-[10px] font-bold flex items-center gap-1 transition-all border ml-auto shadow-md ${
+            isMuted
+              ? "bg-black/70 hover:bg-black/90 border-white/20 text-slate-200"
+              : "bg-emerald-600/90 hover:bg-emerald-600 border-emerald-400 text-white"
+          }`}
+          title={isMuted ? "Tap to Unmute Audio" : "Mute Audio"}
         >
-          {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-emerald-400" />}
+          {isMuted ? (
+            <>
+              <VolumeX className="h-3.5 w-3.5 text-amber-400" />
+              <span>Unmute</span>
+            </>
+          ) : (
+            <>
+              <Volume2 className="h-3.5 w-3.5 text-white" />
+              <span>Sound ON</span>
+            </>
+          )}
         </button>
       </div>
 

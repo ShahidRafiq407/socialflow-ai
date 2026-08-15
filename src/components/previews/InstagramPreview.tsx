@@ -1,5 +1,5 @@
-import React from "react";
-import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Camera, ChevronLeft, ChevronRight } from "lucide-react";
+import React, { useState, useRef } from "react";
+import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Camera, ChevronLeft, ChevronRight, Volume2, VolumeX } from "lucide-react";
 
 interface InstagramPreviewProps {
   currentFormatName: string;
@@ -30,12 +30,24 @@ export default function InstagramPreview({
   isLoading = false,
   isConnected = false,
 }: InstagramPreviewProps) {
+  const [isMuted, setIsMuted] = useState(true);
+  const reelVideoRef = useRef<HTMLVideoElement>(null);
+
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (reelVideoRef.current) {
+      reelVideoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
+
   const isVideoUrl = (url: string | null) => {
     if (!url) return false;
     const lowerUrl = url.toLowerCase();
     return (
       lowerUrl.endsWith('.mp4') ||
       lowerUrl.endsWith('.webm') ||
+      lowerUrl.endsWith('.mov') ||
       lowerUrl.includes('.mp4?') ||
       lowerUrl.includes('pixabay.com/video/') ||
       lowerUrl.startsWith('data:video/')
@@ -74,9 +86,31 @@ export default function InstagramPreview({
           )}
           <MoreHorizontal className="h-4 w-4 text-white drop-shadow-md" />
         </div>
-        <div className="absolute inset-0 flex items-center justify-center">
+
+        {/* Audio Unmute Toggle Button */}
+        {currentSlideMedia && isVideoUrl(currentSlideMedia) && (
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="absolute top-12 right-3.5 z-30 p-1.5 rounded-full bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-all border border-white/15 shadow-md"
+            title={isMuted ? "Tap to Unmute Audio" : "Mute Audio"}
+          >
+            {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-emerald-400" />}
+          </button>
+        )}
+
+        <div className="absolute inset-0 flex items-center justify-center cursor-pointer" onClick={toggleMute}>
           {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
+            <video
+              ref={reelVideoRef}
+              src={currentSlideMedia}
+              autoPlay
+              loop
+              muted={isMuted}
+              playsInline
+              preload="auto"
+              className="w-full h-full object-cover"
+            />
           ) : currentSlideMedia ? (
             <img src={currentSlideMedia} alt={currentFormatName} className="w-full h-full object-cover" />
           ) : (
