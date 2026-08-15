@@ -484,8 +484,34 @@ export default function MultiAgentStreamModal({
                     )}
 
                     {selectedAgentId === "brand_analyst" && activeAgentOutput && (
-                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Brand DNA Context</h5>
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-semibold text-[#9CA3AF] uppercase">Brand DNA Context</h5>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                              activeAgentOutput.hasCustomDNA
+                                ? "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20"
+                                : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                            }`}
+                          >
+                            {activeAgentOutput.hasCustomDNA ? "CONFIGURED" : "DEFAULT PROFILE"}
+                          </span>
+                        </div>
+
+                        {!activeAgentOutput.hasCustomDNA && (
+                          <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
+                            <span className="text-amber-300 text-[11px]">Brand DNA not yet customized in settings.</span>
+                            <a
+                              href="/dashboard/brand"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-amber-400 font-bold text-[11px] hover:underline flex items-center gap-1 shrink-0 ml-2"
+                            >
+                              Setup Brand DNA <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        )}
+
                         <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-1.5">
                           <p><span className="text-[#9CA3AF]">Brand:</span> <span className="text-white font-medium">{activeAgentOutput.name}</span></p>
                           <p><span className="text-[#9CA3AF]">Industry:</span> <span className="text-white font-medium">{activeAgentOutput.industry}</span></p>

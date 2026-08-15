@@ -144,6 +144,11 @@ export async function runCampaignGraph(
       });
     }
 
+    const hasCustomDNA = Boolean(
+      workspace?.brandDNA &&
+      (workspace.brandDNA.tone || workspace.brandDNA.missionVision || workspace.brandDNA.targetAudience)
+    );
+
     state.brandData = {
       name: workspace?.name || "Brand",
       industry: workspace?.industry || "Technology & Automation",
@@ -152,6 +157,7 @@ export async function runCampaignGraph(
       missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
       targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
       writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+      hasCustomDNA,
     };
 
     onEvent({
