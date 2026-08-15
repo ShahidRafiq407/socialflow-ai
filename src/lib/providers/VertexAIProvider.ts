@@ -49,20 +49,44 @@ export class VertexAIProvider {
   }
 
   /**
-   * Target model for Vertex AI generation
+   * Resilient fallback model resolution for Vertex AI
    */
   private getFallbackModels(primaryModel: string): string[] {
-    return [primaryModel].filter(Boolean);
+    const list = [primaryModel];
+    if (primaryModel.includes("pro")) {
+      list.push("gemini-3.6-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash");
+    } else {
+      list.push("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash");
+    }
+    return Array.from(new Set(list.filter(Boolean)));
   }
 
   /**
-   * Generate text using Google Cloud Vertex AI
+   * Detects 429 (Resource Exhausted / Rate Limit) and transient 503 errors
+   */
+  private isRateLimitOrTransientError(err: any): boolean {
+    if (!err) return false;
+    const msg = (err.message || (typeof err === "string" ? err : "") || JSON.stringify(err)).toLowerCase();
+    return (
+      msg.includes("429") ||
+      msg.includes("resource_exhausted") ||
+      msg.includes("resource exhausted") ||
+      msg.includes("quota") ||
+      msg.includes("rate limit") ||
+      msg.includes("too many requests") ||
+      msg.includes("503") ||
+      msg.includes("unavailable")
+    );
+  }
+
+  /**
+   * Generate text using Google Cloud Vertex AI with automated retry and multi-model fallback
    */
   async generateText(
     messages: { role: string; content: string }[],
     options: { modelName?: string; temperature?: number; tools?: any[] } = {}
   ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro");
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
     let lastError: any = null;
 
     const prompt = messages.map(m => {
@@ -82,21 +106,32 @@ export class VertexAIProvider {
     }
 
     for (const modelName of candidateModels) {
-      try {
-        console.log(`[Vertex AI] Executing generateText with model: ${modelName}`);
-        const response = await this.ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config,
-        });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`[Vertex AI] Executing generateText with model: ${modelName} (attempt ${attempt + 1})`);
+          const response = await this.ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config,
+          });
 
-        if (response.text) {
-          console.log(`[Vertex AI] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
-          return response.text;
+          if (response.text) {
+            console.log(`[Vertex AI] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
+            return response.text;
+          }
+        } catch (err: any) {
+          lastError = err;
+          const isRateLimit = this.isRateLimitOrTransientError(err);
+          console.warn(`[Vertex AI] ❌ Model ${modelName} failed (attempt ${attempt + 1}, is429: ${isRateLimit}):`, err?.message || err);
+
+          if (isRateLimit && attempt === 0) {
+            // Wait 1.2s before second attempt on same model
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          // On non-transient error or exhausted attempts, proceed to next candidate model
+          break;
         }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[Vertex AI] ❌ Model ${modelName} failed:`, err?.message || err);
       }
     }
 
@@ -115,47 +150,56 @@ export class VertexAIProvider {
     let lastError: any = null;
 
     for (const modelName of candidateModels) {
-      try {
-        console.log(`[Vertex AI Grounding] Executing with model: ${modelName}`);
-        const response = await this.ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            temperature: options.temperature ?? 0.3,
-            tools: [{ googleSearch: {} }],
-          },
-        });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`[Vertex AI Grounding] Executing with model: ${modelName} (attempt ${attempt + 1})`);
+          const response = await this.ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: options.temperature ?? 0.3,
+              tools: [{ googleSearch: {} }],
+            },
+          });
 
-        const text = response.text || "";
-        const searchQueries: string[] = [];
-        const sources: { title: string; url: string; snippet: string }[] = [];
+          const text = response.text || "";
+          const searchQueries: string[] = [];
+          const sources: { title: string; url: string; snippet: string }[] = [];
 
-        const candidates = (response as any).candidates || [];
-        for (const candidate of candidates) {
-          const groundingMetadata = candidate?.groundingMetadata;
-          if (groundingMetadata) {
-            if (Array.isArray(groundingMetadata.webSearchQueries)) {
-              searchQueries.push(...groundingMetadata.webSearchQueries);
-            }
-            if (Array.isArray(groundingMetadata.groundingChunks)) {
-              for (const chunk of groundingMetadata.groundingChunks) {
-                if (chunk.web) {
-                  sources.push({
-                    title: chunk.web.title || "Web Source",
-                    url: chunk.web.uri || chunk.web.url || "",
-                    snippet: chunk.web.snippet || "",
-                  });
+          const candidates = (response as any).candidates || [];
+          for (const candidate of candidates) {
+            const groundingMetadata = candidate?.groundingMetadata;
+            if (groundingMetadata) {
+              if (Array.isArray(groundingMetadata.webSearchQueries)) {
+                searchQueries.push(...groundingMetadata.webSearchQueries);
+              }
+              if (Array.isArray(groundingMetadata.groundingChunks)) {
+                for (const chunk of groundingMetadata.groundingChunks) {
+                  if (chunk.web) {
+                    sources.push({
+                      title: chunk.web.title || "Web Source",
+                      url: chunk.web.uri || chunk.web.url || "",
+                      snippet: chunk.web.snippet || "",
+                    });
+                  }
                 }
               }
             }
           }
-        }
 
-        console.log(`[Vertex AI Grounding] Found ${sources.length} sources and ${searchQueries.length} queries.`);
-        return { text, searchQueries, sources };
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[Vertex AI Grounding] ❌ Model ${modelName} failed:`, err?.message || err);
+          console.log(`[Vertex AI Grounding] Found ${sources.length} sources and ${searchQueries.length} queries.`);
+          return { text, searchQueries, sources };
+        } catch (err: any) {
+          lastError = err;
+          const isRateLimit = this.isRateLimitOrTransientError(err);
+          console.warn(`[Vertex AI Grounding] ❌ Model ${modelName} failed (attempt ${attempt + 1}, is429: ${isRateLimit}):`, err?.message || err);
+
+          if (isRateLimit && attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          break;
+        }
       }
     }
 
@@ -164,13 +208,13 @@ export class VertexAIProvider {
   }
 
   /**
-   * Generate structured JSON output using Google Cloud Vertex AI
+   * Generate structured JSON output using Google Cloud Vertex AI with retry and fallback
    */
   async generateJSON(
     messages: { role: string; content: string }[],
     options: { modelName?: string; temperature?: number } = {}
   ): Promise<any> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro");
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
     let lastError: any = null;
 
     const prompt = messages.map(m => {
@@ -203,25 +247,34 @@ export class VertexAIProvider {
     };
 
     for (const modelName of candidateModels) {
-      try {
-        console.log(`[Vertex AI JSON] Executing generateJSON with model: ${modelName}`);
-        const response = await this.ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            temperature: options.temperature ?? 0.1,
-            responseMimeType: "application/json",
-          },
-        });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`[Vertex AI JSON] Executing generateJSON with model: ${modelName} (attempt ${attempt + 1})`);
+          const response = await this.ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              temperature: options.temperature ?? 0.1,
+              responseMimeType: "application/json",
+            },
+          });
 
-        if (response.text) {
-          const parsed = tryParseJSON(response.text);
-          console.log(`[Vertex AI JSON] ✅ Success with model: ${modelName}`);
-          return parsed;
+          if (response.text) {
+            const parsed = tryParseJSON(response.text);
+            console.log(`[Vertex AI JSON] ✅ Success with model: ${modelName}`);
+            return parsed;
+          }
+        } catch (err: any) {
+          lastError = err;
+          const isRateLimit = this.isRateLimitOrTransientError(err);
+          console.warn(`[Vertex AI JSON] ❌ Model ${modelName} failed (attempt ${attempt + 1}, is429: ${isRateLimit}):`, err?.message || err);
+
+          if (isRateLimit && attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          break;
         }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[Vertex AI JSON] ❌ Model ${modelName} failed:`, err?.message || err);
       }
     }
 
