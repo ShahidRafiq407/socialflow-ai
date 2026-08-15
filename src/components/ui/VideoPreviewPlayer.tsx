@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, AlertCircle, Loader2, RefreshCw, Download } from "lucide-react";
 
 interface VideoPreviewPlayerProps {
   src: string;
@@ -140,6 +140,35 @@ export default function VideoPreviewPlayer({
     }
   };
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!src) return;
+    try {
+      const filename = `video_${Date.now()}.mp4`;
+      if (src.startsWith("data:")) {
+        const a = document.createElement("a");
+        a.href = src;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      const response = await fetch(src);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      window.open(src, "_blank");
+    }
+  };
+
   const formatTime = (secs: number) => {
     if (!secs || isNaN(secs)) return "0:00";
     const m = Math.floor(secs / 60);
@@ -208,35 +237,45 @@ export default function VideoPreviewPlayer({
         </button>
       )}
 
-      {/* ── Top Bar Badges (Duration & Mute) ── */}
+      {/* ── Top Bar Badges (Duration, Download & Mute) ── */}
       <div className="absolute top-2 left-2 right-2 flex items-center justify-between z-20 pointer-events-none">
         {duration > 0 && (
           <span className="px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-white text-[10px] font-bold tracking-wide border border-white/10 font-mono shadow-sm">
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
         )}
-        <button
-          type="button"
-          onClick={toggleMute}
-          className={`pointer-events-auto px-2 py-1 rounded-full backdrop-blur-md text-white text-[10px] font-bold flex items-center gap-1 transition-all border ml-auto shadow-md ${
-            isMuted
-              ? "bg-black/70 hover:bg-black/90 border-white/20 text-slate-200"
-              : "bg-emerald-600/90 hover:bg-emerald-600 border-emerald-400 text-white"
-          }`}
-          title={isMuted ? "Tap to Unmute Audio" : "Mute Audio"}
-        >
-          {isMuted ? (
-            <>
-              <VolumeX className="h-3.5 w-3.5 text-amber-400" />
-              <span>Unmute</span>
-            </>
-          ) : (
-            <>
-              <Volume2 className="h-3.5 w-3.5 text-white" />
-              <span>Sound ON</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="pointer-events-auto p-1.5 rounded-full bg-black/60 backdrop-blur-md text-white/90 hover:text-white hover:bg-emerald-600 transition-all border border-white/10 shadow-sm"
+            title="Save / Download Video (.mp4)"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleMute}
+            className={`pointer-events-auto px-2 py-1 rounded-full backdrop-blur-md text-white text-[10px] font-bold flex items-center gap-1 transition-all border shadow-md ${
+              isMuted
+                ? "bg-black/70 hover:bg-black/90 border-white/20 text-slate-200"
+                : "bg-emerald-600/90 hover:bg-emerald-600 border-emerald-400 text-white"
+            }`}
+            title={isMuted ? "Tap to Unmute Audio" : "Mute Audio"}
+          >
+            {isMuted ? (
+              <>
+                <VolumeX className="h-3.5 w-3.5 text-amber-400" />
+                <span>Unmute</span>
+              </>
+            ) : (
+              <>
+                <Volume2 className="h-3.5 w-3.5 text-white" />
+                <span>Sound ON</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ── Bottom Video Progress Line (Left to Right from 0%) ── */}

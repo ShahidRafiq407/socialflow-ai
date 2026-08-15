@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Trash2, AlertCircle, Play, Pause, Volume2, VolumeX } from "lucide-react";
+import { Trash2, AlertCircle, Play, Pause, Volume2, VolumeX, Download } from "lucide-react";
 import VideoPreviewPlayer from "./VideoPreviewPlayer";
 
 export const isMediaVideo = (url: string | null, explicitType?: "image" | "video" | string): boolean => {
@@ -73,6 +73,36 @@ export default function ContentMediaRenderer({
     );
   }
 
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!url) return;
+    try {
+      const ext = isVideo ? "mp4" : "png";
+      const filename = `media_${Date.now()}.${ext}`;
+      if (url.startsWith("data:")) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      window.open(url, "_blank");
+    }
+  };
+
   return (
     <div className="relative w-full h-full rounded-xl overflow-hidden group">
       {isVideo ? (
@@ -94,16 +124,27 @@ export default function ContentMediaRenderer({
         />
       )}
 
-      {onRemove && showRemoveButton && (
+      {/* Floating Action Bar (Save to PC + Remove) */}
+      <div className="absolute top-2 right-2 flex items-center gap-1.5 z-30 opacity-80 group-hover:opacity-100 transition-opacity">
         <button
           type="button"
-          onClick={onRemove}
-          className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors z-30 shadow-md backdrop-blur-xs opacity-80 group-hover:opacity-100"
-          title="Remove Media"
+          onClick={handleDownload}
+          className="p-1.5 rounded-full bg-black/70 hover:bg-emerald-600 text-white transition-colors shadow-md backdrop-blur-xs"
+          title="Save / Download Media to PC"
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Download className="h-3.5 w-3.5" />
         </button>
-      )}
+        {onRemove && showRemoveButton && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="p-1.5 rounded-full bg-black/70 hover:bg-red-600 text-white transition-colors shadow-md backdrop-blur-xs"
+            title="Remove Media"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

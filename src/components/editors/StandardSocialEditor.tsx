@@ -10,6 +10,7 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
-import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
+import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMediaRenderer";
 
 interface StandardSocialEditorProps {
   capability: PlatformCapability;
@@ -240,6 +241,46 @@ export default function StandardSocialEditor({
               </div>
             )}
           </div>
+
+          {/* SAVE / DOWNLOAD TO PC BUTTON WHEN MEDIA AVAILABLE */}
+          {displayImageUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const ext = selectedMediaType === "video" || isMediaVideo(displayImageUrl) ? "mp4" : "png";
+                  const filename = `${capability.platform}_${capability.format}_${Date.now()}.${ext}`;
+                  if (displayImageUrl.startsWith("data:")) {
+                    const a = document.createElement("a");
+                    a.href = displayImageUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    return;
+                  }
+                  const res = await fetch(displayImageUrl);
+                  const blob = await res.blob();
+                  const blobUrl = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = blobUrl;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(blobUrl);
+                } catch (err) {
+                  window.open(displayImageUrl, "_blank");
+                }
+              }}
+              className="w-full text-xs font-bold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center justify-center gap-1.5 h-8.5 rounded-xl shadow-2xs transition-all"
+            >
+              <Download className="h-4 w-4" /> Save Media to PC ({selectedMediaType === "video" || isMediaVideo(displayImageUrl) ? ".mp4" : ".png"})
+            </Button>
+          )}
 
           {/* DUAL MEDIA TYPE SELECTOR (FOR STORY FORMATS) */}
           {supportsBothMedia && (

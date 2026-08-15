@@ -272,6 +272,20 @@ const getMediaType = (format: string): "video" | "image" | "carousel" => {
   return "image";
 };
 
+const getFormatFamily = (platform: string, format: string): "vertical_video" | "story" | "carousel" | "single_image" => {
+  const norm = (format || "").toLowerCase().trim();
+  if (norm.includes("reel") || norm.includes("short") || norm === "video" || norm === "short video") {
+    return "vertical_video";
+  }
+  if (norm.includes("story")) {
+    return "story";
+  }
+  if (norm.includes("carousel") || norm.includes("idea_pin") || norm.includes("document")) {
+    return "carousel";
+  }
+  return "single_image";
+};
+
 const PIPELINE_NODES = [
   { id: "brand_dna", label: "Brand DNA" },
   { id: "trending_research", label: "Trending Topic Research" },
@@ -1363,15 +1377,40 @@ export default function AIStudioPage() {
 
           setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
           setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video synthesis complete!" }));
-          setRenderedImageUrlsDict(prev => ({ ...prev, [targetMediaKey]: data.asset.url }));
-          setCustomMediaDict(prev => ({
-            ...prev,
+
+          // ── CROSS-PLATFORM SAME-FORMAT MEDIA SYNC (SAVES CREDITS) ──
+          const currentFamily = getFormatFamily(targetPlatform, targetFormat);
+          const syncMediaUpdates: Record<string, string> = { [targetMediaKey]: data.asset.url };
+          const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string }> = {
             [targetMediaKey]: {
               url: data.asset.url,
               type: "video",
               name: `${targetPlatform}-${targetFormat}.mp4`,
             },
-          }));
+          };
+
+          selectedPlatforms.forEach((pId) => {
+            const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
+              ? selectedContentTypes[pId]
+              : (getPlatformDef(pId)?.contentTypes || []);
+            
+            availableFormats.forEach((otherFmt) => {
+              if (getFormatFamily(pId, otherFmt) === currentFamily) {
+                const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
+                syncMediaUpdates[otherKey] = data.asset.url;
+                syncCustomUpdates[otherKey] = {
+                  url: data.asset.url,
+                  type: "video",
+                  name: `${pId}-${otherFmt}.mp4`,
+                };
+                const otherFormatKey = `${pId}-${otherFmt}`;
+                setVideoStatusDict(prev => ({ ...prev, [otherFormatKey]: "completed" }));
+              }
+            });
+          });
+
+          setRenderedImageUrlsDict(prev => ({ ...prev, ...syncMediaUpdates }));
+          setCustomMediaDict(prev => ({ ...prev, ...syncCustomUpdates }));
           setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "completed" }));
         } else {
           setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
@@ -1417,21 +1456,41 @@ export default function AIStudioPage() {
       if (data.success && data.asset?.url) {
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image ready!" }));
-        setRenderedImageUrlsDict(prev => ({ ...prev, [targetMediaKey]: data.asset.url }));
-        setCustomMediaDict(prev => {
-          const next = { ...prev };
-          if (next[targetMediaKey]?.url?.startsWith("blob:")) {
-            try { URL.revokeObjectURL(next[targetMediaKey].url); } catch {}
-          }
-          return {
-            ...next,
-            [targetMediaKey]: {
-              url: data.asset.url,
-              type: "image",
-              name: `${targetPlatform}-${targetFormat}.png`,
-            },
-          };
+
+        // ── CROSS-PLATFORM SAME-FORMAT MEDIA SYNC (SAVES CREDITS) ──
+        const currentFamily = getFormatFamily(targetPlatform, targetFormat);
+        const syncMediaUpdates: Record<string, string> = { [targetMediaKey]: data.asset.url };
+        const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string }> = {
+          [targetMediaKey]: {
+            url: data.asset.url,
+            type: "image",
+            name: `${targetPlatform}-${targetFormat}.png`,
+          },
+        };
+
+        selectedPlatforms.forEach((pId) => {
+          const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
+            ? selectedContentTypes[pId]
+            : (getPlatformDef(pId)?.contentTypes || []);
+          
+          availableFormats.forEach((otherFmt) => {
+            if (getFormatFamily(pId, otherFmt) === currentFamily) {
+              const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
+              syncMediaUpdates[otherKey] = data.asset.url;
+              syncCustomUpdates[otherKey] = {
+                url: data.asset.url,
+                type: "image",
+                name: `${pId}-${otherFmt}.png`,
+              };
+            }
+          });
         });
+
+        setRenderedImageUrlsDict(prev => ({ ...prev, ...syncMediaUpdates }));
+        setCustomMediaDict(prev => ({
+          ...prev,
+          ...syncCustomUpdates,
+        }));
       } else {
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Sparkles,
   Upload,
@@ -10,7 +10,10 @@ import {
   Settings2,
   Loader2,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Download,
+  Sliders,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,18 +43,18 @@ interface VideoPostEditorProps {
   onRemoveVideo: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAIVideo: (options?: { mediaType?: "video"; duration?: number; prompt?: string }) => void;
+  onRenderAIVideo: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
   isRenderingVideo: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
-  onEnhancePrompt: () => void;
-  isEnhancingPrompt: boolean;
-  onCaptionToPrompt: () => void;
+  onEnhancePrompt?: () => void;
+  isEnhancingPrompt?: boolean;
+  onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
   durationSec: number;
-  onDurationChange: (sec: number) => void;
+  onDurationChange: (duration: number) => void;
   generationProgress?: number;
   generationStage?: string;
 }
@@ -81,7 +84,7 @@ export default function VideoPostEditor({
   prompt,
   onPromptChange,
   onEnhancePrompt,
-  isEnhancingPrompt,
+  isEnhancingPrompt = false,
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
   durationSec,
@@ -91,6 +94,40 @@ export default function VideoPostEditor({
 }: VideoPostEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
+
+  // Model settings state
+  const [videoModel, setVideoModel] = useState<string>("gemini-omni-flash");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<string>("auto");
+  const [videoTask, setVideoTask] = useState<string>("auto");
+
+  const handleDownloadVideo = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!displayVideoUrl) return;
+    try {
+      const filename = `${capability.platform}_${capability.format}_${Date.now()}.mp4`;
+      if (displayVideoUrl.startsWith("data:")) {
+        const a = document.createElement("a");
+        a.href = displayVideoUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      const response = await fetch(displayVideoUrl);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      window.open(displayVideoUrl, "_blank");
+    }
+  };
 
   // TikTok / Shorts Settings
   const [allowDuet, setAllowDuet] = React.useState(true);
@@ -201,20 +238,84 @@ export default function VideoPostEditor({
             )}
           </div>
 
-          {/* VIDEO SETTINGS & DURATION */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+          {/* SAVE / DOWNLOAD TO PC BUTTON WHEN VIDEO AVAILABLE */}
+          {displayVideoUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadVideo}
+              className="w-full text-xs font-bold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center justify-center gap-1.5 h-8.5 rounded-xl shadow-2xs transition-all"
+            >
+              <Download className="h-4 w-4" /> Save Video to PC (.mp4)
+            </Button>
+          )}
+
+          {/* MODEL SETTINGS (GOOGLE CLOUD STUDIO ALIGNED) */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-slate-800">
+              <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Settings2 className="h-3.5 w-3.5 text-indigo-600" />
-                Video Settings
+                Model settings
               </span>
               <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full font-mono">
-                {capability.defaultAspectRatio} Vertical
+                {videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio}
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+            {/* 1. Model Dropdown */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                Model
+              </label>
+              <select
+                value={videoModel}
+                onChange={(e) => setVideoModel(e.target.value)}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="gemini-omni-flash">Gemini Omni Flash</option>
+                <option value="veo-3">Veo 3.1 Cinema Ultra</option>
+                <option value="imagen-video">Imagen Video Studio FX</option>
+              </select>
+            </div>
+
+            {/* 2. Aspect Ratio Dropdown */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                Aspect ratio
+              </label>
+              <select
+                value={videoAspectRatio}
+                onChange={(e) => setVideoAspectRatio(e.target.value)}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="auto">Auto (Platform Native - 9:16)</option>
+                <option value="16:9">16:9 Widescreen</option>
+                <option value="9:16">9:16 Vertical Reel/Short</option>
+              </select>
+            </div>
+
+            {/* 3. Video Task Dropdown */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                Video task
+              </label>
+              <select
+                value={videoTask}
+                onChange={(e) => setVideoTask(e.target.value)}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="auto">Auto</option>
+                <option value="text_to_video">Text to video</option>
+                <option value="image_to_video">Image to video</option>
+                <option value="reference_to_video">Reference to video</option>
+                <option value="edit">Edit</option>
+              </select>
+            </div>
+
+            {/* 4. Duration Selector */}
+            <div className="space-y-1.5 pt-0.5">
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                 Duration
               </label>
               <div className="grid grid-cols-4 gap-1.5">
@@ -226,7 +327,7 @@ export default function VideoPostEditor({
                     className={`py-1 rounded-lg text-xs font-bold transition-all border ${
                       durationSec === s
                         ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
                     {s}s

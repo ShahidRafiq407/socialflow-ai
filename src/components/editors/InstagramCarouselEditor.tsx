@@ -13,7 +13,8 @@ import {
   RefreshCw,
   Loader2,
   Hash,
-  MapPin
+  MapPin,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -281,6 +282,47 @@ export default function InstagramCarouselEditor({
               </div>
             )}
           </div>
+
+          {/* SAVE / DOWNLOAD SLIDE IMAGE BUTTON */}
+          {activeSlide.imageUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async (e) => {
+                e.stopPropagation();
+                const imgUrl = activeSlide.imageUrl;
+                if (!imgUrl) return;
+                try {
+                  const filename = `carousel_slide_${currentIdx + 1}_${Date.now()}.png`;
+                  if (imgUrl.startsWith("data:")) {
+                    const a = document.createElement("a");
+                    a.href = imgUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    return;
+                  }
+                  const res = await fetch(imgUrl);
+                  const blob = await res.blob();
+                  const blobUrl = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = blobUrl;
+                  a.download = filename;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(blobUrl);
+                } catch (err) {
+                  window.open(imgUrl, "_blank");
+                }
+              }}
+              className="w-full text-xs font-bold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center justify-center gap-1.5 h-8.5 rounded-xl shadow-2xs transition-all"
+            >
+              <Download className="h-4 w-4" /> Save Slide {currentIdx + 1} Image (.png)
+            </Button>
+          )}
 
           {/* UNIFIED SLIDE PROMPT CONTROLS */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
