@@ -90,7 +90,16 @@ async function generateRealVideo(options: {
   // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
   if (typeof (ai as any)?.interactions?.create === "function") {
     try {
-      const fullPrompt = `${prompt}, with high quality natural spoken voiceover narration, clear vocal speech, synchronized dynamic sound effects, and immersive background audio matching the scene, high definition ${aspectRatio === "9:16" ? "9:16 vertical" : "16:9 widescreen"} cinematic commercial video for ${topic || "brand"}`;
+      let taskInstruction = "";
+      if (videoTask === "image_to_video") {
+        taskInstruction = "Animate the provided starting image smoothly into a dynamic high-definition motion video, ";
+      } else if (videoTask === "reference_to_video") {
+        taskInstruction = "Using the provided reference image as visual aesthetic, product, and style reference, create a new video where ";
+      } else if (videoTask === "edit") {
+        taskInstruction = "Apply the following editing and visual modifications to the provided video stream: ";
+      }
+
+      const fullPrompt = `${taskInstruction}${prompt}, with high quality natural spoken voiceover narration, clear vocal speech, synchronized dynamic sound effects, and immersive background audio matching the scene, high definition ${aspectRatio === "9:16" ? "9:16 vertical" : "16:9 widescreen"} cinematic commercial video for ${topic || "brand"}`;
       
       onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
 

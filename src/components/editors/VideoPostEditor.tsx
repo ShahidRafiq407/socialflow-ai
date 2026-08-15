@@ -399,7 +399,10 @@ export default function VideoPostEditor({
               <div className="p-2.5 rounded-lg border border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
                   <span className="flex items-center gap-1">
-                    <Film className="h-3.5 w-3.5" /> Source Image for Image-to-Video
+                    <Film className="h-3.5 w-3.5" />
+                    {videoTask === "image_to_video"
+                      ? "Starting Image (First Frame to Animate)"
+                      : "Style & Subject Reference Image"}
                   </span>
                   {attachedSourceImage && (
                     <button
@@ -414,7 +417,9 @@ export default function VideoPostEditor({
                 {attachedSourceImage ? (
                   <div className="flex items-center gap-2">
                     <img src={attachedSourceImage} alt="Source for video" className="h-12 w-12 object-cover rounded-md border border-indigo-300 dark:border-indigo-700" />
-                    <span className="text-[10px] text-slate-500 font-mono">Image attached for animation</span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {videoTask === "image_to_video" ? "Starting image attached" : "Reference style attached"}
+                    </span>
                   </div>
                 ) : (
                   <div>
@@ -436,7 +441,10 @@ export default function VideoPostEditor({
                       htmlFor="source-image-upload"
                       className="cursor-pointer flex items-center justify-center gap-1.5 p-2 rounded-lg border border-dashed border-indigo-400 bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
                     >
-                      <Upload className="h-3.5 w-3.5" /> Upload Image to Animate into Video
+                      <Upload className="h-3.5 w-3.5" />
+                      {videoTask === "image_to_video"
+                        ? "Upload Starting Image to Animate into Video"
+                        : "Upload Reference Image (Product/Style Reference)"}
                     </label>
                   </div>
                 )}
