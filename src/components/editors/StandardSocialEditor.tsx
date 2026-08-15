@@ -35,7 +35,15 @@ interface StandardSocialEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: (options?: { mediaType?: "image" | "video"; duration?: number; prompt?: string }) => void;
+  onRenderAI: (options?: {
+    mediaType?: "image" | "video";
+    duration?: number;
+    prompt?: string;
+    aspectRatio?: string;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
+  }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -89,6 +97,11 @@ export default function StandardSocialEditor({
   const isFourFive = capability.defaultAspectRatio === "4:5";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
 
+  // Model settings for image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
+  const [imageStyle, setImageStyle] = useState<string>("photorealistic");
+  const [imageQuality, setImageQuality] = useState<string>("studio_4k");
+
   // For formats supporting both Image and Video (such as Instagram Story)
   const supportsBothMedia = capability.supportsAIVideo && capability.supportsAIImage;
   const [selectedMediaType, setSelectedMediaType] = useState<"image" | "video">(
@@ -102,17 +115,21 @@ export default function StandardSocialEditor({
   };
 
   const handleTriggerGenerate = () => {
-    if (supportsBothMedia) {
+    const isVid = supportsBothMedia ? selectedMediaType === "video" : capability.mediaType === "video";
+    if (isVid) {
       onRenderAI({
-        mediaType: selectedMediaType,
-        duration: selectedMediaType === "video" ? videoDuration : undefined,
+        mediaType: "video",
+        duration: videoDuration,
         prompt,
       });
     } else {
       onRenderAI({
-        mediaType: capability.mediaType === "video" ? "video" : "image",
-        duration: capability.mediaType === "video" ? videoDuration : undefined,
+        mediaType: "image",
         prompt,
+        aspectRatio: imageAspectRatio === "auto" ? capability.defaultAspectRatio : imageAspectRatio,
+        style: imageStyle,
+        quality: imageQuality,
+        imageModel: "gemini-3-pro-image",
       });
     }
   };
@@ -347,6 +364,79 @@ export default function StandardSocialEditor({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
+          {selectedMediaType === "image" && (
+            <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
+                </span>
+                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  🍌 Nano Banana Pro
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {/* 1. Aspect Ratio */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Aspect Ratio
+                  </label>
+                  <select
+                    value={imageAspectRatio}
+                    onChange={(e) => setImageAspectRatio(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                  >
+                    <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"})</option>
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:5">4:5 (Portrait)</option>
+                    <option value="9:16">9:16 (Story)</option>
+                    <option value="16:9">16:9 (Wide)</option>
+                    <option value="2:3">2:3 (Pin)</option>
+                    <option value="3:2">3:2 (Photo)</option>
+                    <option value="4:3">4:3 (Classic)</option>
+                  </select>
+                </div>
+
+                {/* 2. Visual Style */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Visual Style
+                  </label>
+                  <select
+                    value={imageStyle}
+                    onChange={(e) => setImageStyle(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="photorealistic">Photorealistic</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="commercial_product">Commercial Product</option>
+                    <option value="minimalist">Minimalist Modern</option>
+                    <option value="3d_render">3D Digital Art</option>
+                    <option value="editorial">Editorial Fashion</option>
+                    <option value="illustration">Vector Illustration</option>
+                  </select>
+                </div>
+
+                {/* 3. Quality Standard */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Quality Standard
+                  </label>
+                  <select
+                    value={imageQuality}
+                    onChange={(e) => setImageQuality(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="studio_4k">Studio 4K (Sharp)</option>
+                    <option value="ultra_hd_8k">Ultra HD 8K</option>
+                    <option value="standard_hd">Standard HD</option>
+                  </select>
+                </div>
+              </div>
             </div>
           )}
 

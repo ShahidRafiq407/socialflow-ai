@@ -37,6 +37,9 @@ export interface GenerateMediaInput {
   videoTask?: string;
   sourceImage?: string | null;
   sourceVideo?: string | null;
+  style?: string;
+  quality?: string;
+  imageModel?: string;
   onProgress?: (message: string) => void;
 }
 
@@ -352,14 +355,42 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   }
 
   // -------------------------------------------------------------
-  // REAL IMAGE GENERATION (Vertex AI: gemini-3-pro-image)
+  // REAL IMAGE GENERATION (Vertex AI: gemini-3-pro-image / Nano Banana Pro)
   // -------------------------------------------------------------
-  onProgress?.(`[Visualizer] Synthesizing photographic layer canvas via ${MODELS.VISUALIZER}...`);
+  const targetImageModel = input.imageModel || MODELS.VISUALIZER || "gemini-3-pro-image";
+  onProgress?.(`[Visualizer] Synthesizing photographic canvas via Nano Banana Pro (${targetImageModel})...`);
 
   const assetCount = mediaType === "multi_image" ? 3 : 1;
 
+  const validAspectRatios = ["1:1", "4:5", "9:16", "16:9", "2:3", "3:2", "4:3", "3:4"];
+  const targetImageAspect = (aspectRatio && validAspectRatios.includes(aspectRatio)) ? aspectRatio : "1:1";
+
+  const styleInstructionMap: Record<string, string> = {
+    photorealistic: "hyper-realistic photograph, natural lighting, true-to-life textures, sharp optical lens focus",
+    cinematic: "cinematic film still, dramatic volumetric lighting, shallow depth of field, anamorphic aesthetic",
+    commercial_product: "clean commercial product photography, professional studio light box, pristine reflective surface, ultra-crisp detail",
+    minimalist: "minimalist graphic aesthetic, elegant negative space, clean geometric composition, modern editorial palette",
+    "3d_render": "3D digital render, Octane / Unreal Engine style, ray-traced reflections, intricate ambient occlusion",
+    editorial: "high-fashion editorial magazine shot, artistic avant-garde composition, high dynamic range color grading",
+    illustration: "modern vector digital illustration, bold clean contours, stylized vibrant color harmony",
+  };
+
+  const qualityInstructionMap: Record<string, string> = {
+    ultra_hd_8k: "8K UHD master resolution, extreme micro-texture detail, flawless edge clarity, HDR dynamic range",
+    studio_4k: "4K studio quality, crisp clarity, clean post-processing, balanced exposure",
+    standard_hd: "high-definition crisp image, vibrant balanced colors",
+  };
+
+  const styleClause = input.style && styleInstructionMap[input.style] ? styleInstructionMap[input.style] : "";
+  const qualityClause = input.quality && qualityInstructionMap[input.quality] ? qualityInstructionMap[input.quality] : "";
+
+  const systemInstructionText = `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
+
   for (let idx = 0; idx < assetCount; idx++) {
-    const slidePrompt = `${prompt}, highly detailed studio shot, realistic lighting layers, hyper-detailed photography aesthetics, crisp focus, 8k resolution`;
+    const clauses = [prompt.trim()];
+    if (styleClause) clauses.push(styleClause);
+    if (qualityClause) clauses.push(qualityClause);
+    const slidePrompt = clauses.filter(Boolean).join(", ");
 
     try {
       const ai = (vertexProvider as any).ai;
@@ -368,11 +399,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       if (typeof ai?.models?.generateImages === "function") {
         try {
           const imgRes = await ai.models.generateImages({
-            model: MODELS.VISUALIZER || "gemini-3-pro-image",
+            model: targetImageModel,
             prompt: slidePrompt,
             config: {
               numberOfImages: 1,
-              aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+              aspectRatio: targetImageAspect,
             },
           });
 
@@ -387,10 +418,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       if (!imageUrl && typeof ai?.models?.generateContent === "function") {
         try {
           const genRes = await ai.models.generateContent({
-            model: MODELS.VISUALIZER || "gemini-3-pro-image",
-            contents: `Generate a photorealistic marketing image: ${slidePrompt}`,
+            model: targetImageModel,
+            contents: `Generate an image: ${slidePrompt}`,
             config: {
               responseModalities: ["IMAGE"],
+              systemInstruction: systemInstructionText,
             },
           });
 
@@ -430,10 +462,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         type: "image",
         url: finalImageUrl,
         prompt: slidePrompt,
-        aspectRatio,
+        aspectRatio: targetImageAspect,
         status: "completed",
         provider: "google_vertex",
-        model: MODELS.VISUALIZER,
+        model: "gemini-3-pro-image (Nano Banana Pro)",
         createdAt: Date.now(),
         slideIndex: idx,
         totalSlides: assetCount,

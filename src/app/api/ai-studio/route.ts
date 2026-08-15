@@ -287,7 +287,7 @@ Return ONLY the prompt string.`;
     // STEP: Real Media Generation (Visualizer Agent + Validation)
     // =========================================================================
     if (step === "generate-media") {
-      const { platform, format, mediaType, prompt, aspectRatio, duration, topic, videoTask, sourceImage, sourceVideo } = body;
+      const { platform, format, mediaType, prompt, aspectRatio, duration, topic, videoTask, sourceImage, sourceVideo, style, quality, imageModel } = body;
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
       const targetMediaType = isVideoFormat ? "video" : (mediaType || capability.mediaType || "image");
@@ -305,7 +305,7 @@ Return ONLY the prompt string.`;
       const targetAspect = aspectRatio || capability.defaultAspectRatio || "9:16";
 
       // Check Redis Cache for identical media prompt & settings (only if no source attachment)
-      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
+      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${style || "default"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
       if (!sourceImage && !sourceVideo) {
         const cachedMedia = await cacheGet<any>(mediaCacheKey);
         if (cachedMedia) {
@@ -326,6 +326,9 @@ Return ONLY the prompt string.`;
           videoTask,
           sourceImage,
           sourceVideo,
+          style,
+          quality,
+          imageModel,
         });
 
         const asset = mediaAssets[0];

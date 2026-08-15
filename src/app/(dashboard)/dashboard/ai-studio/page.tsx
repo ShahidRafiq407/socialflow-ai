@@ -1339,6 +1339,9 @@ export default function AIStudioPage() {
     videoTask?: string;
     sourceImage?: string | null;
     sourceVideo?: string | null;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
   }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
@@ -1456,9 +1459,9 @@ export default function AIStudioPage() {
       return;
     }
 
-    // Real Image Rendering via Backend AI Visualizer (Vertex AI)
+    // Real Image Rendering via Backend AI Visualizer (Vertex AI / Nano Banana Pro)
     setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
-    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Synthesizing visual canvas with AI Visualizer..." }));
+    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Synthesizing visual canvas with Nano Banana Pro..." }));
 
     try {
       const res = await fetch("/api/ai-studio", {
@@ -1472,6 +1475,9 @@ export default function AIStudioPage() {
           prompt: targetPrompt,
           aspectRatio: targetAspect,
           topic: campaignTopic,
+          style: options?.style,
+          quality: options?.quality,
+          imageModel: options?.imageModel,
         }),
       });
       const data = await res.json();

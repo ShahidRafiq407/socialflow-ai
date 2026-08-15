@@ -47,7 +47,7 @@ interface PinterestPinEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: () => void;
+  onRenderAI: (options?: { aspectRatio?: string; style?: string; quality?: string; imageModel?: string; mediaType?: "image" | "video" }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -90,6 +90,11 @@ export default function PinterestPinEditor({
   generationProgress,
   generationStage,
 }: PinterestPinEditorProps) {
+  // Pinterest Model Settings for Image Pins (Google Cloud Nano Banana Pro / gemini-3-pro-image)
+  const [pinAspectRatio, setPinAspectRatio] = useState<string>("auto");
+  const [pinStyle, setPinStyle] = useState<string>("photorealistic");
+  const [pinQuality, setPinQuality] = useState<string>("studio_4k");
+
   // Pinterest Native Form State
   const [topicInput, setTopicInput] = useState("");
   const [publishLater, setPublishLater] = useState(false);
@@ -170,7 +175,7 @@ export default function PinterestPinEditor({
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
         {/* LEFT COLUMN: LARGE PINTEREST MEDIA CONTAINER (MATCHES SCREENSHOT) */}
         <div className="md:col-span-5 space-y-3">
-          <div className="relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] aspect-[2/3] overflow-hidden group shadow-2xs">
+          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
             {isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
@@ -251,6 +256,76 @@ export default function PinterestPinEditor({
             )}
           </div>
 
+          {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
+          {!isVideo && (
+            <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Wand2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
+                </span>
+                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  🍌 Nano Banana Pro
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {/* 1. Aspect Ratio */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Aspect Ratio
+                  </label>
+                  <select
+                    value={pinAspectRatio}
+                    onChange={(e) => setPinAspectRatio(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                  >
+                    <option value="auto">Auto (2:3 Standard)</option>
+                    <option value="2:3">2:3 (Standard Pin)</option>
+                    <option value="9:16">9:16 (Tall Pin)</option>
+                    <option value="1:1">1:1 (Square Pin)</option>
+                    <option value="3:4">3:4 (Portrait)</option>
+                  </select>
+                </div>
+
+                {/* 2. Visual Style */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Visual Style
+                  </label>
+                  <select
+                    value={pinStyle}
+                    onChange={(e) => setPinStyle(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="photorealistic">Photorealistic</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="commercial_product">Commercial Product</option>
+                    <option value="minimalist">Minimalist Modern</option>
+                    <option value="3d_render">3D Digital Art</option>
+                    <option value="editorial">Editorial Fashion</option>
+                    <option value="illustration">Vector Illustration</option>
+                  </select>
+                </div>
+
+                {/* 3. Quality Standard */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Quality Standard
+                  </label>
+                  <select
+                    value={pinQuality}
+                    onChange={(e) => setPinQuality(e.target.value)}
+                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="studio_4k">Studio 4K (Sharp)</option>
+                    <option value="ultra_hd_8k">Ultra HD 8K</option>
+                    <option value="standard_hd">Standard HD</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* AI VISUAL PROMPT ENHANCER */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1.5">
@@ -260,9 +335,13 @@ export default function PinterestPinEditor({
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  disabled={isEnhancingPrompt}
+                  disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                   onClick={onEnhancePrompt}
-                  className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                  className={`text-[11px] font-semibold flex items-center gap-0.5 transition-all ${
+                    !prompt || !prompt.trim()
+                      ? "text-slate-400 cursor-not-allowed opacity-50"
+                      : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
+                  }`}
                 >
                   <span>Enhance Prompt ✨</span>
                 </button>
@@ -272,18 +351,30 @@ export default function PinterestPinEditor({
               rows={3}
               value={prompt}
               onChange={(e) => onPromptChange(e.target.value)}
-              placeholder="Describe 2:3 vertical Pin visual style, typography, and aesthetic..."
+              placeholder={isVideo ? "Describe 9:16 vertical video motion, scene, and aesthetics..." : "Describe 2:3 vertical Pin visual style, typography, and aesthetic..."}
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
             <Button
               type="button"
               size="sm"
               disabled={isRenderingMedia || !prompt.trim()}
-              onClick={onRenderAI}
+              onClick={() => {
+                if (isVideo) {
+                  onRenderAI({ mediaType: "video", aspectRatio: "9:16" });
+                } else {
+                  onRenderAI({
+                    mediaType: "image",
+                    aspectRatio: pinAspectRatio === "auto" ? "2:3" : pinAspectRatio,
+                    style: pinStyle,
+                    quality: pinQuality,
+                    imageModel: "gemini-3-pro-image",
+                  });
+                }
+              }}
               className="w-full h-9 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-xs"
             >
               {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingMedia ? "Generating Pin Visual..." : "Generate Pin Visual"}</span>
+              <span>{isRenderingMedia ? (isVideo ? "Generating Video Pin..." : "Generating Pin Visual...") : (isVideo ? "Generate Video Pin" : "Generate Pin Visual")}</span>
             </Button>
           </div>
         </div>

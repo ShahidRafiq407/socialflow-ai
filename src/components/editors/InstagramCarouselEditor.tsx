@@ -14,7 +14,8 @@ import {
   Loader2,
   Hash,
   MapPin,
-  Download
+  Download,
+  Settings2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,7 +53,7 @@ interface InstagramCarouselEditorProps {
   isRegeneratingSlide: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderSlideMedia: () => void;
+  onRenderSlideMedia: (options?: { aspectRatio?: string; style?: string; quality?: string; imageModel?: string }) => void;
   isRenderingSlideMedia: boolean;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
@@ -83,8 +84,12 @@ export default function InstagramCarouselEditor({
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
   generationProgress = 0,
-  generationStage = "Rendering slide visual...",
+  generationStage = "Rendering carousel slide...",
 }: InstagramCarouselEditorProps) {
+  // Model settings for slide image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
+  const [slideAspectRatio, setSlideAspectRatio] = useState<string>("auto");
+  const [slideStyle, setSlideStyle] = useState<string>("photorealistic");
+  const [slideQuality, setSlideQuality] = useState<string>("studio_4k");
   const [location, setLocation] = useState("");
 
   const effectiveSlides = slides && slides.length > 0 ? slides : [
@@ -324,6 +329,75 @@ export default function InstagramCarouselEditor({
             </Button>
           )}
 
+          {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
+          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
+              </span>
+              <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                🍌 Nano Banana Pro
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {/* 1. Aspect Ratio */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  Aspect Ratio
+                </label>
+                <select
+                  value={slideAspectRatio}
+                  onChange={(e) => setSlideAspectRatio(e.target.value)}
+                  className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                >
+                  <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"})</option>
+                  <option value="1:1">1:1 (Square)</option>
+                  <option value="4:5">4:5 (Portrait)</option>
+                  <option value="9:16">9:16 (Story / Full)</option>
+                  <option value="16:9">16:9 (Landscape)</option>
+                  <option value="4:3">4:3 (Classic)</option>
+                </select>
+              </div>
+
+              {/* 2. Visual Style */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  Visual Style
+                </label>
+                <select
+                  value={slideStyle}
+                  onChange={(e) => setSlideStyle(e.target.value)}
+                  className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                >
+                  <option value="photorealistic">Photorealistic</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="commercial_product">Commercial Product</option>
+                  <option value="minimalist">Minimalist Modern</option>
+                  <option value="3d_render">3D Digital Art</option>
+                  <option value="editorial">Editorial Fashion</option>
+                  <option value="illustration">Vector Illustration</option>
+                </select>
+              </div>
+
+              {/* 3. Quality Standard */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  Quality Standard
+                </label>
+                <select
+                  value={slideQuality}
+                  onChange={(e) => setSlideQuality(e.target.value)}
+                  className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                >
+                  <option value="studio_4k">Studio 4K (Sharp)</option>
+                  <option value="ultra_hd_8k">Ultra HD 8K</option>
+                  <option value="standard_hd">Standard HD</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           {/* UNIFIED SLIDE PROMPT CONTROLS */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1.5">
@@ -375,7 +449,14 @@ export default function InstagramCarouselEditor({
               type="button"
               size="sm"
               disabled={isRenderingSlideMedia || !activeSlide.visualPrompt.trim()}
-              onClick={onRenderSlideMedia}
+              onClick={() => {
+                onRenderSlideMedia({
+                  aspectRatio: slideAspectRatio === "auto" ? capability.defaultAspectRatio : slideAspectRatio,
+                  style: slideStyle,
+                  quality: slideQuality,
+                  imageModel: "gemini-3-pro-image",
+                });
+              }}
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingSlideMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}

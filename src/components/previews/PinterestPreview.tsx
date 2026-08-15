@@ -53,9 +53,12 @@ export default function PinterestPreview({
   const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
   const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
 
+  const isVideoPin = currentFormatName === "Video Pin";
+  const pinAspectClass = isVideoPin || isIdeaPin ? "aspect-[9/16] max-h-[380px]" : "aspect-[2/3] max-h-[320px]";
+
   return (
     <div className="w-full max-w-[250px] flex flex-col gap-2.5 mx-auto text-left">
-      <div className="relative rounded-[24px] overflow-hidden bg-slate-100 dark:bg-slate-800/50 group max-h-[320px] aspect-[2/3] flex items-center justify-center border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className={`relative rounded-[24px] overflow-hidden bg-slate-100 dark:bg-slate-800/50 group flex items-center justify-center border border-slate-200 dark:border-slate-800 shadow-sm ${pinAspectClass}`}>
         {/* IDEA PIN PROGRESS BARS */}
         {isIdeaPin && totalSlides > 1 && (
           <div className="absolute top-2.5 left-2.5 right-2.5 flex gap-1 z-20">
