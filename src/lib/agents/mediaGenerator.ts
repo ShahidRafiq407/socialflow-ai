@@ -42,6 +42,7 @@ export interface GenerateMediaInput {
   style?: string;
   quality?: string;
   imageModel?: string;
+  signal?: AbortSignal;
   onProgress?: (message: string) => void;
 }
 
@@ -83,9 +84,10 @@ async function generateRealVideo(options: {
   videoTask?: string;
   sourceImage?: string | null;
   sourceVideo?: string | null;
+  signal?: AbortSignal;
   onProgress?: (message: string) => void;
 }): Promise<string> {
-  const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, onProgress } = options;
+  const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, signal, onProgress } = options;
   const targetVideoModel = model || "gemini-omni-flash-preview";
   const ai = (vertexProvider as any).ai;
   let lastErr: any = null;
@@ -218,6 +220,9 @@ async function generateRealVideo(options: {
         const opName = operation.name || `operation_${Date.now()}`;
 
         while (!operation.done) {
+          if (signal?.aborted) {
+            throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+          }
           const elapsedSec = Math.round((Date.now() - startTime) / 1000);
           if (Date.now() - startTime > TIMEOUT_MS) {
             break;
@@ -323,6 +328,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       videoTask: input.videoTask,
       sourceImage: input.sourceImage,
       sourceVideo: input.sourceVideo,
+      signal: input.signal,
       onProgress,
     });
 
@@ -390,13 +396,16 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const systemInstructionText = `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
 
   for (let idx = 0; idx < assetCount; idx++) {
+    if (input.signal?.aborted) {
+      throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+    }
     if (idx > 0) {
-      onProgress?.(`[Visualizer] Rate limit buffer: waiting 3 seconds before next slide...`);
+      onProgress?.(`[Visualizer] Rate limit buffer: waiting 3 seconds before slide ${idx + 1}/${assetCount}...`);
       await new Promise(r => setTimeout(r, 3000));
     }
 
-    const currentPrompt = (input.visualPrompts && input.visualPrompts[idx]) 
-      ? input.visualPrompts[idx].trim() 
+    const currentPrompt = (input.visualPrompts && input.visualPrompts[idx])
+      ? input.visualPrompts[idx].trim()
       : prompt.trim();
 
     const clauses = [currentPrompt];
@@ -417,17 +426,32 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         const imageModels = [modelName, "gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp"];
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
 
+        // BOUNDED strategy chain: Gemini image models sometimes return a text-only
+        // response (no inlineData). The previous loop never terminated in that case,
+        // which hung the whole Visualizer. Every iteration now consumes an attempt,
+        // so this loop ALWAYS finishes — success, model fallback, or clean failure.
+        const MAX_TOTAL_ATTEMPTS = 6;
+        const MAX_RATE_LIMIT_WAITS = 5;
+        let totalAttempts = 0;
+        let rateLimitWaits = 0;
+
         for (const tryModel of imageModels) {
-          if (imageUrl) break;
+          if (imageUrl || totalAttempts >= MAX_TOTAL_ATTEMPTS) break;
           for (const modalities of modalityCombos) {
-            if (imageUrl) break;
+            if (imageUrl || totalAttempts >= MAX_TOTAL_ATTEMPTS) break;
 
-            let retryCount = 0;
-            const maxRetries = 3;
+            let comboAttempts = 0;
+            while (!imageUrl && comboAttempts < 2 && totalAttempts < MAX_TOTAL_ATTEMPTS) {
+              if (input.signal?.aborted) {
+                throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+              }
 
-            while (retryCount < maxRetries && !imageUrl) {
+              comboAttempts++;
+              totalAttempts++;
+
               try {
-                console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")} (Attempt ${retryCount + 1}/${maxRetries})`);
+                onProgress?.(`[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${tryModel} (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})...`);
+                console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
                 const genRes = await Promise.race([
                   ai.models.generateContent({
                     model: tryModel,
@@ -466,21 +490,27 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                   }
                   if (imageUrl) break;
                 }
-              } catch (e: any) {
-                console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed (Attempt ${retryCount + 1}):`, e?.message || e);
-                const msg = (e?.message || "").toLowerCase();
-                const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit");
-                
-                if (isRateLimit) {
-                  retryCount++;
-                  if (retryCount < maxRetries) {
-                    onProgress?.(`[Visualizer] API Rate Limit hit. Waiting 8s before retry ${retryCount}/${maxRetries}...`);
-                    await new Promise(r => setTimeout(r, 8000));
-                    continue;
-                  }
+
+                if (!imageUrl) {
+                  const finishReason = (candidates as any)[0]?.finishReason || "unknown";
+                  console.warn(`[Visualizer] ${tryModel} responded WITHOUT image data (finishReason: ${finishReason}). Moving to next strategy...`);
                 }
-                // Break out of the while loop to try the next modality/model
-                break;
+              } catch (e: any) {
+                console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}):`, e?.message || e);
+                const msg = (e?.message || "").toLowerCase();
+                const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("unavailable");
+
+                if (isRateLimit && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
+                  // Exponential backoff (8s → 16s → 24s → 30s cap) per Google 429 guidance.
+                  // The wait does NOT consume a generation attempt, so a rate-limit storm
+                  // cannot silently eat the whole attempt budget.
+                  rateLimitWaits++;
+                  const waitMs = Math.min(8000 * rateLimitWaits, 30000);
+                  onProgress?.(`[Visualizer] API rate limit hit. Backing off ${waitMs / 1000}s before retry (wait ${rateLimitWaits}/${MAX_RATE_LIMIT_WAITS})...`);
+                  await new Promise(r => setTimeout(r, waitMs));
+                  totalAttempts--;
+                  comboAttempts--;
+                }
               }
             }
           }

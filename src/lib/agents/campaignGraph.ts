@@ -570,83 +570,126 @@ Return strictly JSON format:
     }
   }
 
+  // ── SMART ASSET PLAN (Credit & Time Optimization) ──
+  // Group every requested format into generation buckets by media type + orientation
+  // family (vertical / square / landscape). Formats that are visually similar share a
+  // SINGLE generated asset set: e.g. one 9:16 video serves TikTok, IG Reel, FB Reel &
+  // YT Short; one vertical image set serves Idea Pins, Stories & TikTok Photos.
+  // Captions stay per-platform (unified topic, platform-optimized) from the Content
+  // Creator — only the EXPENSIVE media generation is deduplicated.
+  const orientationFamily = (ar: string): "vertical" | "square" | "landscape" => {
+    if (["9:16", "2:3", "4:5", "3:4"].includes(ar)) return "vertical";
+    if (["16:9", "1.91:1", "3:2", "4:3"].includes(ar)) return "landscape";
+    return "square";
+  };
+
+  const generationBuckets = new Map<
+    string,
+    { platform: string; contentType: string; item: ContentOutputItem; reqSpec: any }[]
+  >();
+  for (const task of mediaTasks) {
+    const bucketKey = `${task.reqSpec.assetType}_${orientationFamily(task.reqSpec.aspectRatio)}`;
+    const bucket = generationBuckets.get(bucketKey) || [];
+    bucket.push(task);
+    generationBuckets.set(bucketKey, bucket);
+  }
+
+  const savedCalls = mediaTasks.length - generationBuckets.size;
   onEvent({
     type: "agent_action",
     agentId: "visualizer",
-    data: { label: `Processing ${mediaTasks.length} required media assets...` },
+    data: {
+      label: `Processing ${mediaTasks.length} media assets...`,
+      detail: `Smart dedup plan: ${generationBuckets.size} unique generations instead of ${mediaTasks.length} (saves ${savedCalls} API calls, credits & wait time)`,
+    },
   });
 
-  const generatedAssetCache: Record<string, any[]> = {};
+  let completedTaskCount = 0;
 
-  for (let i = 0; i < mediaTasks.length; i++) {
+  for (const [bucketKey, bucketTasks] of generationBuckets) {
     checkCancelled();
-    const { platform, contentType, item, reqSpec } = mediaTasks[i];
+    const primaryTask = bucketTasks[0];
 
     try {
-      const cacheKey = `${reqSpec.assetType}_${reqSpec.aspectRatio}`;
-      let assets: any[] = [];
-
-      if (generatedAssetCache[cacheKey]) {
-        console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Reusing cached ${cacheKey} asset for ${platform} ${contentType}...`);
-        
+      if (bucketTasks.length > 1) {
         onEvent({
           type: "agent_action",
           agentId: "visualizer",
-          data: { label: `Reusing optimized ${reqSpec.assetType} (${reqSpec.aspectRatio}) asset for ${platform}...` },
-        });
-
-        // Clone the cached assets so we don't accidentally mutate them
-        assets = JSON.parse(JSON.stringify(generatedAssetCache[cacheKey]));
-        // Overwrite the platform and contentType tags to match the current assignment
-        assets = assets.map(a => ({ ...a, platform, contentType }));
-      } else {
-        console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType})...`);
-
-        assets = await generateMediaAsset({
-          platform,
-          contentType,
-          mediaType: reqSpec.assetType,
-          prompt: item.visualPrompt,
-          visualPrompts: item.visualPrompts,
-          aspectRatio: reqSpec.aspectRatio,
-          caption: item.caption,
-          topic,
-          onProgress: (msg) => {
-            onEvent({
-              type: "agent_action",
-              agentId: "visualizer",
-              data: { label: msg },
-            });
+          data: {
+            label: `Generating ONE shared ${primaryTask.reqSpec.assetType} (${primaryTask.reqSpec.aspectRatio}) for: ${bucketTasks.map((t) => `${t.platform}/${t.contentType}`).join(", ")}`,
           },
         });
-
-        // Save to cache for future formats in this same run
-        generatedAssetCache[cacheKey] = assets;
+      } else {
+        onEvent({
+          type: "agent_action",
+          agentId: "visualizer",
+          data: { label: `Generating ${primaryTask.reqSpec.assetType} (${primaryTask.reqSpec.aspectRatio}) for ${primaryTask.platform} ${primaryTask.contentType}...` },
+        });
       }
 
-      if (state.generatedContent?.platforms?.[platform]?.[contentType]) {
-        const targetObj = state.generatedContent.platforms[platform][contentType] as any;
-        if (assets.length > 0) {
-          if (assets[0].type === "video") {
-            targetObj.videoUrl = assets[0].url;
-          } else {
-            targetObj.imageUrl = assets[0].url;
-            if (assets.length > 1) {
-              targetObj.slideUrls = assets.map((a) => a.url);
+      const generatedAssets = await generateMediaAsset({
+        platform: primaryTask.platform,
+        contentType: primaryTask.contentType,
+        mediaType: primaryTask.reqSpec.assetType,
+        prompt: primaryTask.item.visualPrompt,
+        visualPrompts: primaryTask.item.visualPrompts,
+        aspectRatio: primaryTask.reqSpec.aspectRatio,
+        caption: primaryTask.item.caption,
+        topic,
+        signal,
+        onProgress: (msg) => {
+          onEvent({
+            type: "agent_action",
+            agentId: "visualizer",
+            data: { label: msg },
+          });
+        },
+      });
+
+      // Short cool-down between real generations to stay under Vertex RPM limits
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Map the single generation onto EVERY platform/format in this bucket
+      for (const task of bucketTasks) {
+        checkCancelled();
+
+        const retaggedAssets = generatedAssets.map((a) => ({
+          ...a,
+          platform: task.platform,
+          contentType: task.contentType,
+          aspectRatio: task.reqSpec.aspectRatio,
+        }));
+
+        if (state.generatedContent?.platforms?.[task.platform]?.[task.contentType]) {
+          const targetObj = state.generatedContent.platforms[task.platform][task.contentType] as any;
+          if (retaggedAssets.length > 0) {
+            if (retaggedAssets[0].type === "video") {
+              targetObj.videoUrl = retaggedAssets[0].url;
+            } else {
+              targetObj.imageUrl = retaggedAssets[0].url;
+              if (retaggedAssets.length > 1) {
+                targetObj.slideUrls = retaggedAssets.map((a) => a.url);
+              }
             }
           }
         }
+
+        state.generatedAssets.push(...retaggedAssets);
+        completedTaskCount++;
+
+        const reuseNote = bucketTasks.length > 1 ? ` (reused shared ${bucketKey} asset — 0 extra API calls)` : "";
+
+        onEvent({
+          type: "agent_action",
+          agentId: "visualizer",
+          data: { label: `${completedTaskCount}/${mediaTasks.length} assets ready: ${task.platform} ${task.contentType}${reuseNote}.` },
+        });
       }
-
-      state.generatedAssets.push(...assets);
-
-      onEvent({
-        type: "agent_action",
-        agentId: "visualizer",
-        data: { label: `${i + 1}/${mediaTasks.length} assets synthesized successfully (${platform} ${contentType}).` },
-      });
     } catch (err: any) {
-      console.error(`[Visualizer Error] Generation failed for ${platform} ${contentType}:`, err);
+      // User cancellation flows through cleanly — no red error event
+      if (err?.isCancelled) throw err;
+
+      console.error(`[Visualizer Error] Generation failed for bucket ${bucketKey} (${bucketTasks.map((t) => `${t.platform} ${t.contentType}`).join(", ")}):`, err);
 
       const errorCode = err.code || "VISUALIZER_PROVIDER_ERROR";
       const errorMsg = err.message || "Failed to generate media asset";
@@ -657,12 +700,12 @@ Return strictly JSON format:
         errorCode,
         message: errorMsg,
         provider: "google_vertex",
-        model: reqSpec.assetType === "video" ? MODELS.VIDEO : MODELS.VISUALIZER,
-        contentType: `${platform}_${contentType}`,
+        model: primaryTask.reqSpec.assetType === "video" ? MODELS.VIDEO : MODELS.VISUALIZER,
+        contentType: bucketTasks.map((t) => `${t.platform}_${t.contentType}`).join(", "),
         retryable: errorCode === "VIDEO_GENERATION_TIMEOUT" || errorCode === "IMAGE_GENERATION_FAILED",
       };
 
-      state.errors?.push(`Visualizer (${platform} ${contentType}): [${errorCode}] ${errorMsg}`);
+      state.errors?.push(`Visualizer (${bucketTasks.map((t) => `${t.platform} ${t.contentType}`).join(", ")}): [${errorCode}] ${errorMsg}`);
 
       onEvent({
         type: "agent_error",
