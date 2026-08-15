@@ -40,7 +40,7 @@ interface VideoPostEditorProps {
   onRemoveVideo: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAIVideo: () => void;
+  onRenderAIVideo: (options?: { mediaType?: "video"; duration?: number; prompt?: string }) => void;
   isRenderingVideo: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -152,7 +152,7 @@ export default function VideoPostEditor({
                   <Button
                     type="button"
                     size="sm"
-                    onClick={onRenderAIVideo}
+                    onClick={() => onRenderAIVideo({ mediaType: "video", duration: durationSec, prompt })}
                     className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
                   >
                     <RefreshCw className="h-3 w-3 mr-1" /> Retry
@@ -279,7 +279,7 @@ export default function VideoPostEditor({
               type="button"
               size="sm"
               disabled={isRenderingVideo || !prompt.trim()}
-              onClick={onRenderAIVideo}
+              onClick={() => onRenderAIVideo({ mediaType: "video", duration: durationSec, prompt })}
               className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-indigo-600 to-pink-600 text-white shadow-xs hover:opacity-90"
             >
               {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}

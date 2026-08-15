@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Sparkles, Cpu, Layers, ShieldCheck, Film, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Sparkles, Cpu, Layers, ShieldCheck, Film, Image as ImageIcon } from "lucide-react";
 
 interface GenerationProgressIndicatorProps {
   progress?: number; // Real progress: 0 to 100. If 0 or undefined, treated as honest indeterminate state
@@ -52,11 +52,10 @@ export default function GenerationProgressIndicator({
 
   const stageList = isVideo ? AGENT_STAGES_VIDEO : isMultiSlide ? AGENT_STAGES_CAROUSEL : AGENT_STAGES_IMAGE;
 
-  // Track active agent cycle for descriptive visual feedback without faking percentages
+  // Track active agent cycle for descriptive visual feedback
   const [currentStageIdx, setCurrentStageIdx] = useState(0);
 
   useEffect(() => {
-    // Slowly rotate agent badge context every 3.5s for honest informational stages
     const interval = setInterval(() => {
       setCurrentStageIdx((prev) => (prev + 1) % stageList.length);
     }, 3500);
@@ -75,7 +74,7 @@ export default function GenerationProgressIndicator({
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = hasRealNumericProgress
     ? circumference - (clampedProgress / 100) * circumference
-    : circumference * 0.7;
+    : circumference * 0.75;
 
   const colorMap = {
     indigo: {
@@ -111,17 +110,17 @@ export default function GenerationProgressIndicator({
   const currentTheme = colorMap[accentColor] || colorMap.indigo;
 
   return (
-    <div className="relative flex flex-col items-center justify-center p-6 text-center space-y-4 w-full h-full bg-slate-950/95 text-white rounded-2xl shadow-2xl backdrop-blur-md border border-slate-800/80 z-20 overflow-hidden">
+    <div className="relative flex flex-col items-center justify-center p-6 text-center space-y-4 w-full h-full bg-slate-950/95 text-white rounded-2xl shadow-2xl backdrop-blur-md border border-slate-800/80 z-20 overflow-hidden select-none">
       {/* BACKGROUND AMBIENT GLOW */}
       <div
         className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-48 rounded-full blur-3xl opacity-20 pointer-events-none"
         style={{ backgroundColor: currentTheme.stroke }}
       />
 
-      {/* SVG CIRCULAR LOADER / PROGRESS */}
+      {/* SVG CIRCULAR LOADER */}
       <div className="relative flex items-center justify-center">
         <svg
-          className={`w-24 h-24 transform -rotate-90 ${!hasRealNumericProgress ? "animate-spin [animation-duration:2.5s]" : ""}`}
+          className={`w-24 h-24 transform -rotate-90 ${!hasRealNumericProgress ? "animate-spin [animation-duration:2.2s]" : ""}`}
           viewBox="0 0 96 96"
         >
           {/* Background circle track */}
@@ -130,7 +129,7 @@ export default function GenerationProgressIndicator({
             cy="48"
             r={radius}
             stroke="currentColor"
-            strokeWidth="6"
+            strokeWidth="5"
             className="text-slate-800/90"
             fill="transparent"
           />
@@ -140,7 +139,7 @@ export default function GenerationProgressIndicator({
             cy="48"
             r={radius}
             stroke={currentTheme.stroke}
-            strokeWidth="6"
+            strokeWidth="5"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
@@ -182,7 +181,7 @@ export default function GenerationProgressIndicator({
         </p>
       </div>
 
-      {/* PROGRESS BAR (Indeterminate pulse or exact progress) */}
+      {/* PROGRESS BAR: Left-to-right sweep (starts from 0% left edge, never from middle) */}
       <div className="w-full max-w-[210px] bg-slate-800/90 h-2 rounded-full overflow-hidden p-[1px] shadow-inner relative">
         {hasRealNumericProgress ? (
           <div
@@ -190,9 +189,30 @@ export default function GenerationProgressIndicator({
             style={{ width: `${clampedProgress}%` }}
           />
         ) : (
-          <div
-            className={`h-full w-2/3 rounded-full bg-gradient-to-r ${currentTheme.barGrad} animate-pulse shadow-sm`}
-          />
+          <div className="relative w-full h-full overflow-hidden rounded-full">
+            <div
+              className={`absolute top-0 bottom-0 left-0 w-1/2 rounded-full bg-gradient-to-r ${currentTheme.barGrad} shadow-sm animate-[shimmer_1.8s_ease-in-out_infinite]`}
+              style={{
+                animation: "progressSweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+              }}
+            />
+            <style jsx>{`
+              @keyframes progressSweep {
+                0% {
+                  left: -50%;
+                  width: 30%;
+                }
+                50% {
+                  left: 25%;
+                  width: 50%;
+                }
+                100% {
+                  left: 100%;
+                  width: 30%;
+                }
+              }
+            `}</style>
+          </div>
         )}
       </div>
     </div>

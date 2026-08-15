@@ -65,16 +65,16 @@ function validateAssetUrl(url: string, type: "image" | "video") {
 
 const VERIFIED_MARKETING_VIDEOS = {
   vertical: [
-    "https://cdn.pixabay.com/video/2023/10/22/185984-876939989_tiny.mp4", // Modern Tech/Digital
-    "https://cdn.pixabay.com/video/2021/04/12/70889-536417726_tiny.mp4", // Business Strategy Meeting
-    "https://cdn.pixabay.com/video/2020/09/20/50534-461421685_tiny.mp4", // Creative Workspace
-    "https://cdn.pixabay.com/video/2022/11/04/137648-767931398_tiny.mp4", // Social Media/Mobile Content
-    "https://cdn.pixabay.com/video/2022/05/18/117387-711904791_tiny.mp4", // Growth & Neural Analytics
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "https://vjs.zencdn.net/v/oceans.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://www.w3schools.com/html/mov_bbb.mp4",
   ],
   widescreen: [
-    "https://cdn.pixabay.com/video/2023/10/22/185984-876939989_tiny.mp4",
-    "https://cdn.pixabay.com/video/2021/04/12/70889-536417726_tiny.mp4",
-    "https://cdn.pixabay.com/video/2022/05/18/117387-711904791_tiny.mp4",
+    "https://vjs.zencdn.net/v/oceans.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "https://www.w3schools.com/html/mov_bbb.mp4",
+    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
   ],
 };
 
