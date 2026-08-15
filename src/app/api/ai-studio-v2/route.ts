@@ -57,7 +57,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "platforms and contentTypes are required." }, { status: 400 });
       }
 
-      const workspace = await prisma.workspace.findFirst({ where: { userId } });
+      const workspace = await prisma.workspace.findFirst({
+        where: { userId },
+        include: { brandDNA: true, competitors: true },
+      });
 
       if (!workspace) {
         return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
@@ -84,7 +87,7 @@ export async function POST(req: Request) {
             }
           };
 
-          // Send immediate 2KB stream preamble to flush any server / proxy buffers instantly
+          // Send immediate stream preamble to flush any server / proxy buffers instantly
           const preamble = `: ${" ".repeat(1024)}\n\n`;
           controller.enqueue(encoder.encode(preamble));
 
@@ -104,6 +107,7 @@ export async function POST(req: Request) {
                 contentTypes,
                 topic,
                 signal: abortController.signal,
+                workspaceData: workspace,
               },
               (event) => {
                 sendSSE(event);

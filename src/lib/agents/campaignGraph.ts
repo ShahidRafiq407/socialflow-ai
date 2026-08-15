@@ -35,6 +35,7 @@ export interface CampaignGraphInput {
   contentTypes: Record<string, string[]>;
   topic?: string;
   signal?: AbortSignal;
+  workspaceData?: any;
 }
 
 export interface GroundingSource {
@@ -135,10 +136,13 @@ export async function runCampaignGraph(
   });
 
   try {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: { brandDNA: true },
-    });
+    let workspace = input.workspaceData;
+    if (!workspace) {
+      workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { brandDNA: true, competitors: true },
+      });
+    }
 
     state.brandData = {
       name: workspace?.name || "Brand",
@@ -150,6 +154,11 @@ export async function runCampaignGraph(
       writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
     };
 
+    onEvent({
+      type: "agent_action",
+      agentId: "brand_analyst",
+      data: { label: `Loaded Brand: ${state.brandData.name} (${state.brandData.industry})` },
+    });
     onEvent({
       type: "output_ready",
       agentId: "brand_analyst",
