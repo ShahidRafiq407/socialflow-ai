@@ -258,28 +258,41 @@ export default function PinterestPinEditor({
 
           {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
           {!isVideo && (
-            <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <Wand2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
                 </span>
-                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                   🍌 Nano Banana Pro
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                {/* 1. Aspect Ratio */}
+              <div className="space-y-2.5">
+                {/* 1. Model Instance */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                    Model
+                  </label>
+                  <select
+                    disabled
+                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs cursor-not-allowed font-mono"
+                  >
+                    <option>🍌 Nano Banana Pro (Gemini 3 Pro Image)</option>
+                  </select>
+                </div>
+
+                {/* 2. Aspect Ratio */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                     Aspect Ratio
                   </label>
                   <select
                     value={pinAspectRatio}
                     onChange={(e) => setPinAspectRatio(e.target.value)}
-                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                   >
-                    <option value="auto">Auto (2:3 Standard)</option>
+                    <option value="auto">Auto (2:3 Standard Pin Default)</option>
                     <option value="2:3">2:3 (Standard Pin)</option>
                     <option value="9:16">9:16 (Tall Pin)</option>
                     <option value="1:1">1:1 (Square Pin)</option>
@@ -287,40 +300,42 @@ export default function PinterestPinEditor({
                   </select>
                 </div>
 
-                {/* 2. Visual Style */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-                    Visual Style
-                  </label>
-                  <select
-                    value={pinStyle}
-                    onChange={(e) => setPinStyle(e.target.value)}
-                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                  >
-                    <option value="photorealistic">Photorealistic</option>
-                    <option value="cinematic">Cinematic</option>
-                    <option value="commercial_product">Commercial Product</option>
-                    <option value="minimalist">Minimalist Modern</option>
-                    <option value="3d_render">3D Digital Art</option>
-                    <option value="editorial">Editorial Fashion</option>
-                    <option value="illustration">Vector Illustration</option>
-                  </select>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* 3. Visual Style */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Visual Style
+                    </label>
+                    <select
+                      value={pinStyle}
+                      onChange={(e) => setPinStyle(e.target.value)}
+                      className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                    >
+                      <option value="photorealistic">Photorealistic (Studio Lighting)</option>
+                      <option value="cinematic">Cinematic (Dramatic Lighting)</option>
+                      <option value="commercial_product">Commercial Product (Studio Box)</option>
+                      <option value="minimalist">Minimalist Modern (Clean Space)</option>
+                      <option value="3d_render">3D Digital Art (Octane Render)</option>
+                      <option value="editorial">Editorial Fashion (Magazine Style)</option>
+                      <option value="illustration">Vector Illustration (Clean Art)</option>
+                    </select>
+                  </div>
 
-                {/* 3. Quality Standard */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-                    Quality Standard
-                  </label>
-                  <select
-                    value={pinQuality}
-                    onChange={(e) => setPinQuality(e.target.value)}
-                    className="w-full h-8 text-[11px] font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                  >
-                    <option value="studio_4k">Studio 4K (Sharp)</option>
-                    <option value="ultra_hd_8k">Ultra HD 8K</option>
-                    <option value="standard_hd">Standard HD</option>
-                  </select>
+                  {/* 4. Quality Standard */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Quality Standard
+                    </label>
+                    <select
+                      value={pinQuality}
+                      onChange={(e) => setPinQuality(e.target.value)}
+                      className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                    >
+                      <option value="studio_4k">Studio 4K (Sharp Focus)</option>
+                      <option value="ultra_hd_8k">Ultra HD 8K (Extreme Detail)</option>
+                      <option value="standard_hd">Standard High Definition</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>

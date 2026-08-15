@@ -449,33 +449,30 @@ Return ONLY JSON array of 3 objects:
       }
 
       const enhancePrompt = isVideoFormat
-        ? `You are a visual video director for ${brandDNA.name}.
-Enhance this video prompt for ${platform} ${format} (${capability.defaultAspectRatio} vertical short-form video):
+        ? `You are an elite cinematic video director.
+Enhance this video prompt for ${platform} ${format} (${capability.defaultAspectRatio} video):
 
-User Prompt: "${prompt || topic || "Modern business automation"}"
+Original User Prompt: """${prompt || topic || "Modern business automation"}"""
 Aspect Ratio: ${capability.defaultAspectRatio}
-Industry: ${brandDNA.industry}
 
-Directives:
-- Enhance camera movement (tracking, pan, cinematic dolly), lighting, motion physics, color grading, photorealism style.
-- Maintain a strong opening 1-2s visual hook.
-- NO text or watermarks in the prompt.
-- Length: 40-70 words.
+CRITICAL RULES:
+1. STRICT PRESERVATION: PRESERVE 100% of all user-specified instructions, exact text to display on screen (e.g. logos, specific words, brand names like "SMB"), voiceover requests, speech lines (e.g. "follow for more"), and special audio cues. DO NOT delete, omit, or replace any user intent.
+2. ENHANCEMENT: Expand around the user's idea with vivid cinematic visual details: dynamic camera angles, cinematic studio lighting, fluid motion, depth of field, color grading, and texture realism.
+3. Keep the enhanced prompt natural, unified, and production-ready for AI video generation.
 
-Return ONLY the enhanced video prompt string without quotes.`
-        : `You are a visual director for ${brandDNA.name}.
+Return ONLY the enhanced video prompt string without extra commentary or quotes.`
+        : `You are an elite visual director.
 Enhance this visual image prompt for ${platform} ${format}:
 
-User Prompt: "${prompt || topic || "Modern business automation"}"
+Original User Prompt: """${prompt || topic || "Modern business automation"}"""
 Aspect Ratio: ${capability.defaultAspectRatio}
-Industry: ${brandDNA.industry}
 
-Directives:
-- Enhance visual composition, lighting, camera angle, color grading, photorealism style, raytraced reflections.
-- NO text or watermarks in the prompt.
-- Length: 25-45 words.
+CRITICAL RULES:
+1. STRICT PRESERVATION: PRESERVE 100% of all user-specified details, specific subjects, branding, on-screen text/typography requests, and explicit directions. DO NOT delete, omit, or replace any user intent.
+2. ENHANCEMENT: Add professional photographic and aesthetic details: lighting layers, composition balance, camera lens and angle, authentic textures, reflections, and atmospheric depth.
+3. Keep the enhanced prompt vivid, cohesive, and production-ready for high-definition image generation.
 
-Return ONLY the enhanced prompt string without quotes.`;
+Return ONLY the enhanced prompt string without extra commentary or quotes.`;
 
       const res = await llm.invoke([new HumanMessage(enhancePrompt)], { modelName: MODELS.CONTENT_CREATOR });
       const enhanced = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");

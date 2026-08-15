@@ -16,7 +16,8 @@ import {
   Hash,
   ShoppingBag,
   Sliders,
-  Check
+  Check,
+  Settings2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,10 @@ export default function MultiMediaEditor({
   onEnhancePrompt,
   isEnhancingPrompt,
 }: MultiMediaEditorProps) {
+  const [tagInput, setTagInput] = useState("");
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
+  const [imageStyle, setImageStyle] = useState<string>("photorealistic");
+  const [imageQuality, setImageQuality] = useState<string>("studio_4k");
   const activeMedia = mediaItems[activeMediaIndex] || mediaItems[0] || {
     id: "item_1",
     url: "",
@@ -252,6 +257,90 @@ export default function MultiMediaEditor({
 
         {/* PROMPT CONTROLS */}
         <div className="md:col-span-7 space-y-3">
+          {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
+              </span>
+              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                🍌 Nano Banana Pro
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* 1. Model Instance */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Model
+                </label>
+                <select
+                  disabled
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs cursor-not-allowed font-mono"
+                >
+                  <option>🍌 Nano Banana Pro (Gemini 3 Pro Image)</option>
+                </select>
+              </div>
+
+              {/* 2. Aspect Ratio */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Aspect Ratio
+                </label>
+                <select
+                  value={imageAspectRatio}
+                  onChange={(e) => setImageAspectRatio(e.target.value)}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                >
+                  <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"} Platform Default)</option>
+                  <option value="1:1">1:1 (Square)</option>
+                  <option value="4:5">4:5 (Portrait)</option>
+                  <option value="16:9">16:9 (Landscape)</option>
+                  <option value="9:16">9:16 (Story)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* 3. Visual Style */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                    Visual Style
+                  </label>
+                  <select
+                    value={imageStyle}
+                    onChange={(e) => setImageStyle(e.target.value)}
+                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="photorealistic">Photorealistic (Studio Lighting)</option>
+                    <option value="cinematic">Cinematic (Dramatic Lighting)</option>
+                    <option value="commercial_product">Commercial Product (Studio Box)</option>
+                    <option value="minimalist">Minimalist Modern (Clean Space)</option>
+                    <option value="3d_render">3D Digital Art (Octane Render)</option>
+                    <option value="editorial">Editorial Fashion (Magazine Style)</option>
+                    <option value="illustration">Vector Illustration (Clean Art)</option>
+                  </select>
+                </div>
+
+                {/* 4. Quality Standard */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                    Quality Standard
+                  </label>
+                  <select
+                    value={imageQuality}
+                    onChange={(e) => setImageQuality(e.target.value)}
+                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="studio_4k">Studio 4K (Sharp Focus)</option>
+                    <option value="ultra_hd_8k">Ultra HD 8K (Extreme Detail)</option>
+                    <option value="standard_hd">Standard High Definition</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* VISUAL PROMPT */}
           <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -260,9 +349,13 @@ export default function MultiMediaEditor({
               </span>
               <button
                 type="button"
-                disabled={isEnhancingPrompt}
+                disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                 onClick={onEnhancePrompt}
-                className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                className={`text-[11px] font-bold flex items-center gap-1 ${
+                  !prompt || !prompt.trim()
+                    ? "text-slate-400 cursor-not-allowed opacity-50"
+                    : "text-blue-600 hover:underline cursor-pointer"
+                }`}
               >
                 {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                 <span>Enhance Prompt ✨</span>
@@ -278,7 +371,7 @@ export default function MultiMediaEditor({
               <Button
                 type="button"
                 size="sm"
-                disabled={isRenderingSingleAI}
+                disabled={isRenderingSingleAI || !prompt.trim()}
                 onClick={onRenderSingleAI}
                 className="h-9 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white shrink-0"
               >
