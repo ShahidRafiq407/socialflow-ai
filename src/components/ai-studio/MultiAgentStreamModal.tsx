@@ -483,103 +483,210 @@ export default function MultiAgentStreamModal({
                     )}
 
                     {selectedAgentId === "competitor_analyst" && activeAgentOutput && (
-                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Market Differentiation Ideas</h5>
-                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-2">
-                          <p className="text-white font-medium">{activeAgentOutput.positioning}</p>
-                          {Array.isArray(activeAgentOutput.differentiation) && (
-                            <ul className="list-disc list-inside text-[#9CA3AF] space-y-1">
-                              {activeAgentOutput.differentiation.map((diff: string, dIdx: number) => (
-                                <li key={dIdx}>{diff}</li>
-                              ))}
-                            </ul>
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-semibold text-[#9CA3AF] uppercase">Market & Competitor Intelligence</h5>
+                          {activeAgentOutput.winningAngle && (
+                            <span className="text-[10px] font-bold text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded border border-[#22C55E]/20">
+                              Winning Angle Found
+                            </span>
                           )}
                         </div>
-                      </div>
-                    )}
 
-                      {selectedAgentId === "visualizer" && activeAgentOutput?.generatedAssets && (
-                        <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                          <h5 className="font-semibold text-[#9CA3AF] uppercase">Generated Media Assets</h5>
-                          <div className="space-y-2 max-h-40 overflow-y-auto">
-                            {activeAgentOutput.generatedAssets.map((asset: any, aIdx: number) => (
-                              <div key={aIdx} className="bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32] flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  {asset.type === "video" ? (
-                                    <Film className="w-4 h-4 text-[#8B5CF6]" />
-                                  ) : (
-                                    <ImageIcon className="w-4 h-4 text-[#22C55E]" />
-                                  )}
-                                  <div>
-                                    <p className="text-white font-medium capitalize">{asset.platform} — {asset.contentType} ({asset.type.toUpperCase()})</p>
-                                    <p className="text-[10px] text-[#6B7280]">Aspect Ratio: {asset.aspectRatio}</p>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (asset.url.startsWith("http://") || asset.url.startsWith("https://")) {
-                                      window.open(asset.url, "_blank");
-                                      return;
-                                    }
-                                    if (asset.url.startsWith("data:")) {
-                                      try {
-                                        const parts = asset.url.split(",");
-                                        const mimeMatch = parts[0].match(/:(.*?);/);
-                                        const mimeType = mimeMatch ? mimeMatch[1] : asset.type === "video" ? "video/mp4" : "image/png";
-                                        const byteCharacters = atob(parts[1]);
-                                        const byteArrays = [];
-                                        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-                                          const slice = byteCharacters.slice(offset, offset + 512);
-                                          const byteNumbers = new Array(slice.length);
-                                          for (let i = 0; i < slice.length; i++) {
-                                            byteNumbers[i] = slice.charCodeAt(i);
-                                          }
-                                          byteArrays.push(new Uint8Array(byteNumbers));
-                                        }
-                                        const blob = new Blob(byteArrays, { type: mimeType });
-                                        const blobUrl = URL.createObjectURL(blob);
-                                        window.open(blobUrl, "_blank");
-                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-                                      } catch (e) {
-                                        window.open(asset.url, "_blank");
-                                      }
-                                    }
-                                  }}
-                                  className="text-[#8B5CF6] hover:text-[#A78BFA] hover:underline flex items-center gap-1 text-[11px] font-semibold bg-transparent border-0 cursor-pointer p-0"
-                                >
-                                  View <ExternalLink className="w-3 h-3" />
-                                </button>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-2.5">
+                          {Array.isArray(activeAgentOutput.topCompetitors) && activeAgentOutput.topCompetitors.length > 0 && (
+                            <div>
+                              <span className="text-[#9CA3AF] font-semibold text-[11px] block mb-1">Top Market Competitors:</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {activeAgentOutput.topCompetitors.map((comp: string, cIdx: number) => (
+                                  <span key={cIdx} className="bg-[#1A1D24] text-slate-200 text-[11px] font-medium px-2 py-0.5 rounded border border-[#252A32]">
+                                    {comp}
+                                  </span>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                            </div>
+                          )}
 
-                    {selectedAgentId === "ceo_auditor" && activeAgentOutput && (
-                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
-                        <h5 className="font-semibold text-[#9CA3AF] uppercase">CEO Audit Verification</h5>
-                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] flex items-center justify-between">
+                          {activeAgentOutput.winningAngle && (
+                            <div className="p-2.5 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/30">
+                              <span className="text-[#A78BFA] font-bold text-[11px] block mb-0.5">🎯 Winning Topic Strategy:</span>
+                              <p className="text-white text-xs font-medium leading-relaxed">{activeAgentOutput.winningAngle}</p>
+                            </div>
+                          )}
+
                           <div>
-                            <p className="text-white font-bold text-sm">Quality Score: {activeAgentOutput.score}/100</p>
-                            <p className="text-[#9CA3AF] mt-0.5">{activeAgentOutput.notes}</p>
-                            {Array.isArray(activeAgentOutput.issues) && activeAgentOutput.issues.length > 0 && (
-                              <ul className="list-disc list-inside text-[#EF4444] mt-2 space-y-0.5">
-                                {activeAgentOutput.issues.map((iss: string, iIdx: number) => (
-                                  <li key={iIdx}>{iss}</li>
+                            <span className="text-[#9CA3AF] font-semibold text-[11px] block mb-1">Differentiation Plan:</span>
+                            {Array.isArray(activeAgentOutput.differentiation) && (
+                              <ul className="list-disc list-inside text-[#9CA3AF] space-y-1 text-[11px]">
+                                {activeAgentOutput.differentiation.map((diff: string, dIdx: number) => (
+                                  <li key={dIdx} className="text-slate-300">{diff}</li>
                                 ))}
                               </ul>
                             )}
                           </div>
-                          <span
-                            className={`px-2.5 py-1 rounded-full border text-[10px] font-bold ${
-                              activeAgentOutput.passed
-                                ? "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20"
-                                : "bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/20"
-                            }`}
-                          >
-                            {activeAgentOutput.passed ? "APPROVED" : "REJECTED"}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CONTENT CREATOR LIVE GRANULAR PREVIEW */}
+                    {selectedAgentId === "content_creator" && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-semibold text-[#9CA3AF] uppercase">Platform-Tailored Content Drafts</h5>
+                          <span className="text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-2 py-0.5 rounded border border-[#8B5CF6]/20">
+                            High User Intent
                           </span>
+                        </div>
+
+                        {activeAgentOutput?.platforms ? (
+                          <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                            {Object.entries(activeAgentOutput.platforms).map(([pltKey, formats]: [string, any]) =>
+                              Object.entries(formats).map(([fmtKey, item]: [string, any]) => (
+                                <div key={`${pltKey}-${fmtKey}`} className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-white uppercase flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]"></span>
+                                      {pltKey} — {fmtKey}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-[#9CA3AF] bg-[#1A1D24] px-1.5 py-0.5 rounded">
+                                      {item.aspectRatio || "1:1"}
+                                    </span>
+                                  </div>
+
+                                  {item.hook && (
+                                    <div className="p-2 rounded bg-[#161920] border border-[#252A32]">
+                                      <span className="text-[10px] font-bold text-[#8B5CF6] uppercase block">Scroll-Stopping Hook:</span>
+                                      <p className="text-white text-xs font-medium mt-0.5 italic">"{item.hook}"</p>
+                                    </div>
+                                  )}
+
+                                  {item.caption && (
+                                    <div>
+                                      <span className="text-[10px] font-bold text-[#9CA3AF] uppercase block mb-0.5">Caption Preview:</span>
+                                      <p className="text-slate-300 text-xs line-clamp-2 leading-relaxed">{item.caption}</p>
+                                    </div>
+                                  )}
+
+                                  {item.visualPrompt && (
+                                    <div className="p-2 rounded bg-[#161920] border border-[#252A32]">
+                                      <span className="text-[10px] font-bold text-[#22C55E] uppercase block">Visualizer AI Prompt:</span>
+                                      <p className="text-slate-300 text-[11px] font-mono line-clamp-2 mt-0.5">{item.visualPrompt}</p>
+                                    </div>
+                                  )}
+
+                                  {Array.isArray(item.hashtags) && item.hashtags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 pt-1">
+                                      {item.hashtags.slice(0, 5).map((tag: string, tIdx: number) => (
+                                        <span key={tIdx} className="text-[10px] text-[#A78BFA]">
+                                          {tag.startsWith("#") ? tag : `#${tag}`}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-[#0B0D10] rounded-lg border border-[#252A32] text-slate-400 text-xs">
+                            Generating platform-native content with custom hooks, tailored algorithms, and visual prompts...
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedAgentId === "visualizer" && activeAgentOutput?.generatedAssets && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">Generated Media Assets</h5>
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {activeAgentOutput.generatedAssets.map((asset: any, aIdx: number) => (
+                            <div key={aIdx} className="bg-[#0B0D10] p-2.5 rounded-lg border border-[#252A32] flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {asset.type === "video" ? (
+                                  <Film className="w-4 h-4 text-[#8B5CF6]" />
+                                ) : (
+                                  <ImageIcon className="w-4 h-4 text-[#22C55E]" />
+                                )}
+                                <div>
+                                  <p className="text-white font-medium capitalize">{asset.platform} — {asset.contentType} ({asset.type.toUpperCase()})</p>
+                                  <p className="text-[10px] text-[#6B7280]">Aspect Ratio: {asset.aspectRatio}</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (asset.url.startsWith("http://") || asset.url.startsWith("https://")) {
+                                    window.open(asset.url, "_blank");
+                                    return;
+                                  }
+                                  if (asset.url.startsWith("data:")) {
+                                    try {
+                                      const parts = asset.url.split(",");
+                                      const mimeMatch = parts[0].match(/:(.*?);/);
+                                      const mimeType = mimeMatch ? mimeMatch[1] : asset.type === "video" ? "video/mp4" : "image/png";
+                                      const byteCharacters = atob(parts[1]);
+                                      const byteArrays = [];
+                                      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+                                        const slice = byteCharacters.slice(offset, offset + 512);
+                                        const byteNumbers = new Array(slice.length);
+                                        for (let i = 0; i < slice.length; i++) {
+                                          byteNumbers[i] = slice.charCodeAt(i);
+                                        }
+                                        byteArrays.push(new Uint8Array(byteNumbers));
+                                      }
+                                      const blob = new Blob(byteArrays, { type: mimeType });
+                                      const blobUrl = URL.createObjectURL(blob);
+                                      window.open(blobUrl, "_blank");
+                                      setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+                                    } catch (e) {
+                                      window.open(asset.url, "_blank");
+                                    }
+                                  }
+                                }}
+                                className="text-[#8B5CF6] hover:text-[#A78BFA] hover:underline flex items-center gap-1 text-[11px] font-semibold bg-transparent border-0 cursor-pointer p-0"
+                              >
+                                View <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedAgentId === "ceo_auditor" && activeAgentOutput && (
+                      <div className="pt-3 border-t border-[#252A32] text-xs space-y-2">
+                        <h5 className="font-semibold text-[#9CA3AF] uppercase">CEO Audit Verification</h5>
+                        <div className="bg-[#0B0D10] p-3 rounded-lg border border-[#252A32] space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-white font-bold text-sm">Quality Score: {activeAgentOutput.score}/100</p>
+                              <p className="text-[#9CA3AF] mt-0.5">{activeAgentOutput.notes}</p>
+                            </div>
+                            <span
+                              className={`px-2.5 py-1 rounded-full border text-[10px] font-bold ${
+                                activeAgentOutput.passed
+                                  ? "bg-[#22C55E]/10 text-[#22C55E] border-[#22C55E]/20"
+                                  : "bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/20"
+                              }`}
+                            >
+                              {activeAgentOutput.passed ? "APPROVED" : "REJECTED"}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#252A32]">
+                            <div className="bg-[#161920] p-2 rounded text-[11px]">
+                              <span className="text-[#22C55E] font-bold">✓</span> <span className="text-slate-300">Brand Voice Alignment</span>
+                            </div>
+                            <div className="bg-[#161920] p-2 rounded text-[11px]">
+                              <span className="text-[#22C55E] font-bold">✓</span> <span className="text-slate-300">Hook & Retention</span>
+                            </div>
+                            <div className="bg-[#161920] p-2 rounded text-[11px]">
+                              <span className="text-[#22C55E] font-bold">✓</span> <span className="text-slate-300">Platform Specs</span>
+                            </div>
+                            <div className="bg-[#161920] p-2 rounded text-[11px]">
+                              <span className="text-[#22C55E] font-bold">✓</span> <span className="text-slate-300">Media Compliance</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
