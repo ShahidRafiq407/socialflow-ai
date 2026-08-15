@@ -628,6 +628,7 @@ export default function AIStudioPage() {
             : [];
 
           const formatData: GeneratedFormat = {
+            title: content.title || "",
             caption,
             imagePrompt: content.imagePrompt || content.visualPrompt || "",
             hashtags,
@@ -967,7 +968,7 @@ export default function AIStudioPage() {
   const [enhancingPromptKeys, setEnhancingPromptKeys] = useState<Record<string, boolean>>({});
   const [scriptPromptKeys, setScriptPromptKeys] = useState<Record<string, boolean>>({});
 
-  const currentTitle = titleDict[currentFormatKey] || "";
+  const currentTitle = titleDict[currentFormatKey] || currentGenerated?.title || "";
   const currentDescription = descriptionDict[currentFormatKey] || "";
   const currentDestinationUrl = destinationUrlDict[currentFormatKey] || "";
   const currentBoard = boardDict[currentFormatKey] || "Smart Robotics & AI";

@@ -153,7 +153,9 @@ export default function PinterestPinEditor({
             Pinterest {capability.format}
           </Badge>
           <span className="text-xs text-slate-500 font-medium">
-            2:3 Vertical Recommended (1000 × 1500 px)
+            {isVideo || capability.format.toLowerCase().includes("idea")
+              ? "9:16 Vertical Recommended (1080 × 1920 px)"
+              : "2:3 Vertical Recommended (1000 × 1500 px)"}
           </span>
         </div>
 

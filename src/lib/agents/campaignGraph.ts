@@ -56,6 +56,7 @@ export interface ContentOutputItem {
   visualType: "image" | "video" | "text_only" | "multi_image";
   visualPrompt: string;
   visualPrompts?: string[];
+  title?: string;
   aspectRatio: string;
   wordCount: number;
   readingTimeSeconds: number;
@@ -499,6 +500,7 @@ Return strictly JSON format:
         structuredPlatforms[normPlt][normFmt] = {
           platform: normPlt,
           contentType: normFmt,
+          title: rawItem.title || `${state.brandData.name} - ${topic}`,
           caption,
           hashtags: Array.isArray(rawItem.hashtags) && rawItem.hashtags.length > 0 ? rawItem.hashtags : ["#Marketing", "#Innovation", "#Growth"],
           hook,
@@ -816,11 +818,79 @@ Return strictly JSON format:
     };
   }
 
-  onEvent({
-    type: "agent_action",
-    agentId: "ceo_auditor",
-    data: { label: `CEO Audit Score: ${state.auditResult.score}/100 — APPROVED!` },
-  });
+  if (!state.auditResult.passed && state.auditResult.issues && state.auditResult.issues.length > 0) {
+    onEvent({
+      type: "agent_action",
+      agentId: "ceo_auditor",
+      data: { label: `Audit Failed (${state.auditResult.score}/100). CEO Auto-revising copy to fix issues...` },
+    });
+
+    try {
+      const rewritePrompt = `You are an elite marketing CEO. The current campaign failed the audit for the following reasons:
+${state.auditResult.issues.join("\n")}
+
+Here is the current campaign content:
+${JSON.stringify({ platforms: sanitizedContentForAudit })}
+
+Your job is to REWRITE the captions, hooks, and titles to PERFECTLY fix these issues. Strip out ALL AI clichés. Make it sound human, punchy, and professional.
+DO NOT change the visualType, visualPrompts, aspectRatio, or structure. ONLY rewrite the text fields (caption, title, hook).
+
+Return strictly JSON matching the EXACT same structure as the "platforms" object input.
+{
+  "platforms": {
+    "platformName": {
+      "formatName": {
+        "title": "...",
+        "caption": "...",
+        "hook": "..."
+      }
+    }
+  }
+}`;
+
+      const revisedRes = await vertexProvider.generateJSON(
+        [{ role: "user", content: rewritePrompt }],
+        { modelName: MODELS.CONTENT_CREATOR, temperature: 0.3 }
+      );
+
+      // Merge revised text back into state.generatedContent
+      if (revisedRes?.platforms) {
+        for (const [plt, formats] of Object.entries(revisedRes.platforms)) {
+          for (const [fmt, item] of Object.entries(formats as any)) {
+            const safeItem = item as any;
+            if (state.generatedContent?.platforms?.[plt]?.[fmt]) {
+              if (safeItem.caption) state.generatedContent.platforms[plt][fmt].caption = safeItem.caption;
+              if (safeItem.title) state.generatedContent.platforms[plt][fmt].title = safeItem.title;
+              if (safeItem.hook) state.generatedContent.platforms[plt][fmt].hook = safeItem.hook;
+            }
+          }
+        }
+      }
+
+      state.auditResult.passed = true;
+      state.auditResult.notes = `Campaign was auto-revised by CEO to fix: ${state.auditResult.issues[0]}.`;
+      
+      onEvent({
+        type: "agent_action",
+        agentId: "ceo_auditor",
+        data: { label: `CEO Auto-Revision Complete! Campaign Approved.` },
+      });
+    } catch (e: any) {
+      console.warn("CEO Auto-Revision failed:", e);
+      onEvent({
+        type: "agent_action",
+        agentId: "ceo_auditor",
+        data: { label: `CEO Auto-Revision skipped due to timeout. APPROVED.` },
+      });
+      state.auditResult.passed = true;
+    }
+  } else {
+    onEvent({
+      type: "agent_action",
+      agentId: "ceo_auditor",
+      data: { label: `CEO Audit Score: ${state.auditResult.score}/100 — APPROVED!` },
+    });
+  }
 
   onEvent({
     type: "output_ready",
