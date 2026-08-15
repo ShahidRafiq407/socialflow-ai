@@ -45,10 +45,11 @@ export interface MediaAssetOutput {
   url: string;
   prompt: string;
   aspectRatio: string;
-  status: "completed" | "error";
+  status: "completed" | "failed";
   provider: string;
   model: string;
   createdAt: number;
+  duration?: number;
   slideIndex?: number;
   totalSlides?: number;
   error?: string;
@@ -63,23 +64,8 @@ function validateAssetUrl(url: string, type: "image" | "video") {
   }
 }
 
-const VERIFIED_MARKETING_VIDEOS = {
-  vertical: [
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-    "https://vjs.zencdn.net/v/oceans.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://www.w3schools.com/html/mov_bbb.mp4",
-  ],
-  widescreen: [
-    "https://vjs.zencdn.net/v/oceans.mp4",
-    "https://media.w3.org/2010/05/sintel/trailer.mp4",
-    "https://www.w3schools.com/html/mov_bbb.mp4",
-    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-  ],
-};
-
 /**
- * Flagship Video Synthesis Handler Utilizing Veo 3.1 Premium Tier
+ * Flagship Video Synthesis Handler Utilizing Gemini Omni Flash Preview / Interactions API
  */
 async function generateRealVideo(options: {
   prompt: string;
@@ -93,52 +79,63 @@ async function generateRealVideo(options: {
   const ai = (vertexProvider as any).ai;
   let lastErr: any = null;
 
-  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel}`);
+  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}"`);
 
   // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
   if (typeof (ai as any)?.interactions?.create === "function") {
     try {
-      onProgress?.(`[Visualizer] Initiating video via Interactions API (${targetVideoModel})...`);
+      const fullPrompt = `${prompt}, high definition ${aspectRatio === "9:16" ? "9:16 vertical" : "16:9 widescreen"} cinematic commercial video for ${topic || "brand"}`;
+      
+      onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
+
       const interaction = await Promise.race([
         (ai as any).interactions.create({
           model: targetVideoModel,
-          input: [
-            {
-              type: "user_input",
-              content: [
-                {
-                  type: "text",
-                  text: `${prompt}, dynamic engaging commercial video for ${topic}`,
-                },
-              ],
-            },
-          ],
+          input: fullPrompt,
         }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Interactions timeout after 15s")), 15000))
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Video synthesis timeout after 120s")), 120000)
+        ),
       ]);
 
+      // Check direct output_video (standard response format from gemini-omni-flash-preview)
+      const directVideo = (interaction as any)?.output_video || (interaction as any)?.outputVideo;
+      if (directVideo?.data) {
+        onProgress?.(`[Visualizer] ✅ Video synthesis complete via ${targetVideoModel}!`);
+        const mime = directVideo.mime_type || directVideo.mimeType || "video/mp4";
+        const base64Data = `data:${mime};base64,${directVideo.data}`;
+        
+        // If Supabase storage is configured, upload to storage for permanent CDN streaming
+        if (isSupabaseConfigured()) {
+          try {
+            const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
+            if (uploadedUrl) return uploadedUrl;
+          } catch (storageErr) {
+            console.warn("[Visualizer] Supabase video upload failed, returning data URI:", storageErr);
+          }
+        }
+        return base64Data;
+      }
+
+      if (directVideo?.uri) {
+        onProgress?.(`[Visualizer] ✅ Video asset ready via ${targetVideoModel}!`);
+        return directVideo.uri;
+      }
+
+      // Check steps format
       if (interaction?.steps) {
         for (const step of (interaction as any).steps) {
           if (step.type === "model_output" && Array.isArray(step.content)) {
             for (const part of step.content) {
-              if (part.type === "video") {
-                if (part.data) {
-                  onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${targetVideoModel})!`);
-                  return `data:video/mp4;base64,${part.data}`;
-                } else if (part.uri) {
-                  onProgress?.(`[Visualizer] ✅ Video asset ready via Interactions API (${targetVideoModel})!`);
-                  return part.uri;
-                }
+              if (part.type === "video" && part.data) {
+                onProgress?.(`[Visualizer] ✅ Video synthesis complete!`);
+                return `data:video/mp4;base64,${part.data}`;
+              } else if (part.type === "video" && part.uri) {
+                return part.uri;
               }
             }
           }
         }
-      }
-
-      const directData = (interaction as any)?.output_video?.data || (interaction as any)?.outputVideo?.data || (interaction as any)?.outputs?.[0]?.video?.data;
-      if (directData) {
-        onProgress?.(`[Visualizer] ✅ Video synthesis complete via Interactions API (${targetVideoModel})!`);
-        return `data:video/mp4;base64,${directData}`;
       }
     } catch (iErr: any) {
       lastErr = iErr;
@@ -160,24 +157,23 @@ async function generateRealVideo(options: {
       });
 
       if (operation) {
-        const POLL_INTERVAL_MS = 2000;
-        const TIMEOUT_MS = 20000; // 20s fast timeout
+        const POLL_INTERVAL_MS = 3000;
+        const TIMEOUT_MS = 120000;
         const startTime = Date.now();
         const opName = operation.name || `operation_${Date.now()}`;
-
-        console.log(`[Visualizer] Video operation started: ${opName}. Polling operation status...`);
 
         while (!operation.done) {
           const elapsedSec = Math.round((Date.now() - startTime) / 1000);
           if (Date.now() - startTime > TIMEOUT_MS) {
-            console.warn(`[Visualizer] Video operation ${opName} reached 20s timeout.`);
             break;
           }
 
           onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
           await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-          if (typeof (ai.operations as any)?.get === "function") {
+          if (typeof (ai.operations as any)?.getVideosOperation === "function") {
+            operation = await (ai.operations as any).getVideosOperation({ operation });
+          } else if (typeof (ai.operations as any)?.get === "function") {
             operation = await (ai.operations as any).get({ name: opName });
           } else if (typeof operation.poll === "function") {
             operation = await operation.poll();
@@ -204,47 +200,18 @@ async function generateRealVideo(options: {
     }
   }
 
-  // 3. Multimodal generateContent with VIDEO modality
-  if (typeof ai?.models?.generateContent === "function") {
-    try {
-      onProgress?.(`[Visualizer] Synthesizing video via multimodal channel (${targetVideoModel})...`);
-      const genRes = await Promise.race([
-        ai.models.generateContent({
-          model: targetVideoModel,
-          contents: `Generate a high quality engaging commercial video: ${prompt}`,
-          config: {
-            responseModalities: ["VIDEO"],
-          },
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("generateContent timeout after 15s")), 15000))
-      ]);
-
-      const candidates = (genRes as any)?.candidates || [];
-      for (const cand of candidates) {
-        for (const part of cand.content?.parts || []) {
-          if (part.inlineData?.data) {
-            onProgress?.(`[Visualizer] ✅ Video frame generated successfully (${targetVideoModel})!`);
-            return `data:${part.inlineData.mimeType || "video/mp4"};base64,${part.inlineData.data}`;
-          }
-          if ((part as any).fileData?.fileUri) {
-            onProgress?.(`[Visualizer] ✅ Video asset URI ready (${targetVideoModel})!`);
-            return (part as any).fileData.fileUri;
-          }
-        }
-      }
-    } catch (gcErr: any) {
-      lastErr = gcErr;
-      console.warn(`[Visualizer] generateContent video on ${targetVideoModel} failed:`, gcErr?.message || gcErr);
-    }
+  // If live Vertex video synthesis failed with an error, throw the actual error
+  if (lastErr) {
+    throw new VisualizerError(
+      "VIDEO_GENERATION_FAILED",
+      `Video synthesis on ${targetVideoModel} failed: ${lastErr?.message || lastErr}`
+    );
   }
 
-  // If live Vertex video synthesis is not provisioned or timed out, resolve with a verified high-resolution marketing video
-  console.log(`[Visualizer] Providing verified high-resolution video asset for ${aspectRatio}`);
-  const pool = aspectRatio === "9:16" ? VERIFIED_MARKETING_VIDEOS.vertical : VERIFIED_MARKETING_VIDEOS.widescreen;
-  const hash = (prompt || topic).split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const selectedVideo = pool[Math.abs(hash) % pool.length];
-  onProgress?.(`[Visualizer] ✅ High-definition video stream synthesized successfully!`);
-  return selectedVideo;
+  throw new VisualizerError(
+    "VIDEO_GENERATION_FAILED",
+    `Video synthesis on ${targetVideoModel} could not produce a valid video output.`
+  );
 }
 
 export function resolveVisualRequirements(platform: string, contentType: string) {
@@ -292,7 +259,6 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   if (mediaType === "video") {
     onProgress?.(`[Visualizer] Compiling cinematic narrative via ${MODELS.VIDEO}...`);
 
-    // Injecting strict adherence directives for maximum video realism
     const highEndVideoPrompt = `${prompt}, hyper-realistic photography, 8k resolution, smooth cinematography, cinematic lighting, photorealism style, flawless texture map`;
 
     const videoUrl = await generateRealVideo({
@@ -334,38 +300,80 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     return results;
   }
 
-  if (mediaType === "multi_image") {
-    const totalSlides = 3;
-    onProgress?.(`[Visualizer] Processing multi-frame carousel (${totalSlides} slides) with engine: ${MODELS.VISUALIZER}...`);
+  // -------------------------------------------------------------
+  // REAL IMAGE GENERATION (Vertex AI: gemini-3-pro-image)
+  // -------------------------------------------------------------
+  onProgress?.(`[Visualizer] Synthesizing photographic layer canvas via ${MODELS.VISUALIZER}...`);
 
-    for (let slideIdx = 1; slideIdx <= totalSlides; slideIdx++) {
-      const slidePrompt = `${prompt} (Slide ${slideIdx} of ${totalSlides}: Commercial studio product capture, ultra detailed textures, raytraced reflections, 8k resolution close-up)`;
-      onProgress?.(`[Visualizer] Synthesizing carousel slide ${slideIdx}/${totalSlides}...`);
+  const assetCount = mediaType === "multi_image" ? 3 : 1;
 
-      const imageUrl = await generateRealImage({
-        prompt: slidePrompt,
-        topic,
-        aspectRatio,
-        model: MODELS.VISUALIZER,
-        onProgress,
-      });
+  for (let idx = 0; idx < assetCount; idx++) {
+    const slidePrompt = `${prompt}, highly detailed studio shot, realistic lighting layers, hyper-detailed photography aesthetics, crisp focus, 8k resolution`;
 
-      if (!imageUrl || !imageUrl.trim()) {
-        throw new VisualizerError("IMAGE_GENERATION_FAILED", `Multi-frame layer compilation failed at slide ${slideIdx}.`);
+    try {
+      const ai = (vertexProvider as any).ai;
+      let imageUrl = "";
+
+      if (typeof ai?.models?.generateImages === "function") {
+        try {
+          const imgRes = await ai.models.generateImages({
+            model: MODELS.VISUALIZER || "gemini-3-pro-image",
+            prompt: slidePrompt,
+            config: {
+              numberOfImages: 1,
+              aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
+            },
+          });
+
+          if (imgRes?.generatedImages?.[0]?.image?.imageBytes) {
+            imageUrl = `data:image/png;base64,${imgRes.generatedImages[0].image.imageBytes}`;
+          }
+        } catch (e: any) {
+          console.warn("[Visualizer] generateImages error:", e?.message || e);
+        }
+      }
+
+      if (!imageUrl && typeof ai?.models?.generateContent === "function") {
+        try {
+          const genRes = await ai.models.generateContent({
+            model: MODELS.VISUALIZER || "gemini-3-pro-image",
+            contents: `Generate a photorealistic marketing image: ${slidePrompt}`,
+            config: {
+              responseModalities: ["IMAGE"],
+            },
+          });
+
+          const candidates = (genRes as any)?.candidates || [];
+          for (const cand of candidates) {
+            for (const part of cand.content?.parts || []) {
+              if (part.inlineData?.data) {
+                imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                break;
+              }
+            }
+            if (imageUrl) break;
+          }
+        } catch (e: any) {
+          console.warn("[Visualizer] generateContent image error:", e?.message || e);
+        }
+      }
+
+      if (!imageUrl) {
+        throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image generation model failed to produce image bytes.");
       }
 
       let finalImageUrl = imageUrl;
       if (imageUrl.startsWith("data:") && isSupabaseConfigured()) {
-        onProgress?.(`[Visualizer] Persisting slide ${slideIdx} to Supabase Storage CDN...`);
-        const supabaseUrl = await uploadBase64ToStorage(imageUrl, `slide-${platform}-${contentType}-${slideIdx}-${Date.now()}.png`, "image/png");
+        const supabaseUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png");
         if (supabaseUrl) {
           finalImageUrl = supabaseUrl;
         }
       }
 
       validateAssetUrl(finalImageUrl, "image");
+
       results.push({
-        id: `asset_img_${Date.now()}_slide${slideIdx}_${Math.random().toString(36).substring(2, 7)}`,
+        id: `asset_img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
         platform,
         contentType,
         type: "image",
@@ -376,127 +384,14 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         provider: "google_vertex",
         model: MODELS.VISUALIZER,
         createdAt: Date.now(),
-        slideIndex: slideIdx,
-        totalSlides,
+        slideIndex: idx,
+        totalSlides: assetCount,
       });
-    }
-    return results;
-  }
-
-  onProgress?.(`[Visualizer] Dispatching master image synthesis via ${MODELS.VISUALIZER}...`);
-
-  const commercialPrompt = `${prompt}, highly detailed studio shot, realistic lighting layers, hyper-detailed photography aesthetics, crisp focus, 8k resolution`;
-
-  const imageUrl = await generateRealImage({
-    prompt: commercialPrompt,
-    topic,
-    aspectRatio,
-    model: MODELS.VISUALIZER,
-    onProgress,
-  });
-
-  if (!imageUrl || !imageUrl.trim()) {
-    throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image canvas compilation dropped layer bytes.");
-  }
-
-  let finalImageUrl = imageUrl;
-  if (imageUrl.startsWith("data:") && isSupabaseConfigured()) {
-    onProgress?.(`[Visualizer] Persisting visual asset to Supabase Storage CDN...`);
-    const supabaseUrl = await uploadBase64ToStorage(imageUrl, `image-${platform}-${contentType}-${Date.now()}.png`, "image/png");
-    if (supabaseUrl) {
-      finalImageUrl = supabaseUrl;
+    } catch (err: any) {
+      console.error(`[Visualizer] Slide ${idx + 1} generation failed:`, err);
+      throw new VisualizerError("IMAGE_GENERATION_FAILED", err.message || "Failed to generate image asset.");
     }
   }
-
-  validateAssetUrl(finalImageUrl, "image");
-  results.push({
-    id: `asset_img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    platform,
-    contentType,
-    type: "image",
-    url: finalImageUrl,
-    prompt: commercialPrompt,
-    aspectRatio,
-    status: "completed",
-    provider: "google_vertex",
-    model: MODELS.VISUALIZER,
-    createdAt: Date.now(),
-  });
 
   return results;
-}
-
-async function generateRealImage(options: {
-  prompt: string;
-  topic: string;
-  aspectRatio: string;
-  model: string;
-  onProgress?: (message: string) => void;
-}): Promise<string> {
-  const { prompt, topic, aspectRatio, model, onProgress } = options;
-  const targetImageModel = model || "gemini-3-pro-image";
-  const ai = (vertexProvider as any).ai;
-  let lastErr: any = null;
-
-  console.log(`[Visualizer] Executing image generation: ${targetImageModel}`);
-
-  // 1. Multimodal generateContent with responseModalities (Native Gemini 3 Image Mode)
-  if (typeof ai?.models?.generateContent === "function") {
-    try {
-      onProgress?.(`[Visualizer] Synthesizing image canvas with ${targetImageModel}...`);
-      const genRes = await ai.models.generateContent({
-        model: targetImageModel,
-        contents: `Generate a high quality visual image: ${prompt}`,
-        config: {
-          responseModalities: ["IMAGE"],
-        },
-      });
-
-      const candidates = genRes.candidates || [];
-      for (const cand of candidates) {
-        for (const part of cand.content?.parts || []) {
-          if (part.inlineData?.data) {
-            onProgress?.(`[Visualizer] ✅ Image frame generated successfully (${targetImageModel})!`);
-            console.log(`[Visualizer] ✅ Image generation success via generateContent with model: ${targetImageModel}`);
-            return `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-          }
-        }
-      }
-    } catch (gcErr: any) {
-      lastErr = gcErr;
-      console.log(`[Visualizer] generateContent attempt with ${targetImageModel}:`, gcErr?.message || gcErr);
-    }
-  }
-
-  // 2. Dedicated generateImages method (Imagen Endpoint)
-  if (typeof ai?.models?.generateImages === "function") {
-    try {
-      onProgress?.(`[Visualizer] Rendering photorealistic canvas with ${targetImageModel}...`);
-      const response = await ai.models.generateImages({
-        model: targetImageModel,
-        prompt: `${prompt}, professional marketing visual for ${topic}, high quality 4k digital graphic`,
-        config: {
-          numberOfImages: 1,
-          aspectRatio: aspectRatio === "9:16" ? "9:16" : aspectRatio === "16:9" ? "16:9" : "1:1",
-          outputMimeType: "image/png",
-        },
-      });
-
-      const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
-      if (imageBytes) {
-        onProgress?.(`[Visualizer] ✅ Image frame rendered successfully (${targetImageModel})!`);
-        console.log(`[Visualizer] ✅ Image generation success with model: ${targetImageModel}`);
-        return `data:image/png;base64,${imageBytes}`;
-      }
-    } catch (giErr: any) {
-      lastErr = giErr;
-      console.log(`[Visualizer] generateImages attempt with ${targetImageModel}:`, giErr?.message || giErr);
-    }
-  }
-
-  const errDetail = lastErr?.message || (typeof lastErr === "string" ? lastErr : JSON.stringify(lastErr));
-  throw new VisualizerError(
-    "IMAGE_GENERATION_FAILED",
-    `Vertex AI image synthesis failed on model ${targetImageModel}. Trace: ${errDetail}`
-  );
 }

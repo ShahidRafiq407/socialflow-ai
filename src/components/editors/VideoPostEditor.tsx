@@ -254,15 +254,32 @@ export default function VideoPostEditor({
                       : "text-slate-400 cursor-not-allowed opacity-60"
                   }`}
                 >
-                  {isGeneratingPromptFromScript ? "Generating Prompt..." : "Auto-Prompt from Caption"}
+                  {isGeneratingPromptFromScript ? (
+                    <span className="flex items-center gap-1 text-indigo-600">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Generating...
+                    </span>
+                  ) : (
+                    "Auto-Prompt from Caption"
+                  )}
                 </button>
                 <button
                   type="button"
                   disabled={isEnhancingPrompt}
                   onClick={onEnhancePrompt}
-                  className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 hover:underline cursor-pointer flex items-center gap-0.5"
+                  className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    isEnhancingPrompt
+                      ? "text-pink-400 cursor-wait opacity-80"
+                      : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
+                  }`}
                 >
-                  <span>Enhance Prompt ✨</span>
+                  {isEnhancingPrompt ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin text-pink-500" />
+                      <span>Enhancing Prompt...</span>
+                    </>
+                  ) : (
+                    <span>Enhance Prompt ✨</span>
+                  )}
                 </button>
               </div>
             </div>
