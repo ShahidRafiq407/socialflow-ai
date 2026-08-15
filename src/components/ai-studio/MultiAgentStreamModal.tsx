@@ -121,11 +121,13 @@ export default function MultiAgentStreamModal({
     setTrendSources([]);
     setSearchQuery("");
     setAgentOutputs({});
-    setAgentActivities({});
+    setAgentActivities({
+      brand_analyst: [{ label: "Querying workspace database for Brand DNA...", status: "running" }],
+    });
     setUserHasManuallySelected(false);
     setSelectedAgentId("brand_analyst");
     setAgentStatuses({
-      brand_analyst: "waiting",
+      brand_analyst: "running",
       trend_researcher: "waiting",
       competitor_analyst: "waiting",
       content_creator: "waiting",
@@ -173,16 +175,27 @@ export default function MultiAgentStreamModal({
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
+        const chunks = buffer.split(/\r?\n\r?\n/);
+        buffer = chunks.pop() || "";
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.replace("data: ", ""));
-            handleStreamEvent(event);
-          } catch (e) {
-            console.error("Failed to parse SSE line:", line);
+        for (const rawChunk of chunks) {
+          const chunk = rawChunk.trim();
+          if (!chunk) continue;
+
+          // Extract data: payload across lines
+          const dataPayload = chunk
+            .split(/\r?\n/)
+            .filter((line) => line.trim().startsWith("data:"))
+            .map((line) => line.trim().replace(/^data:\s*/, ""))
+            .join("\n");
+
+          if (dataPayload) {
+            try {
+              const event = JSON.parse(dataPayload);
+              handleStreamEvent(event);
+            } catch (e) {
+              console.error("Failed to parse SSE JSON payload:", dataPayload);
+            }
           }
         }
       }

@@ -84,6 +84,17 @@ export async function POST(req: Request) {
             }
           };
 
+          // Send immediate 2KB stream preamble to flush any server / proxy buffers instantly
+          const preamble = `: ${" ".repeat(1024)}\n\n`;
+          controller.enqueue(encoder.encode(preamble));
+
+          // Immediately announce engine readiness
+          sendSSE({
+            type: "workflow_started",
+            agentId: "system",
+            data: { message: "Multi-Agent Campaign Pipeline Active", timestamp: Date.now() },
+          });
+
           try {
             const resultState = await runCampaignGraph(
               {
@@ -174,10 +185,11 @@ export async function POST(req: Request) {
 
       return new Response(stream, {
         headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache, no-transform",
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform, max-age=0",
           Connection: "keep-alive",
           "X-Accel-Buffering": "no",
+          "Content-Encoding": "none",
         },
       });
     }
