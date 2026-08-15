@@ -583,6 +583,7 @@ Return strictly JSON format:
         contentType,
         mediaType: reqSpec.assetType,
         prompt: item.visualPrompt,
+        visualPrompts: item.visualPrompts,
         aspectRatio: reqSpec.aspectRatio,
         caption: item.caption,
         topic,

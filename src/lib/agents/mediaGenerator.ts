@@ -32,6 +32,7 @@ export interface GenerateMediaInput {
   contentType: string;
   mediaType: "image" | "video" | "multi_image";
   prompt: string;
+  visualPrompts?: string[];
   aspectRatio: string;
   caption?: string;
   topic?: string;
@@ -389,7 +390,16 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const systemInstructionText = `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
 
   for (let idx = 0; idx < assetCount; idx++) {
-    const clauses = [prompt.trim()];
+    if (idx > 0) {
+      onProgress?.(`[Visualizer] Rate limit buffer: waiting 3 seconds before next slide...`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    const currentPrompt = (input.visualPrompts && input.visualPrompts[idx]) 
+      ? input.visualPrompts[idx].trim() 
+      : prompt.trim();
+
+    const clauses = [currentPrompt];
     if (styleClause) clauses.push(styleClause);
     if (qualityClause) clauses.push(qualityClause);
     const slidePrompt = clauses.filter(Boolean).join(", ");
