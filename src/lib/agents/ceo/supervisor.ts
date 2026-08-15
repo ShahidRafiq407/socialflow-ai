@@ -23,21 +23,12 @@ YOUR REVIEW CRITERIA:
 If the copy feels robotic, generic, or fails the hook test, reject it and explain exactly what the Content Creator must fix.
 Respond with exactly "APPROVED" if it passes all tests flawlessly, or a short paragraph explaining what needs fixing.`;
 
-  let reviewText = "APPROVED";
-  try {
-    const res = await Promise.race([
-      ceoLlm.invoke([new HumanMessage(prompt)]),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("CEO review timed out after 20s")), 20000))
-    ]);
-    reviewText = (res.content?.toString() || "").trim();
-  } catch (err: any) {
-    console.warn("[CEO Supervisor] LLM invocation timed out or failed:", err?.message || err);
-    reviewText = "APPROVED";
-  }
+  const res = await ceoLlm.invoke([new HumanMessage(prompt)]);
+  const reviewText = (res.content?.toString() || "").trim();
 
   console.log(`[CEO Review]: ${reviewText}`);
 
-  // Prevent infinite loops by checking retry count (maximum 2 revision cycles)
+  // Prevent infinite loops by checking retry count
   const retryCount = state.messages?.filter(m => m.content.toString().includes("CEO Feedback")).length || 0;
 
   if (reviewText.includes("APPROVED") || retryCount >= 2) {

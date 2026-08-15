@@ -1,7 +1,7 @@
 import { AgentStateType } from "../graph/state";
 import { llm, MODELS } from "../llm";
 import { HumanMessage } from "@langchain/core/messages";
-import { generateMediaAsset, resolveVisualRequirements } from "../mediaGenerator";
+import { generateMediaAsset } from "../mediaGenerator";
 
 // High-quality HD marketing video collection for Reels/Shorts/TikTok
 const HIGH_QUALITY_MARKETING_VIDEOS = [
@@ -35,10 +35,9 @@ export async function visualizerCreatorNode(state: AgentStateType) {
     const formats = payload.platforms[platformId];
     for (const formatName of Object.keys(formats)) {
       const content = formats[formatName];
-      const reqSpec = resolveVisualRequirements(platformId, formatName);
       
-      const isVideo = reqSpec.assetType === "video";
-      const isCarousel = reqSpec.assetType === "multi_image";
+      const isVideo = ["Reel", "Shorts", "Video", "Short Video"].includes(formatName);
+      const isCarousel = ["Carousel", "Idea Pin", "Thread"].includes(formatName);
       
       // Step 1: Read the caption and ask Gemini to generate visual prompts & slide overlays
       const refinementPrompt = `You are the Visualizer Agent.
@@ -47,13 +46,12 @@ Platform: ${platformId}, Format: ${formatName}
 
 Generate a JSON object with visual details:
 {
-  "visualPrompts": ["Specific vivid prompt 1", "Specific vivid prompt 2", "Specific vivid prompt 3", "Specific vivid prompt 4", "Specific vivid prompt 5"],
+  "visualPrompts": ["Specific vivid prompt 1", "Specific vivid prompt 2", "Specific vivid prompt 3", "Specific vivid prompt 4"],
   "overlayText": [
-    {"step": 1, "title": "Slide 1 Hook Headline", "body": "1-2 sentences of opening insight.", "theme": "gradient-purple"},
-    {"step": 2, "title": "Slide 2 Problem Breakdown", "body": "1-2 sentences explaining core challenge.", "theme": "gradient-blue"},
-    {"step": 3, "title": "Slide 3 Strategic Insight", "body": "1-2 sentences actionable framework.", "theme": "gradient-emerald"},
-    {"step": 4, "title": "Slide 4 Real-World Case", "body": "1-2 sentences benchmark results.", "theme": "gradient-sunset"},
-    {"step": 5, "title": "Slide 5 Takeaway & CTA", "body": "Final call to action.", "theme": "gradient-indigo"}
+    {"step": 1, "title": "Slide 1 Catchy Title", "body": "1 sentence key insight.", "theme": "gradient-purple"},
+    {"step": 2, "title": "Slide 2 Core Strategy", "body": "1 sentence actionable step.", "theme": "gradient-blue"},
+    {"step": 3, "title": "Slide 3 Proven Result", "body": "1 sentence takeaway.", "theme": "gradient-emerald"},
+    {"step": 4, "title": "Slide 4 Final CTA", "body": "Follow for more strategies.", "theme": "gradient-sunset"}
   ]
 }
 Return ONLY valid JSON.`;
@@ -78,8 +76,7 @@ Return ONLY valid JSON.`;
         { step: 1, title: "Key Insight", body: content.caption?.slice(0, 80) || "Value point", theme: "gradient-purple" },
         { step: 2, title: "Action Step", body: "Implement this fix today.", theme: "gradient-blue" },
         { step: 3, title: "Pro Tip", body: "Consistency is key to scaling.", theme: "gradient-emerald" },
-        { step: 4, title: "Real Results", body: "Proven measurable growth benchmark.", theme: "gradient-sunset" },
-        { step: 5, title: "Get Started", body: "Save this post & share with your team.", theme: "gradient-indigo" }
+        { step: 4, title: "Get Started", body: "Save this post & share with your team.", theme: "gradient-sunset" }
       ];
 
       content.visualPrompts = prompts;
@@ -93,22 +90,15 @@ Return ONLY valid JSON.`;
             contentType: formatName,
             mediaType: "multi_image",
             prompt: prompts.join(", "),
-            aspectRatio: reqSpec.aspectRatio,
+            aspectRatio: formatName.toLowerCase().includes("idea") ? "9:16" : "1:1",
             caption: content.caption,
             topic: payload.topic,
-            slides: overlays.map((o: any, idx: number) => ({
-              step: o.step || idx + 1,
-              title: o.title,
-              body: o.body,
-              visualPrompt: prompts[idx] || prompts[0],
-            })),
-            assetCount: reqSpec.requiredAssets,
           });
           content.imageUrls = mediaRes.map((m) => m.url);
           content.slideUrls = content.imageUrls;
           content.imageUrl = content.imageUrls[0];
         } catch (e) {
-          content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, reqSpec.aspectRatio, i));
+          content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, isCarousel ? "4:5" : "2:3", i));
           content.slideUrls = content.imageUrls;
           content.imageUrl = content.imageUrls[0];
         }
@@ -119,7 +109,7 @@ Return ONLY valid JSON.`;
             contentType: formatName,
             mediaType: "video",
             prompt: prompts[0] || "Cinematic marketing video",
-            aspectRatio: reqSpec.aspectRatio,
+            aspectRatio: "9:16",
             caption: content.caption,
             topic: payload.topic,
           });
@@ -136,13 +126,14 @@ Return ONLY valid JSON.`;
         content.refinedImagePrompt = prompts[0] || "Cinematic marketing video";
       } else {
         content.refinedImagePrompt = prompts[0];
+        const aspect = formatName === "Pin" ? "2:3" : formatName === "Story" ? "9:16" : "1:1";
         try {
           const mediaRes = await generateMediaAsset({
             platform: platformId,
             contentType: formatName,
             mediaType: "image",
             prompt: prompts[0] || payload.topic,
-            aspectRatio: reqSpec.aspectRatio,
+            aspectRatio: aspect,
             caption: content.caption,
             topic: payload.topic,
           });
@@ -150,7 +141,7 @@ Return ONLY valid JSON.`;
             content.imageUrl = mediaRes[0].url;
           }
         } catch (e) {
-          content.imageUrl = getHighQualityImageUrl(prompts[0] || payload.topic, reqSpec.aspectRatio, 0);
+          content.imageUrl = getHighQualityImageUrl(prompts[0] || payload.topic, aspect, 0);
         }
       }
     }

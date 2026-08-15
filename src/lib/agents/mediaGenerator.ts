@@ -1,5 +1,6 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
+import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
 
 export type VisualErrorCode =
   | "VISUALIZER_PROVIDER_ERROR"
@@ -26,13 +27,6 @@ export class VisualizerError extends Error {
   }
 }
 
-export interface SlideInput {
-  step?: number;
-  title?: string;
-  body?: string;
-  visualPrompt?: string;
-}
-
 export interface GenerateMediaInput {
   platform: string;
   contentType: string;
@@ -47,9 +41,6 @@ export interface GenerateMediaInput {
   style?: string;
   quality?: string;
   imageModel?: string;
-  slides?: SlideInput[];
-  prompts?: string[];
-  assetCount?: number;
   onProgress?: (message: string) => void;
 }
 
@@ -278,69 +269,30 @@ async function generateRealVideo(options: {
 }
 
 export function resolveVisualRequirements(platform: string, contentType: string) {
-  const normPlt = platform.toLowerCase().trim();
-  const normType = contentType.toLowerCase().trim();
+  // Single source of truth: delegate to getPlatformFormatSpec from platformMapping.ts
+  const spec = getPlatformFormatSpec(platform, contentType);
 
-  // 1. VIDEO FORMATS (Reels, Shorts, Video Pins, TikTok, YouTube Video, LinkedIn Video, X Video, etc.)
-  if (
-    normType.includes("reel") ||
-    normType.includes("video") ||
-    normType.includes("short") ||
-    (normPlt === "tiktok" && !normType.includes("photo") && !normType.includes("carousel"))
-  ) {
-    const isLandscape =
-      normType.includes("youtube_video") ||
-      (normPlt === "youtube" && !normType.includes("short")) ||
-      (normPlt === "linkedin" && !normType.includes("short") && !normType.includes("reel")) ||
-      (normPlt === "x" && !normType.includes("short") && !normType.includes("reel")) ||
-      (normPlt === "facebook" && normType === "video");
+  let assetType: "image" | "video" | "multi_image" = "image";
+  let requiredAssets = 1;
 
-    return {
-      assetType: "video" as const,
-      aspectRatio: isLandscape ? "16:9" as const : "9:16" as const,
-      requiredAssets: 1,
-    };
-  }
-
-  // 2. MULTI-ASSET FORMATS (Carousels, Idea Pins, Multi-Image, Documents)
-  if (
-    normType.includes("carousel") ||
-    normType.includes("idea") ||
-    normType.includes("multi") ||
-    normType.includes("document") ||
-    normType.includes("photo")
-  ) {
-    let aspect: "1:1" | "9:16" | "16:9" | "4:5" | "2:3" | "1.91:1" = "1:1";
-    if (normPlt === "pinterest") {
-      aspect = normType.includes("idea") ? "9:16" : "2:3";
-    } else if (normPlt === "linkedin") {
-      aspect = (normType.includes("document") || normType.includes("carousel")) ? "4:5" : "1:1";
-    } else if (normPlt === "tiktok" || normType.includes("story")) {
-      aspect = "9:16";
-    }
-    return {
-      assetType: "multi_image" as const,
-      aspectRatio: aspect,
-      requiredAssets: 5,
-    };
-  }
-
-  // 3. SINGLE IMAGE FORMATS (Standard Pins, Feeds, Posts, Stories, Community)
-  let aspect: "1:1" | "9:16" | "16:9" | "4:5" | "2:3" | "1.91:1" = "1:1";
-  if (normPlt === "pinterest") {
-    aspect = "2:3"; // Standard Pin official recommendation (1000x1500)
-  } else if (normPlt === "linkedin") {
-    aspect = "1.91:1";
-  } else if (normPlt === "x") {
-    aspect = "16:9";
-  } else if (normType.includes("story")) {
-    aspect = "9:16";
+  if (spec.mediaType === "video") {
+    assetType = "video";
+    requiredAssets = 1;
+  } else if (spec.mediaType === "multi_image") {
+    assetType = "multi_image";
+    requiredAssets = 3;
+  } else if (spec.mediaType === "text_only") {
+    assetType = "image";
+    requiredAssets = 0;
+  } else {
+    assetType = "image";
+    requiredAssets = 1;
   }
 
   return {
-    assetType: "image" as const,
-    aspectRatio: aspect,
-    requiredAssets: 1,
+    assetType,
+    aspectRatio: spec.aspectRatio,
+    requiredAssets,
   };
 }
 
@@ -410,9 +362,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const targetImageModel = input.imageModel || MODELS.VISUALIZER || "gemini-3-pro-image";
   onProgress?.(`[Visualizer] Synthesizing photographic canvas via Nano Banana Pro (${targetImageModel})...`);
 
-  const assetCount = mediaType === "multi_image"
-    ? (input.assetCount || input.slides?.length || input.prompts?.length || 5)
-    : 1;
+  const assetCount = mediaType === "multi_image" ? 3 : 1;
 
   const validAspectRatios = ["1:1", "4:5", "9:16", "16:9", "2:3", "3:2", "4:3", "3:4"];
   const targetImageAspect = (aspectRatio && validAspectRatios.includes(aspectRatio)) ? aspectRatio : "1:1";
@@ -436,22 +386,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const styleClause = input.style && styleInstructionMap[input.style] ? styleInstructionMap[input.style] : "";
   const qualityClause = input.quality && qualityInstructionMap[input.quality] ? qualityInstructionMap[input.quality] : "";
 
-  for (let idx = 0; idx < assetCount; idx++) {
-    let slideBasePrompt = prompt.trim();
-    if (input.slides && input.slides[idx]) {
-      const s = input.slides[idx];
-      const normType = contentType.toLowerCase();
-      const isMultiStory = normType.includes("idea") || normType.includes("carousel") || normType.includes("document");
-      if (isMultiStory) {
-        slideBasePrompt = `Professional vertical editorial social graphic composition for slide ${idx + 1} (${s.title ? `Title: "${s.title}"` : "Story Section"}). ${s.visualPrompt || prompt}. Clean modern layout with bold typographic title space, clear space for copy "${s.body || ""}", cohesive brand aesthetic, elegant negative space, editorial composition.`;
-      } else if (s.visualPrompt) {
-        slideBasePrompt = s.visualPrompt;
-      }
-    } else if (input.prompts && input.prompts[idx]) {
-      slideBasePrompt = input.prompts[idx];
-    }
+  const systemInstructionText = `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
 
-    const clauses = [slideBasePrompt];
+  for (let idx = 0; idx < assetCount; idx++) {
+    const clauses = [prompt.trim()];
     if (styleClause) clauses.push(styleClause);
     if (qualityClause) clauses.push(qualityClause);
     const slidePrompt = clauses.filter(Boolean).join(", ");

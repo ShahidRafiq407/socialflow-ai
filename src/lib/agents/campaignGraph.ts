@@ -6,9 +6,7 @@ import {
   resolveVisualRequirements,
   MediaAssetOutput,
   VisualizerError,
-  SlideInput,
 } from "@/lib/agents/mediaGenerator";
-import { cacheGet, cacheSet } from "@/lib/redis";
 
 export interface AgentEventCallback {
   (event: {
@@ -46,13 +44,6 @@ export interface GroundingSource {
   snippet: string;
 }
 
-export interface SlideItem {
-  step: number;
-  title: string;
-  body: string;
-  visualPrompt?: string;
-}
-
 export interface ContentOutputItem {
   platform: string;
   contentType: string;
@@ -60,16 +51,13 @@ export interface ContentOutputItem {
   hashtags: string[];
   hook: string;
   hookVariations: string[];
-  slides?: SlideItem[] | any[];
+  slides?: string[];
   visualRequired: boolean;
-  visualType: "image" | "video" | "multi_image" | "text_only";
+  visualType: "image" | "video" | "text_only";
   visualPrompt: string;
   aspectRatio: string;
   wordCount: number;
   readingTimeSeconds: number;
-  imageUrl?: string;
-  videoUrl?: string;
-  slideUrls?: string[];
 }
 
 export interface CampaignState {
@@ -79,7 +67,6 @@ export interface CampaignState {
   contentTypes: Record<string, string[]>;
   topic: string;
   brandData?: any;
-  competitors?: any[];
   trendResearch?: {
     searchQueries: string[];
     sources: GroundingSource[];
@@ -138,11 +125,10 @@ export async function runCampaignGraph(
   });
 
   // =========================================================================
-  // 1. BRAND ANALYST (Fast Deterministic Database Access + Redis Caching)
+  // 1. BRAND ANALYST (Database query)
   // =========================================================================
   checkCancelled();
-  const brandStart = Date.now();
-  console.log(`[Brand Analyst] started for workspace ${workspaceId}`);
+  const brandStartTime = Date.now();
   onEvent({ type: "agent_started", agentId: "brand_analyst" });
   onEvent({
     type: "agent_action",
@@ -151,50 +137,32 @@ export async function runCampaignGraph(
   });
 
   try {
-    const brandCacheKey = `brand-dna:${workspaceId}`;
-    let cachedBrand = await cacheGet<any>(brandCacheKey);
     let workspace = input.workspaceData;
-    const wsLookupStart = Date.now();
-
-    if (!cachedBrand) {
-      if (!workspace) {
-        workspace = await prisma.workspace.findUnique({
-          where: { id: workspaceId },
-          include: { brandDNA: true, competitors: true },
-        });
-      }
-      const wsLookupDuration = Date.now() - wsLookupStart;
-      console.log(`[Brand Analyst] workspace lookup: ${wsLookupDuration}ms`);
-
-      const hasCustomDNA = Boolean(
-        workspace?.brandDNA &&
-        (workspace.brandDNA.tone || workspace.brandDNA.missionVision || workspace.brandDNA.targetAudience)
-      );
-
-      const normStart = Date.now();
-      state.brandData = {
-        name: workspace?.name || "Brand",
-        industry: workspace?.industry || "Technology & Automation",
-        website: workspace?.website || "",
-        tone: workspace?.brandDNA?.tone || "Professional, Authoritative, Conversational",
-        missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
-        targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
-        writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
-        hasCustomDNA,
-      };
-      state.competitors = workspace?.competitors || [];
-      console.log(`[Brand Analyst] normalization: ${Date.now() - normStart}ms`);
-
-      // Cache brand DNA in Redis for fast future iterations (1 hour TTL)
-      await cacheSet(brandCacheKey, { brandData: state.brandData, competitors: state.competitors }, 3600);
-    } else {
-      console.log(`[Brand Analyst] loaded from Redis cache in ${Date.now() - wsLookupStart}ms`);
-      state.brandData = cachedBrand.brandData;
-      state.competitors = cachedBrand.competitors || [];
+    if (!workspace) {
+      workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { brandDNA: true, competitors: true },
+      });
     }
 
-    console.log(`[Brand Analyst] completed: ${Date.now() - brandStart}ms`);
+    const hasCustomDNA = Boolean(
+      workspace?.brandDNA &&
+      (workspace.brandDNA.tone || workspace.brandDNA.missionVision || workspace.brandDNA.targetAudience)
+    );
 
+    state.brandData = {
+      name: workspace?.name || "Brand",
+      industry: workspace?.industry || "Technology & Automation",
+      website: workspace?.website || "",
+      tone: workspace?.brandDNA?.tone || "Professional, Authoritative, Conversational",
+      missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
+      targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
+      writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+      hasCustomDNA,
+    };
+
+    const brandElapsed = Date.now() - brandStartTime;
+    console.log(`[Brand Analyst] Completed in ${brandElapsed}ms`);
     onEvent({
       type: "agent_action",
       agentId: "brand_analyst",
@@ -203,7 +171,7 @@ export async function runCampaignGraph(
     onEvent({
       type: "output_ready",
       agentId: "brand_analyst",
-      data: state.brandData,
+      data: { ...state.brandData, elapsedMs: brandElapsed },
     });
     onEvent({ type: "agent_completed", agentId: "brand_analyst" });
   } catch (err: any) {
@@ -234,7 +202,6 @@ export async function runCampaignGraph(
     const groundingRes = await vertexProvider.generateWithGrounding(searchQuery, {
       modelName: MODELS.TREND_RESEARCHER,
       temperature: 0.3,
-      timeoutMs: 25000,
     });
 
     let sources: GroundingSource[] = groundingRes.sources;
@@ -301,7 +268,6 @@ export async function runCampaignGraph(
       const compGroundingRes = await vertexProvider.generateWithGrounding(compSearchQuery, {
         modelName: MODELS.COMPETITOR_ANALYST,
         temperature: 0.3,
-        timeoutMs: 25000,
       });
       compGroundingText = compGroundingRes.text || "";
       compSources = compGroundingRes.sources || [];
@@ -317,16 +283,16 @@ export async function runCampaignGraph(
       });
     }
 
-    // Reuse pre-fetched competitors from state.competitors (zero redundant DB query!)
-    const dbCompetitors = state.competitors && state.competitors.length > 0
-      ? state.competitors
-      : await prisma.competitor.findMany({ where: { workspaceId }, take: 5 });
+    const dbCompetitors = await prisma.competitor.findMany({
+      where: { workspaceId },
+      take: 5,
+    });
 
     const compPrompt = `You are an elite competitive intelligence strategist.
 Analyze real top competitors in the ${state.brandData.industry} industry targeting ${state.brandData.targetAudience}.
 
 KNOWN DATABASE COMPETITORS:
-${dbCompetitors.map((c: any) => c.name).join(", ") || "Analyze top industry leaders"}
+${dbCompetitors.map((c) => c.name).join(", ") || "Analyze top industry leaders"}
 
 LIVE SEARCH MARKET INTELLIGENCE:
 """
@@ -358,7 +324,7 @@ Return strictly JSON with format:
 
     const compRes = await vertexProvider.generateJSON(
       [{ role: "user", content: compPrompt }],
-      { modelName: MODELS.COMPETITOR_ANALYST, temperature: 0.2, timeoutMs: 25000 }
+      { modelName: MODELS.COMPETITOR_ANALYST, temperature: 0.2 }
     );
 
     const topComps = Array.isArray(compRes.topCompetitors) && compRes.topCompetitors.length > 0
@@ -409,7 +375,7 @@ Return strictly JSON with format:
   }
 
   // =========================================================================
-  // 4. CONTENT CREATOR (Platform-Native Algorithms + Multi-Format Storyboarding)
+  // 4. CONTENT CREATOR (Platform-Native Algorithms + High User Intent)
   // =========================================================================
   checkCancelled();
 
@@ -454,15 +420,12 @@ ALGORITHM & CONTENT RULES:
 1. USER INTENT: Every post must clearly answer "Why should I stop, watch, and click this?" (Give immediate actionable value, clear insight, or entertainment hook).
 2. PLATFORM TAILORING:
    - Instagram Reel / TikTok / YouTube Shorts: 1-2s visual hook, concise conversational script, vertical 9:16 cinematic video prompt with motion physics and sound/voiceover direction.
-   - Instagram Feed / Facebook Feed: Value breakdown, engaging caption, aesthetic 1:1 visual prompt.
-   - Instagram Carousel / LinkedIn Document / TikTok Photo Mode: 5-slide educational teaching storyboard with slide-specific headlines, body, and Canva-quality visual composition prompts.
-   - LinkedIn Post: Thought-provoking opener, bold line breaks, professional business takeaways, discussion-starter CTA.
-   - Pinterest Standard Pin: Solution-oriented headline, search-rich description, 2:3 vertical visual prompt (1000x1500 layout).
-   - Pinterest Video Pin: Vertical 9:16 video prompt describing dynamic action, camera movement, and visual hook.
-   - Pinterest Carousel / Idea Pin: 5-card multi-page storytelling format (Page 1: Strong Hook, Page 2: Problem/Context, Page 3: Main Insight, Page 4: Actionable Solution, Page 5: Takeaway & CTA) with text-rich Canva-quality editorial prompts.
+   - Instagram Feed / Carousel: Multi-step value breakdown, engaging caption, aesthetic visual prompt.
+   - LinkedIn: Thought-provoking opener, bold line breaks, professional business takeaways, discussion-starter CTA.
+   - Pinterest Pin / Video Pin: Solution-oriented headline, search-rich description, 2:3 vertical (or 9:16 video) visual prompt.
    - Facebook / X: Conversational hook, punchy insight, strong community engagement question.
 3. NO AI CLICHÉS: Strictly forbid phrases like "In today's fast-paced world", "Unleash your potential", "Game-changer", "Supercharge".
-4. VISUAL PROMPTS: Write rich, production-grade visual prompts matching each format's exact aspect ratio and media type.
+4. VISUAL PROMPTS: Write rich, production-grade visual prompts matching each format's exact aspect ratio.
 
 Return strictly JSON format:
 {
@@ -478,14 +441,7 @@ Return strictly JSON format:
         "visualRequired": true,
         "visualType": "image OR video OR multi_image",
         "visualPrompt": "Detailed visual/video creation prompt with camera, lighting, and composition specifics",
-        "aspectRatio": "1:1 OR 9:16 OR 16:9 OR 2:3 OR 4:5 OR 1.91:1",
-        "slides": [
-          {"step": 1, "title": "Slide 1 Hook Headline", "body": "1-2 sentences of opening value.", "visualPrompt": "Canva-style clean graphic composition"},
-          {"step": 2, "title": "Slide 2 Problem Breakdown", "body": "Core challenge explained clearly.", "visualPrompt": "Canva-style clean graphic composition"},
-          {"step": 3, "title": "Slide 3 Strategic Insight", "body": "Key actionable framework.", "visualPrompt": "Canva-style clean graphic composition"},
-          {"step": 4, "title": "Slide 4 Real-World Case", "body": "Concrete results and execution tips.", "visualPrompt": "Canva-style clean graphic composition"},
-          {"step": 5, "title": "Slide 5 Takeaway & CTA", "body": "Final conclusion with strong CTA.", "visualPrompt": "Canva-style clean graphic composition"}
-        ]
+        "aspectRatio": "1:1 OR 9:16 OR 16:9 OR 2:3"
       }
     }
   }
@@ -494,7 +450,7 @@ Return strictly JSON format:
   try {
     const contentRes = await vertexProvider.generateJSON(
       [{ role: "user", content: contentPrompt }],
-      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.65, timeoutMs: 25000 }
+      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.65 }
     );
 
     const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
@@ -521,7 +477,6 @@ Return strictly JSON format:
           hashtags: Array.isArray(rawItem.hashtags) && rawItem.hashtags.length > 0 ? rawItem.hashtags : ["#Marketing", "#Innovation", "#Growth"],
           hook,
           hookVariations: Array.isArray(rawItem.hookVariations) && rawItem.hookVariations.length > 0 ? rawItem.hookVariations : [hook, "The secret to 10x output", "What top brands do differently"],
-          slides: Array.isArray(rawItem.slides) ? rawItem.slides : undefined,
           visualRequired: reqSpec.assetType !== ("text_only" as any),
           visualType: reqSpec.assetType as any,
           visualPrompt: rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`,
@@ -558,7 +513,7 @@ Return strictly JSON format:
   }
 
   // =========================================================================
-  // 5. VISUALIZER (Real Multi-Platform Media Synthesis + Immediate Halt on Error)
+  // 5. VISUALIZER (Real Generation + Immediate Halt on Error)
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "visualizer" });
@@ -594,16 +549,7 @@ Return strictly JSON format:
     const { platform, contentType, item, reqSpec } = mediaTasks[i];
 
     try {
-      console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType}, Aspect: ${reqSpec.aspectRatio})...`);
-
-      const slideInputs: SlideInput[] | undefined = Array.isArray(item.slides)
-        ? item.slides.map((s: any, idx: number) => ({
-            step: s.step || idx + 1,
-            title: s.title || `Slide ${idx + 1}`,
-            body: s.body || "",
-            visualPrompt: s.visualPrompt || item.visualPrompt,
-          }))
-        : undefined;
+      console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType})...`);
 
       const assets = await generateMediaAsset({
         platform,
@@ -613,8 +559,6 @@ Return strictly JSON format:
         aspectRatio: reqSpec.aspectRatio,
         caption: item.caption,
         topic,
-        slides: slideInputs,
-        assetCount: reqSpec.requiredAssets,
         onProgress: (msg) => {
           onEvent({
             type: "agent_action",
@@ -629,7 +573,6 @@ Return strictly JSON format:
         if (assets.length > 0) {
           if (assets[0].type === "video") {
             targetObj.videoUrl = assets[0].url;
-            targetObj.imageUrl = assets[0].url;
           } else {
             targetObj.imageUrl = assets[0].url;
             if (assets.length > 1) {
@@ -644,7 +587,7 @@ Return strictly JSON format:
       onEvent({
         type: "agent_action",
         agentId: "visualizer",
-        data: { label: `${i + 1}/${mediaTasks.length} assets synthesized successfully (${platform} ${contentType} - ${reqSpec.assetType}).` },
+        data: { label: `${i + 1}/${mediaTasks.length} assets synthesized successfully (${platform} ${contentType}).` },
       });
     } catch (err: any) {
       console.error(`[Visualizer Error] Generation failed for ${platform} ${contentType}:`, err);
@@ -684,7 +627,7 @@ Return strictly JSON format:
   onEvent({ type: "agent_completed", agentId: "visualizer" });
 
   // =========================================================================
-  // 6. CEO AUDITOR (Sanitized Fast Audit with Strict 20s Timeout & Loop Protection)
+  // 6. CEO AUDITOR (High-Speed Sanitized Multi-Point Audit - 1-2 Seconds)
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "ceo_auditor" });
@@ -771,10 +714,28 @@ Return strictly JSON format:
     data: { label: "Evaluating brand voice consistency & hook strength..." },
   });
 
+  // Sanitize generatedContent — strip multi-megabyte base64 URLs before sending to LLM
+  const sanitizedContentForAudit: any = {};
+  if (state.generatedContent?.platforms) {
+    for (const [plt, formats] of Object.entries(state.generatedContent.platforms)) {
+      sanitizedContentForAudit[plt] = {};
+      for (const [fmt, item] of Object.entries(formats as Record<string, any>)) {
+        const { imageUrl, videoUrl, slideUrls, ...safeFields } = item as any;
+        sanitizedContentForAudit[plt][fmt] = {
+          ...safeFields,
+          hasImage: Boolean(imageUrl),
+          hasVideo: Boolean(videoUrl),
+          hasSlides: Boolean(slideUrls && slideUrls.length > 0),
+          slideCount: Array.isArray(slideUrls) ? slideUrls.length : 0,
+        };
+      }
+    }
+  }
+
   const auditPrompt = `You are a CEO Quality Auditor. Review this complete marketing campaign.
 
 CAMPAIGN CONTENT:
-${JSON.stringify(state.generatedContent)}
+${JSON.stringify({ platforms: sanitizedContentForAudit })}
 
 MEDIA ASSETS (VERIFIED METADATA):
 ${JSON.stringify(sanitizedAssetsForAudit)}
@@ -794,19 +755,26 @@ Return strictly JSON format:
 }`;
 
   try {
-    const auditRes = await vertexProvider.generateJSON(
-      [{ role: "user", content: auditPrompt }],
-      { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.1, timeoutMs: 20000 }
-    );
+    const ceoStartTime = Date.now();
+    const auditRes = await Promise.race([
+      vertexProvider.generateJSON(
+        [{ role: "user", content: auditPrompt }],
+        { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.1 }
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("CEO audit timed out after 30s")), 30000)
+      ),
+    ]);
+    console.log(`[CEO Auditor] LLM audit completed in ${Date.now() - ceoStartTime}ms`);
 
     state.auditResult = {
-      passed: auditRes?.passed ?? true,
-      score: auditRes?.score || 96,
-      notes: auditRes?.notes || "Campaign verified and approved for publishing.",
-      issues: Array.isArray(auditRes?.issues) ? auditRes.issues : [],
+      passed: auditRes.passed ?? true,
+      score: auditRes.score || 96,
+      notes: auditRes.notes || "Campaign verified and approved for publishing.",
+      issues: auditRes.issues || [],
     };
   } catch (err: any) {
-    console.warn("CEO audit error / timeout:", err?.message || err);
+    console.warn("CEO audit fallback:", err?.message || err);
     state.auditResult = {
       passed: true,
       score: 95,
