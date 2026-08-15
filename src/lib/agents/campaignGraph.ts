@@ -430,6 +430,9 @@ TREND & COMPETITIVE INTELLIGENCE:
 REQUESTED PLATFORMS & FORMATS:
 ${requestedFormatsList.join("\n")}
 
+EFFICIENCY & UNIFICATION DIRECTIVE:
+You are generating a multi-platform campaign. You MUST use ONE unified core narrative and topic across all requested platforms. Do NOT invent completely different topics or angles for different platforms. Instead, generate the core story/message once, and merely OPTIMIZE the format, length, hashtags, and tone to fit each specific platform (e.g., punchy for TikTok, professional for LinkedIn, highly visual for Pinterest).
+
 CRITICAL COPYWRITING ARCHITECTURE:
 Do not just write "a viral caption". Analyze and apply:
 1. Target Audience Pain Points
@@ -573,30 +576,53 @@ Return strictly JSON format:
     data: { label: `Processing ${mediaTasks.length} required media assets...` },
   });
 
+  const generatedAssetCache: Record<string, any[]> = {};
+
   for (let i = 0; i < mediaTasks.length; i++) {
     checkCancelled();
     const { platform, contentType, item, reqSpec } = mediaTasks[i];
 
     try {
-      console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType})...`);
+      const cacheKey = `${reqSpec.assetType}_${reqSpec.aspectRatio}`;
+      let assets: any[] = [];
 
-      const assets = await generateMediaAsset({
-        platform,
-        contentType,
-        mediaType: reqSpec.assetType,
-        prompt: item.visualPrompt,
-        visualPrompts: item.visualPrompts,
-        aspectRatio: reqSpec.aspectRatio,
-        caption: item.caption,
-        topic,
-        onProgress: (msg) => {
-          onEvent({
-            type: "agent_action",
-            agentId: "visualizer",
-            data: { label: msg },
-          });
-        },
-      });
+      if (generatedAssetCache[cacheKey]) {
+        console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Reusing cached ${cacheKey} asset for ${platform} ${contentType}...`);
+        
+        onEvent({
+          type: "agent_action",
+          agentId: "visualizer",
+          data: { label: `Reusing optimized ${reqSpec.assetType} (${reqSpec.aspectRatio}) asset for ${platform}...` },
+        });
+
+        // Clone the cached assets so we don't accidentally mutate them
+        assets = JSON.parse(JSON.stringify(generatedAssetCache[cacheKey]));
+        // Overwrite the platform and contentType tags to match the current assignment
+        assets = assets.map(a => ({ ...a, platform, contentType }));
+      } else {
+        console.log(`[Visualizer Task ${i + 1}/${mediaTasks.length}] Executing generateMediaAsset for ${platform} ${contentType} (${reqSpec.assetType})...`);
+
+        assets = await generateMediaAsset({
+          platform,
+          contentType,
+          mediaType: reqSpec.assetType,
+          prompt: item.visualPrompt,
+          visualPrompts: item.visualPrompts,
+          aspectRatio: reqSpec.aspectRatio,
+          caption: item.caption,
+          topic,
+          onProgress: (msg) => {
+            onEvent({
+              type: "agent_action",
+              agentId: "visualizer",
+              data: { label: msg },
+            });
+          },
+        });
+
+        // Save to cache for future formats in this same run
+        generatedAssetCache[cacheKey] = assets;
+      }
 
       if (state.generatedContent?.platforms?.[platform]?.[contentType]) {
         const targetObj = state.generatedContent.platforms[platform][contentType] as any;

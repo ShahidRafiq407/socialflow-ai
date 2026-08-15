@@ -421,48 +421,67 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
           if (imageUrl) break;
           for (const modalities of modalityCombos) {
             if (imageUrl) break;
-            try {
-              console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")}`);
-              const genRes = await Promise.race([
-                ai.models.generateContent({
-                  model: tryModel,
-                  contents: slidePrompt,
-                  config: {
-                    responseModalities: modalities,
-                    imageConfig: {
-                      aspectRatio: targetImageAspect,
-                    },
-                  },
-                }),
-                new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error("Image generation timeout after 60s")), 60000)
-                )
-              ]);
 
-              const candidates = (genRes as any)?.candidates || [];
-              for (const cand of candidates) {
-                const parts = cand?.content?.parts || [];
-                for (const part of parts) {
-                  if (part.inlineData?.data) {
-                    imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${tryModel}`);
-                    break;
+            let retryCount = 0;
+            const maxRetries = 3;
+
+            while (retryCount < maxRetries && !imageUrl) {
+              try {
+                console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")} (Attempt ${retryCount + 1}/${maxRetries})`);
+                const genRes = await Promise.race([
+                  ai.models.generateContent({
+                    model: tryModel,
+                    contents: slidePrompt,
+                    config: {
+                      responseModalities: modalities,
+                      imageConfig: {
+                        aspectRatio: targetImageAspect,
+                      },
+                    },
+                  }),
+                  new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Image generation timeout after 60s")), 60000)
+                  )
+                ]);
+
+                const candidates = (genRes as any)?.candidates || [];
+                for (const cand of candidates) {
+                  const parts = cand?.content?.parts || [];
+                  for (const part of parts) {
+                    if (part.inlineData?.data) {
+                      imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${tryModel}`);
+                      break;
+                    }
+                    if (part.inline_data?.data) {
+                      imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
+                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${tryModel}`);
+                      break;
+                    }
+                    if (part.image?.imageBytes) {
+                      imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
+                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${tryModel}`);
+                      break;
+                    }
                   }
-                  if (part.inline_data?.data) {
-                    imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
-                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${tryModel}`);
-                    break;
-                  }
-                  if (part.image?.imageBytes) {
-                    imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
-                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${tryModel}`);
-                    break;
+                  if (imageUrl) break;
+                }
+              } catch (e: any) {
+                console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed (Attempt ${retryCount + 1}):`, e?.message || e);
+                const msg = (e?.message || "").toLowerCase();
+                const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit");
+                
+                if (isRateLimit) {
+                  retryCount++;
+                  if (retryCount < maxRetries) {
+                    onProgress?.(`[Visualizer] API Rate Limit hit. Waiting 8s before retry ${retryCount}/${maxRetries}...`);
+                    await new Promise(r => setTimeout(r, 8000));
+                    continue;
                   }
                 }
-                if (imageUrl) break;
+                // Break out of the while loop to try the next modality/model
+                break;
               }
-            } catch (e: any) {
-              console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed:`, e?.message || e);
             }
           }
         }
