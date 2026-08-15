@@ -401,49 +401,55 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       // Strictly Google Cloud Model Garden gemini-3-pro-image (Nano Banana Pro)
       const modelName = "gemini-3-pro-image";
 
-      // 1. generateContent with responseModalities ["IMAGE"] (Official Google Model Garden Gemini Image API)
+      // 1. generateContent with responseModalities ["TEXT", "IMAGE"] (Official Google Gemini Image Generation API)
       if (typeof ai?.models?.generateContent === "function") {
-        try {
-          const genRes = await ai.models.generateContent({
-            model: modelName,
-            contents: [
-              {
-                role: "user",
-                parts: [{ text: slidePrompt }],
-              },
-            ],
-            config: {
-              responseModalities: ["IMAGE"],
-              imageConfig: {
-                aspectRatio: targetImageAspect,
-              },
-            },
-          });
+        // Try with primary model, then fallback models
+        const imageModels = [modelName, "gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp"];
+        const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
 
-          const candidates = (genRes as any)?.candidates || [];
-          for (const cand of candidates) {
-            const parts = cand?.content?.parts || [];
-            for (const part of parts) {
-              if (part.inlineData?.data) {
-                imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${modelName}`);
-                break;
-              }
-              if (part.inline_data?.data) {
-                imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
-                console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${modelName}`);
-                break;
-              }
-              if (part.image?.imageBytes) {
-                imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
-                console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${modelName}`);
-                break;
-              }
-            }
+        for (const tryModel of imageModels) {
+          if (imageUrl) break;
+          for (const modalities of modalityCombos) {
             if (imageUrl) break;
+            try {
+              console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")}`);
+              const genRes = await ai.models.generateContent({
+                model: tryModel,
+                contents: slidePrompt,
+                config: {
+                  responseModalities: modalities,
+                  imageConfig: {
+                    aspectRatio: targetImageAspect,
+                  },
+                },
+              });
+
+              const candidates = (genRes as any)?.candidates || [];
+              for (const cand of candidates) {
+                const parts = cand?.content?.parts || [];
+                for (const part of parts) {
+                  if (part.inlineData?.data) {
+                    imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${tryModel}`);
+                    break;
+                  }
+                  if (part.inline_data?.data) {
+                    imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${tryModel}`);
+                    break;
+                  }
+                  if (part.image?.imageBytes) {
+                    imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${tryModel}`);
+                    break;
+                  }
+                }
+                if (imageUrl) break;
+              }
+            } catch (e: any) {
+              console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed:`, e?.message || e);
+            }
           }
-        } catch (e: any) {
-          console.warn(`[Visualizer] generateContent on ${modelName} failed:`, e?.message || e);
         }
       }
 

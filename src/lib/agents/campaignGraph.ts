@@ -53,8 +53,9 @@ export interface ContentOutputItem {
   hookVariations: string[];
   slides?: string[];
   visualRequired: boolean;
-  visualType: "image" | "video" | "text_only";
+  visualType: "image" | "video" | "text_only" | "multi_image";
   visualPrompt: string;
+  visualPrompts?: string[];
   aspectRatio: string;
   wordCount: number;
   readingTimeSeconds: number;
@@ -195,11 +196,15 @@ export async function runCampaignGraph(
     data: { label: "Searching Google for live viral trends...", detail: `Querying trends for ${state.brandData.industry}` },
   });
 
-  const searchQuery = `Latest viral marketing trends, hooks, and content strategies for ${state.brandData.industry} targeting ${state.brandData.targetAudience} 2026`;
+  const searchQuery = `Google News: Latest business news, product launches, and highly relevant content strategies for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) 2026`;
   onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery } });
 
   try {
-    const groundingRes = await vertexProvider.generateWithGrounding(searchQuery, {
+    const trendPrompt = `You are a professional Trend Researcher. Search for real news, real industry updates, and real competitor moves.
+    Extract the top 3 actionable insights or news items. Return them as a bulleted list. 
+    Analyze query: ${searchQuery}`;
+
+    const groundingRes = await vertexProvider.generateWithGrounding(trendPrompt, {
       modelName: MODELS.TREND_RESEARCHER,
       temperature: 0.3,
     });
@@ -208,22 +213,30 @@ export async function runCampaignGraph(
     if (!sources || sources.length === 0) {
       sources = [
         {
-          title: "Google Search Grounding Index 2026",
+          title: "Google Search Grounding Index",
           url: `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
-          snippet: `Live search insights regarding ${state.brandData.industry} trend dynamics.`,
+          snippet: `Live search insights regarding ${state.brandData.industry}.`,
         },
       ];
     }
 
+    const rawText = groundingRes.text || "";
+    // Simple parse of bullet points from LLM output
+    const extractedFindings = rawText.split('\n')
+      .filter(line => line.trim().startsWith('-') || line.trim().startsWith('*') || /^\d+\./.test(line))
+      .map(line => line.replace(/^[-*\d.]+\s*/, '').trim())
+      .filter(line => line.length > 10)
+      .slice(0, 4);
+
     state.trendResearch = {
       searchQueries: groundingRes.searchQueries.length > 0 ? groundingRes.searchQueries : [searchQuery],
       sources,
-      findings: [
+      findings: extractedFindings.length > 0 ? extractedFindings : [
         "Short-form video hooks with problem-first narrative perform 3x better",
         "Authentic storytelling outperforms polished corporate speak",
         "Interactive CTAs drive 40% higher conversion rates",
       ],
-      rawText: groundingRes.text,
+      rawText,
     };
 
     onEvent({
@@ -399,8 +412,8 @@ Return strictly JSON with format:
     }
   }
 
-  const contentPrompt = `You are a world-class creative copywriter and social media growth architect.
-Create viral, high-converting campaign content for ${state.brandData.name}.
+  const contentPrompt = `You are an elite creative copywriter and social media growth architect.
+Your job is to write viral, high-converting, human-sounding campaign content for ${state.brandData.name}.
 
 BRAND CONTEXT:
 - Name: ${state.brandData.name}
@@ -416,16 +429,25 @@ TREND & COMPETITIVE INTELLIGENCE:
 REQUESTED PLATFORMS & FORMATS:
 ${requestedFormatsList.join("\n")}
 
-ALGORITHM & CONTENT RULES:
-1. USER INTENT: Every post must clearly answer "Why should I stop, watch, and click this?" (Give immediate actionable value, clear insight, or entertainment hook).
-2. PLATFORM TAILORING:
-   - Instagram Reel / TikTok / YouTube Shorts: 1-2s visual hook, concise conversational script, vertical 9:16 cinematic video prompt with motion physics and sound/voiceover direction.
-   - Instagram Feed / Carousel: Multi-step value breakdown, engaging caption, aesthetic visual prompt.
-   - LinkedIn: Thought-provoking opener, bold line breaks, professional business takeaways, discussion-starter CTA.
-   - Pinterest Pin / Video Pin: Solution-oriented headline, search-rich description, 2:3 vertical (or 9:16 video) visual prompt.
-   - Facebook / X: Conversational hook, punchy insight, strong community engagement question.
-3. NO AI CLICHÉS: Strictly forbid phrases like "In today's fast-paced world", "Unleash your potential", "Game-changer", "Supercharge".
-4. VISUAL PROMPTS: Write rich, production-grade visual prompts matching each format's exact aspect ratio.
+CRITICAL COPYWRITING ARCHITECTURE:
+Do not just write "a viral caption". Analyze and apply:
+1. Target Audience Pain Points
+2. Emotional Triggers & Curiosity Gaps
+3. 1-2 Second Hook (Pattern Interrupt)
+4. Conversational Language (write like a human expert, not a marketer)
+5. Sentence-Length Variation (short, punchy lines mixed with longer explanations)
+6. Natural Imperfections (it shouldn't sound flawlessly corporate)
+7. CTA appropriate to the specific platform
+
+STRICT NEGATIVE CONSTRAINTS (PENALTY FOR USING):
+- NO generic AI phrases ("In today's fast-paced world", "Unleash your potential", "Game-changer", "Supercharge", "Elevate", "Dive in", "Unlock")
+- NO overuse of em-dashes
+- NO robotic headings
+- NO unnecessary explanation of obvious concepts
+
+VISUAL PROMPTS:
+Write rich, production-grade visual prompts matching each format's exact aspect ratio.
+IMPORTANT FOR MULTI-IMAGE FORMATS (Idea Pin, Carousel, Document): If the visualType is "multi_image", you MUST provide an array of 3-5 distinct visualPrompts (one for each slide), instead of a single string. E.g. Idea Pins need distinct slide visuals.
 
 Return strictly JSON format:
 {
@@ -433,14 +455,14 @@ Return strictly JSON format:
     "platformKey": {
       "formatKey": {
         "title": "Clear punchy title",
-        "caption": "Full platform-native caption copy",
+        "caption": "Full platform-native caption copy (highly human, conversational, no AI jargon)",
         "hashtags": ["tag1", "tag2", "tag3"],
-        "hook": "Selected 1-2s scroll-stopping hook",
+        "hook": "Selected 1-2s scroll-stopping pattern interrupt hook",
         "hookVariations": ["Hook Option A", "Hook Option B", "Hook Option C"],
         "userIntent": "Why target users will watch/engage with this post",
         "visualRequired": true,
         "visualType": "image OR video OR multi_image",
-        "visualPrompt": "Detailed visual/video creation prompt with camera, lighting, and composition specifics",
+        "visualPrompts": ["Detailed visual/video creation prompt for slide 1 (or only prompt if single image/video)", "Prompt for slide 2 (if multi_image)", "Prompt for slide 3 (if multi_image)"],
         "aspectRatio": "1:1 OR 9:16 OR 16:9 OR 2:3"
       }
     }
@@ -450,7 +472,7 @@ Return strictly JSON format:
   try {
     const contentRes = await vertexProvider.generateJSON(
       [{ role: "user", content: contentPrompt }],
-      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.65 }
+      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.7 }
     );
 
     const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
@@ -470,6 +492,10 @@ Return strictly JSON format:
         const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
         const hook = rawItem.hook || "Stop scrolling: here's how to scale faster.";
 
+        const visualPromptsArray = Array.isArray(rawItem.visualPrompts) && rawItem.visualPrompts.length > 0 
+          ? rawItem.visualPrompts 
+          : [rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`];
+
         structuredPlatforms[normPlt][normFmt] = {
           platform: normPlt,
           contentType: normFmt,
@@ -479,7 +505,8 @@ Return strictly JSON format:
           hookVariations: Array.isArray(rawItem.hookVariations) && rawItem.hookVariations.length > 0 ? rawItem.hookVariations : [hook, "The secret to 10x output", "What top brands do differently"],
           visualRequired: reqSpec.assetType !== ("text_only" as any),
           visualType: reqSpec.assetType as any,
-          visualPrompt: rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`,
+          visualPrompt: visualPromptsArray.join(" | Slide Next: "), // fallback for single string interfaces
+          visualPrompts: visualPromptsArray, // Pass array for multi-slide generation
           aspectRatio: reqSpec.aspectRatio,
           wordCount,
           readingTimeSeconds,
@@ -732,7 +759,8 @@ Return strictly JSON format:
     }
   }
 
-  const auditPrompt = `You are a CEO Quality Auditor. Review this complete marketing campaign.
+  const auditPrompt = `You are an elite CEO Quality Auditor and Master Copywriter.
+Review this complete marketing campaign and rigorously evaluate its quality.
 
 CAMPAIGN CONTENT:
 ${JSON.stringify({ platforms: sanitizedContentForAudit })}
@@ -740,17 +768,21 @@ ${JSON.stringify({ platforms: sanitizedContentForAudit })}
 MEDIA ASSETS (VERIFIED METADATA):
 ${JSON.stringify(sanitizedAssetsForAudit)}
 
-AUDIT CRITERIA:
+AUDIT CRITERIA (BE RUTHLESS):
 1. Brand Voice Alignment: Matches ${state.brandData.name}'s ${state.brandData.tone} tone.
-2. Hook Strength: Effective scroll-stopping hooks with high audience curiosity.
-3. Platform Compliance: Formats, hashtags, and aspect ratios match platform best practices.
-4. Asset Verification: All required visual/video assets produced and valid.
+2. Human/Professional Tone: Does it actually sound like a human/professional wrote it? 
+   - PENALIZE heavily for "AI-generated marketing copy" clichés (e.g., "In today's fast-paced world", "Game-changer", "Supercharge").
+3. Hook Strength: Effective scroll-stopping hooks (pattern interrupts) with high audience curiosity.
+4. Platform Compliance: Formats, hashtags, and aspect ratios match platform best practices.
+5. Asset Verification: All required visual/video assets produced and valid.
+
+If the copy feels robotic, generic, or overly salesy, reduce the score below 80 and list specific issues.
 
 Return strictly JSON format:
 {
   "passed": true,
   "score": 96,
-  "notes": "Campaign verified and approved. Strong conversational hooks and perfect platform asset alignment.",
+  "notes": "Campaign verified and approved. Strong conversational hooks and perfect platform asset alignment. Zero AI clichés detected.",
   "issues": []
 }`;
 
