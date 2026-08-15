@@ -3633,9 +3633,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">Gemini 3 Pro Image (Official High-Res)</option>
-                    <option value="imagen-3.0-generate-002">Google Imagen 3 Photorealistic</option>
-                    <option value="flux">Flux.1 Studio Marketing Style</option>
+                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro (gemini-3-pro-image)</option>
                   </select>
                 </div>
                 <div>
@@ -4073,9 +4071,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">Gemini 3 Pro Image (Official High-Res)</option>
-                    <option value="imagen-3.0-generate-002">Google Imagen 3 Photorealistic</option>
-                    <option value="flux">Flux.1 Studio Marketing Style</option>
+                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro (gemini-3-pro-image)</option>
                   </select>
                 </div>
                 <div>
