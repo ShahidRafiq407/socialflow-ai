@@ -397,110 +397,70 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       let imageUrl = "";
 
       // Strictly Google Cloud Model Garden gemini-3-pro-image (Nano Banana Pro)
-      const candidateImageModels = Array.from(new Set([
-        targetImageModel,
-        "gemini-3-pro-image",
-        "gemini-3-pro-image-preview",
-        "gemini-3.0-pro-image",
-      ].filter(Boolean)));
+      const modelName = "gemini-3-pro-image";
 
-      for (const curModel of candidateImageModels) {
-        if (imageUrl) break;
-
-        // 1. generateContent with responseModalities ["IMAGE"] (Primary Google Model Garden Gemini Image API)
-        if (typeof ai?.models?.generateContent === "function") {
-          try {
-            const genRes = await ai.models.generateContent({
-              model: curModel,
-              contents: [
-                {
-                  role: "user",
-                  parts: [{ text: slidePrompt }],
-                },
-              ],
-              config: {
-                responseModalities: ["IMAGE"],
-                systemInstruction: systemInstructionText,
-                imageConfig: {
-                  aspectRatio: targetImageAspect,
-                },
+      // 1. generateContent with responseModalities ["IMAGE"] (Official Google Model Garden Gemini Image API)
+      if (typeof ai?.models?.generateContent === "function") {
+        try {
+          const genRes = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: slidePrompt }],
               },
-            });
+            ],
+            config: {
+              responseModalities: ["IMAGE"],
+              imageConfig: {
+                aspectRatio: targetImageAspect,
+              },
+            },
+          });
 
-            const candidates = (genRes as any)?.candidates || [];
-            for (const cand of candidates) {
-              const parts = cand?.content?.parts || [];
-              for (const part of parts) {
-                if (part.inlineData?.data) {
-                  imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${curModel}`);
-                  break;
-                }
-                if (part.inline_data?.data) {
-                  imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${curModel}`);
-                  break;
-                }
-                if (part.image?.imageBytes) {
-                  imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${curModel}`);
-                  break;
-                }
-              }
-              if (imageUrl) break;
-            }
-          } catch (e: any) {
-            console.warn(`[Visualizer] generateContent on ${curModel} failed:`, e?.message || e);
-          }
-        }
-
-        // 2. interactions.create (Google Cloud Model Garden Agent Platform Interactions API)
-        if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
-          try {
-            const interaction = await (ai as any).interactions.create({
-              model: curModel,
-              input: `${systemInstructionText}\n\nGenerate high-precision image: ${slidePrompt}`,
-              aspect_ratio: targetImageAspect,
-            });
-
-            const directImg = (interaction as any)?.output_image || (interaction as any)?.outputImage;
-            if (directImg?.data) {
-              imageUrl = `data:${directImg.mime_type || "image/png"};base64,${directImg.data}`;
-              console.log(`[Visualizer] ✅ Image generated successfully via interactions.create on ${curModel}`);
-              break;
-            }
-            const parts = (interaction as any)?.candidates?.[0]?.content?.parts || [];
+          const candidates = (genRes as any)?.candidates || [];
+          for (const cand of candidates) {
+            const parts = cand?.content?.parts || [];
             for (const part of parts) {
               if (part.inlineData?.data) {
                 imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${modelName}`);
+                break;
+              }
+              if (part.inline_data?.data) {
+                imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
+                console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${modelName}`);
+                break;
+              }
+              if (part.image?.imageBytes) {
+                imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
+                console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${modelName}`);
                 break;
               }
             }
-          } catch (e: any) {
-            console.warn(`[Visualizer] interactions.create on ${curModel} failed:`, e?.message || e);
+            if (imageUrl) break;
           }
+        } catch (e: any) {
+          console.warn(`[Visualizer] generateContent on ${modelName} failed:`, e?.message || e);
         }
+      }
 
-        // 3. generateImages on gemini-3-pro-image
-        if (!imageUrl && typeof ai?.models?.generateImages === "function") {
-          try {
-            const imgRes = await ai.models.generateImages({
-              model: curModel,
-              prompt: slidePrompt,
-              config: {
-                numberOfImages: 1,
-                aspectRatio: targetImageAspect,
-              },
-            });
+      // 2. interactions.create fallback if available
+      if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
+        try {
+          const interaction = await (ai as any).interactions.create({
+            model: modelName,
+            input: slidePrompt,
+            aspect_ratio: targetImageAspect,
+          });
 
-            if (imgRes?.generatedImages?.[0]?.image?.imageBytes) {
-              imageUrl = `data:image/png;base64,${imgRes.generatedImages[0].image.imageBytes}`;
-              console.log(`[Visualizer] ✅ Image generated successfully via generateImages on ${curModel}`);
-              break;
-            }
-          } catch (e: any) {
-            console.warn(`[Visualizer] generateImages on ${curModel} failed:`, e?.message || e);
+          const directImg = (interaction as any)?.output_image || (interaction as any)?.outputImage;
+          if (directImg?.data) {
+            imageUrl = `data:${directImg.mime_type || "image/png"};base64,${directImg.data}`;
+            console.log(`[Visualizer] ✅ Image generated successfully via interactions.create on ${modelName}`);
           }
+        } catch (e: any) {
+          console.warn(`[Visualizer] interactions.create on ${modelName} failed:`, e?.message || e);
         }
       }
 
