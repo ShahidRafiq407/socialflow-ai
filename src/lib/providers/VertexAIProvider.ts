@@ -80,11 +80,26 @@ export class VertexAIProvider {
   }
 
   /**
-   * Generate text using Google Cloud Vertex AI with automated retry and multi-model fallback
+   * Helper to execute a promise with a hard timeout limit
+   */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number = 25000, errorMsg: string = "Vertex AI request timed out"): Promise<T> {
+    let timer: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(errorMsg)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Generate text using Google Cloud Vertex AI with automated retry, multi-model fallback, and timeout protection
    */
   async generateText(
     messages: { role: string; content: string }[],
-    options: { modelName?: string; temperature?: number; tools?: any[] } = {}
+    options: { modelName?: string; temperature?: number; tools?: any[]; timeoutMs?: number } = {}
   ): Promise<string> {
     const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
     let lastError: any = null;
@@ -105,15 +120,21 @@ export class VertexAIProvider {
       }
     }
 
+    const timeoutMs = options.timeoutMs ?? 25000;
+
     for (const modelName of candidateModels) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI] Executing generateText with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config,
-          });
+          const response = await this.withTimeout(
+            this.ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config,
+            }),
+            timeoutMs,
+            `Vertex AI generateText timed out on ${modelName} after ${timeoutMs}ms`
+          );
 
           if (response.text) {
             console.log(`[Vertex AI] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
@@ -144,23 +165,28 @@ export class VertexAIProvider {
    */
   async generateWithGrounding(
     prompt: string,
-    options: { modelName?: string; temperature?: number } = {}
+    options: { modelName?: string; temperature?: number; timeoutMs?: number } = {}
   ): Promise<{ text: string; searchQueries: string[]; sources: { title: string; url: string; snippet: string }[] }> {
     const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
     let lastError: any = null;
+    const timeoutMs = options.timeoutMs ?? 25000;
 
     for (const modelName of candidateModels) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI Grounding] Executing with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-              temperature: options.temperature ?? 0.3,
-              tools: [{ googleSearch: {} }],
-            },
-          });
+          const response = await this.withTimeout(
+            this.ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config: {
+                temperature: options.temperature ?? 0.3,
+                tools: [{ googleSearch: {} }],
+              },
+            }),
+            timeoutMs,
+            `Vertex AI Grounding timed out on ${modelName} after ${timeoutMs}ms`
+          );
 
           const text = response.text || "";
           const searchQueries: string[] = [];
@@ -212,10 +238,11 @@ export class VertexAIProvider {
    */
   async generateJSON(
     messages: { role: string; content: string }[],
-    options: { modelName?: string; temperature?: number } = {}
+    options: { modelName?: string; temperature?: number; timeoutMs?: number } = {}
   ): Promise<any> {
     const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
     let lastError: any = null;
+    const timeoutMs = options.timeoutMs ?? 25000;
 
     const prompt = messages.map(m => {
       if (m.role === "system") return `[System Instructions]: ${m.content}`;
@@ -250,14 +277,18 @@ export class VertexAIProvider {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI JSON] Executing generateJSON with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-              temperature: options.temperature ?? 0.1,
-              responseMimeType: "application/json",
-            },
-          });
+          const response = await this.withTimeout(
+            this.ai.models.generateContent({
+              model: modelName,
+              contents: prompt,
+              config: {
+                temperature: options.temperature ?? 0.1,
+                responseMimeType: "application/json",
+              },
+            }),
+            timeoutMs,
+            `Vertex AI generateJSON timed out on ${modelName} after ${timeoutMs}ms`
+          );
 
           if (response.text) {
             const parsed = tryParseJSON(response.text);

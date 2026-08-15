@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import prisma from "@/lib/db";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
+import { cacheGet, cacheSet } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -57,10 +58,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "platforms and contentTypes are required." }, { status: 400 });
       }
 
-      const workspace = await prisma.workspace.findFirst({
-        where: { userId },
-        include: { brandDNA: true, competitors: true },
-      });
+      const workspaceCacheKey = `workspace-user:${userId}`;
+      let workspace = await cacheGet<any>(workspaceCacheKey);
+      if (!workspace) {
+        workspace = await prisma.workspace.findFirst({
+          where: { userId },
+          include: { brandDNA: true, competitors: true },
+        });
+        if (workspace) {
+          await cacheSet(workspaceCacheKey, workspace, 3600);
+        }
+      }
 
       if (!workspace) {
         return NextResponse.json({ error: "Workspace not found. Please create or configure your workspace first." }, { status: 404 });
@@ -79,9 +87,23 @@ export async function POST(req: Request) {
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
+          let isControllerClosed = false;
+          const safeClose = () => {
+            if (!isControllerClosed) {
+              isControllerClosed = true;
+              try {
+                controller.close();
+              } catch (e) {
+                // Ignore if already closed
+              }
+            }
+          };
+
           const sendSSE = (event: any) => {
             try {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+              if (!isControllerClosed) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+              }
             } catch (e) {
               // Stream closed
             }
@@ -89,7 +111,9 @@ export async function POST(req: Request) {
 
           // Send immediate stream preamble to flush any server / proxy buffers instantly
           const preamble = `: ${" ".repeat(1024)}\n\n`;
-          controller.enqueue(encoder.encode(preamble));
+          try {
+            controller.enqueue(encoder.encode(preamble));
+          } catch (e) {}
 
           // Immediately announce engine readiness
           sendSSE({
@@ -162,12 +186,7 @@ export async function POST(req: Request) {
                 resultState,
               },
             });
-
-            activeRuns.delete(currentRunId);
-            controller.close();
           } catch (err: any) {
-            activeRuns.delete(currentRunId);
-
             if (err?.isCancelled || abortController.signal.aborted) {
               sendSSE({
                 type: "workflow_cancelled",
@@ -182,7 +201,9 @@ export async function POST(req: Request) {
                 data: { message: err.message || "An unexpected error occurred during execution." },
               });
             }
-            controller.close();
+          } finally {
+            activeRuns.delete(currentRunId);
+            safeClose();
           }
         },
       });
