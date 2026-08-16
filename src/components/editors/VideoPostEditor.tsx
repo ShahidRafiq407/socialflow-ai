@@ -65,6 +65,10 @@ interface VideoPostEditorProps {
   onDurationChange: (duration: number) => void;
   generationProgress?: number;
   generationStage?: string;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function VideoPostEditor({
@@ -99,12 +103,15 @@ export default function VideoPostEditor({
   onDurationChange,
   generationProgress = 0,
   generationStage = "Synthesizing cinematic motion...",
+  originalPrompt = null,
+  onRestoreOriginalPrompt,
+  onGenerateField,
+  generatingField = null,
 }: VideoPostEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
 
-  // Model settings state
-  const [videoModel, setVideoModel] = useState<string>("gemini-omni-flash");
+  // Video settings state
   const [videoAspectRatio, setVideoAspectRatio] = useState<string>("auto");
   const [videoTask, setVideoTask] = useState<string>("auto");
   const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
@@ -265,28 +272,14 @@ export default function VideoPostEditor({
             <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-slate-800">
               <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Settings2 className="h-3.5 w-3.5 text-indigo-600" />
-                Model settings
+                Video settings
               </span>
               <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-full font-mono">
                 {videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio}
               </span>
             </div>
 
-            {/* 1. Model Dropdown */}
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                Model
-              </label>
-              <select
-                value={videoModel}
-                onChange={(e) => setVideoModel(e.target.value)}
-                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-              >
-                <option value="gemini-omni-flash">Gemini Omni Flash</option>
-              </select>
-            </div>
-
-            {/* 2. Aspect Ratio Dropdown */}
+            {/* Aspect Ratio Dropdown */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                 Aspect ratio
@@ -391,6 +384,16 @@ export default function VideoPostEditor({
                     <span>Enhance Prompt ✨</span>
                   )}
                 </button>
+                {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
+                  <button
+                    type="button"
+                    onClick={onRestoreOriginalPrompt}
+                    title={originalPrompt}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                  >
+                    ↩ Original
+                  </button>
+                )}
               </div>
             </div>
 
@@ -503,7 +506,14 @@ export default function VideoPostEditor({
           {capability.supportsTitle && (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Video Title</label>
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Video Title</label>
+                  {onGenerateField && (
+                    <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
+                      {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                    </button>
+                  )}
+                </div>
                 {capability.titleLimit && (
                   <span className="text-[11px] text-slate-400 font-mono">
                     {title.length} / {capability.titleLimit}

@@ -88,6 +88,15 @@ export interface PlatformEditorRouterProps {
   isExportingPDF?: boolean;
   generationProgress?: number;
   generationStage?: string;
+  renderError?: string | null;
+  // Reorder a slide/page/post card (from index → to index); media + text move with it
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  // Original prompt recovery after "Enhance Prompt"
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  // Field-level AI generation (generates ONLY the requested field)
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
@@ -123,9 +132,12 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onPromptChange={props.onPromptChange}
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
+        originalPrompt={props.originalPrompt}
+        onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
         isVideo={format === "Video Pin" || capability.mediaType === "video"}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
+        renderError={props.renderError}
       />
     );
   }
@@ -172,14 +184,20 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingAI={props.isGeneratingFullCarousel}
         onRegeneratePageAI={props.onRegenerateSlideAI}
         isRegeneratingPage={props.isRegeneratingSlide}
+        onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
+        onGenerateField={props.onGenerateField}
+        generatingField={props.generatingField}
         onOpenStock={props.onOpenStock}
         onCaptionToPrompt={props.onCaptionToPrompt}
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
+        originalPrompt={props.originalPrompt}
+        onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
+        renderError={props.renderError}
       />
     );
   }
@@ -211,14 +229,18 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingAI={props.isGeneratingFullCarousel}
         onRegenerateSlideAI={props.onRegenerateSlideAI}
         isRegeneratingSlide={props.isRegeneratingSlide}
+        onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
         onRenderSlideMedia={props.onRenderAI}
+        onGenerateField={props.onGenerateField}
+        generatingField={props.generatingField}
         isRenderingSlideMedia={props.isRenderingMedia}
         onCaptionToPrompt={props.onCaptionToPrompt}
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
+        renderError={props.renderError}
       />
     );
   }
@@ -261,18 +283,23 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingAI={props.isGeneratingFullCarousel}
         onRegenerateSlideAI={props.onRegenerateSlideAI}
         isRegeneratingSlide={props.isRegeneratingSlide}
+        onReorderCards={props.onReorderCards}
         onExportPDF={props.onExportPDF}
+        onGenerateField={props.onGenerateField}
+        generatingField={props.generatingField}
         isExportingPDF={props.isExportingPDF}
       />
     );
   }
 
-  // 5. MULTI-MEDIA / MULTIPLE PHOTOS (Facebook Multiple Photos, LinkedIn Multi-Image, Twitter Thread)
+  // 5. MULTI-MEDIA / MULTIPLE PHOTOS (Facebook Multiple Photos, LinkedIn Multi-Image,
+  //    X Thread, TikTok Photo, Pinterest Carousel)
   if (
     (platform === "facebook" && (format === "Multiple Photos" || format === "Multiple Photos & Videos")) ||
     (platform === "linkedin" && format === "Multi-Image") ||
     (platform === "x" && format === "Thread") ||
-    (platform === "tiktok" && format === "Photo")
+    (platform === "tiktok" && format === "Photo") ||
+    (platform === "pinterest" && format === "Carousel")
   ) {
     return (
       <MultiMediaEditor
@@ -289,6 +316,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingCopy={props.isGeneratingCopy}
         onGenerateAllMediaAI={props.onGenerateFullCarouselAI}
         isGeneratingAllMedia={props.isGeneratingFullCarousel}
+        onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
         onRenderSingleAI={props.onRenderAI}
@@ -297,6 +325,13 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onPromptChange={props.onPromptChange}
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
+        originalPrompt={props.originalPrompt}
+        onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
+        renderError={props.renderError}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
+        onGenerateField={props.onGenerateField}
+        generatingField={props.generatingField}
       />
     );
   }
@@ -326,6 +361,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
         onRenderAIVideo={props.onRenderAI}
+        onGenerateField={props.onGenerateField}
+        generatingField={props.generatingField}
         isRenderingVideo={props.isRenderingMedia}
         onGenerateCopyAI={props.onGenerateCopyAI}
         isGeneratingCopy={props.isGeneratingCopy}
@@ -333,6 +370,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onPromptChange={props.onPromptChange}
         onEnhancePrompt={props.onEnhancePrompt}
         isEnhancingPrompt={props.isEnhancingPrompt}
+        originalPrompt={props.originalPrompt}
+        onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
         onCaptionToPrompt={props.onCaptionToPrompt || (() => {})}
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         durationSec={props.durationSec || 5}
@@ -367,6 +406,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       onPromptChange={props.onPromptChange}
       onEnhancePrompt={props.onEnhancePrompt}
       isEnhancingPrompt={props.isEnhancingPrompt}
+      originalPrompt={props.originalPrompt}
+      onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
       onCaptionToPrompt={props.onCaptionToPrompt}
       isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
       videoStatus={props.videoStatus}
@@ -375,6 +416,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       onDurationChange={props.onDurationChange}
       generationProgress={props.generationProgress}
       generationStage={props.generationStage}
+      renderError={props.renderError}
+      onGenerateField={props.onGenerateField}
+      generatingField={props.generatingField}
     />
   );
 }

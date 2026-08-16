@@ -201,6 +201,7 @@ model Post {
   mediaHistory   Json?
   publishedAt    DateTime?
   scheduledFor   DateTime?
+  settings       Json?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

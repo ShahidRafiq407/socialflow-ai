@@ -21,6 +21,8 @@ interface PlatformPreviewWrapperProps {
   activeSlideIdx?: number;
   onSlideChange?: (idx: number) => void;
   currentCaption?: string;
+  // X Thread
+  threadPosts?: Array<{ text: string; mediaUrl?: string | null }>;
   // Facebook
   isVertical?: boolean;
   // Pinterest
@@ -45,6 +47,7 @@ export default function PlatformPreviewWrapper({
   activeSlideIdx = 0,
   onSlideChange,
   currentCaption = "",
+  threadPosts = [],
   isVertical = false,
   isHtmlSlideFormat = false,
   isCurrentSlideLoading = false,
@@ -361,6 +364,7 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
+            threadPosts={threadPosts}
           />
         );
       case "tiktok":

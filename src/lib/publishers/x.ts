@@ -19,6 +19,17 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
       text: content || '',
     };
 
+    // Settings tab → real X API v2 params:
+    // - reply_setting: who can reply to this post
+    // - possibly_sensitive: sensitive-content flag
+    const settings = post.settings || {};
+    if (settings.xReplySetting === 'following' || settings.xReplySetting === 'mentioned') {
+      body.reply_setting = settings.xReplySetting;
+    }
+    if (settings.xMarkSensitive === true) {
+      body.possibly_sensitive = true;
+    }
+
     // If we had a media_id from v1.1 media/upload:
     // if (mediaId) {
     //   body.media = { media_ids: [mediaId] };

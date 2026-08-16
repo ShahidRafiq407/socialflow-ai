@@ -4,8 +4,17 @@ import prisma from "@/lib/db";
 import { llm, vertexProvider, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
+import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
 import { cacheGet, cacheSet } from "@/lib/redis";
+
+/** Hard character clamp at a word boundary — programmatic platform limit enforcement. */
+function clampText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd();
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,7 +32,7 @@ export async function POST(req: Request) {
 
     const workspace = await prisma.workspace.findFirst({
       where: { userId },
-      include: { brandDNA: true },
+      include: { brandDNA: true, competitors: true },
     });
 
     if (!workspace) {
@@ -72,8 +81,35 @@ export async function POST(req: Request) {
         console.warn("[AI Studio] Grounding search fallback:", e);
       }
 
-      // 2. Competitor Angle
-      const competitorAngle = `Focus on distinct value proposition, clarity, and actionable takeaways over generic hype.`;
+      // 2. Competitor research — REAL Google-grounded research the AI finds itself
+      // (the user should NOT have to know who their competitors are). Cached 24h per
+      // INDUSTRY in Redis — the competitive landscape rarely changes within a day, so
+      // only the first click of the day pays for the search; every later click reuses it
+      // (same pattern as the best-time analysis cache).
+      const competitorCacheKey = `aistudio:competitors:${Buffer.from(brandDNA.industry).toString("base64").slice(0, 36)}`;
+      let competitorInsight = await cacheGet<string>(competitorCacheKey);
+      if (!competitorInsight) {
+        try {
+          const compQuery = `Top competitors, market leaders, and their best-performing social media hooks and engagement angles for ${brandDNA.industry} 2026`;
+          const compRes = await vertexProvider.generateWithGrounding(compQuery, {
+            modelName: MODELS.COMPETITOR_ANALYST,
+            temperature: 0.3,
+          });
+          const insightText = (compRes.text || "").trim();
+          if (insightText) {
+            competitorInsight = insightText.slice(0, 900);
+            await cacheSet(competitorCacheKey, competitorInsight, 86400);
+          }
+        } catch (e) {
+          console.warn("[AI Studio] Competitor grounding fallback:", e);
+        }
+      }
+      const dbCompetitors = (workspace as any).competitors || [];
+      const competitorAngle = competitorInsight
+        ? `LIVE COMPETITOR RESEARCH (Google-grounded, cached 24h):\n"""\n${competitorInsight}\n"""\nUse this to differentiate ${brandDNA.name} from the real market players — sharper hooks, unique positioning, never copy their angles.`
+        : dbCompetitors.length > 0
+        ? `Differentiate against these competitors the brand tracks: ${dbCompetitors.slice(0, 5).map((c: any) => c.name).join(", ")}. Emphasize what only ${brandDNA.name} offers.`
+        : `Focus on distinct value proposition, clarity, and actionable takeaways over generic hype.`;
 
       // 3. Content Creator Agent with 12 Viral Hook Archetypes & Format-Native Directives
       const contentPrompt = `You are a world-class elite social media copywriter and creative director.
@@ -128,6 +164,13 @@ STRICT PRO WRITER DIRECTIVES:
      - "body": Rich, informative, educational teaching takeaway text (2-3 sentences packed with value, metrics, or actionable advice).
      - "visualPrompt": Clean aesthetic background description with modern negative space tailored for typography overlay, high-tech engineering or brand context.
 
+5. HASHTAGS (STRICT):
+   - Each entry MUST be a real hashtag starting with "#" (e.g. "#DigitalMarketing").
+   - PascalCase, NO spaces, NO commas, NO sentences, NO explanation text.
+   - 3 to ${capability.hashtagLimit || 10} hashtags, highly relevant to the caption and ${capability.platform}.
+   - Example of CORRECT: ["#DigitalMarketing", "#SocialMediaGrowth"]
+   - Example of WRONG (NEVER do this): ["digital marketing strategy", "social media growth"]
+
 Return ONLY raw JSON with this EXACT structure:
 {
   "title": "${capability.supportsTitle ? "Concise, clickable title under 100 chars" : ""}",
@@ -135,7 +178,7 @@ Return ONLY raw JSON with this EXACT structure:
   "description": "${capability.supportsDescription ? "Rich SEO-optimized description" : ""}",
   "hook": "Opening hook line",
   "hookReason": "Why this hook wins",
-  "hashtags": ["tag1", "tag2", "tag3"],
+  "hashtags": ["#Hashtag1", "#Hashtag2", "#Hashtag3"],
   "taggedTopics": ["Topic 1", "Topic 2", "Topic 3"],
   "altText": "Descriptive visual alt text for accessibility",
   "videoPrompt": "${isVideoFormat ? "Complete, production-ready video generation prompt describing subject, scene, action, camera movement, lighting, and 9:16 framing" : ""}",
@@ -169,6 +212,15 @@ Return ONLY raw JSON with this EXACT structure:
         return NextResponse.json({ error: "Failed to parse generated content." }, { status: 500 });
       }
 
+      // SERVER-SIDE HASHTAG VALIDATION — never trust raw LLM text in the editor.
+      // Converts sentences/bare tags into real "#PascalCase" hashtags, dedupes,
+      // and clamps to the platform's official hashtag limit.
+      const originalHashtags = JSON.stringify(parsed.hashtags);
+      parsed.hashtags = normalizeHashtags(parsed.hashtags, { limit: capability.hashtagLimit || 10 });
+      if (originalHashtags !== JSON.stringify(parsed.hashtags)) {
+        console.log(`[AI Studio] Hashtags normalized for ${platform} ${format}: ${originalHashtags} -> ${JSON.stringify(parsed.hashtags)}`);
+      }
+
       // 4. CEO Auditor Review (Auto-Audit)
       const auditPrompt = `You are the CEO Auditor. Review this social copy and visual prompt for ${brandDNA.name} on ${capability.platform} (${capability.format}):
 Title: ${parsed.title || "N/A"}
@@ -183,6 +235,7 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
 
       let ceoScore = 95;
       let ceoFeedback = "Approved by Creative Director";
+      let ceoRevised = false;
       try {
         const auditRes = await llm.invoke([new HumanMessage(auditPrompt)], { modelName: MODELS.CEO_SUPERVISOR });
         const auditParsed = JSON.parse((auditRes.content?.toString() || "{}").replace(/```json/g, "").replace(/```/g, "").trim());
@@ -190,9 +243,63 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
         ceoFeedback = auditParsed.feedback || ceoFeedback;
       } catch {}
 
+      // CEO AUTO-REVISION (bounded to ONE pass, same pattern as the campaign graph's
+      // ceo_auditor rewrite loop) — only fires when the CEO actually rejects the copy,
+      // so approved generations cost zero extra calls.
+      if (ceoScore < 70) {
+        try {
+          const revisePrompt = `You are the Content Creator agent. The CEO Auditor REJECTED this content for ${capability.platform} (${capability.format}).
+
+ORIGINAL JSON:
+${JSON.stringify({ caption: parsed.caption, title: parsed.title, description: parsed.description, hook: parsed.hook, hashtags: parsed.hashtags, imagePrompt: parsed.imagePrompt, videoPrompt: parsed.videoPrompt, slides: parsed.slides })}
+
+CEO FEEDBACK (fix ALL of these):
+${ceoFeedback}
+
+BRAND DNA: ${brandDNA.name} — tone: ${brandDNA.tone}, audience: ${brandDNA.targetAudience}
+TOPIC: ${campaignTopic}
+
+Return the CORRECTED content as JSON with the SAME structure as the original. No commentary.`;
+          const reviseRes = await llm.invoke([
+            new SystemMessage("You are an expert social media copywriter. Output valid JSON only."),
+            new HumanMessage(revisePrompt),
+          ], { modelName: MODELS.CONTENT_CREATOR });
+          let reviseText = (reviseRes.content?.toString() || "").replace(/```json/g, "").replace(/```/g, "").trim();
+          const rStart = reviseText.indexOf("{");
+          const rEnd = reviseText.lastIndexOf("}");
+          if (rStart !== -1 && rEnd !== -1) {
+            const revised = JSON.parse(reviseText.slice(rStart, rEnd + 1));
+            // Keep the revision only if it actually produced content
+            if (revised && (revised.caption || revised.title || revised.description)) {
+              parsed = { ...parsed, ...revised };
+              ceoRevised = true;
+              ceoFeedback = `Auto-revised after CEO review: ${ceoFeedback}`;
+            }
+          }
+        } catch (reviseErr: any) {
+          console.warn("[AI Studio] CEO auto-revision failed (keeping original):", reviseErr?.message);
+        }
+      }
+
       const finalPrompt = isVideoFormat
         ? (parsed.videoPrompt || parsed.mediaGenerationPrompt || parsed.imagePrompt || "")
         : (parsed.imagePrompt || parsed.mediaGenerationPrompt || "");
+
+      // PROGRAMMATIC LIMIT CLAMPS — never trust the LLM with character limits
+      // (re-applied after a CEO revision so corrected text also respects limits).
+      if (typeof parsed.caption === "string" && parsed.caption.length > capability.captionLimit) {
+        parsed.caption = clampText(parsed.caption, capability.captionLimit);
+      }
+      if (typeof parsed.title === "string" && capability.titleLimit && parsed.title.length > capability.titleLimit) {
+        parsed.title = clampText(parsed.title, capability.titleLimit);
+      }
+      if (typeof parsed.description === "string" && capability.descriptionLimit && parsed.description.length > capability.descriptionLimit) {
+        parsed.description = clampText(parsed.description, capability.descriptionLimit);
+      }
+      // Revision can introduce fresh hashtag junk — sanitize again.
+      if (parsed.hashtags) {
+        parsed.hashtags = normalizeHashtags(parsed.hashtags, { limit: capability.hashtagLimit || 10 });
+      }
 
       const resultPayload = {
         ...parsed,
@@ -200,7 +307,7 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
         videoPrompt: isVideoFormat ? finalPrompt : undefined,
         imagePrompt: !isVideoFormat ? finalPrompt : undefined,
         mediaGenerationPrompt: finalPrompt,
-        ceoAudit: { score: ceoScore, feedback: ceoFeedback },
+        ceoAudit: { score: ceoScore, feedback: ceoFeedback, revised: ceoRevised },
       };
 
       // Save to Redis Cache (24 hours TTL)
@@ -210,6 +317,90 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
         success: true,
         data: resultPayload,
       });
+    }
+
+    // =========================================================================
+    // STEP: Generate ONE specific field (Title / Description / Caption /
+    // Hashtags / Alt Text only — never a generic blob split into fields)
+    // =========================================================================
+    if (step === "generate-field") {
+      const { platform, format, field, topic, context } = body;
+      const capability = getPlatformCapability(platform, format);
+      const campaignTopic = topic || "Our latest offering and key value";
+
+      const fieldSpecs: Record<string, { instruction: string; limit: number | null }> = {
+        title: {
+          instruction: `Write ONE concise, clickable ${capability.platform} title. No hashtags, no quotes, no explanation — the title text only.`,
+          limit: capability.titleLimit || 100,
+        },
+        description: {
+          instruction: `Write ONE SEO-rich ${capability.platform} description. Plain text only — no title, no hashtags, no explanation.`,
+          limit: capability.descriptionLimit || 500,
+        },
+        caption: {
+          instruction: `Write ONE ${capability.platform} ${capability.format} post text (caption). Start with a strong hook, end with a single CTA. Plain text only.`,
+          limit: capability.captionLimit,
+        },
+        hashtags: {
+          instruction: `Write real hashtags for this content. EVERY entry must start with "#", PascalCase, no spaces inside a tag, no sentences, no explanation.`,
+          limit: null,
+        },
+        altText: {
+          instruction: `Write ONE accessibility alt text that literally describes the VISUAL scene (subjects, setting, colors, action) for visually impaired users. Do NOT write a caption, marketing copy or hashtags.`,
+          limit: 500,
+        },
+      };
+
+      const spec = fieldSpecs[field as string];
+      if (!spec) {
+        return NextResponse.json({ error: "Invalid field." }, { status: 400 });
+      }
+
+      const fieldPrompt = `You are a world-class ${capability.platform} content specialist.
+Generate ONLY this field: ${field.toUpperCase()} for a ${capability.platform} ${capability.format} post.
+
+BRAND DNA:
+- Company: ${brandDNA.name}
+- Industry: ${brandDNA.industry}
+- Tone: ${brandDNA.tone}
+- Target Audience: ${brandDNA.targetAudience}
+
+TOPIC: ${campaignTopic}
+${context ? `EXISTING CONTENT CONTEXT (do not duplicate, stay consistent):\n${String(context).slice(0, 600)}` : ""}
+
+TASK: ${spec.instruction}
+${spec.limit ? `HARD LIMIT: ${spec.limit} characters maximum.` : ""}
+${field === "hashtags" ? `Provide ${Math.min(capability.hashtagLimit || 10, 8)} hashtags as a JSON array of strings, e.g. ["#DigitalMarketing", "#GrowthStrategy"].` : "Return ONLY the field value as plain text — no quotes, no labels, no commentary."}`;
+
+      try {
+        const res = await llm.invoke([
+          new SystemMessage("You are an expert social media copywriter. Follow output format instructions exactly."),
+          new HumanMessage(fieldPrompt),
+        ], { modelName: MODELS.CONTENT_CREATOR });
+
+        let raw = (res.content?.toString() || "").trim().replace(/^```[a-z]*\n?/g, "").replace(/```$/g, "").trim();
+
+        if (field === "hashtags") {
+          // Parse array (or fallback: split raw text) and run the shared hashtag sanitizer
+          let tags: string[] = [];
+          try {
+            const start = raw.indexOf("[");
+            const end = raw.lastIndexOf("]");
+            if (start !== -1 && end !== -1) tags = JSON.parse(raw.slice(start, end + 1));
+          } catch {}
+          if (!Array.isArray(tags) || tags.length === 0) tags = raw.split(/[\s,]+/);
+          const normalized = normalizeHashtags(tags, { limit: capability.hashtagLimit || 10 });
+          return NextResponse.json({ success: true, field, value: normalized, kind: "array" });
+        }
+
+        if (spec.limit && raw.length > spec.limit) {
+          raw = clampText(raw, spec.limit);
+        }
+        return NextResponse.json({ success: true, field, value: raw, kind: "string" });
+      } catch (err: any) {
+        console.error(`[AI Studio] generate-field (${field}) failed:`, err?.message);
+        return NextResponse.json({ error: err?.message || "Field generation failed." }, { status: 500 });
+      }
     }
 
     // =========================================================================

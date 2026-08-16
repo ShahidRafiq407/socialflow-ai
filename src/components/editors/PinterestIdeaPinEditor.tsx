@@ -17,7 +17,8 @@ import {
   Tag,
   ShoppingBag,
   X,
-  Check
+  Check,
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,6 +66,12 @@ interface PinterestIdeaPinEditorProps {
   isEnhancingPrompt?: boolean;
   generationProgress?: number;
   generationStage?: string;
+  renderError?: string | null;
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function PinterestIdeaPinEditor({
@@ -95,6 +102,12 @@ export default function PinterestIdeaPinEditor({
   isEnhancingPrompt = false,
   generationProgress = 0,
   generationStage = "Rendering Idea Pin page...",
+  renderError = null,
+  onReorderCards,
+  originalPrompt = null,
+  onRestoreOriginalPrompt,
+  onGenerateField,
+  generatingField = null,
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
   const [pageAspectRatio, setPageAspectRatio] = useState<string>("auto");
@@ -214,7 +227,14 @@ export default function PinterestIdeaPinEditor({
       {/* OVERALL IDEA PIN TITLE & BOARD */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Idea Pin Title</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Idea Pin Title</label>
+            {onGenerateField && (
+              <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
+                {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+              </button>
+            )}
+          </div>
           <Input
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
@@ -251,8 +271,30 @@ export default function PinterestIdeaPinEditor({
             <Layers className="h-3.5 w-3.5 text-red-600" />
             Storyboard Pages ({effectivePages.length} Total)
           </span>
-          <span className="text-[11px] text-slate-400 font-medium">
+          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Page {currentIdx + 1} of {effectivePages.length}
+            {onReorderCards && effectivePages.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  disabled={currentIdx === 0}
+                  onClick={() => onReorderCards(currentIdx, currentIdx - 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Page Left"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={currentIdx === effectivePages.length - 1}
+                  onClick={() => onReorderCards(currentIdx, currentIdx + 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Page Right"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </span>
         </div>
 
@@ -331,6 +373,22 @@ export default function PinterestIdeaPinEditor({
                 accentColor="red"
                 mediaType="ideapin"
               />
+            ) : renderError ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => onRegeneratePageAI(currentIdx)}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
+              </div>
             ) : activePage.mediaUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <ContentMediaRenderer
@@ -398,26 +456,11 @@ export default function PinterestIdeaPinEditor({
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Wand2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
-              </span>
-              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                🍌 Nano Banana Pro
+                <Wand2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
               </span>
             </div>
 
             <div className="space-y-2.5">
-              {/* 1. Model Instance */}
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Model
-                </label>
-                <select
-                  disabled
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs cursor-not-allowed font-mono"
-                >
-                  <option>🍌 Nano Banana Pro (Gemini 3 Pro Image)</option>
-                </select>
-              </div>
 
               {/* 2. Aspect Ratio */}
               <div className="space-y-1">
@@ -505,6 +548,16 @@ export default function PinterestIdeaPinEditor({
                     }`}
                   >
                     <span>Enhance Prompt ✨</span>
+                  </button>
+                )}
+                {originalPrompt && originalPrompt !== activePage.visualPrompt && onRestoreOriginalPrompt && (
+                  <button
+                    type="button"
+                    onClick={onRestoreOriginalPrompt}
+                    title={originalPrompt}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                  >
+                    ↩ Original
                   </button>
                 )}
               </div>

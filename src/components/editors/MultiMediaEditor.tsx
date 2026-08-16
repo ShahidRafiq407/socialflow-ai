@@ -17,7 +17,8 @@ import {
   ShoppingBag,
   Sliders,
   Check,
-  Settings2
+  Settings2,
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
+import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 
 export interface MultiMediaItem {
   id: string;
@@ -51,12 +53,26 @@ interface MultiMediaEditorProps {
   isGeneratingAllMedia: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderSingleAI: () => void;
+  onRenderSingleAI: (options?: {
+    mediaType?: "image" | "video";
+    prompt?: string;
+    aspectRatio?: string;
+    style?: string;
+    quality?: string;
+  }) => void;
   isRenderingSingleAI: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
+  renderError?: string | null;
+  generationProgress?: number;
+  generationStage?: string;
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function MultiMediaEditor({
@@ -81,11 +97,24 @@ export default function MultiMediaEditor({
   onPromptChange,
   onEnhancePrompt,
   isEnhancingPrompt,
+  renderError = null,
+  generationProgress = 0,
+  generationStage = "",
+  onReorderCards,
+  originalPrompt = null,
+  onRestoreOriginalPrompt,
+  onGenerateField,
+  generatingField = null,
 }: MultiMediaEditorProps) {
   const [tagInput, setTagInput] = useState("");
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
+  // X Thread = sequence of connected posts: label slots "Post 2/5" (Phase 13 numbering);
+  // other multi-photo platforms keep the plain "Asset N" wording.
+  const isThreadFormat = capability.formatKey === "x_thread";
+  const slotLabel = (idx: number) =>
+    isThreadFormat ? `Post ${idx + 1}/${mediaItems.length}` : `Asset ${idx + 1}`;
   const activeMedia = mediaItems[activeMediaIndex] || mediaItems[0] || {
     id: "item_1",
     url: "",
@@ -113,6 +142,32 @@ export default function MultiMediaEditor({
     ];
     onMediaItemsChange(updated);
     onActiveMediaChange(mediaItems.length);
+  };
+
+  // Real generation request for the ACTIVE asset slot — passes the per-asset
+  // prompt (campaign slide prompt or user-typed) + selected aspect ratio /
+  // style / quality to the shared render pipeline.
+  const handleGenerateActiveAsset = () => {
+    const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
+    const safeAspectRatio =
+      imageAspectRatio !== "auto" && supportedRatios.includes(imageAspectRatio as any)
+        ? imageAspectRatio
+        : capability.defaultAspectRatio;
+    onRenderSingleAI({
+      mediaType: "image",
+      prompt: prompt.trim() || undefined,
+      aspectRatio: safeAspectRatio,
+      style: imageStyle,
+      quality: imageQuality,
+    });
+  };
+
+  // Per-post text (X Thread): each connected post carries its own tweet text.
+  const handleUpdateActiveMediaText = (text: string) => {
+    const updated = mediaItems.map((item, i) =>
+      i === activeMediaIndex ? { ...item, caption: text } : item
+    );
+    onMediaItemsChange(updated);
   };
 
   return (
@@ -159,11 +214,33 @@ export default function MultiMediaEditor({
         <div className="flex items-center justify-between">
           <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
             <Layers className="h-3.5 w-3.5 text-blue-600" />
-            Media Assets ({mediaItems.length} of {capability.maxMedia})
+            {isThreadFormat ? "Thread Posts" : "Media Assets"} ({mediaItems.length} of {capability.maxMedia})
           </span>
           <span className="text-[11px] text-slate-400 font-medium">
-            Active: Asset {activeMediaIndex + 1}
+            Active: {slotLabel(activeMediaIndex)}
           </span>
+          {onReorderCards && mediaItems.length > 1 && (
+            <span className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={activeMediaIndex === 0}
+                onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex - 1)}
+                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                title={`Move ${slotLabel(activeMediaIndex)} Left`}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                disabled={activeMediaIndex === mediaItems.length - 1}
+                onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex + 1)}
+                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                title={`Move ${slotLabel(activeMediaIndex)} Right`}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto py-1">
@@ -187,7 +264,7 @@ export default function MultiMediaEditor({
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
               }`}
             >
-              <span>Asset {idx + 1}</span>
+              <span>{slotLabel(idx)}</span>
               {item.url && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
             </button>
           ))}
@@ -207,7 +284,7 @@ export default function MultiMediaEditor({
               onClick={handleAddMedia}
               className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-600 flex items-center gap-1 shrink-0"
             >
-              <Plus className="h-3.5 w-3.5" /> Add Asset
+              <Plus className="h-3.5 w-3.5" /> {isThreadFormat ? "Add Post" : "Add Asset"}
             </button>
           )}
 
@@ -216,7 +293,7 @@ export default function MultiMediaEditor({
               type="button"
               onClick={() => handleRemoveMedia(activeMediaIndex)}
               className="p-1.5 text-slate-400 hover:text-red-500 ml-auto shrink-0 transition-colors"
-              title="Delete Active Asset"
+              title={isThreadFormat ? "Delete Active Post" : "Delete Active Asset"}
             >
               <Trash2 className="h-4 w-4" />
             </button>
@@ -228,19 +305,44 @@ export default function MultiMediaEditor({
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
         <div className="md:col-span-5 space-y-3">
           <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[240px] aspect-square overflow-hidden group shadow-2xs">
-            {activeMedia.url ? (
+            {isRenderingSingleAI ? (
+              <GenerationProgressIndicator
+                progress={generationProgress}
+                stage={generationStage}
+                title={`Generating image for ${slotLabel(activeMediaIndex)}...`}
+                accentColor="indigo"
+                mediaType="image"
+              />
+            ) : renderError ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGenerateActiveAsset}
+                  disabled={!prompt.trim()}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
+              </div>
+            ) : activeMedia.url ? (
               <ContentMediaRenderer
                 url={activeMedia.url}
                 mediaType={activeMedia.type}
                 isVertical={false}
                 showRemoveButton={false}
-                alt={`Asset ${activeMediaIndex + 1}`}
+                alt={slotLabel(activeMediaIndex)}
               />
             ) : (
               <div className="text-center p-4 space-y-2">
                 <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
                 <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  Asset {activeMediaIndex + 1}
+                  {slotLabel(activeMediaIndex)}
                 </p>
                 <div className="flex gap-1.5 justify-center pt-1">
                   <Button type="button" variant="outline" size="sm" onClick={onOpenUpload} className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700">
@@ -261,28 +363,13 @@ export default function MultiMediaEditor({
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
-              </span>
-              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                🍌 Nano Banana Pro
+                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
               </span>
             </div>
 
             <div className="space-y-2.5">
-              {/* 1. Model Instance */}
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Model
-                </label>
-                <select
-                  disabled
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs cursor-not-allowed font-mono"
-                >
-                  <option>🍌 Nano Banana Pro (Gemini 3 Pro Image)</option>
-                </select>
-              </div>
 
-              {/* 2. Aspect Ratio */}
+              {/* 2. Aspect Ratio — only ratios this platform/format actually supports */}
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                   Aspect Ratio
@@ -293,10 +380,9 @@ export default function MultiMediaEditor({
                   className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                 >
                   <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"} Platform Default)</option>
-                  <option value="1:1">1:1 (Square)</option>
-                  <option value="4:5">4:5 (Portrait)</option>
-                  <option value="16:9">16:9 (Landscape)</option>
-                  <option value="9:16">9:16 (Story)</option>
+                  {(capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : ["1:1", "4:5", "9:16", "16:9"] as const).map((ratio) => (
+                    <option key={ratio} value={ratio}>{ratio}</option>
+                  ))}
                 </select>
               </div>
 
@@ -345,21 +431,33 @@ export default function MultiMediaEditor({
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Wand2 className="h-3.5 w-3.5 text-blue-600" />
-                Asset {activeMediaIndex + 1} Visual Prompt
+                {slotLabel(activeMediaIndex)} Visual Prompt
               </span>
-              <button
-                type="button"
-                disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
-                onClick={onEnhancePrompt}
-                className={`text-[11px] font-bold flex items-center gap-1 ${
-                  !prompt || !prompt.trim()
-                    ? "text-slate-400 cursor-not-allowed opacity-50"
-                    : "text-blue-600 hover:underline cursor-pointer"
-                }`}
-              >
-                {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Enhance Prompt ✨</span>
-              </button>
+              <span className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
+                  onClick={onEnhancePrompt}
+                  className={`text-[11px] font-bold flex items-center gap-1 ${
+                    !prompt || !prompt.trim()
+                      ? "text-slate-400 cursor-not-allowed opacity-50"
+                      : "text-blue-600 hover:underline cursor-pointer"
+                  }`}
+                >
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  <span>Enhance Prompt ✨</span>
+                </button>
+                {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
+                  <button
+                    type="button"
+                    onClick={onRestoreOriginalPrompt}
+                    title={originalPrompt}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                  >
+                    ↩ Original
+                  </button>
+                )}
+              </span>
             </div>
             <div className="flex gap-2">
               <Input
@@ -371,11 +469,18 @@ export default function MultiMediaEditor({
               <Button
                 type="button"
                 size="sm"
-                disabled={isRenderingSingleAI || !prompt.trim()}
-                onClick={onRenderSingleAI}
-                className="h-9 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+                disabled={isRenderingSingleAI || (!prompt.trim() && !activeMedia.prompt)}
+                onClick={handleGenerateActiveAsset}
+                className="h-9 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white shrink-0 font-bold gap-1"
               >
-                Generate
+                {isRenderingSingleAI && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>
+                  {isRenderingSingleAI
+                    ? "Generating..."
+                    : activeMedia.url
+                    ? "Regenerate"
+                    : "Generate"}
+                </span>
               </Button>
             </div>
           </div>
@@ -384,6 +489,24 @@ export default function MultiMediaEditor({
 
       {/* CAPTION & HASHTAGS */}
       <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
+        {isThreadFormat && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                <Layers className="h-3.5 w-3.5 text-blue-600" /> {slotLabel(activeMediaIndex)} Text
+              </label>
+              <CharacterCounter current={(activeMedia.caption || "").length} max={capability.captionLimit} />
+            </div>
+            <Textarea
+              rows={2}
+              value={activeMedia.caption || ""}
+              onChange={(e) => handleUpdateActiveMediaText(e.target.value)}
+              placeholder={`Write the text for post ${activeMediaIndex + 1} of this thread...`}
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+            />
+          </div>
+        )}
+
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
@@ -401,9 +524,14 @@ export default function MultiMediaEditor({
         </div>
 
         <div className="space-y-1">
-          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-            <Hash className="h-3.5 w-3.5 text-blue-600" /> Hashtags
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+              <Hash className="h-3.5 w-3.5 text-blue-600" /> Hashtags
+            </label>
+            {onGenerateField && (<button type="button" onClick={() => onGenerateField("hashtags")} disabled={generatingField === "hashtags"} title="Generate Hashtags with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
+                    {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                  </button>)}
+          </div>
           <Input
             value={hashtags.join(" ")}
             onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}

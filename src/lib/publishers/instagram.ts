@@ -59,6 +59,23 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       return { success: false, error: publishData.error?.message || 'Failed to publish Instagram post', platform: 'INSTAGRAM' };
     }
 
+    // Apply engagement settings from the editor's Settings tab (best-effort —
+    // Graph API applies these via a post-publish update on the media object).
+    const settings = post.settings || {};
+    if (settings.igHideLikeViews === true || settings.igDisableComments === true) {
+      try {
+        const params = new URLSearchParams({ access_token: accessToken });
+        if (settings.igHideLikeViews === true) params.set('hide_like_and_view_counts', 'true');
+        if (settings.igDisableComments === true) params.set('comment_disabled', 'true');
+        await fetch(`https://graph.facebook.com/v19.0/${publishData.id}`, {
+          method: 'POST',
+          body: params,
+        });
+      } catch (updateErr: any) {
+        console.warn('[Instagram publisher] Engagement settings update failed:', updateErr?.message);
+      }
+    }
+
     return { success: true, platformPostId: publishData.id, platform: 'INSTAGRAM' };
   } catch (error: any) {
     return { success: false, error: error.message || 'Unknown error publishing to Instagram', platform: 'INSTAGRAM' };

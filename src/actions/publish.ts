@@ -9,7 +9,7 @@ export async function saveDraft(postData: any) {
   const { userId } = await auth();
   if (!userId) throw new Error('Unauthorized');
 
-  let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook, mediaHistory, captionHistory, agentLogs } = postData;
+  let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook, mediaHistory, captionHistory, agentLogs, settings } = postData;
 
   if (!workspaceId) {
     const workspace = await prisma.workspace.findFirst({ where: { userId } });
@@ -41,6 +41,11 @@ export async function saveDraft(postData: any) {
   }
   if (agentLogs !== undefined) {
     data.agentLogs = agentLogs;
+  }
+  // Platform-native publishing settings (visibility, reply settings, engagement
+  // toggles) — applied by the real platform publishers at publish time.
+  if (settings !== undefined) {
+    data.settings = settings;
   }
 
   if (id) {

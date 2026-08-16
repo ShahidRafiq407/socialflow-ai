@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import prisma from "@/lib/db";
+import { normalizeHashtags } from "@/lib/hashtags";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
 
 export const dynamic = "force-dynamic";
@@ -126,9 +127,9 @@ export async function POST(req: Request) {
                   const imageUrl: string | null = content.imageUrl || null;
                   const imagePrompt: string | null = content.visualPrompt || content.imagePrompt || null;
                   const caption = content.caption || "";
-                  const hashtags = Array.isArray(content.hashtags)
-                    ? content.hashtags.map((h: string) => (h.startsWith("#") ? h : `#${h}`)).join(" ")
-                    : "";
+                  // Real hashtag sanitization — "#digital marketing strategy" (spaces) or bare
+                  // sentences never reach the saved post; each topic becomes a valid #PascalCase tag.
+                  const hashtags = normalizeHashtags(content.hashtags).join(" ");
                   const fullContent = hashtags ? `${caption}\n\n${hashtags}` : caption;
                   const platformDisplayName = platformId.charAt(0).toUpperCase() + platformId.slice(1);
 

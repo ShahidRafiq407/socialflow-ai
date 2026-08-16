@@ -372,7 +372,18 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const assetCount = mediaType === "multi_image" ? 3 : 1;
 
   const validAspectRatios = ["1:1", "4:5", "9:16", "16:9", "2:3", "3:2", "4:3", "3:4"];
-  const targetImageAspect = (aspectRatio && validAspectRatios.includes(aspectRatio)) ? aspectRatio : "1:1";
+  // The image API only accepts these ratios; platform ratios outside the list map to the
+  // closest supported one instead of silently degrading to a 1:1 square
+  // (e.g. LinkedIn 1.91:1 link-preview landscape → 16:9).
+  const aspectFallbackMap: Record<string, string> = {
+    "1.91:1": "16:9",
+    "21:9": "16:9",
+  };
+  const targetImageAspect = aspectRatio
+    ? (validAspectRatios.includes(aspectRatio)
+        ? aspectRatio
+        : (aspectFallbackMap[aspectRatio] || "1:1"))
+    : "1:1";
 
   const styleInstructionMap: Record<string, string> = {
     photorealistic: "hyper-realistic photograph, natural lighting, true-to-life textures, sharp optical lens focus",

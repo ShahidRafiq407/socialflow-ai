@@ -52,6 +52,9 @@ interface LinkedInDocumentEditorProps {
   isRegeneratingSlide: boolean;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function LinkedInDocumentEditor({
@@ -72,6 +75,9 @@ export default function LinkedInDocumentEditor({
   isRegeneratingSlide,
   onExportPDF,
   isExportingPDF,
+  onReorderCards,
+  onGenerateField,
+  generatingField = null,
 }: LinkedInDocumentEditorProps) {
   const activeSlide = slides[activeSlideIndex] || slides[0] || {
     slideNumber: 1,
@@ -160,10 +166,17 @@ export default function LinkedInDocumentEditor({
 
       {/* DOCUMENT TITLE & PDF DETAILS */}
       <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
-        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-          <FileText className="h-3.5 w-3.5 text-[#0A66C2]" />
-          Document Title (Visible at top of LinkedIn PDF Viewer)
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+            <FileText className="h-3.5 w-3.5 text-[#0A66C2]" />
+            Document Title
+          </label>
+          {onGenerateField && (
+            <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
+              {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+            </button>
+          )}
+        </div>
         <Input
           value={documentTitle}
           onChange={(e) => onDocumentTitleChange(e.target.value)}
@@ -179,8 +192,30 @@ export default function LinkedInDocumentEditor({
             <Layers className="h-3.5 w-3.5 text-[#0A66C2]" />
             Document Slides ({slides.length} Pages)
           </span>
-          <span className="text-[11px] text-slate-400 font-medium">
+          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {activeSlideIndex + 1} of {slides.length}
+            {onReorderCards && slides.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  disabled={activeSlideIndex === 0}
+                  onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex - 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-[#0A66C2] hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Slide Left"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={activeSlideIndex === slides.length - 1}
+                  onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex + 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-[#0A66C2] hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Slide Right"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </span>
         </div>
 

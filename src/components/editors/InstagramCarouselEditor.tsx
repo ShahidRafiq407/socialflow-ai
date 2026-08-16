@@ -15,7 +15,8 @@ import {
   Hash,
   MapPin,
   Download,
-  Settings2
+  Settings2,
+  AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,10 @@ interface InstagramCarouselEditorProps {
   isGeneratingPromptFromScript?: boolean;
   generationProgress?: number;
   generationStage?: string;
+  renderError?: string | null;
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
+  generatingField?: string | null;
 }
 
 export default function InstagramCarouselEditor({
@@ -85,6 +90,10 @@ export default function InstagramCarouselEditor({
   isGeneratingPromptFromScript = false,
   generationProgress = 0,
   generationStage = "Rendering carousel slide...",
+  renderError = null,
+  onReorderCards,
+  onGenerateField,
+  generatingField = null,
 }: InstagramCarouselEditorProps) {
   // Model settings for slide image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
   const [slideAspectRatio, setSlideAspectRatio] = useState<string>("auto");
@@ -169,8 +178,30 @@ export default function InstagramCarouselEditor({
             <Layers className="h-3.5 w-3.5 text-pink-500" />
             Carousel Slide Sequence ({effectiveSlides.length} Slides)
           </span>
-          <span className="text-[11px] text-slate-400 font-medium">
+          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {currentIdx + 1} of {effectiveSlides.length}
+            {onReorderCards && effectiveSlides.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  disabled={currentIdx === 0}
+                  onClick={() => onReorderCards(currentIdx, currentIdx - 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-pink-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Slide Left"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={currentIdx === effectiveSlides.length - 1}
+                  onClick={() => onReorderCards(currentIdx, currentIdx + 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-pink-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title="Move Slide Right"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
           </span>
         </div>
 
@@ -249,6 +280,35 @@ export default function InstagramCarouselEditor({
                 accentColor="pink"
                 mediaType="carousel"
               />
+            ) : renderError ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!activeSlide.visualPrompt.trim()}
+                  onClick={() => {
+                    const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
+                    const safeAspectRatio =
+                      slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
+                        ? slideAspectRatio
+                        : capability.defaultAspectRatio;
+                    onRenderSlideMedia({
+                      aspectRatio: safeAspectRatio,
+                      style: slideStyle,
+                      quality: slideQuality,
+                      imageModel: "gemini-3-pro-image",
+                    });
+                  }}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
+              </div>
             ) : activeSlide.imageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <ContentMediaRenderer
@@ -333,26 +393,11 @@ export default function InstagramCarouselEditor({
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Model Settings
-              </span>
-              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                🍌 Nano Banana Pro
+                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
               </span>
             </div>
 
             <div className="space-y-2.5">
-              {/* 1. Model Instance */}
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Model
-                </label>
-                <select
-                  disabled
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs cursor-not-allowed font-mono"
-                >
-                  <option>🍌 Nano Banana Pro (Gemini 3 Pro Image)</option>
-                </select>
-              </div>
 
               {/* 2. Aspect Ratio */}
               <div className="space-y-1">
@@ -365,11 +410,9 @@ export default function InstagramCarouselEditor({
                   className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                 >
                   <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"} Platform Default)</option>
-                  <option value="1:1">1:1 (Square - Carousel Slide)</option>
-                  <option value="4:5">4:5 (Portrait - Instagram Post)</option>
-                  <option value="9:16">9:16 (Story / Tall Slide)</option>
-                  <option value="16:9">16:9 (Landscape - Widescreen)</option>
-                  <option value="4:3">4:3 (Classic Slide)</option>
+                  {(capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : ["1:1", "4:5", "9:16", "16:9"] as const).map((ratio) => (
+                    <option key={ratio} value={ratio}>{ratio}</option>
+                  ))}
                 </select>
               </div>
 
@@ -465,8 +508,13 @@ export default function InstagramCarouselEditor({
               size="sm"
               disabled={isRenderingSlideMedia || !activeSlide.visualPrompt.trim()}
               onClick={() => {
+                const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
+                const safeAspectRatio =
+                  slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
+                    ? slideAspectRatio
+                    : capability.defaultAspectRatio;
                 onRenderSlideMedia({
-                  aspectRatio: slideAspectRatio === "auto" ? capability.defaultAspectRatio : slideAspectRatio,
+                  aspectRatio: safeAspectRatio,
                   style: slideStyle,
                   quality: slideQuality,
                   imageModel: "gemini-3-pro-image",
@@ -545,6 +593,9 @@ export default function InstagramCarouselEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
               Hashtags
             </label>
+                  {onGenerateField && (<button type="button" onClick={() => onGenerateField("hashtags")} disabled={generatingField === "hashtags"} title="Generate Hashtags with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
+                      {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                    </button>)}
             <Input
               value={hashtags.join(" ")}
               onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}

@@ -38,12 +38,18 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     }
 
     const url = 'https://api.linkedin.com/v2/ugcPosts';
+    // Settings tab → real LinkedIn visibility (Anyone = PUBLIC, Connections = CONNECTIONS)
+    const settings = post.settings || {};
+    const visibilityCode =
+      settings.linkedinVisibility === 'connections'
+        ? 'CONNECTIONS'
+        : 'PUBLIC';
     const body = {
       author: `urn:li:person:${personUrn}`,
       lifecycleState: 'PUBLISHED',
       specificContent,
       visibility: {
-        'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC'
+        'com.linkedin.ugc.MemberNetworkVisibility': visibilityCode
       }
     };
 

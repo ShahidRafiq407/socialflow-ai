@@ -107,6 +107,7 @@ import { getHashtagGroups, createHashtagGroup, deleteHashtagGroup } from "@/acti
 import { searchStockMedia } from "@/actions/stock-media";
 import { getBestTimeSpec, getNextBestTime, getNextBestTimeFromSpec } from "@/lib/bestPublishTime";
 import { analyzeBestTimes } from "@/actions/bestTime";
+import { normalizeHashtags, formatHashtagInputTokens } from "@/lib/hashtags";
 
 // ============================================================================
 // ZUSTAND GLOBAL STORE — shared between AI Studio, Auto-Pilot, Calendar
@@ -207,7 +208,7 @@ interface PlatformDef {
 
 const PLATFORMS: PlatformDef[] = [
   { id: "instagram", label: "Instagram", icon: Camera, contentTypes: ["Feed", "Carousel", "Reel", "Story"], captionLimit: 2200, firstCommentLimit: 1000, hashtagLimit: 30, color: "from-pink-500 to-purple-600" },
-  { id: "pinterest", label: "Pinterest", icon: Bookmark, contentTypes: ["Pin", "Video Pin", "Idea Pin"], captionLimit: 500, firstCommentLimit: 0, hashtagLimit: 20, color: "from-red-500 to-red-600" },
+  { id: "pinterest", label: "Pinterest", icon: Bookmark, contentTypes: ["Pin", "Video Pin", "Idea Pin", "Carousel"], captionLimit: 500, firstCommentLimit: 0, hashtagLimit: 20, color: "from-red-500 to-red-600" },
   { id: "linkedin", label: "LinkedIn", icon: Briefcase, contentTypes: ["Post", "Multi-Image", "Document", "Video"], captionLimit: 3000, firstCommentLimit: 1250, hashtagLimit: 10, color: "from-blue-600 to-blue-800" },
   { id: "facebook", label: "Facebook", icon: Globe, contentTypes: ["Feed", "Multiple Photos", "Reel", "Story"], captionLimit: 63206, firstCommentLimit: 8000, hashtagLimit: 30, color: "from-blue-500 to-blue-700" },
   { id: "tiktok", label: "TikTok", icon: Video, contentTypes: ["Video", "Photo"], captionLimit: 2200, firstCommentLimit: 0, hashtagLimit: 10, color: "from-slate-900 to-pink-600" },
@@ -641,9 +642,8 @@ export default function AIStudioPage() {
         for (const [fmt, rawContent] of Object.entries(formats)) {
           const content = rawContent || {};
           const caption = content.caption || "";
-          const hashtags = Array.isArray(content.hashtags)
-            ? content.hashtags.map((h: string) => (h.startsWith("#") ? h : `#${h}`))
-            : [];
+          // Full hashtag sanitization — bare sentences / spaced tags become valid #PascalCase
+          const hashtags = normalizeHashtags(content.hashtags);
           const visualPrompts =
             Array.isArray(content.visualPrompts) && content.visualPrompts.length > 0
               ? content.visualPrompts
@@ -835,7 +835,7 @@ export default function AIStudioPage() {
                     imagePrompt: content.imagePrompt || promptsArray[0] || "",
                     visualPrompts: promptsArray,
                     overlayText: Array.isArray(content.overlayText) ? content.overlayText : [],
-                    hashtags: Array.isArray(content.hashtags) ? content.hashtags : [],
+                    hashtags: normalizeHashtags(content.hashtags),
                     bestTime: content.bestTime || "9:00 AM",
                   };
                 }
@@ -915,7 +915,7 @@ export default function AIStudioPage() {
           ...(prev[basePlatform] || {}),
           [fmt]: {
             caption: post.content || "",
-            hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
+            hashtags: normalizeHashtags(post.hashtags),
             visualPrompts,
             overlayText,
             imageUrls: mediaUrls,
@@ -1063,6 +1063,9 @@ export default function AIStudioPage() {
   const [altTextDict, setAltTextDict] = useState<Record<string, string>>({});
   const [mediaItemsDict, setMediaItemsDict] = useState<Record<string, MultiMediaItem[]>>({});
   const [activeMediaIndexDict, setActiveMediaIndexDict] = useState<Record<string, number>>({});
+  // Platform-native publishing settings — ONLY settings the real publishers apply.
+  // Keyed per formatKey so switching platform/format never leaks stale settings.
+  const [publishSettingsDict, setPublishSettingsDict] = useState<Record<string, Record<string, any>>>({});
   const [isApplyingTrend, setIsApplyingTrend] = useState(false);
 
   // Format-Scoped Parallel Generation States
@@ -1076,10 +1079,17 @@ export default function AIStudioPage() {
   const currentBoard = boardDict[currentFormatKey] || "Smart Robotics & AI";
   const currentTaggedTopics = taggedTopicsDict[currentFormatKey] || [];
   const currentAltText = altTextDict[currentFormatKey] || "";
-  const currentMediaItems = mediaItemsDict[currentFormatKey] || [
-    { id: "item_1", url: "", type: "image", prompt: "Visual asset" }
-  ];
+  // NOTE: currentMediaItems (with per-asset media resolution) is derived further below,
+  // after the per-index media dictionaries (customMediaDict / renderedImageUrlsDict /
+  // clearedMediaKeys) are declared.
   const currentActiveMediaIdx = activeMediaIndexDict[currentFormatKey] || 0;
+  const currentPublishSettings = publishSettingsDict[currentFormatKey] || {};
+  const updatePublishSetting = (key: string, value: any) => {
+    setPublishSettingsDict(prev => ({
+      ...prev,
+      [currentFormatKey]: { ...(prev[currentFormatKey] || {}), [key]: value },
+    }));
+  };
 
   // ============================================================================
   // REAL MULTI-AGENT PLATFORM COPY GENERATOR (PARALLEL & TAB-ISOLATED)
@@ -1127,7 +1137,7 @@ export default function AIStudioPage() {
                   [otherFmt]: {
                     ...currentFmt,
                     caption: item.caption || currentFmt.caption,
-                    hashtags: item.hashtags || currentFmt.hashtags,
+                    hashtags: item.hashtags ? normalizeHashtags(item.hashtags) : currentFmt.hashtags,
                     imagePrompt: generatedPrompt || currentFmt.imagePrompt,
                     visualPrompts: item.slides && Array.isArray(item.slides)
                       ? item.slides.map((s: any) => s.visualPrompt || "")
@@ -1200,6 +1210,12 @@ export default function AIStudioPage() {
       });
       const data = await res.json();
       if (data.success && data.enhancedPrompt) {
+        // Keep the user's FIRST original prompt recoverable — enhancement never
+        // permanently overwrites their own words.
+        setOriginalPromptDict(prev => ({
+          ...prev,
+          [targetKey]: prev[targetKey] !== undefined ? prev[targetKey] : targetPrompt,
+        }));
         setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.enhancedPrompt }));
       }
     } catch (e) {
@@ -1212,6 +1228,68 @@ export default function AIStudioPage() {
       });
     }
   };
+
+  // ============================================================================
+  // FIELD-LEVEL AI GENERATION (Title / Description / Hashtags / Alt Text only —
+  // the backend generates exactly ONE field per call, never a generic blob)
+  // ============================================================================
+  const [generatingFieldKeys, setGeneratingFieldKeys] = useState<Record<string, boolean>>({});
+
+  const handleGenerateFieldAI = async (field: "title" | "description" | "hashtags" | "altText") => {
+    const targetKey = `${activePlatformTab}-${currentFormatName}`;
+    const fieldKey = `${targetKey}:${field}`;
+    const context = field === "hashtags" || field === "altText" ? currentCaption || "" : "";
+
+    setGeneratingFieldKeys(prev => ({ ...prev, [fieldKey]: true }));
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          step: "generate-field",
+          platform: activePlatformTab,
+          format: currentFormatName,
+          field,
+          topic: campaignTopic,
+          context,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.value !== undefined) {
+        if (field === "title") {
+          setTitleDict(prev => ({ ...prev, [targetKey]: data.value }));
+        } else if (field === "description") {
+          setDescriptionDict(prev => ({ ...prev, [targetKey]: data.value }));
+        } else if (field === "altText") {
+          setAltTextDict(prev => ({ ...prev, [targetKey]: data.value }));
+        } else if (field === "hashtags") {
+          setGeneratedContents(prev => ({
+            ...prev,
+            [activePlatformTab]: {
+              ...prev[activePlatformTab],
+              [currentFormatName]: {
+                ...(prev[activePlatformTab]?.[currentFormatName] || {}),
+                hashtags: normalizeHashtags(data.value),
+              },
+            },
+          }));
+        }
+      }
+    } catch (e) {
+      console.error(`Field generation (${field}) error:`, e);
+    } finally {
+      setGeneratingFieldKeys(prev => {
+        const next = { ...prev };
+        delete next[fieldKey];
+        return next;
+      });
+    }
+  };
+
+  const currentGeneratingField = (() => {
+    const active = Object.keys(generatingFieldKeys).find(k => k.startsWith(`${currentFormatKey}:`));
+    return active ? active.split(":").slice(1).join(":") : null;
+  })();
 
   const handleCaptionToPrompt = async () => {
     const targetPlatform = activePlatformTab;
@@ -1295,7 +1373,7 @@ export default function AIStudioPage() {
               ...prev[activePlatformTab],
               [currentFormatName]: {
                 ...currentFmt,
-                hashtags: item.hashtags || currentFmt.hashtags,
+                hashtags: item.hashtags ? normalizeHashtags(item.hashtags) : currentFmt.hashtags,
                 caption: item.caption || currentCaption || currentFmt.caption,
                 imagePrompt: generatedPrompt || currentFmt.imagePrompt,
                 visualPrompts: item.slides && Array.isArray(item.slides)
@@ -1410,6 +1488,8 @@ export default function AIStudioPage() {
   const [renderingAllSlidesKeys, setRenderingAllSlidesKeys] = useState<Record<string, boolean>>({});
   const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
   const [customPromptDict, setCustomPromptDict] = useState<Record<string, string>>({});
+  // Original (pre-enhancement) prompts so "Enhance Prompt" never destroys user wording
+  const [originalPromptDict, setOriginalPromptDict] = useState<Record<string, string>>({});
   const customPrompt = customPromptDict[currentFormatKey] !== undefined
     ? customPromptDict[currentFormatKey]
     : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
@@ -1418,16 +1498,196 @@ export default function AIStudioPage() {
     setCustomPromptDict(prev => ({ ...prev, [currentFormatKey]: val }));
   };
 
+  // Restore the saved original prompt after an enhancement
+  const handleRestoreOriginalPrompt = () => {
+    const original = originalPromptDict[currentFormatKey];
+    if (original === undefined) return;
+    setCustomPromptDict(prev => ({ ...prev, [currentFormatKey]: original }));
+    setOriginalPromptDict(prev => {
+      const next = { ...prev };
+      delete next[currentFormatKey];
+      return next;
+    });
+  };
+  const currentOriginalPrompt = originalPromptDict[currentFormatKey] ?? null;
+
   const renderedImageUrl = renderedImageUrlsDict[currentMediaKey] || null;
+
+  // ============================================================================
+  // MULTI-ASSET ITEM RESOLVER (X Thread, FB Multiple Photos, LinkedIn Multi-Image,
+  // TikTok Photo)
+  // The MultiMediaEditor reads per-asset media from these items, so EVERY media
+  // source — per-asset AI generation, upload, stock, campaign results — is resolved
+  // into the correct asset slot. A generated image lands in the exact thread post /
+  // asset card where "Generate" was clicked.
+  // ============================================================================
+  const currentMediaItems: MultiMediaItem[] = (() => {
+    const stored = mediaItemsDict[currentFormatKey];
+    const campaignUrls = currentGenerated?.imageUrls;
+    // Once the user has managed assets (stored exists), respect its structure;
+    // otherwise seed slots from campaign results (or a single empty slot).
+    const sourceCount = stored
+      ? Math.max(stored.length, 1)
+      : Math.max(campaignUrls?.length || 0, 1);
+
+    const items: MultiMediaItem[] = [];
+    for (let i = 0; i < sourceCount; i++) {
+      const campaignOverlay = displayOverlayTexts[i];
+      const campaignPostText = campaignOverlay
+        ? [campaignOverlay.title, campaignOverlay.body].filter(Boolean).join(". ")
+        : "";
+      const base = (stored && stored[i]) || {
+        id: `item_${i + 1}`,
+        url: "",
+        type: "image" as const,
+        prompt: `Visual asset ${i + 1}`,
+        // Seed thread post text from the campaign's per-slide storyboard when present
+        caption: campaignPostText || undefined,
+      };
+      const assetKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+      if (clearedMediaKeys[assetKey]) {
+        items.push(base.url ? { ...base, url: "" } : base);
+        continue;
+      }
+      const custom = customMediaDict[assetKey];
+      const rendered = renderedImageUrlsDict[assetKey];
+      const campaign = campaignUrls?.[i] || "";
+      const url = custom?.url || rendered || campaign || base.url;
+      if (!url) {
+        items.push(base);
+        continue;
+      }
+      items.push({
+        ...base,
+        url,
+        type: custom?.type || (isVideoUrl(url) ? "video" : "image"),
+      });
+    }
+    return items;
+  })();
+
+  // X Thread preview data: every connected post with its own text + media
+  const threadPosts = activePlatformTab === "x" && currentFormatName === "Thread"
+    ? currentMediaItems.map((item, idx) => ({
+        text: item.caption || (idx === 0 ? currentCaption : ""),
+        mediaUrl: item.url || null,
+      }))
+    : [];
+
+  // Shared per-index media remapper: rewrites customMediaDict / renderedImageUrlsDict /
+  // clearedMediaKeys keys for the current format according to a remap function
+  // (null = drop the entry, e.g. it was deleted with its card).
+  const remapFormatMediaIndexes = (remap: (idx: number) => number | null) => {
+    const mediaPrefix = `${activePlatformTab}-${currentFormatName}-`;
+    const remapDict = (dict: Record<string, any>) => {
+      const next: Record<string, any> = {};
+      Object.entries(dict).forEach(([k, v]) => {
+        if (!k.startsWith(mediaPrefix)) {
+          next[k] = v;
+          return;
+        }
+        const idx = Number(k.slice(mediaPrefix.length));
+        if (Number.isNaN(idx)) {
+          next[k] = v;
+          return;
+        }
+        const target = remap(idx);
+        if (target === null) return;
+        next[`${mediaPrefix}${target}`] = v;
+      });
+      return next;
+    };
+    setCustomMediaDict(remapDict);
+    setRenderedImageUrlsDict(remapDict);
+    setClearedMediaKeys(remapDict);
+  };
+
+  // When an asset card is deleted, shift the per-index media dictionaries down so
+  // media never leaks onto the wrong thread post / asset slot.
+  const reindexFormatMediaAfterRemoval = (removedIdx: number) => {
+    remapFormatMediaIndexes((idx) =>
+      idx === removedIdx ? null : idx > removedIdx ? idx - 1 : idx
+    );
+    setActiveMediaIndexDict(prev => {
+      const cur = prev[currentFormatKey] || 0;
+      if (cur > removedIdx) return { ...prev, [currentFormatKey]: cur - 1 };
+      if (cur === removedIdx) return { ...prev, [currentFormatKey]: Math.max(0, cur - 1) };
+      return prev;
+    });
+  };
+
+  // Reorder a slide/post card (from → to): moves the per-index media with it and
+  // reorders the storyboard text arrays (overlayText / visualPrompts) the same way.
+  const handleReorderFormatCards = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    const moveInArray = <T,>(arr: T[]): T[] => {
+      const next = [...arr];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    };
+    const remap = (idx: number): number | null => {
+      if (idx === fromIdx) return toIdx;
+      if (fromIdx < toIdx) return idx > fromIdx && idx <= toIdx ? idx - 1 : idx;
+      return idx >= toIdx && idx < fromIdx ? idx + 1 : idx;
+    };
+
+    // Move per-index media sources
+    remapFormatMediaIndexes(remap);
+
+    // Move storyboard text (slides-based editors keep text in generatedContents)
+    const currentFmt = generatedContents[activePlatformTab]?.[currentFormatName];
+    if (currentFmt?.overlayText?.length || currentFmt?.visualPrompts?.length) {
+      setGeneratedContents(prev => ({
+        ...prev,
+        [activePlatformTab]: {
+          ...prev[activePlatformTab],
+          [currentFormatName]: {
+            ...currentFmt,
+            overlayText: currentFmt.overlayText?.length ? moveInArray(currentFmt.overlayText) : currentFmt.overlayText,
+            visualPrompts: currentFmt.visualPrompts?.length ? moveInArray(currentFmt.visualPrompts) : currentFmt.visualPrompts,
+          },
+        },
+      }));
+    }
+
+    // Move the stored multi-media items (Thread / multi-photo editors)
+    const storedItems = mediaItemsDict[currentFormatKey];
+    if (storedItems && storedItems.length > Math.max(fromIdx, toIdx)) {
+      setMediaItemsDict(prev => ({
+        ...prev,
+        [currentFormatKey]: moveInArray(prev[currentFormatKey] || []),
+      }));
+    }
+
+    // Active selection follows the moved card
+    if (activeSlideIdx === fromIdx) setActiveSlideIdx(toIdx);
+    else {
+      const mapped = remap(activeSlideIdx);
+      if (mapped !== null && mapped !== activeSlideIdx) setActiveSlideIdx(mapped);
+    }
+    const curMediaIdx = activeMediaIndexDict[currentFormatKey] || 0;
+    if (curMediaIdx === fromIdx) {
+      setActiveMediaIndexDict(prev => ({ ...prev, [currentFormatKey]: toIdx }));
+    } else {
+      const mappedMedia = remap(curMediaIdx);
+      if (mappedMedia !== null && mappedMedia !== curMediaIdx) {
+        setActiveMediaIndexDict(prev => ({ ...prev, [currentFormatKey]: mappedMedia }));
+      }
+    }
+  };
+
 
   const [videoDurationSec, setVideoDurationSec] = useState<number>(5);
   const [videoStatusDict, setVideoStatusDict] = useState<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>({});
   const [videoErrorDict, setVideoErrorDict] = useState<Record<string, string | null>>({});
+  const [renderErrorDict, setRenderErrorDict] = useState<Record<string, string | null>>({});
   const [generationProgressDict, setGenerationProgressDict] = useState<Record<string, number>>({});
   const [generationStageDict, setGenerationStageDict] = useState<Record<string, string>>({});
 
   const videoStatus = videoStatusDict[currentFormatKey] || "idle";
   const videoError = videoErrorDict[currentFormatKey] || null;
+  const renderError = renderErrorDict[currentFormatKey] || null;
   const generationProgress = generationProgressDict[currentFormatKey] || 0;
   const generationStage = generationStageDict[currentFormatKey] || "";
   const isRenderingMedia = Boolean(renderingMediaKeys[currentFormatKey]);
@@ -1468,6 +1728,7 @@ export default function AIStudioPage() {
     setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
     setClearedMediaKeys(prev => ({ ...prev, [targetMediaKey]: false }));
     setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+    setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
 
     if (isVideo) {
       setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "processing" }));
@@ -1586,6 +1847,16 @@ export default function AIStudioPage() {
       const data = await res.json();
 
       if (data.success && data.asset?.url) {
+        // MEDIA TYPE VALIDATION — an image request must return a real image asset
+        // (a video URL here would render as a broken image / fake play button).
+        const returnedIsVideo = isVideoUrl(data.asset.url) || data.asset.mediaType === "video" || data.asset.type === "video";
+        if (returnedIsVideo) {
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+          setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: "Image generation returned an invalid media format." }));
+          return;
+        }
+
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image ready!" }));
 
@@ -1626,11 +1897,13 @@ export default function AIStudioPage() {
       } else {
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: data.error || "Image generation failed on the AI provider." }));
       }
     } catch (err: any) {
       console.error("Image generation request failed:", err);
       setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
       setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+      setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Image generation request failed." }));
     } finally {
       setRenderingMediaKeys(prev => {
         const next = { ...prev };
@@ -2110,7 +2383,13 @@ export default function AIStudioPage() {
           content: data.caption || "",
           imageUrl: mediaUrl,
           format,
-          hashtags: data.hashtags || [],
+          hashtags: normalizeHashtags(data.hashtags),
+          settings: {
+            ...(publishSettingsDict[`${platform}-${format}`] || {}),
+            // Carry the editor's native title/description fields into the publish payload
+            contentTitle: titleDict[`${platform}-${format}`] || undefined,
+            contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+          },
           mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
           source: "ai_campaign",
           campaignTopic,
@@ -2159,7 +2438,12 @@ export default function AIStudioPage() {
             content: data.caption || "",
             imageUrl: mediaUrl,
             format,
-            hashtags: data.hashtags || [],
+            hashtags: normalizeHashtags(data.hashtags),
+            settings: {
+              ...(publishSettingsDict[`${platform}-${format}`] || {}),
+              contentTitle: titleDict[`${platform}-${format}`] || undefined,
+              contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+            },
             mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
             source: "ai_campaign",
             campaignTopic,
@@ -2234,7 +2518,7 @@ export default function AIStudioPage() {
           format: manualPost.format,
           caption: manualPost.caption,
           firstComment: manualPost.firstComment,
-          hashtags: manualPost.hashtags,
+          hashtags: normalizeHashtags(manualPost.hashtags),
           mediaUrls: manualMedia ? [manualMedia.url] : [],
           mediaType,
           productTags: [],
@@ -2301,7 +2585,7 @@ export default function AIStudioPage() {
   const insertHashtagGroup = (groupId: string) => {
     const group = hashtagGroups.find(g => g.id === groupId);
     if (!group) return;
-    const merged = Array.from(new Set([...currentHashtags, ...group.tags]));
+    const merged = normalizeHashtags([...currentHashtags, ...group.tags]);
     setGeneratedContents(prev => ({
       ...prev,
       [activePlatformTab]: {
@@ -2775,13 +3059,15 @@ export default function AIStudioPage() {
                   }}
                   hashtags={currentHashtags}
                   onHashtagsChange={(val) => {
+                    // Guarantee every space-separated token the user types becomes a real "#Tag"
+                    const formatted = formatHashtagInputTokens(val);
                     setGeneratedContents((prev) => ({
                       ...prev,
                       [activePlatformTab]: {
                         ...prev[activePlatformTab],
                         [currentFormatName]: {
                           ...(prev[activePlatformTab]?.[currentFormatName] || {}),
-                          hashtags: val,
+                          hashtags: formatted,
                         },
                       },
                     }));
@@ -2846,6 +3132,14 @@ export default function AIStudioPage() {
                   onActiveSlideChange={setActiveSlideIdx}
                   mediaItems={currentMediaItems}
                   onMediaItemsChange={(items) => {
+                    // Detect asset-card deletion (length shrink) and shift per-index
+                    // media so generated/uploaded media follows its card, not its index.
+                    const oldItems = currentMediaItems;
+                    if (items.length === oldItems.length - 1) {
+                      let removedIdx = items.findIndex((it, i) => it.id !== oldItems[i]?.id);
+                      if (removedIdx === -1) removedIdx = oldItems.length - 1;
+                      reindexFormatMediaAfterRemoval(removedIdx);
+                    }
                     setMediaItemsDict((prev) => ({ ...prev, [currentFormatKey]: items }));
                   }}
                   activeMediaIndex={currentActiveMediaIdx}
@@ -2880,6 +3174,12 @@ export default function AIStudioPage() {
                   }}
                   generationProgress={generationProgressDict[currentFormatKey] || 0}
                   generationStage={generationStageDict[currentFormatKey] || ""}
+                  renderError={renderErrorDict[currentFormatKey] || null}
+                  onReorderCards={handleReorderFormatCards}
+                  originalPrompt={currentOriginalPrompt}
+                  onRestoreOriginalPrompt={handleRestoreOriginalPrompt}
+                  onGenerateField={handleGenerateFieldAI}
+                  generatingField={currentGeneratingField}
                 />
 
                 {/* ---------------------------------------------------------------------------- */}
@@ -2984,6 +3284,7 @@ export default function AIStudioPage() {
                             activeSlideIdx={activeSlideIdx}
                             onSlideChange={(idx) => setActiveSlideIdx(idx)}
                             currentCaption={currentCaption}
+                            threadPosts={threadPosts}
                             isVertical={isVertical}
                             isHtmlSlideFormat={isHtmlSlideFormat}
                             isCurrentSlideLoading={isCurrentSlideLoading}
@@ -3002,7 +3303,9 @@ export default function AIStudioPage() {
                           <span>Optimal Posting Time</span>
                         </div>
                         <p className="text-xs text-slate-600 dark:text-slate-400">
-                          {currentBestTime ? `Recommended: ${currentBestTime}` : "Best time calculated automatically based on audience engagement data."}
+                          {currentBestTime
+                            ? `AI copy suggestion for ${PLATFORMS.find(p => p.id === activePlatformTab)?.label}: ${currentBestTime}`
+                            : "Use the Schedule button — it runs a real AI audience-activity analysis to pick peak times per platform."}
                         </p>
                       </div>
 
@@ -3010,193 +3313,175 @@ export default function AIStudioPage() {
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
                           <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                             <Settings className="h-3.5 w-3.5 text-primary" />
-                            {PLATFORMS.find(p => p.id === activePlatformTab)?.label} API Publishing Settings
+                            {PLATFORMS.find(p => p.id === activePlatformTab)?.label} Publishing Settings
                           </div>
+                          <span className="text-[10px] font-bold text-slate-400">{currentFormatName}</span>
                         </div>
 
-                        {/* INSTAGRAM REAL SETTINGS */}
-                        {activePlatformTab === "instagram" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Tag Location</label>
-                              <Input placeholder="e.g. San Francisco, CA" className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Alt Text (Accessibility)</label>
-                              <Textarea rows={2} placeholder="Describe image for visually impaired users..." className="text-xs p-2 bg-slate-50 dark:bg-slate-800" />
-                            </div>
-                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Share to Facebook Feed</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Hide Like & View Counts</span>
-                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Turn Off Commenting</span>
-                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                            </div>
+                        {/* INSTAGRAM — only settings the Graph API publisher actually applies */}
+                        {activePlatformTab === "instagram" && currentFormatName !== "Story" && (
+                          <div className="space-y-2 text-xs">
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Hide Like & View Counts</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.igHideLikeViews === true}
+                                onChange={(e) => updatePublishSetting("igHideLikeViews", e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Turn Off Commenting</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.igDisableComments === true}
+                                onChange={(e) => updatePublishSetting("igDisableComments", e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
+                            <p className="text-[10px] text-slate-400 pt-1">Applied right after publishing via the Instagram Graph API.</p>
                           </div>
                         )}
 
-                        {/* LINKEDIN REAL SETTINGS */}
+                        {/* LINKEDIN — real visibility control (publisher sends it) */}
                         {activePlatformTab === "linkedin" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Post Visibility</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="public">Anyone (Public)</option>
-                                <option value="connections">Connections Only</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Target Audience</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="all">All Followers</option>
-                                <option value="targeted">Targeted Industry / Seniority</option>
-                              </select>
-                            </div>
-                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Notify Employees of New Post</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                            </div>
+                          <div className="space-y-1 text-xs">
+                            <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Post Visibility</label>
+                            <select
+                              value={currentPublishSettings.linkedinVisibility || "public"}
+                              onChange={(e) => updatePublishSetting("linkedinVisibility", e.target.value)}
+                              className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
+                            >
+                              <option value="public">Anyone (Public)</option>
+                              <option value="connections">Connections Only</option>
+                            </select>
                           </div>
                         )}
 
-                        {/* YOUTUBE REAL SETTINGS */}
-                        {activePlatformTab === "youtube" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Video Title</label>
-                              <Input placeholder="Enter catchy title..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Visibility</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="public">Public</option>
-                                <option value="unlisted">Unlisted</option>
-                                <option value="private">Private</option>
+                        {/* X — real reply + sensitive controls (publisher sends them) */}
+                        {activePlatformTab === "x" && (
+                          <div className="space-y-2 text-xs">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Who Can Reply?</label>
+                              <select
+                                value={currentPublishSettings.xReplySetting || "everyone"}
+                                onChange={(e) => updatePublishSetting("xReplySetting", e.target.value)}
+                                className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
+                              >
+                                <option value="everyone">Everyone</option>
+                                <option value="following">Accounts you follow</option>
+                                <option value="mentioned">Only accounts you mention</option>
                               </select>
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Audience</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="not_kids">No, it's not made for kids</option>
-                                <option value="kids">Yes, it's made for kids</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Video Tags</label>
-                              <Input placeholder="tech, ai, tutorial..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
-                            </div>
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Mark as Sensitive Content</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.xMarkSensitive === true}
+                                onChange={(e) => updatePublishSetting("xMarkSensitive", e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
                           </div>
                         )}
 
-                        {/* TIKTOK REAL SETTINGS */}
+                        {/* FACEBOOK — page posts via API are public; no fake privacy/location controls */}
+                        {activePlatformTab === "facebook" && (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            Page posts are published publicly through the Facebook Graph API. Audience restrictions, location tags and Instagram cross-posting are managed in Meta's publishing tools.
+                          </p>
+                        )}
+
+                        {/* TIKTOK — real Content Posting API settings (publisher applies them) */}
                         {activePlatformTab === "tiktok" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Who Can View</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                          <div className="space-y-2 text-xs">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Who Can View</label>
+                              <select
+                                value={currentPublishSettings.tiktokPrivacy || "everyone"}
+                                onChange={(e) => updatePublishSetting("tiktokPrivacy", e.target.value)}
+                                className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
+                              >
                                 <option value="everyone">Everyone</option>
                                 <option value="friends">Friends</option>
                                 <option value="private">Only Me</option>
                               </select>
                             </div>
-                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Allow Comments</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Allow Duet</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Allow Stitch</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Allow High-Quality Upload</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                            </div>
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Allow Comments</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.tiktokDisableComments !== true}
+                                onChange={(e) => updatePublishSetting("tiktokDisableComments", !e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Allow Duet</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.tiktokDisableDuet !== true}
+                                onChange={(e) => updatePublishSetting("tiktokDisableDuet", !e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
+                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
+                              <span>Allow Stitch</span>
+                              <input
+                                type="checkbox"
+                                checked={currentPublishSettings.tiktokDisableStitch !== true}
+                                onChange={(e) => updatePublishSetting("tiktokDisableStitch", !e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                            </label>
+                            <p className="text-[10px] text-slate-400 pt-1">Sent to TikTok&apos;s Content Posting API with the video. Unaudited apps post as private drafts until TikTok approves the app.</p>
                           </div>
                         )}
 
-                        {/* X / TWITTER REAL SETTINGS */}
-                        {activePlatformTab === "x" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Who Can Reply?</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="everyone">Everyone</option>
-                                <option value="followed">Accounts you follow</option>
-                                <option value="mentioned">Only accounts you mention</option>
-                              </select>
-                            </div>
-                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Auto-Split Long Tweets into Thread</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Mark as Sensitive Content</span>
-                                <input type="checkbox" className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* FACEBOOK REAL SETTINGS */}
-                        {activePlatformTab === "facebook" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Audience</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
+                        {/* YOUTUBE — real Data API v3 settings (publisher applies them) */}
+                        {activePlatformTab === "youtube" && (
+                          <div className="space-y-2 text-xs">
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Visibility</label>
+                              <select
+                                value={currentPublishSettings.youtubePrivacy || "public"}
+                                onChange={(e) => updatePublishSetting("youtubePrivacy", e.target.value)}
+                                className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
+                              >
                                 <option value="public">Public</option>
-                                <option value="friends">Friends</option>
-                                <option value="only_me">Only Me</option>
+                                <option value="unlisted">Unlisted</option>
+                                <option value="private">Private</option>
                               </select>
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Tag Location</label>
-                              <Input placeholder="Location name..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Audience</label>
+                              <select
+                                value={currentPublishSettings.youtubeMadeForKids === true ? "kids" : "not_kids"}
+                                onChange={(e) => updatePublishSetting("youtubeMadeForKids", e.target.value === "kids")}
+                                className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
+                              >
+                                <option value="not_kids">No, it&apos;s not made for kids</option>
+                                <option value="kids">Yes, it&apos;s made for kids</option>
+                              </select>
                             </div>
-                            <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                                <span>Cross-post to Instagram Feed</span>
-                                <input type="checkbox" defaultChecked className="rounded border-slate-300 text-primary focus:ring-primary" />
-                              </label>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Video Tags</label>
+                              <Input
+                                value={currentPublishSettings.youtubeTags || ""}
+                                onChange={(e) => updatePublishSetting("youtubeTags", e.target.value)}
+                                placeholder="tech, ai, tutorial"
+                                className="h-7 text-xs bg-slate-50 dark:bg-slate-800"
+                              />
                             </div>
+                            <p className="text-[10px] text-slate-400 pt-1">The video title & description from the editor are uploaded with the video.</p>
                           </div>
                         )}
 
-                        {/* PINTEREST REAL SETTINGS */}
+                        {/* PINTEREST — manual export workflow; real fields live in the editor */}
                         {activePlatformTab === "pinterest" && (
-                          <div className="space-y-3 text-xs">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Destination Board</label>
-                              <select className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none">
-                                <option value="b1">Tech & Automation Ideas</option>
-                                <option value="b2">Marketing Tips 2026</option>
-                                <option value="b3">AI Tools & Workflows</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Destination Link / Website URL</label>
-                              <Input placeholder="https://yourwebsite.com/article" className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Alt Text</label>
-                              <Input placeholder="Pin visual description..." className="h-7 text-xs bg-slate-50 dark:bg-slate-800" />
-                            </div>
-                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                            Pins use the manual export workflow — set the board, destination link, tagged topics and alt text directly in the Pin fields of the editor. They are saved with the post.
+                          </p>
                         )}
                       </div>
                     </div>
