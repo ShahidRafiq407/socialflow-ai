@@ -3,6 +3,7 @@
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
 import { publishToPlatformProvider } from '@/lib/publishers';
+import { scheduleEnqueue } from '@/lib/redis';
 
 export async function saveDraft(postData: any) {
   const { userId } = await auth();
@@ -58,13 +59,21 @@ export async function schedulePost(postId: string, scheduledFor: Date) {
   const { userId } = await auth();
   if (!userId) throw new Error('Unauthorized');
 
-  return await prisma.post.update({
+  const updated = await prisma.post.update({
     where: { id: postId },
     data: {
       status: 'SCHEDULED',
       scheduledFor,
     },
   });
+
+  // Best-effort Redis queue registration — the cron worker pulls due jobs from
+  // this sorted set instead of scanning the whole Post table at scale.
+  if (updated && scheduledFor.getTime() > Date.now()) {
+    await scheduleEnqueue(postId, scheduledFor.getTime());
+  }
+
+  return updated;
 }
 
 export async function publishNow(postId: string) {

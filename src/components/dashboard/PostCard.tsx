@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,9 +53,14 @@ export interface PostProps {
   scheduledFor?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  format?: string | null;
+  hashtags?: string[];
+  campaignTopic?: string | null;
+  mediaHistory?: any;
 }
 
 export function PostCard({ post }: { post: PostProps }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [loadingAction, setLoadingAction] = useState<
     "approve" | "reject" | "delete" | "edit" | null
@@ -291,6 +297,36 @@ export function PostCard({ post }: { post: PostProps }) {
         </CardFooter>
       ) : (
         <CardFooter className="border-t p-3 bg-slate-50/30 dark:bg-slate-900/30 flex flex-wrap justify-end gap-2">
+          {/* OPEN IN STUDIO: loads this saved post back into the AI Studio editor */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-bold"
+            onClick={() => {
+              try {
+                sessionStorage.setItem(
+                  "socialflow:openInStudio",
+                  JSON.stringify({
+                    id: post.id,
+                    platform: post.platform,
+                    format: post.format || post.platform,
+                    content: post.content,
+                    imageUrl: post.imageUrl,
+                    imagePrompt: post.imagePrompt,
+                    hashtags: post.hashtags,
+                    campaignTopic: post.campaignTopic,
+                    mediaHistory: post.mediaHistory,
+                  })
+                );
+              } catch {}
+              router.push("/dashboard/ai-studio");
+            }}
+            disabled={isPending}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Open in Studio</span>
+          </Button>
+
           {/* EDIT BUTTON THAT OPENS FULL MODAL TO EDIT EVERYTHING */}
           <Button
             size="sm"

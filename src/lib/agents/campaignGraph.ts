@@ -56,6 +56,7 @@ export interface ContentOutputItem {
   visualType: "image" | "video" | "text_only" | "multi_image";
   visualPrompt: string;
   visualPrompts?: string[];
+  overlayText?: { step: number; title: string; body: string; theme: string }[];
   title?: string;
   aspectRatio: string;
   wordCount: number;
@@ -453,6 +454,11 @@ VISUAL PROMPTS:
 Write rich, production-grade visual prompts matching each format's exact aspect ratio.
 IMPORTANT FOR MULTI-IMAGE FORMATS (Idea Pin, Carousel, Document): If the visualType is "multi_image", you MUST provide an array of 3-5 distinct visualPrompts (one for each slide), instead of a single string. E.g. Idea Pins need distinct slide visuals.
 
+SLIDE TEXT OVERLAYS (MULTI-IMAGE FORMATS ONLY — MANDATORY):
+For every multi_image format you MUST also provide "slideTexts": an array with EXACTLY one entry per visualPrompt. These auto-fill the storyboard Page Title & Key Insight fields, so they must NEVER be empty. Each entry:
+{"title": "3-7 word punchy slide header (step/insight name)", "body": "1-2 sentence key insight or actionable takeaway for that slide"}.
+Slide 1 title = the hook; final slide = CTA (e.g. "Save this & follow for more").
+
 Return strictly JSON format:
 {
   "platforms": {
@@ -467,6 +473,7 @@ Return strictly JSON format:
         "visualRequired": true,
         "visualType": "image OR video OR multi_image",
         "visualPrompts": ["Detailed visual/video creation prompt for slide 1 (or only prompt if single image/video)", "Prompt for slide 2 (if multi_image)", "Prompt for slide 3 (if multi_image)"],
+        "slideTexts": [{"title": "Slide 1 header (hook)", "body": "Slide 1 key insight"}, {"title": "Slide 2 header", "body": "Slide 2 key insight"}, {"title": "Slide 3 header (CTA)", "body": "Slide 3 takeaway"}],
         "aspectRatio": "1:1 OR 9:16 OR 16:9 OR 2:3"
       }
     }
@@ -496,9 +503,18 @@ Return strictly JSON format:
         const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
         const hook = rawItem.hook || "Stop scrolling: here's how to scale faster.";
 
-        const visualPromptsArray = Array.isArray(rawItem.visualPrompts) && rawItem.visualPrompts.length > 0 
-          ? rawItem.visualPrompts 
+        const visualPromptsArray = Array.isArray(rawItem.visualPrompts) && rawItem.visualPrompts.length > 0
+          ? rawItem.visualPrompts
           : [rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`];
+
+        // AI-written per-slide Title & Key Insight (auto-fills storyboard fields in the editor)
+        const slideTextsArray = Array.isArray(rawItem.slideTexts) ? rawItem.slideTexts : [];
+        const overlayText = slideTextsArray.map((s: any, idx: number) => ({
+          step: idx + 1,
+          title: (s?.title || "").toString().trim() || `Slide ${idx + 1}`,
+          body: (s?.body || "").toString().trim(),
+          theme: idx % 2 === 0 ? "gradient-purple" : "gradient-blue",
+        }));
 
         structuredPlatforms[normPlt][normFmt] = {
           platform: normPlt,
@@ -512,6 +528,7 @@ Return strictly JSON format:
           visualType: reqSpec.assetType as any,
           visualPrompt: visualPromptsArray.join(" | Slide Next: "), // fallback for single string interfaces
           visualPrompts: visualPromptsArray, // Pass array for multi-slide generation
+          overlayText,
           aspectRatio: reqSpec.aspectRatio,
           wordCount,
           readingTimeSeconds,

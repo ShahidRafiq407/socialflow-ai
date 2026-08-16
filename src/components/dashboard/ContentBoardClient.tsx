@@ -52,6 +52,8 @@ export function ContentBoardClient({
 
   const statuses = [
     { id: "ALL", label: "All Statuses" },
+    { id: "DRAFT", label: "Saved Drafts" },
+    { id: "SCHEDULED", label: "Scheduled (AI Peak Time)" },
     { id: "PENDING_APPROVAL", label: "Pending Review" },
     { id: "APPROVED", label: "Approved • Scheduled" },
     { id: "PUBLISHED", label: "Published" },
