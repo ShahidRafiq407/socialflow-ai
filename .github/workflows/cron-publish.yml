@@ -1,0 +1,33 @@
+# Publishes scheduled posts every 10 minutes.
+#
+# Vercel Hobby plans only allow cron jobs once per day, so the frequent
+# trigger lives here (free, no Vercel plan limits). The Vercel daily cron in
+# vercel.json stays as a safety net — double runs are prevented by the Redis
+# cron lock and the SCHEDULED -> PUBLISHING status guard in the route.
+#
+# Optional repo settings:
+#   - Secret  CRON_SECRET  — must match the Vercel env var of the same name
+#   - Variable DEPLOY_URL  — production base URL override
+#     (defaults to https://socialflow-ai-akel.vercel.app)
+
+name: Publish Scheduled Posts
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  publish-scheduled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger publish-scheduled endpoint
+        env:
+          BASE_URL: ${{ vars.DEPLOY_URL || 'https://socialflow-ai-akel.vercel.app' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -n "$CRON_SECRET" ]; then
+            curl -fsS -m 120 "$BASE_URL/api/cron/publish-scheduled" -H "Authorization: Bearer $CRON_SECRET"
+          else
+            curl -fsS -m 120 "$BASE_URL/api/cron/publish-scheduled"
+          fi
