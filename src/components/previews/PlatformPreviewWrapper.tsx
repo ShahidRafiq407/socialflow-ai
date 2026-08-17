@@ -345,6 +345,7 @@ export default function PlatformPreviewWrapper({
           <InstagramPreview
             key={previewKey}
             {...commonProps}
+            displayMediaIsVideo={displayMediaIsVideo}
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
@@ -366,6 +367,7 @@ export default function PlatformPreviewWrapper({
           <XPreview
             key={previewKey}
             {...commonProps}
+            displayMediaIsVideo={displayMediaIsVideo}
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
@@ -377,6 +379,7 @@ export default function PlatformPreviewWrapper({
           <TikTokPreview
             key={previewKey}
             {...commonProps}
+            displayMediaIsVideo={displayMediaIsVideo}
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
@@ -387,6 +390,7 @@ export default function PlatformPreviewWrapper({
           <YoutubePreview
             key={previewKey}
             {...commonProps}
+            displayMediaIsVideo={displayMediaIsVideo}
             userName={userName}
             userImage={userImage}
           />
@@ -407,6 +411,7 @@ export default function PlatformPreviewWrapper({
           <PinterestPreview
             key={previewKey}
             {...commonProps}
+            displayMediaIsVideo={displayMediaIsVideo}
             userName={userName}
             userImage={userImage}
             isHtmlSlideFormat={isHtmlSlideFormat}

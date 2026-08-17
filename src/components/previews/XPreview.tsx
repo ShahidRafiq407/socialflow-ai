@@ -9,6 +9,7 @@ interface XThreadPost {
 interface XPreviewProps {
   currentFormatName?: string;
   displayImageUrl: string | null;
+  displayMediaIsVideo?: boolean;
   userName: string;
   userImage: string | null;
   userHandle: string;
@@ -41,6 +42,7 @@ function MediaBlock({ url, forceVideo }: { url?: string | null; forceVideo?: boo
 export default function XPreview({
   currentFormatName = "Post",
   displayImageUrl,
+  displayMediaIsVideo = false,
   userName,
   userImage,
   userHandle,
@@ -86,7 +88,7 @@ export default function XPreview({
         {post.text && (
           <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 mb-1 leading-relaxed whitespace-pre-wrap">{post.text}</p>
         )}
-        <MediaBlock url={post.mediaUrl} />
+        <MediaBlock url={post.mediaUrl} forceVideo={displayMediaIsVideo && idx === 0} />
         <div className="flex items-center justify-between mt-3 max-w-md text-slate-500">
           <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><MessageCircle className="h-4 w-4" /> 12</button>
           <button className="flex items-center gap-2 text-[13px] hover:text-emerald-500"><Repeat2 className="h-4 w-4" /> 45</button>
