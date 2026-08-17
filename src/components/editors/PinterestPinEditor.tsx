@@ -50,7 +50,17 @@ interface PinterestPinEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: (options?: { aspectRatio?: string; style?: string; quality?: string; imageModel?: string; mediaType?: "image" | "video"; duration?: number; videoTask?: string }) => void;
+  onRenderAI: (options?: {
+    aspectRatio?: string;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
+    mediaType?: "image" | "video";
+    duration?: number;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
+  }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -108,6 +118,8 @@ export default function PinterestPinEditor({
   // Video Pin settings (9:16 vertical video)
   const [pinVideoDuration, setPinVideoDuration] = useState<number>(5);
   const [pinVideoTask, setPinVideoTask] = useState<string>("auto");
+  const [pinVideoAspectRatio, setPinVideoAspectRatio] = useState<string>("auto");
+  const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
   const [pinStyle, setPinStyle] = useState<string>("photorealistic");
   const [pinQuality, setPinQuality] = useState<string>("studio_4k");
 
@@ -164,9 +176,11 @@ export default function PinterestPinEditor({
     if (isVideo) {
       onRenderAI({
         mediaType: "video",
-        aspectRatio: "9:16",
+        aspectRatio: pinVideoAspectRatio !== "auto" ? pinVideoAspectRatio : "9:16",
         duration: pinVideoDuration,
         videoTask: pinVideoTask,
+        sourceImage: attachedSourceImage,
+        sourceVideo: pinVideoTask === "edit" ? displayImageUrl : null,
       });
     } else {
       onRenderAI({
@@ -310,39 +324,133 @@ export default function PinterestPinEditor({
             )}
           </div>
 
-          {/* VIDEO PIN SETTINGS (9:16 vertical video) */}
+          {/* VIDEO PIN SETTINGS */}
           {isVideo && (
             <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Video Pin Settings
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-slate-800">
+                <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Settings2 className="h-3.5 w-3.5 text-red-600" />
+                  Video settings
                 </span>
-                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2 py-0.5 rounded-full font-mono">9:16</span>
+                <span className="text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded-full font-mono">
+                  {pinVideoAspectRatio !== "auto" ? pinVideoAspectRatio : "9:16"}
+                </span>
               </div>
+
+              {/* 1. Aspect Ratio */}
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">Duration</label>
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Aspect ratio
+                </label>
+                <select
+                  value={pinVideoAspectRatio}
+                  onChange={(e) => setPinVideoAspectRatio(e.target.value)}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-red-500 focus:outline-none"
+                >
+                  <option value="auto">Auto (9:16 Pinterest Vertical Video Default)</option>
+                  <option value="9:16">9:16 (Vertical Video Pin)</option>
+                  <option value="2:3">2:3 (Standard Pin)</option>
+                  <option value="16:9">16:9 (Landscape Video)</option>
+                  <option value="1:1">1:1 (Square Video)</option>
+                </select>
+              </div>
+
+              {/* 2. Video Task */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Video task
+                </label>
+                <select
+                  value={pinVideoTask}
+                  onChange={(e) => {
+                    setPinVideoTask(e.target.value);
+                    if (e.target.value === "text_to_video") {
+                      setAttachedSourceImage(null);
+                    }
+                  }}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-red-500 focus:outline-none"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="text_to_video">Text to video</option>
+                  <option value="image_to_video">Image to video</option>
+                  <option value="reference_to_video">Reference to video</option>
+                  <option value="edit">Edit</option>
+                </select>
+              </div>
+
+              {/* 3. Duration */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Duration
+                </label>
                 <select
                   value={pinVideoDuration}
                   onChange={(e) => setPinVideoDuration(Number(e.target.value))}
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-red-500 focus:outline-none font-mono"
                 >
                   {[3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
-                    <option key={sec} value={sec}>{sec} seconds{sec === 5 ? " (Recommended)" : ""}</option>
+                    <option key={sec} value={sec}>
+                      {sec} seconds {sec === 5 ? "(Recommended)" : ""}
+                    </option>
                   ))}
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">Video Task</label>
-                <select
-                  value={pinVideoTask}
-                  onChange={(e) => setPinVideoTask(e.target.value)}
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                >
-                  <option value="auto">Auto</option>
-                  <option value="text_to_video">Text to Video</option>
-                  <option value="image_to_video">Image to Video</option>
-                </select>
-              </div>
+
+              {/* Source Image Attachment */}
+              {(pinVideoTask === "image_to_video" || pinVideoTask === "reference_to_video") && (
+                <div className="p-2.5 rounded-lg border border-red-500/30 bg-red-50/50 dark:bg-red-950/20 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-red-700 dark:text-red-300">
+                    <span>
+                      {pinVideoTask === "image_to_video" ? "Starting Image to Animate" : "Reference Style Image"}
+                    </span>
+                    {attachedSourceImage && (
+                      <button
+                        type="button"
+                        onClick={() => setAttachedSourceImage(null)}
+                        className="text-red-500 hover:underline text-[10px]"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {attachedSourceImage ? (
+                    <div className="flex items-center gap-2">
+                      <img src={attachedSourceImage} alt="Source for video" className="h-12 w-12 object-cover rounded-md border border-red-300 dark:border-red-700" />
+                      <span className="text-[10px] text-slate-500 font-mono">Image attached</span>
+                    </div>
+                  ) : (
+                    <div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="pin-source-image-upload"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = () => setAttachedSourceImage(reader.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="pin-source-image-upload"
+                        className="cursor-pointer flex items-center justify-center gap-1.5 p-2 rounded-lg border border-dashed border-red-400 bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {pinVideoTask === "image_to_video" ? "Upload Starting Image" : "Upload Reference Image"}
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {pinVideoTask === "edit" && (
+                <div className="p-2 rounded-lg border border-red-500/30 bg-red-50/50 dark:bg-red-950/20 text-[11px] font-medium text-red-700 dark:text-red-300">
+                  {displayImageUrl ? "Editing active video stream." : "Generate or upload a video first to use Edit task."}
+                </div>
+              )}
             </div>
           )}
 

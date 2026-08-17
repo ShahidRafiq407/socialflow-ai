@@ -2205,8 +2205,15 @@ export default function AIStudioPage() {
   const isSquare = currentFormatName === "Feed";
   const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
 
-  // REAL content check — buttons must never "fake work" when nothing was generated
-  const hasContent = Object.values(generatedContents).some((fmts) =>
+  // REAL content check — whether from multi-agent campaign OR manual editor typing / single media generation / upload
+  const hasManualContent =
+    (currentCaption || "").trim().length > 0 ||
+    Boolean(displayImageUrl) ||
+    (displayImageUrls || []).some(Boolean) ||
+    Object.values(customMediaDict).some((m) => Boolean(m?.url)) ||
+    Object.values(renderedImageUrlsDict).some(Boolean);
+
+  const hasCampaignContent = Object.values(generatedContents).some((fmts) =>
     Object.values(fmts).some(
       (f) =>
         (f.caption || "").trim().length > 0 ||
@@ -2215,6 +2222,8 @@ export default function AIStudioPage() {
         Boolean(f.videoUrl)
     )
   );
+
+  const hasContent = hasManualContent || hasCampaignContent;
   const isWidescreen = currentFormatName === "Post";
   const isPin = currentFormatName === "Pin";
 
@@ -3285,32 +3294,23 @@ export default function AIStudioPage() {
                       <div className={`transition-all duration-300 w-full flex justify-center ${
                         devicePreviewMode === "mobile" ? "max-w-[340px]" : "max-w-[500px]"
                       }`}>
-                        {!hasContent ? (
-                          <div className="py-16 text-center">
-                            <Sparkles className="h-8 w-8 text-slate-300 mx-auto mb-3" />
-                            <p className="text-sm text-slate-400 font-medium">
-                              No preview content yet.<br/>Type in editor or generate campaign to view live mockup.
-                            </p>
-                          </div>
-                        ) : (
-                          <PlatformPreviewWrapper
-                            platformKey={activePlatformTab}
-                            currentFormatName={currentFormatName}
-                            displayImageUrl={displayImageUrl}
-                            displayImageUrls={displayImageUrls}
-                            displayOverlayTexts={displayOverlayTexts}
-                            activeSlideIdx={activeSlideIdx}
-                            onSlideChange={(idx) => setActiveSlideIdx(idx)}
-                            currentCaption={currentCaption}
-                            threadPosts={threadPosts}
-                            isVertical={previewIsVertical}
-                            displayMediaIsVideo={displayMediaIsVideo}
-                            isHtmlSlideFormat={isHtmlSlideFormat}
-                            isCurrentSlideLoading={isCurrentSlideLoading}
-                            currentHtmlSlide={currentHtmlSlide}
-                            campaignTopic={campaignTopic}
-                          />
-                        )}
+                        <PlatformPreviewWrapper
+                          platformKey={activePlatformTab}
+                          currentFormatName={currentFormatName}
+                          displayImageUrl={displayImageUrl}
+                          displayImageUrls={displayImageUrls}
+                          displayOverlayTexts={displayOverlayTexts}
+                          activeSlideIdx={activeSlideIdx}
+                          onSlideChange={(idx) => setActiveSlideIdx(idx)}
+                          currentCaption={currentCaption}
+                          threadPosts={threadPosts}
+                          isVertical={previewIsVertical}
+                          displayMediaIsVideo={displayMediaIsVideo}
+                          isHtmlSlideFormat={isHtmlSlideFormat}
+                          isCurrentSlideLoading={isCurrentSlideLoading}
+                          currentHtmlSlide={currentHtmlSlide}
+                          campaignTopic={campaignTopic}
+                        />
                       </div>
                     </div>
                   ) : (

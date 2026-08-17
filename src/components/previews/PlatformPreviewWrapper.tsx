@@ -316,13 +316,12 @@ export default function PlatformPreviewWrapper({
     return null;
   };
 
-  // Render the actual preview component with live profile data
+  // Render the actual preview component with live profile data or fallback defaults
   const renderPreview = () => {
-    if (!profile) return null;
-
-    const userName = profile.displayName || profile.username || "Unknown User";
-    const userImage = profile.avatarUrl;
-    const userHandle = profile.username ? (profile.username.startsWith("@") ? profile.username : `@${profile.username}`) : "@unknown";
+    const isConnected = profile?.isConnected || false;
+    const userName = profile?.displayName || profile?.username || getDefaultUserName(platformKey);
+    const userImage = profile?.avatarUrl || null;
+    const userHandle = profile?.username ? (profile.username.startsWith("@") ? profile.username : `@${profile.username}`) : getDefaultUserHandle(platformKey);
 
     const commonProps = {
       currentFormatName,
@@ -333,7 +332,7 @@ export default function PlatformPreviewWrapper({
       onSlideChange,
       currentCaption,
       isLoading: false,
-      isConnected: true,
+      isConnected,
     };
 
     // Use a key that includes format name and vertical state to force instant re-render on format switch
@@ -425,14 +424,41 @@ export default function PlatformPreviewWrapper({
     }
   };
 
-  if (isLoading) {
-    return <>{renderSkeleton()}</>;
-  }
-
-  const errorState = renderErrorState();
-  if (errorState) {
-    return <>{errorState}</>;
-  }
-
   return <>{renderPreview()}</>;
+}
+
+function getDefaultUserName(platform: string): string {
+  switch (platform) {
+    case "instagram":
+      return "Instagram Account";
+    case "linkedin":
+      return "LinkedIn Member";
+    case "x":
+      return "X User";
+    case "tiktok":
+      return "TikTok Creator";
+    case "youtube":
+      return "YouTube Channel";
+    case "facebook":
+      return "Facebook Page";
+    case "pinterest":
+      return "Pinterest Creator";
+    default:
+      return "Social Creator";
+  }
+}
+
+function getDefaultUserHandle(platform: string): string {
+  switch (platform) {
+    case "instagram":
+      return "@your_instagram";
+    case "x":
+      return "@your_x_handle";
+    case "tiktok":
+      return "@your_tiktok";
+    case "youtube":
+      return "@channel";
+    default:
+      return "@username";
+  }
 }

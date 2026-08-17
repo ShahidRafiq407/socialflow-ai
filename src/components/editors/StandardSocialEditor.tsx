@@ -44,6 +44,8 @@ interface StandardSocialEditorProps {
     quality?: string;
     imageModel?: string;
     videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
   }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
@@ -121,6 +123,8 @@ export default function StandardSocialEditor({
   const [videoDuration, setVideoDuration] = useState(durationSec || 5);
   // Video task mode for video generated through this editor (e.g. Instagram Story video)
   const [storyVideoTask, setStoryVideoTask] = useState<string>("auto");
+  const [storyVideoAspectRatio, setStoryVideoAspectRatio] = useState<string>("auto");
+  const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
 
   const handleDurationSelect = (sec: number) => {
     setVideoDuration(sec);
@@ -139,8 +143,10 @@ export default function StandardSocialEditor({
         mediaType: "video",
         duration: videoDuration,
         prompt,
-        aspectRatio: capability.defaultAspectRatio,
+        aspectRatio: storyVideoAspectRatio !== "auto" ? storyVideoAspectRatio : capability.defaultAspectRatio,
         videoTask: storyVideoTask,
+        sourceImage: attachedSourceImage,
+        sourceVideo: storyVideoTask === "edit" ? displayImageUrl : null,
       });
     } else {
       onRenderAI({
@@ -378,45 +384,133 @@ export default function StandardSocialEditor({
                 </button>
               </div>
 
-              {/* VIDEO SETTINGS WHEN VIDEO SELECTED (duration + generation task) */}
+              {/* VIDEO SETTINGS WHEN VIDEO SELECTED */}
               {selectedMediaType === "video" && (
-                <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <Settings2 className="h-3 w-3 text-pink-500" /> Duration
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-200/60 dark:border-slate-800">
+                    <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <Settings2 className="h-3.5 w-3.5 text-pink-600" />
+                      Video settings
                     </span>
-                    <span className="font-mono">{videoDuration}s</span>
+                    <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-2 py-0.5 rounded-full font-mono">
+                      {storyVideoAspectRatio !== "auto" ? storyVideoAspectRatio : capability.defaultAspectRatio}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-4 gap-1">
-                    {[3, 5, 8, 10].map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => handleDurationSelect(s)}
-                        className={`py-1 rounded-md text-[11px] font-bold transition-all border ${
-                          videoDuration === s
-                            ? "bg-pink-600 text-white border-pink-600 shadow-xs"
-                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
-                        }`}
-                      >
-                        {s}s
-                      </button>
-                    ))}
-                  </div>
+
+                  {/* 1. Aspect Ratio */}
                   <div className="space-y-1">
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                      Video Task
+                      Aspect ratio
+                    </label>
+                    <select
+                      value={storyVideoAspectRatio}
+                      onChange={(e) => setStoryVideoAspectRatio(e.target.value)}
+                      className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-pink-500 focus:outline-none"
+                    >
+                      <option value="auto">Auto ({capability.defaultAspectRatio || "9:16"} Platform Default)</option>
+                      <option value="9:16">9:16 (Vertical Story / Reel)</option>
+                      <option value="16:9">16:9 (Landscape / Widescreen)</option>
+                      <option value="1:1">1:1 (Square)</option>
+                      <option value="4:5">4:5 (Portrait)</option>
+                    </select>
+                  </div>
+
+                  {/* 2. Video Task */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Video task
                     </label>
                     <select
                       value={storyVideoTask}
-                      onChange={(e) => setStoryVideoTask(e.target.value)}
-                      className="w-full h-8 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-pink-500 focus:outline-none"
+                      onChange={(e) => {
+                        setStoryVideoTask(e.target.value);
+                        if (e.target.value === "text_to_video") {
+                          setAttachedSourceImage(null);
+                        }
+                      }}
+                      className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-pink-500 focus:outline-none"
                     >
                       <option value="auto">Auto</option>
-                      <option value="text_to_video">Text to Video</option>
-                      <option value="image_to_video">Image to Video</option>
+                      <option value="text_to_video">Text to video</option>
+                      <option value="image_to_video">Image to video</option>
+                      <option value="reference_to_video">Reference to video</option>
+                      <option value="edit">Edit</option>
                     </select>
                   </div>
+
+                  {/* 3. Duration */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Duration
+                    </label>
+                    <select
+                      value={videoDuration}
+                      onChange={(e) => handleDurationSelect(Number(e.target.value))}
+                      className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-pink-500 focus:outline-none font-mono"
+                    >
+                      {[3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
+                        <option key={s} value={s}>
+                          {s} seconds {s === 5 ? "(Recommended)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Source Image Attachment for image_to_video / reference_to_video */}
+                  {(storyVideoTask === "image_to_video" || storyVideoTask === "reference_to_video") && (
+                    <div className="p-2.5 rounded-lg border border-pink-500/30 bg-pink-50/50 dark:bg-pink-950/20 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-pink-700 dark:text-pink-300">
+                        <span>
+                          {storyVideoTask === "image_to_video" ? "Starting Image to Animate" : "Reference Style Image"}
+                        </span>
+                        {attachedSourceImage && (
+                          <button
+                            type="button"
+                            onClick={() => setAttachedSourceImage(null)}
+                            className="text-red-500 hover:underline text-[10px]"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {attachedSourceImage ? (
+                        <div className="flex items-center gap-2">
+                          <img src={attachedSourceImage} alt="Source for video" className="h-12 w-12 object-cover rounded-md border border-pink-300 dark:border-pink-700" />
+                          <span className="text-[10px] text-slate-500 font-mono">Image attached</span>
+                        </div>
+                      ) : (
+                        <div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            id="story-source-image-upload"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = () => setAttachedSourceImage(reader.result as string);
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor="story-source-image-upload"
+                            className="cursor-pointer flex items-center justify-center gap-1.5 p-2 rounded-lg border border-dashed border-pink-400 bg-white dark:bg-slate-900 text-pink-600 dark:text-pink-400 text-xs font-semibold hover:bg-pink-50 dark:hover:bg-pink-950/30 transition-colors"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            {storyVideoTask === "image_to_video" ? "Upload Starting Image" : "Upload Reference Image"}
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {storyVideoTask === "edit" && (
+                    <div className="p-2 rounded-lg border border-pink-500/30 bg-pink-50/50 dark:bg-pink-950/20 text-[11px] font-medium text-pink-700 dark:text-pink-300">
+                      {displayImageUrl ? "Editing active video stream." : "Generate or upload a video first to use Edit task."}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

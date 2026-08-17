@@ -303,9 +303,11 @@ export default function VideoPostEditor({
                 onChange={(e) => setVideoAspectRatio(e.target.value)}
                 className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
               >
-                <option value="auto">Auto</option>
-                <option value="16:9">16:9</option>
-                <option value="9:16">9:16</option>
+                <option value="auto">Auto ({capability.defaultAspectRatio || "9:16"} Platform Default)</option>
+                <option value="9:16">9:16 (Vertical Reel / Short / TikTok)</option>
+                <option value="16:9">16:9 (Landscape / Widescreen)</option>
+                <option value="1:1">1:1 (Square)</option>
+                <option value="4:5">4:5 (Portrait)</option>
               </select>
             </div>
 
