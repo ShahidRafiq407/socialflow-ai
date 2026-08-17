@@ -23,8 +23,10 @@ interface PlatformPreviewWrapperProps {
   currentCaption?: string;
   // X Thread
   threadPosts?: Array<{ text: string; mediaUrl?: string | null }>;
-  // Facebook
+  // Facebook / LinkedIn — vertical frame for 9:16 video formats
   isVertical?: boolean;
+  // Explicit media type from the pipeline (URL extensions can lie)
+  displayMediaIsVideo?: boolean;
   // Pinterest
   isHtmlSlideFormat?: boolean;
   isCurrentSlideLoading?: boolean;
@@ -49,6 +51,7 @@ export default function PlatformPreviewWrapper({
   currentCaption = "",
   threadPosts = [],
   isVertical = false,
+  displayMediaIsVideo = false,
   isHtmlSlideFormat = false,
   isCurrentSlideLoading = false,
   currentHtmlSlide = null,
@@ -345,6 +348,7 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "linkedin":
@@ -354,6 +358,8 @@ export default function PlatformPreviewWrapper({
             {...commonProps}
             userName={userName}
             userImage={userImage}
+            isVertical={isVertical}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "x":
@@ -365,6 +371,7 @@ export default function PlatformPreviewWrapper({
             userImage={userImage}
             userHandle={userHandle}
             threadPosts={threadPosts}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "tiktok":
@@ -375,6 +382,7 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "youtube":
@@ -384,6 +392,7 @@ export default function PlatformPreviewWrapper({
             {...commonProps}
             userName={userName}
             userImage={userImage}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "facebook":
@@ -394,6 +403,7 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             isVertical={isVertical}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "pinterest":
@@ -407,6 +417,7 @@ export default function PlatformPreviewWrapper({
             isCurrentSlideLoading={isCurrentSlideLoading}
             currentHtmlSlide={currentHtmlSlide}
             campaignTopic={campaignTopic}
+            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       default:

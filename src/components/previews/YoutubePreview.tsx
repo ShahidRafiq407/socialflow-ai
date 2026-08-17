@@ -9,6 +9,7 @@ interface YoutubePreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
+  displayMediaIsVideo?: boolean;
 }
 
 export default function YoutubePreview({
@@ -19,6 +20,7 @@ export default function YoutubePreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
+  displayMediaIsVideo = false,
 }: YoutubePreviewProps) {
   const isVideoUrl = (url: string | null) => {
     if (!url) return false;
@@ -39,7 +41,7 @@ export default function YoutubePreview({
     return (
       <div className="w-full max-w-[420px] rounded-xl border border-slate-200 dark:border-slate-800 bg-[#0f0f0f] text-white shadow-md overflow-hidden text-left">
         <div className="w-full aspect-[16/9] bg-slate-900 flex items-center justify-center overflow-hidden relative">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          {displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl)) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full bg-[#0f0f0f] flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
@@ -73,7 +75,7 @@ export default function YoutubePreview({
   return (
     <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-        {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+        {displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl)) ? (
           <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-[#0f0f0f] flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">

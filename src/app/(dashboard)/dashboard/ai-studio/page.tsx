@@ -554,7 +554,7 @@ export default function AIStudioPage() {
   const [selectedContentTypes, setSelectedContentTypes] = useState<Record<string, string[]>>({
     instagram: ["Feed", "Reel"],
     facebook: ["Feed", "Reel"],
-    linkedin: ["Post", "Carousel"],
+    linkedin: ["Post", "Document"],
     x: ["Post"],
     youtube: ["Shorts"],
     tiktok: ["Video"],
@@ -1682,6 +1682,8 @@ export default function AIStudioPage() {
   const [videoStatusDict, setVideoStatusDict] = useState<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>({});
   const [videoErrorDict, setVideoErrorDict] = useState<Record<string, string | null>>({});
   const [renderErrorDict, setRenderErrorDict] = useState<Record<string, string | null>>({});
+  // Last aspect ratio actually used for a generation per format (drives preview frame)
+  const [videoAspectDict, setVideoAspectDict] = useState<Record<string, string>>({});
   const [generationProgressDict, setGenerationProgressDict] = useState<Record<string, number>>({});
   const [generationStageDict, setGenerationStageDict] = useState<Record<string, string>>({});
 
@@ -1729,6 +1731,12 @@ export default function AIStudioPage() {
     setClearedMediaKeys(prev => ({ ...prev, [targetMediaKey]: false }));
     setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
     setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+    // Remember the aspect actually used so the LIVE PREVIEW frame matches the
+    // selected ratio (e.g. LinkedIn Video 16:9 default → user picks 9:16 →
+    // preview switches to the vertical layout).
+    if (options?.aspectRatio) {
+      setVideoAspectDict(prev => ({ ...prev, [targetFormatKey]: options.aspectRatio as string }));
+    }
 
     if (isVideo) {
       setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "processing" }));
@@ -2184,6 +2192,21 @@ export default function AIStudioPage() {
   };
 
   const isVertical = ["Reel", "Reels", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(currentFormatName);
+  // Preview frame orientation: follow the aspect ACTUALLY used for generation when
+  // known (e.g. LinkedIn Video 9:16 selected → vertical preview), else format default.
+  const previewIsVertical = (() => {
+    const usedAspect = videoAspectDict[currentFormatKey];
+    if (usedAspect) return usedAspect === "9:16";
+    return isVertical && getPlatformCapability(activePlatformTab, currentFormatName).defaultAspectRatio === "9:16";
+  })();
+  // Explicit media type for previews — URL extensions can lie (Supabase URLs),
+  // so trust the stored type from the generation/upload pipeline, the campaign
+  // video payload, or the completed video status for this format.
+  const displayMediaIsVideo =
+    customMediaDict[currentMediaKey]?.type === "video" ||
+    Boolean(currentGenerated?.videoUrl && currentGenerated.videoUrl === displayImageUrl) ||
+    (videoStatus === "completed" && Boolean(displayImageUrl)) ||
+    isVideoUrl(displayImageUrl);
   const isSquare = currentFormatName === "Feed";
   const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
 
@@ -3285,7 +3308,8 @@ export default function AIStudioPage() {
                             onSlideChange={(idx) => setActiveSlideIdx(idx)}
                             currentCaption={currentCaption}
                             threadPosts={threadPosts}
-                            isVertical={isVertical}
+                            isVertical={previewIsVertical}
+                            displayMediaIsVideo={displayMediaIsVideo}
                             isHtmlSlideFormat={isHtmlSlideFormat}
                             isCurrentSlideLoading={isCurrentSlideLoading}
                             currentHtmlSlide={currentHtmlSlide}

@@ -29,6 +29,7 @@ interface ContentMediaRendererProps {
   isVertical?: boolean;
   onRemove?: () => void;
   showRemoveButton?: boolean;
+  showDownloadButton?: boolean;
   autoPlay?: boolean;
   loop?: boolean;
   muted?: boolean;
@@ -43,6 +44,7 @@ export default function ContentMediaRenderer({
   isVertical = false,
   onRemove,
   showRemoveButton = true,
+  showDownloadButton = true,
   autoPlay = true,
   loop = true,
   muted = true,
@@ -126,6 +128,7 @@ export default function ContentMediaRenderer({
 
       {/* Floating Action Bar (Save to PC + Remove) */}
       <div className="absolute top-2 right-2 flex items-center gap-1.5 z-30 opacity-80 group-hover:opacity-100 transition-opacity">
+        {showDownloadButton && (
         <button
           type="button"
           onClick={handleDownload}
@@ -134,6 +137,7 @@ export default function ContentMediaRenderer({
         >
           <Download className="h-3.5 w-3.5" />
         </button>
+        )}
         {onRemove && showRemoveButton && (
           <button
             type="button"

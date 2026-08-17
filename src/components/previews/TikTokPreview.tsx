@@ -13,6 +13,7 @@ interface TikTokPreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
+  displayMediaIsVideo?: boolean;
 }
 
 export default function TikTokPreview({
@@ -27,6 +28,7 @@ export default function TikTokPreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
+  displayMediaIsVideo = false,
 }: TikTokPreviewProps) {
   const isVideoUrl = (url: string | null) => {
     if (!url) return false;
@@ -61,7 +63,7 @@ export default function TikTokPreview({
               <span className="text-[11px] text-slate-500">No photos added yet</span>
             </div>
           )
-        ) : displayImageUrl && isVideoUrl(displayImageUrl) ? (
+        ) : displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl)) ? (
           <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover opacity-90" />
         ) : (
           <div className="w-full h-full bg-black flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">

@@ -16,12 +16,14 @@ interface XPreviewProps {
   isLoading?: boolean;
   isConnected?: boolean;
   threadPosts?: XThreadPost[];
+  displayMediaIsVideo?: boolean;
 }
 
-function MediaBlock({ url }: { url?: string | null }) {
+function MediaBlock({ url, isVideoMedia }: { url?: string | null; isVideoMedia?: boolean }) {
   if (!url) return null;
   const lowerUrl = url.toLowerCase();
   const isVideo =
+    isVideoMedia ||
     lowerUrl.endsWith(".mp4") ||
     lowerUrl.endsWith(".webm") ||
     lowerUrl.includes(".mp4?") ||
@@ -48,6 +50,7 @@ export default function XPreview({
   isLoading = false,
   isConnected = false,
   threadPosts = [],
+  displayMediaIsVideo = false,
 }: XPreviewProps) {
   const nameText = isConnected ? userName : "X User";
   const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_x_handle";
@@ -86,7 +89,7 @@ export default function XPreview({
         {post.text && (
           <p className="text-[13.5px] text-slate-900 dark:text-white mt-1 mb-1 leading-relaxed whitespace-pre-wrap">{post.text}</p>
         )}
-        <MediaBlock url={post.mediaUrl} />
+        <MediaBlock url={post.mediaUrl} isVideoMedia={!isThread && displayMediaIsVideo} />
         <div className="flex items-center justify-between mt-3 max-w-md text-slate-500">
           <button className="flex items-center gap-2 text-[13px] hover:text-blue-500"><MessageCircle className="h-4 w-4" /> 12</button>
           <button className="flex items-center gap-2 text-[13px] hover:text-emerald-500"><Repeat2 className="h-4 w-4" /> 45</button>

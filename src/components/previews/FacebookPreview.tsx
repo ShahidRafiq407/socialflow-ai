@@ -8,6 +8,7 @@ interface FacebookPreviewProps {
   userImage: string | null;
   currentCaption: string;
   isVertical?: boolean;
+  displayMediaIsVideo?: boolean;
   isLoading?: boolean;
   isConnected?: boolean;
 }
@@ -19,6 +20,7 @@ export default function FacebookPreview({
   userImage,
   currentCaption,
   isVertical = false,
+  displayMediaIsVideo = false,
   isLoading = false,
   isConnected = false,
 }: FacebookPreviewProps) {
@@ -77,7 +79,7 @@ export default function FacebookPreview({
         )}
 
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          {(displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl))) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : isStoryFormat && displayImageUrl ? (
             <img src={displayImageUrl} alt="Story" className="w-full h-full object-cover" />
@@ -183,7 +185,7 @@ export default function FacebookPreview({
 
       {displayImageUrl && (
         <div className="w-full max-h-[300px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden">
-          {displayImageUrl && isVideoUrl(displayImageUrl) ? (
+          {(displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl))) ? (
             <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <img src={displayImageUrl} alt="FB Post" className="w-full h-full object-cover" />

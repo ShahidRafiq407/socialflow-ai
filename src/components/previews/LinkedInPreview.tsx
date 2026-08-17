@@ -13,6 +13,8 @@ interface LinkedInPreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
+  isVertical?: boolean;
+  displayMediaIsVideo?: boolean;
 }
 
 export default function LinkedInPreview({
@@ -27,6 +29,8 @@ export default function LinkedInPreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
+  isVertical = false,
+  displayMediaIsVideo = false,
 }: LinkedInPreviewProps) {
   const [expanded, setExpanded] = useState(false);
   const isLong = (currentCaption || "").length > 130;
@@ -46,40 +50,12 @@ export default function LinkedInPreview({
     );
   };
 
-  const isShortVideo = currentFormatName === "Short Video";
+  // LinkedIn shows vertical (9:16) videos inline in the standard feed card with a
+  // taller 9:16 media area — there is no story/phone frame on LinkedIn.
+  const isVideoFormat = currentFormatName === "Video" || currentFormatName === "Short Video";
+  const isVerticalVideo = isVideoFormat && isVertical;
   const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
   const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
-
-  if (isShortVideo) {
-    return (
-      <div className="relative border-[8px] border-slate-900 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
-        <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
-          <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-full bg-[#0A66C2] overflow-hidden shrink-0 flex items-center justify-center text-white text-xs font-bold">
-              {userImage ? <img src={userImage} alt={displayName} className="h-full w-full object-cover" /> : <Briefcase className="h-3 w-3" />}
-            </div>
-            <span className="text-xs font-bold text-white truncate max-w-[120px]">{displayName}</span>
-          </div>
-          <span className="bg-[#0A66C2] text-[10px] font-semibold px-2 py-0.5 rounded text-white">Video</span>
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-slate-400">LinkedIn Video Preview</span>
-              <span className="text-[11px] text-slate-500">No video generated yet</span>
-            </div>
-          )}
-        </div>
-        <div className="absolute bottom-0 left-0 right-0 p-3 pt-10 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-          <p className="text-xs font-bold text-white mb-1 truncate">{displayName}</p>
-          <p className="text-[11px] leading-snug line-clamp-3 text-slate-200">{currentCaption}</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="w-full max-w-[400px] rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1b1f23] shadow-sm overflow-hidden text-left">
@@ -128,8 +104,12 @@ export default function LinkedInPreview({
       </div>
 
       {currentSlideMedia && (
-        <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group">
-          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+        <div
+          className={`relative bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group ${
+            isVerticalVideo ? "w-full max-w-[280px] aspect-[9/16] mx-auto" : "w-full max-h-[320px]"
+          }`}
+        >
+          {(displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <img src={currentSlideMedia} alt={`LinkedIn Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />

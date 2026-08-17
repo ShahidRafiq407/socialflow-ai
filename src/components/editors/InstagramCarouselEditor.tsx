@@ -315,6 +315,7 @@ export default function InstagramCarouselEditor({
                   url={activeSlide.imageUrl}
                   isVertical={false}
                   showRemoveButton={false}
+                  showDownloadButton={false}
                   alt={`Slide ${currentIdx + 1}`}
                 />
                 {/* OVERLAY BADGE */}

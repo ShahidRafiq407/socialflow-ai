@@ -40,6 +40,9 @@ interface StandardSocialEditorProps {
     duration?: number;
     prompt?: string;
     aspectRatio?: string;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
     style?: string;
     quality?: string;
     imageModel?: string;
@@ -102,11 +105,6 @@ export default function StandardSocialEditor({
   onGenerateField,
   generatingField = null,
 }: StandardSocialEditorProps) {
-  const isVertical = capability.defaultAspectRatio === "9:16";
-  const isSquare = capability.defaultAspectRatio === "1:1";
-  const isFourFive = capability.defaultAspectRatio === "4:5";
-  const hasCaption = Boolean(caption && caption.trim().length > 0);
-
   // Model settings for image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
@@ -118,6 +116,31 @@ export default function StandardSocialEditor({
     capability.mediaType === "video" ? "video" : "image"
   );
   const [videoDuration, setVideoDuration] = useState(durationSec || 5);
+  // Video task mode for video generated through this editor (e.g. Instagram Story video)
+  const [storyVideoTask, setStoryVideoTask] = useState<string>("auto");
+
+  // Video aspect: only ratios the video backend can synthesize (9:16 / 16:9).
+  const BACKEND_VIDEO_RATIOS = ["16:9", "9:16"] as readonly string[];
+  const videoRatioOptions = (capability.supportedAspectRatios || [])
+    .filter((r) => BACKEND_VIDEO_RATIOS.includes(r)) as string[];
+  const [videoAspect, setVideoAspect] = useState<string>("auto");
+  const effectiveVideoAspect =
+    videoAspect !== "auto" && videoRatioOptions.includes(videoAspect)
+      ? videoAspect
+      : capability.defaultAspectRatio;
+
+  // Effective preview ratio — the editor frame follows what will actually be
+  // generated: video uses the video aspect, image uses the Image Settings ratio.
+  const effectiveAspect =
+    selectedMediaType === "video"
+      ? effectiveVideoAspect
+      : imageAspectRatio !== "auto" && (capability.supportedAspectRatios || []).includes(imageAspectRatio as any)
+        ? imageAspectRatio
+        : capability.defaultAspectRatio;
+  const isVertical = effectiveAspect === "9:16";
+  const isSquare = effectiveAspect === "1:1";
+  const isFourFive = effectiveAspect === "4:5";
+  const hasCaption = Boolean(caption && caption.trim().length > 0);
 
   const handleDurationSelect = (sec: number) => {
     setVideoDuration(sec);
@@ -136,6 +159,8 @@ export default function StandardSocialEditor({
         mediaType: "video",
         duration: videoDuration,
         prompt,
+        aspectRatio: effectiveVideoAspect,
+        videoTask: storyVideoTask,
       });
     } else {
       onRenderAI({
@@ -169,7 +194,7 @@ export default function StandardSocialEditor({
             {capability.label}
           </Badge>
           <span className="text-xs text-slate-500 font-medium">
-            {capability.format} ({capability.defaultAspectRatio} Aspect Ratio)
+            {capability.format} ({effectiveAspect} Aspect Ratio)
           </span>
         </div>
 
@@ -248,6 +273,7 @@ export default function StandardSocialEditor({
                 url={displayImageUrl}
                 isVertical={isVertical}
                 onRemove={onRemoveMedia}
+                showDownloadButton={false}
                 alt={`${capability.format} preview`}
               />
             ) : (
@@ -372,9 +398,9 @@ export default function StandardSocialEditor({
                 </button>
               </div>
 
-              {/* VIDEO DURATION SETTINGS WHEN VIDEO SELECTED */}
+              {/* VIDEO SETTINGS WHEN VIDEO SELECTED (duration + generation task) */}
               {selectedMediaType === "video" && (
-                <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-1">
+                <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-2">
                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                     <span className="flex items-center gap-1">
                       <Settings2 className="h-3 w-3 text-pink-500" /> Duration
@@ -396,6 +422,42 @@ export default function StandardSocialEditor({
                         {s}s
                       </button>
                     ))}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Aspect Ratio
+                    </label>
+                    {videoRatioOptions.length > 1 ? (
+                      <select
+                        value={videoAspect}
+                        onChange={(e) => setVideoAspect(e.target.value)}
+                        className="w-full h-8 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-pink-500 focus:outline-none"
+                      >
+                        <option value="auto">Auto ({capability.defaultAspectRatio} Default)</option>
+                        {videoRatioOptions.map((ratio) => (
+                          <option key={ratio} value={ratio}>{ratio}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex items-center justify-between h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        <span>{effectiveVideoAspect}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">Platform standard</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                      Video Task
+                    </label>
+                    <select
+                      value={storyVideoTask}
+                      onChange={(e) => setStoryVideoTask(e.target.value)}
+                      className="w-full h-8 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-pink-500 focus:outline-none"
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="text_to_video">Text to Video</option>
+                      <option value="image_to_video">Image to Video</option>
+                    </select>
                   </div>
                 </div>
               )}

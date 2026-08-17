@@ -14,6 +14,7 @@ interface InstagramPreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
+  displayMediaIsVideo?: boolean;
 }
 
 export default function InstagramPreview({
@@ -29,6 +30,7 @@ export default function InstagramPreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
+  displayMediaIsVideo = false,
 }: InstagramPreviewProps) {
   const [isMuted, setIsMuted] = useState(true);
   const reelVideoRef = useRef<HTMLVideoElement>(null);
@@ -88,7 +90,7 @@ export default function InstagramPreview({
         </div>
 
         {/* Audio Unmute Toggle Button */}
-        {currentSlideMedia && isVideoUrl(currentSlideMedia) && (
+        {currentSlideMedia && (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) && (
           <button
             type="button"
             onClick={toggleMute}
@@ -100,7 +102,7 @@ export default function InstagramPreview({
         )}
 
         <div className="absolute inset-0 flex items-center justify-center cursor-pointer" onClick={toggleMute}>
-          {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+          {currentSlideMedia && (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
             <video
               ref={reelVideoRef}
               src={currentSlideMedia}
@@ -191,7 +193,7 @@ export default function InstagramPreview({
       </div>
 
       <div className="w-full max-h-[320px] aspect-square relative overflow-hidden bg-slate-950 flex items-center justify-center group">
-        {currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+        {currentSlideMedia && (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
           <video src={currentSlideMedia} autoPlay loop muted playsInline className="w-full h-full object-cover" />
         ) : currentSlideMedia ? (
           <img src={currentSlideMedia} alt={`Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />

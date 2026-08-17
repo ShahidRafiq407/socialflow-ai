@@ -16,6 +16,7 @@ interface PinterestPreviewProps {
   userImage: string | null;
   isLoading?: boolean;
   isConnected?: boolean;
+  displayMediaIsVideo?: boolean;
 }
 
 export default function PinterestPreview({
@@ -33,6 +34,7 @@ export default function PinterestPreview({
   userImage,
   isLoading = false,
   isConnected = false,
+  displayMediaIsVideo = false,
 }: PinterestPreviewProps) {
   const pinTitle = campaignTopic || "Aesthetics & Strategy Inspiration";
   const pinUser = isConnected ? userName : "Pinterest Creator";
@@ -82,7 +84,7 @@ export default function PinterestPreview({
             <div className="w-full h-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center"><Sparkles className="h-5 w-5 text-slate-400" /></div>
           )
         ) : currentFormatName === "Video Pin" ? (
-          currentSlideMedia && isVideoUrl(currentSlideMedia) ? (
+          currentSlideMedia && (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (
             <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-3 text-center">
@@ -91,7 +93,7 @@ export default function PinterestPreview({
             </div>
           )
         ) : currentSlideMedia ? (
-          isVideoUrl(currentSlideMedia) ? (
+          (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (
             <img src={currentSlideMedia} alt={`Pin Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
