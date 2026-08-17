@@ -64,7 +64,7 @@ export default function InstagramPreview({
 
   if (currentFormatName === "Story" || currentFormatName === "Reel") {
     return (
-      <div className="relative border-[8px] border-slate-900 dark:border-slate-800 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
+      <div className="relative border-[6px] border-slate-900 dark:border-slate-800 rounded-[28px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[240px] sm:max-w-[250px] aspect-[9/16]">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
         <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
           {isLoading ? (
@@ -168,7 +168,7 @@ export default function InstagramPreview({
   }
 
   return (
-    <div className="w-full max-w-[340px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md rounded-xl overflow-hidden text-left">
+    <div className="w-full max-w-[320px] sm:max-w-[330px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-md rounded-xl overflow-hidden text-left">
       <div className="flex items-center justify-between p-3">
         {isLoading ? (
           <div className="flex items-center gap-2.5 animate-pulse">

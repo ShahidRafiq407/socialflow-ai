@@ -46,7 +46,7 @@ export default function FacebookPreview({
 
   if (isReelFormat || isStoryFormat) {
     return (
-      <div className="relative border-[8px] border-slate-900 dark:border-slate-800 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
+      <div className="relative border-[6px] border-slate-900 dark:border-slate-800 rounded-[28px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[240px] sm:max-w-[250px] aspect-[9/16]">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
         
         {isStoryFormat ? (

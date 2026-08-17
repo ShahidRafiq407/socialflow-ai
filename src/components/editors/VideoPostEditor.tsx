@@ -180,15 +180,14 @@ export default function VideoPostEditor({
       </div>
 
       {/* TWO COLUMN WORKSPACE */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: VIDEO PLAYER / PREVIEW + VIDEO CONTROLS */}
-        <div className="md:col-span-5 space-y-4">
-          {/* VIDEO PREVIEW FRAME — shape follows the SELECTED aspect ratio;
-              min-height while generating so the progress UI never gets clipped */}
+        <div className="xl:col-span-5 space-y-3.5">
+          {/* VIDEO PREVIEW FRAME — shape follows the SELECTED aspect ratio */}
           <div
             className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
-              isVertical ? "w-full max-w-[240px] aspect-[9/16]" : "w-full aspect-[16/9]"
-            } ${isRenderingVideo ? "min-h-[320px]" : ""}`}
+              isVertical ? "w-full max-w-[200px] aspect-[9/16]" : "w-full aspect-[16/9] max-w-[340px]"
+            } ${isRenderingVideo ? "min-h-[280px]" : ""}`}
           >
             {isRenderingVideo ? (
               <GenerationProgressIndicator
@@ -523,25 +522,23 @@ export default function VideoPostEditor({
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Video Title</label>
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {capability.platform === "youtube" ? "Video Title" : "Short / Reel Title"}
+                  </label>
                   {onGenerateField && (
                     <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
                       {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
                     </button>
                   )}
                 </div>
-                {capability.titleLimit && (
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    {title.length} / {capability.titleLimit}
-                  </span>
-                )}
+                <CharacterCounter current={title.length} max={capability.titleLimit || 100} />
               </div>
               <Input
                 value={title}
                 maxLength={capability.titleLimit || 100}
                 onChange={(e) => onTitleChange(e.target.value)}
                 placeholder="Enter a high-CTR, curiosity-driven title..."
-                className="h-10 text-sm font-semibold rounded-xl bg-white dark:bg-slate-900"
+                className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
               />
             </div>
           )}
@@ -555,11 +552,11 @@ export default function VideoPostEditor({
               <CharacterCounter current={caption.length} max={capability.captionLimit} />
             </div>
             <Textarea
-              rows={5}
+              rows={4}
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
               placeholder="Start with a 1-second visual hook, deliver core value, and close with CTA..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
             />
           </div>
 

@@ -59,7 +59,7 @@ export default function LinkedInPreview({
 
   if (isVerticalVideo) {
     return (
-      <div className="relative border-[8px] border-slate-900 rounded-[38px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/18]">
+      <div className="relative border-[6px] border-slate-900 rounded-[28px] bg-slate-950 text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[240px] sm:max-w-[250px] aspect-[9/16]">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-28 bg-slate-900 rounded-b-xl z-30" />
         <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between z-20">
           <div className="flex items-center gap-2">

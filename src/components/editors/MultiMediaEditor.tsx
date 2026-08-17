@@ -302,9 +302,9 @@ export default function MultiMediaEditor({
       </div>
 
       {/* ACTIVE MEDIA VIEWER & PROMPT */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        <div className="md:col-span-5 space-y-3">
-          <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[240px] aspect-square overflow-hidden group shadow-2xs">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        <div className="xl:col-span-5 space-y-3.5">
+          <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[220px] max-w-[220px] aspect-square overflow-hidden group shadow-2xs mx-auto">
             {isRenderingSingleAI ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
@@ -358,7 +358,7 @@ export default function MultiMediaEditor({
         </div>
 
         {/* PROMPT CONTROLS */}
-        <div className="md:col-span-7 space-y-3">
+        <div className="xl:col-span-7 space-y-3.5">
           {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
             <div className="flex items-center justify-between">

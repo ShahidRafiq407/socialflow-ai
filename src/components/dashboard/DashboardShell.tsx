@@ -30,7 +30,7 @@ export function DashboardShell({
       <Sidebar />
       <div className="flex-1 flex flex-col md:pl-[250px] min-w-0">
         <Header workspaces={workspaces} userDetails={userDetails} />
-        <main className="flex-1 p-6 md:p-8 bg-slate-50 dark:bg-slate-950 overflow-x-hidden">
+        <main className="flex-1 p-3.5 sm:p-5 lg:p-6 bg-slate-50 dark:bg-slate-950 overflow-x-hidden">
           {children}
         </main>
       </div>

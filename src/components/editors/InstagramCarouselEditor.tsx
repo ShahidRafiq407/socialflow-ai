@@ -266,10 +266,10 @@ export default function InstagramCarouselEditor({
         </div>
       </div>
 
-      {/* ACTIVE SLIDE DESIGNER & PREVIEW */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+      {/* TWO COLUMN SLIDE WORKSPACE */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: SLIDE PREVIEW BOX (1:1 SQUARE) + UNIFIED PROMPT */}
-        <div className="md:col-span-5 space-y-4">
+        <div className="xl:col-span-5 space-y-3.5">
           <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[260px] aspect-square overflow-hidden group shadow-2xs">
             {isRenderingSlideMedia ? (
               <GenerationProgressIndicator
@@ -530,7 +530,7 @@ export default function InstagramCarouselEditor({
         </div>
 
         {/* RIGHT: SLIDE CONTENT FIELDS */}
-        <div className="md:col-span-7 space-y-4">
+        <div className="xl:col-span-7 space-y-3.5">
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
               Slide {currentIdx + 1} Step Header
@@ -539,7 +539,7 @@ export default function InstagramCarouselEditor({
               value={activeSlide.title}
               onChange={(e) => handleUpdateActiveSlide("title", e.target.value)}
               placeholder={`e.g. 0${currentIdx + 1} // The Core Framework`}
-              className="h-10 text-xs sm:text-sm font-semibold rounded-xl bg-white dark:bg-slate-900"
+              className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
             />
           </div>
 
@@ -548,11 +548,11 @@ export default function InstagramCarouselEditor({
               Slide {currentIdx + 1} Body Copy (Rendered on visual overlay)
             </label>
             <Textarea
-              rows={4}
+              rows={3}
               value={activeSlide.body}
               onChange={(e) => handleUpdateActiveSlide("body", e.target.value)}
               placeholder="Write 1-2 high-value, crisp sentences for this carousel slide..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
             />
           </div>
 
@@ -562,7 +562,7 @@ export default function InstagramCarouselEditor({
             size="sm"
             disabled={isRegeneratingSlide}
             onClick={() => onRegenerateSlideAI(currentIdx)}
-            className="w-full h-9 text-xs font-bold gap-1.5 border-pink-200 dark:border-pink-900/50 text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/30"
+            className="w-full h-8.5 text-xs font-bold gap-1.5 border-pink-200 dark:border-pink-900/50 text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/30"
           >
             {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             <span>Regenerate Slide {currentIdx + 1} Copy & Visual</span>

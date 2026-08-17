@@ -223,10 +223,10 @@ export default function PinterestPinEditor({
       </div>
 
       {/* TWO-COLUMN PINTEREST LAYOUT */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN: LARGE PINTEREST MEDIA CONTAINER (MATCHES SCREENSHOT) */}
-        <div className="md:col-span-5 space-y-3">
-          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        {/* LEFT COLUMN: PINTEREST MEDIA CONTAINER */}
+        <div className="xl:col-span-5 space-y-3.5">
+          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[260px] max-w-[200px] mx-auto ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
             {isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
@@ -575,8 +575,8 @@ export default function PinterestPinEditor({
           </div>
         </div>
 
-        {/* RIGHT COLUMN: PINTEREST NATIVE FIELDS (MATCHES SCREENSHOT EXACTLY) */}
-        <div className="md:col-span-7 space-y-4">
+        {/* RIGHT COLUMN: PINTEREST NATIVE FIELDS */}
+        <div className="xl:col-span-7 space-y-3.5">
           {/* TITLE */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -595,7 +595,7 @@ export default function PinterestPinEditor({
               maxLength={100}
               onChange={(e) => onTitleChange(e.target.value)}
               placeholder="Tell everyone what your Pin is about"
-              className="h-10 text-sm font-semibold rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+              className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
             />
           </div>
 
@@ -613,12 +613,12 @@ export default function PinterestPinEditor({
               <span className="text-[11px] text-slate-400 font-mono">{description.length} / 500</span>
             </div>
             <Textarea
-              rows={4}
+              rows={3}
               maxLength={500}
               value={description}
               onChange={(e) => onDescriptionChange(e.target.value)}
               placeholder="Describe your Pin"
-              className="w-full text-xs sm:text-sm leading-relaxed p-3 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+              className="w-full text-xs leading-relaxed p-2.5 rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
             />
           </div>
 
@@ -626,12 +626,12 @@ export default function PinterestPinEditor({
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Link</label>
             <div className="relative">
-              <LinkIcon className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <LinkIcon className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
               <Input
                 value={destinationUrl}
                 onChange={(e) => onDestinationUrlChange(e.target.value)}
                 placeholder="Add a link (e.g. https://yourwebsite.com/article)"
-                className="h-10 pl-9 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                className="h-8.5 pl-8 text-xs rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
               />
             </div>
           </div>
@@ -643,14 +643,14 @@ export default function PinterestPinEditor({
               <select
                 value={board}
                 onChange={(e) => onBoardChange(e.target.value)}
-                className="w-full h-10 px-3 pr-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-800 dark:text-slate-200 appearance-none focus:ring-2 focus:ring-red-500/20"
+                className="w-full h-8.5 px-2.5 pr-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 appearance-none focus:ring-1 focus:ring-red-500"
               >
                 <option value="Smart Robotics & AI">Smart Robotics & AI</option>
                 <option value="Tech Inspiration">Tech Inspiration</option>
                 <option value="DIY Electronics">DIY Electronics</option>
                 <option value="Digital Marketing Strategies">Digital Marketing Strategies</option>
               </select>
-              <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-slate-400 pointer-events-none" />
+              <ChevronDown className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
             </div>
           </div>
 

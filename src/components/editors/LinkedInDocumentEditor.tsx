@@ -279,10 +279,10 @@ export default function LinkedInDocumentEditor({
       </div>
 
       {/* ACTIVE SLIDE CONTENT */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: SLIDE PREVIEW MOCKUP (4:5 / 1:1 PORTRAIT) */}
-        <div className="md:col-span-5 space-y-3">
-          <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-900 text-white p-5 flex flex-col justify-between min-h-[300px] aspect-[4/5] shadow-lg relative overflow-hidden">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        {/* LEFT: SLIDE PREVIEW MOCKUP */}
+        <div className="xl:col-span-5 space-y-3.5">
+          <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-900 text-white p-4 flex flex-col justify-between min-h-[250px] max-w-[220px] mx-auto aspect-[4/5] shadow-lg relative overflow-hidden">
             {/* TOP HEADER */}
             <div className="flex items-center justify-between border-b border-white/10 pb-2">
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-400">
@@ -329,14 +329,14 @@ export default function LinkedInDocumentEditor({
         </div>
 
         {/* RIGHT: SLIDE EDITING FIELDS */}
-        <div className="md:col-span-7 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="xl:col-span-7 space-y-3.5">
+          <div className="grid grid-cols-2 gap-2.5">
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Slide Type</label>
               <select
                 value={activeSlide.type}
                 onChange={(e) => handleUpdateActiveSlide("type", e.target.value)}
-                className="w-full h-9 px-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold"
+                className="w-full h-8.5 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold"
               >
                 <option value="hook">Hook Slide (Cover)</option>
                 <option value="content">Content / Strategy Slide</option>
@@ -351,7 +351,7 @@ export default function LinkedInDocumentEditor({
                 value={activeSlide.title}
                 onChange={(e) => handleUpdateActiveSlide("title", e.target.value)}
                 placeholder="Heading on slide"
-                className="h-9 text-xs sm:text-sm font-semibold rounded-xl bg-white dark:bg-slate-900"
+                className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
               />
             </div>
           </div>
@@ -361,11 +361,11 @@ export default function LinkedInDocumentEditor({
               Key Bullet Points (1 per line)
             </label>
             <Textarea
-              rows={4}
+              rows={3}
               value={(activeSlide.points || []).join("\n")}
               onChange={(e) => handleUpdateActiveSlide("points", e.target.value.split("\n"))}
               placeholder="First key insight&#10;Second actionable takeaway&#10;Third supporting data point"
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed font-mono"
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed font-mono"
             />
           </div>
 
@@ -377,7 +377,7 @@ export default function LinkedInDocumentEditor({
               value={activeSlide.visualPrompt}
               onChange={(e) => handleUpdateActiveSlide("visualPrompt", e.target.value)}
               placeholder="Visual design instructions for this slide..."
-              className="h-9 text-xs bg-white dark:bg-slate-900"
+              className="h-8.5 text-xs rounded-lg bg-white dark:bg-slate-900"
             />
           </div>
         </div>

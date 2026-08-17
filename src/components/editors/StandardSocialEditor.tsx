@@ -197,19 +197,19 @@ export default function StandardSocialEditor({
       </div>
 
       {/* TWO COLUMN WORKSPACE */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: MEDIA PREVIEW & UNIFIED PROMPT SECTION */}
-        <div className="md:col-span-5 space-y-4">
+        <div className="xl:col-span-5 space-y-3.5">
           {/* MEDIA PREVIEW CONTAINER */}
           <div
             className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto ${
               isVertical
-                ? "w-full max-w-[240px] aspect-[9/16]"
+                ? "w-full max-w-[200px] aspect-[9/16]"
                 : isSquare
-                ? "w-full aspect-square max-w-[280px]"
+                ? "w-full aspect-square max-w-[240px]"
                 : isFourFive
-                ? "w-full aspect-[4/5] max-w-[280px]"
-                : "w-full aspect-[16/9]"
+                ? "w-full aspect-[4/5] max-w-[240px]"
+                : "w-full aspect-[16/9] max-w-[340px]"
             }`}
           >
             {isRenderingMedia ? (
@@ -691,7 +691,7 @@ export default function StandardSocialEditor({
         </div>
 
         {/* RIGHT: CAPTION, HASHTAGS, ALT TEXT */}
-        <div className="md:col-span-7 space-y-4">
+        <div className="xl:col-span-7 space-y-3.5">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -700,11 +700,11 @@ export default function StandardSocialEditor({
               <CharacterCounter current={caption.length} max={capability.captionLimit} />
             </div>
             <Textarea
-              rows={5}
+              rows={4}
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
               placeholder="Type or paste your post caption here..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
             />
           </div>
 

@@ -2688,16 +2688,16 @@ export default function AIStudioPage() {
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
 
       {/* TOP HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm shrink-0 border border-slate-800 dark:border-slate-200">
-            <Layers className="h-5 w-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-xs shrink-0 border border-slate-800 dark:border-slate-200">
+            <Layers className="h-4 w-4" />
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
               Generate with AI or Add Your Own Content
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Select target platforms & formats below, then generate with AI or write custom posts.
             </p>
           </div>
@@ -2938,11 +2938,11 @@ export default function AIStudioPage() {
           </Card>
 
           {/* GENERATE CONTENT WITH AI FOR ALL SELECTED PLATFORMS BUTTON */}
-          <div className="mt-2.5 mb-4 flex items-center justify-center">
+          <div className="my-2.5 flex items-center justify-center">
             <Button
               onClick={() => setIsMultiAgentModalOpen(true)}
               disabled={selectedPlatforms.length === 0}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-95 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-purple-500/20 gap-2.5 transition-all hover:scale-[1.01]"
+              className="w-full sm:w-auto px-6 py-2.5 h-10 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:opacity-95 text-white font-bold text-xs sm:text-sm shadow-md shadow-purple-500/15 gap-2 transition-all hover:scale-[1.01]"
             >
               <Sparkles className="h-4 w-4" />
               <span>Generate Content with AI for All Selected Platforms ({selectedPlatforms.length})</span>
@@ -2950,7 +2950,7 @@ export default function AIStudioPage() {
           </div>
 
           {/* MAIN WORKSPACE */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-start">
             {/* LEFT: CREATIVE EDITOR */}
             <Card className="lg:col-span-7 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
               {/* SINGLE SLEEK 1-LINE TOOLBAR (ULTRA THIN HEADER) */}

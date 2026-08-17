@@ -73,7 +73,7 @@ export default function YoutubePreview({
   }
 
   return (
-    <div className="relative border-[8px] border-slate-900 rounded-[32px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[270px] aspect-[9/16]">
+    <div className="relative border-[6px] border-slate-900 rounded-[28px] bg-[#0f0f0f] text-white overflow-hidden shadow-2xl mx-auto w-full max-w-[240px] sm:max-w-[250px] aspect-[9/16]">
       <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
         {displayImageUrl && (displayMediaIsVideo || isVideoUrl(displayImageUrl)) ? (
           <video src={displayImageUrl} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
