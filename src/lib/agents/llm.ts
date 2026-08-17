@@ -14,7 +14,10 @@ export const MODELS = {
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
   VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3-pro-image",
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "gemini-omni-flash-preview",
+  // "gemini-omni-flash-preview" was decommissioned by Google (404 Publisher model
+  // not found) — Veo 3.1 preview is the current video model; generateRealVideo
+  // falls back to stable Veo GA models automatically.
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "veo-3.1-generate-preview",
 
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro-preview",
 };

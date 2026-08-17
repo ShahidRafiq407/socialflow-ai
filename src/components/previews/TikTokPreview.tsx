@@ -4,6 +4,7 @@ import { Heart, MessageCircle, Bookmark, Share2, Music, Video } from "lucide-rea
 interface TikTokPreviewProps {
   currentFormatName?: string;
   displayImageUrl: string | null;
+  displayMediaIsVideo?: boolean;
   displayImageUrls?: string[];
   activeSlideIdx?: number;
   onSlideChange?: (idx: number) => void;
@@ -13,12 +14,12 @@ interface TikTokPreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
-  displayMediaIsVideo?: boolean;
 }
 
 export default function TikTokPreview({
   currentFormatName = "Video",
   displayImageUrl,
+  displayMediaIsVideo = false,
   displayImageUrls = [],
   activeSlideIdx = 0,
   onSlideChange,
@@ -28,7 +29,6 @@ export default function TikTokPreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
-  displayMediaIsVideo = false,
 }: TikTokPreviewProps) {
   const isVideoUrl = (url: string | null) => {
     if (!url) return false;

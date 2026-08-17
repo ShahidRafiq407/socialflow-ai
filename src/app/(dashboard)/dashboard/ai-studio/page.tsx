@@ -2200,13 +2200,8 @@ export default function AIStudioPage() {
     return isVertical && getPlatformCapability(activePlatformTab, currentFormatName).defaultAspectRatio === "9:16";
   })();
   // Explicit media type for previews — URL extensions can lie (Supabase URLs),
-  // so trust the stored type from the generation/upload pipeline, the campaign
-  // video payload, or the completed video status for this format.
-  const displayMediaIsVideo =
-    customMediaDict[currentMediaKey]?.type === "video" ||
-    Boolean(currentGenerated?.videoUrl && currentGenerated.videoUrl === displayImageUrl) ||
-    (videoStatus === "completed" && Boolean(displayImageUrl)) ||
-    isVideoUrl(displayImageUrl);
+  // so trust the stored type from the generation/upload pipeline.
+  const displayMediaIsVideo = customMediaDict[currentMediaKey]?.type === "video" || isVideoUrl(displayImageUrl);
   const isSquare = currentFormatName === "Feed";
   const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
 

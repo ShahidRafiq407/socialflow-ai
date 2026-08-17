@@ -263,7 +263,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     category: "organic",
     mediaType: "video",
     defaultAspectRatio: "9:16",
-    supportedAspectRatios: ["9:16", "16:9"],
+    supportedAspectRatios: ["9:16"],
     maxMedia: 1,
     minMedia: 1,
     supportsTitle: true,

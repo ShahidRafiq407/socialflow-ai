@@ -74,7 +74,10 @@ function validateAssetUrl(url: string, type: "image" | "video") {
 }
 
 /**
- * Flagship Video Synthesis Handler Utilizing Gemini Omni Flash Preview / Interactions API
+ * Flagship Video Synthesis Handler — Google Veo family via the Gemini SDK
+ * generateVideos API with automatic model fallback. Google decommissions
+ * "-preview" models without notice (HTTP 404 "Publisher model not found"), so
+ * the configured model is tried first and stable Veo GA models follow.
  */
 async function generateRealVideo(options: {
   prompt: string;
@@ -88,189 +91,210 @@ async function generateRealVideo(options: {
   onProgress?: (message: string) => void;
 }): Promise<string> {
   const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, signal, onProgress } = options;
-  const targetVideoModel = model || "gemini-omni-flash-preview";
   const ai = (vertexProvider as any).ai;
+
+  // Candidate models: configured model first, then stable Veo GA fallbacks.
+  const candidateModels = Array.from(new Set(
+    [
+      model || "veo-3.1-generate-preview",
+      "veo-3.1-generate-preview",
+      "veo-3.0-generate-001",
+      "veo-2.0-generate-001",
+    ].filter(Boolean) as string[]
+  ));
+
+  // generateVideos accepts gcsUri or inline base64 bytes — http(s) URLs are not
+  // valid image/video inputs, so only data: URLs become source inputs.
+  const toInlineInput = (url: string | null | undefined): { mimeType: string; bytes: string } | null => {
+    if (!url) return null;
+    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+    return match ? { mimeType: match[1], bytes: match[2] } : null;
+  };
+  const inlineImage = toInlineInput(sourceImage);
+  const inlineVideo = toInlineInput(sourceVideo);
+
   let lastErr: any = null;
 
-  console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}" (Task: ${videoTask || "auto"})`);
+  for (const targetVideoModel of candidateModels) {
+    console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}" (Task: ${videoTask || "auto"})`);
 
-  // 1. Primary: Google Interactions API (Native endpoint for Gemini Omni Flash Preview)
-  if (typeof (ai as any)?.interactions?.create === "function") {
     try {
-      const fullPrompt = prompt.trim();
-      
-      onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
+      // 1. Primary: Google Interactions API (native endpoint for Omni-class models)
+      if (typeof (ai as any)?.interactions?.create === "function") {
+        const fullPrompt = prompt.trim();
+        
+        onProgress?.(`[Visualizer] Synthesizing video frames & audio stream via ${targetVideoModel}...`);
 
-      let formattedInput: any = fullPrompt;
-      const inputParts: any[] = [];
+        let formattedInput: any = fullPrompt;
+        const inputParts: any[] = [];
 
-      if (sourceImage) {
-        if (sourceImage.startsWith("data:")) {
-          const match = sourceImage.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
+        if (sourceImage) {
+          if (sourceImage.startsWith("data:")) {
+            const match = sourceImage.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              inputParts.push({
+                type: "image",
+                mime_type: match[1],
+                data: match[2],
+              });
+            }
+          } else if (sourceImage.startsWith("http://") || sourceImage.startsWith("https://")) {
             inputParts.push({
               type: "image",
-              mime_type: match[1],
-              data: match[2],
+              uri: sourceImage,
             });
           }
-        } else if (sourceImage.startsWith("http://") || sourceImage.startsWith("https://")) {
-          inputParts.push({
-            type: "image",
-            uri: sourceImage,
-          });
         }
-      }
 
-      if (sourceVideo) {
-        if (sourceVideo.startsWith("data:")) {
-          const match = sourceVideo.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
+        if (sourceVideo) {
+          if (sourceVideo.startsWith("data:")) {
+            const match = sourceVideo.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              inputParts.push({
+                type: "video",
+                mime_type: match[1],
+                data: match[2],
+              });
+            }
+          } else if (sourceVideo.startsWith("http://") || sourceVideo.startsWith("https://")) {
             inputParts.push({
               type: "video",
-              mime_type: match[1],
-              data: match[2],
+              uri: sourceVideo,
             });
           }
-        } else if (sourceVideo.startsWith("http://") || sourceVideo.startsWith("https://")) {
-          inputParts.push({
-            type: "video",
-            uri: sourceVideo,
-          });
         }
-      }
 
-      if (inputParts.length > 0) {
-        inputParts.push({ type: "text", text: fullPrompt });
-        formattedInput = inputParts;
-      }
+        if (inputParts.length > 0) {
+          inputParts.push({ type: "text", text: fullPrompt });
+          formattedInput = inputParts;
+        }
 
-      const interaction = await Promise.race([
-        (ai as any).interactions.create({
-          model: targetVideoModel,
-          input: formattedInput,
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Video synthesis timeout after 120s")), 120000)
-        ),
-      ]);
+        const interaction = await Promise.race([
+          (ai as any).interactions.create({
+            model: targetVideoModel,
+            input: formattedInput,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Video synthesis timeout after 120s")), 120000)
+          ),
+        ]);
 
-      // Check direct output_video (standard response format from gemini-omni-flash-preview)
-      const directVideo = (interaction as any)?.output_video || (interaction as any)?.outputVideo;
-      if (directVideo?.data) {
-        onProgress?.(`[Visualizer] ✅ Video synthesis complete via ${targetVideoModel}!`);
-        const mime = directVideo.mime_type || directVideo.mimeType || "video/mp4";
-        const base64Data = `data:${mime};base64,${directVideo.data}`;
-        
-        // If Supabase storage is configured, upload to storage for permanent CDN streaming
-        if (isSupabaseConfigured()) {
-          try {
-            const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
-            if (uploadedUrl) return uploadedUrl;
-          } catch (storageErr) {
-            console.warn("[Visualizer] Supabase video upload failed, returning data URI:", storageErr);
+        // Check direct output_video (standard response format from Omni-class models)
+        const directVideo = (interaction as any)?.output_video || (interaction as any)?.outputVideo;
+        if (directVideo?.data) {
+          onProgress?.(`[Visualizer] ✅ Video synthesis complete via ${targetVideoModel}!`);
+          const mime = directVideo.mime_type || directVideo.mimeType || "video/mp4";
+          const base64Data = `data:${mime};base64,${directVideo.data}`;
+          
+          // If Supabase storage is configured, upload to storage for permanent CDN streaming
+          if (isSupabaseConfigured()) {
+            try {
+              const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
+              if (uploadedUrl) return uploadedUrl;
+            } catch (storageErr) {
+              console.warn("[Visualizer] Supabase video upload failed, returning data URI:", storageErr);
+            }
           }
+          return base64Data;
         }
-        return base64Data;
-      }
 
-      if (directVideo?.uri) {
-        onProgress?.(`[Visualizer] ✅ Video asset ready via ${targetVideoModel}!`);
-        return directVideo.uri;
-      }
+        if (directVideo?.uri) {
+          onProgress?.(`[Visualizer] ✅ Video asset ready via ${targetVideoModel}!`);
+          return directVideo.uri;
+        }
 
-      // Check steps format
-      if (interaction?.steps) {
-        for (const step of (interaction as any).steps) {
-          if (step.type === "model_output" && Array.isArray(step.content)) {
-            for (const part of step.content) {
-              if (part.type === "video" && part.data) {
-                onProgress?.(`[Visualizer] ✅ Video synthesis complete!`);
-                return `data:video/mp4;base64,${part.data}`;
-              } else if (part.type === "video" && part.uri) {
-                return part.uri;
+        // Check steps format
+        if (interaction?.steps) {
+          for (const step of (interaction as any).steps) {
+            if (step.type === "model_output" && Array.isArray(step.content)) {
+              for (const part of step.content) {
+                if (part.type === "video" && part.data) {
+                  onProgress?.(`[Visualizer] ✅ Video synthesis complete!`);
+                  return `data:video/mp4;base64,${part.data}`;
+                } else if (part.type === "video" && part.uri) {
+                  return part.uri;
+                }
               }
             }
           }
         }
       }
-    } catch (iErr: any) {
-      lastErr = iErr;
-      console.warn(`[Visualizer] interactions.create on ${targetVideoModel} failed:`, iErr?.message || iErr);
-    }
-  }
 
-  // 2. Secondary: generateVideos method
-  if (typeof ai?.models?.generateVideos === "function") {
-    try {
-      onProgress?.(`[Visualizer] Submitting video synthesis job (${targetVideoModel})...`);
-      let operation = await ai.models.generateVideos({
-        model: targetVideoModel,
-        prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
-        config: {
-          aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
-          numberOfVideos: 1,
-        },
-      });
+      // 2. generateVideos (Veo path — the API that ships in the SDK today)
+      if (typeof ai?.models?.generateVideos === "function") {
+        onProgress?.(`[Visualizer] Submitting video synthesis job (${targetVideoModel})...`);
+        let operation = await ai.models.generateVideos({
+          model: targetVideoModel,
+          prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+          ...(inlineImage && !inlineVideo ? { image: { imageBytes: inlineImage.bytes, mimeType: inlineImage.mimeType } } : {}),
+          ...(inlineVideo ? { video: { videoBytes: inlineVideo.bytes, mimeType: inlineVideo.mimeType } } : {}),
+          config: {
+            aspectRatio: aspectRatio === "9:16" ? "9:16" : "16:9",
+            numberOfVideos: 1,
+          },
+        });
 
-      if (operation) {
-        const POLL_INTERVAL_MS = 3000;
-        const TIMEOUT_MS = 120000;
-        const startTime = Date.now();
-        const opName = operation.name || `operation_${Date.now()}`;
+        if (operation) {
+          const POLL_INTERVAL_MS = 3000;
+          const TIMEOUT_MS = 120000;
+          const startTime = Date.now();
+          const opName = operation.name || `operation_${Date.now()}`;
 
-        while (!operation.done) {
-          if (signal?.aborted) {
-            throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+          while (!operation.done) {
+            if (signal?.aborted) {
+              throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+            }
+            const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+            if (Date.now() - startTime > TIMEOUT_MS) {
+              break;
+            }
+
+            onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+            if (typeof (ai.operations as any)?.getVideosOperation === "function") {
+              operation = await (ai.operations as any).getVideosOperation({ operation });
+            } else if (typeof (ai.operations as any)?.get === "function") {
+              operation = await (ai.operations as any).get({ name: opName });
+            } else if (typeof operation.poll === "function") {
+              operation = await operation.poll();
+            } else {
+              break;
+            }
           }
-          const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-          if (Date.now() - startTime > TIMEOUT_MS) {
-            break;
+
+          const videoBytes = operation?.response?.generatedVideos?.[0]?.video?.videoBytes;
+          const videoUri = operation?.response?.generatedVideos?.[0]?.video?.uri;
+
+          if (videoBytes) {
+            onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${targetVideoModel})!`);
+            return `data:video/mp4;base64,${videoBytes}`;
           }
-
-          onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-          if (typeof (ai.operations as any)?.getVideosOperation === "function") {
-            operation = await (ai.operations as any).getVideosOperation({ operation });
-          } else if (typeof (ai.operations as any)?.get === "function") {
-            operation = await (ai.operations as any).get({ name: opName });
-          } else if (typeof operation.poll === "function") {
-            operation = await operation.poll();
-          } else {
-            break;
+          if (videoUri) {
+            onProgress?.(`[Visualizer] ✅ Video asset ready (${targetVideoModel})!`);
+            return videoUri;
           }
-        }
-
-        const videoBytes = operation?.response?.generatedVideos?.[0]?.video?.videoBytes;
-        const videoUri = operation?.response?.generatedVideos?.[0]?.video?.uri;
-
-        if (videoBytes) {
-          onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${targetVideoModel})!`);
-          return `data:video/mp4;base64,${videoBytes}`;
-        }
-        if (videoUri) {
-          onProgress?.(`[Visualizer] ✅ Video asset ready (${targetVideoModel})!`);
-          return videoUri;
         }
       }
-    } catch (gvErr: any) {
-      lastErr = gvErr;
-      console.warn(`[Visualizer] generateVideos on ${targetVideoModel} failed:`, gvErr?.message || gvErr);
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Visualizer] Video synthesis on ${targetVideoModel} failed:`, err?.message || err);
+      // Move to the next candidate model — a 404 here means this model was
+      // decommissioned by Google, not that generation is impossible.
     }
   }
 
-  // If live Vertex video synthesis failed with an error, throw the actual error
+  // If every candidate model failed, throw the actual last error
   if (lastErr) {
     throw new VisualizerError(
       "VIDEO_GENERATION_FAILED",
-      `Video synthesis on ${targetVideoModel} failed: ${lastErr?.message || lastErr}`
+      `Video synthesis failed on all candidate models (${candidateModels.join(", ")}). Last error: ${lastErr?.message || lastErr}`
     );
   }
 
   throw new VisualizerError(
     "VIDEO_GENERATION_FAILED",
-    `Video synthesis on ${targetVideoModel} could not produce a valid video output.`
+    "Video synthesis could not produce a valid video output on any candidate model."
   );
 }
 

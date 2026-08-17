@@ -348,7 +348,6 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
-            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "linkedin":
@@ -371,7 +370,6 @@ export default function PlatformPreviewWrapper({
             userImage={userImage}
             userHandle={userHandle}
             threadPosts={threadPosts}
-            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "tiktok":
@@ -382,7 +380,6 @@ export default function PlatformPreviewWrapper({
             userName={userName}
             userImage={userImage}
             userHandle={userHandle}
-            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "youtube":
@@ -392,7 +389,6 @@ export default function PlatformPreviewWrapper({
             {...commonProps}
             userName={userName}
             userImage={userImage}
-            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       case "facebook":
@@ -417,7 +413,6 @@ export default function PlatformPreviewWrapper({
             isCurrentSlideLoading={isCurrentSlideLoading}
             currentHtmlSlide={currentHtmlSlide}
             campaignTopic={campaignTopic}
-            displayMediaIsVideo={displayMediaIsVideo}
           />
         );
       default:

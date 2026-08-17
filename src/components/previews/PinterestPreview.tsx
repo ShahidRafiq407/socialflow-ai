@@ -12,11 +12,11 @@ interface PinterestPreviewProps {
   activeSlideIdx?: number;
   onSlideChange?: (idx: number) => void;
   campaignTopic: string;
+  displayMediaIsVideo?: boolean;
   userName: string;
   userImage: string | null;
   isLoading?: boolean;
   isConnected?: boolean;
-  displayMediaIsVideo?: boolean;
 }
 
 export default function PinterestPreview({
@@ -30,11 +30,11 @@ export default function PinterestPreview({
   activeSlideIdx = 0,
   onSlideChange,
   campaignTopic,
+  displayMediaIsVideo = false,
   userName,
   userImage,
   isLoading = false,
   isConnected = false,
-  displayMediaIsVideo = false,
 }: PinterestPreviewProps) {
   const pinTitle = campaignTopic || "Aesthetics & Strategy Inspiration";
   const pinUser = isConnected ? userName : "Pinterest Creator";
@@ -93,7 +93,7 @@ export default function PinterestPreview({
             </div>
           )
         ) : currentSlideMedia ? (
-          (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
+          isVideoUrl(currentSlideMedia) ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           ) : (
             <img src={currentSlideMedia} alt={`Pin Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />

@@ -5,7 +5,6 @@ import {
   Upload,
   Sparkles,
   ImageIcon,
-  Video as VideoIcon,
   Trash2,
   ChevronDown,
   ChevronUp,
@@ -15,6 +14,7 @@ import {
   Info,
   Layers,
   Wand2,
+  Settings2,
   Loader2,
   Calendar,
   Check,
@@ -22,8 +22,7 @@ import {
   X,
   Plus,
   AlertCircle,
-  RefreshCw,
-  Settings2
+  RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,17 +50,7 @@ interface PinterestPinEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: (options?: {
-    aspectRatio?: string;
-    style?: string;
-    quality?: string;
-    imageModel?: string;
-    mediaType?: "image" | "video";
-    duration?: number;
-    videoTask?: string;
-    sourceImage?: string | null;
-    prompt?: string;
-  }) => void;
+  onRenderAI: (options?: { aspectRatio?: string; style?: string; quality?: string; imageModel?: string; mediaType?: "image" | "video"; duration?: number; videoTask?: string }) => void;
   isRenderingMedia: boolean;
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
@@ -116,23 +105,11 @@ export default function PinterestPinEditor({
 }: PinterestPinEditorProps) {
   // Pinterest Image Settings for Image Pins (Google Cloud Nano Banana Pro / gemini-3-pro-image)
   const [pinAspectRatio, setPinAspectRatio] = useState<string>("auto");
+  // Video Pin settings (9:16 vertical video)
+  const [pinVideoDuration, setPinVideoDuration] = useState<number>(5);
+  const [pinVideoTask, setPinVideoTask] = useState<string>("auto");
   const [pinStyle, setPinStyle] = useState<string>("photorealistic");
   const [pinQuality, setPinQuality] = useState<string>("studio_4k");
-
-  // Video Settings for Video Pins — only ratios the video backend can synthesize
-  const BACKEND_VIDEO_RATIOS = ["16:9", "9:16"];
-  const pinVideoRatioOptions = (capability.supportedAspectRatios?.length
-    ? capability.supportedAspectRatios
-    : ["9:16"]
-  ).filter((r) => BACKEND_VIDEO_RATIOS.includes(r));
-  const [pinVideoAspect, setPinVideoAspect] = useState<string>("auto");
-  const effectivePinVideoAspect =
-    pinVideoAspect !== "auto" && pinVideoRatioOptions.includes(pinVideoAspect)
-      ? pinVideoAspect
-      : capability.defaultAspectRatio;
-  const [pinVideoTask, setPinVideoTask] = useState<string>("auto");
-  const [pinVideoDuration, setPinVideoDuration] = useState<number>(5);
-  const [pinSourceImage, setPinSourceImage] = useState<string | null>(null);
 
   // Pinterest Native Form State
   const [topicInput, setTopicInput] = useState("");
@@ -187,11 +164,9 @@ export default function PinterestPinEditor({
     if (isVideo) {
       onRenderAI({
         mediaType: "video",
-        aspectRatio: effectivePinVideoAspect,
+        aspectRatio: "9:16",
         duration: pinVideoDuration,
         videoTask: pinVideoTask,
-        sourceImage: pinVideoTask === "image_to_video" ? pinSourceImage : null,
-        prompt,
       });
     } else {
       onRenderAI({
@@ -203,20 +178,6 @@ export default function PinterestPinEditor({
       });
     }
   };
-
-  // Editor preview container follows the selected Pin ratio (image or video)
-  const effectiveImageAspect = pinAspectRatio === "auto" ? "2:3" : pinAspectRatio;
-  const frameAspect = isVideo ? effectivePinVideoAspect : effectiveImageAspect;
-  const frameShapeClass =
-    frameAspect === "9:16"
-      ? "w-full max-w-[300px] aspect-[9/16]"
-      : frameAspect === "1:1"
-      ? "w-full max-w-[320px] aspect-square"
-      : frameAspect === "3:4"
-      ? "w-full max-w-[320px] aspect-[3/4]"
-      : frameAspect === "16:9"
-      ? "w-full max-w-[400px] aspect-video"
-      : "w-full max-w-[320px] aspect-[2/3]";
 
   return (
     <div className="space-y-6 text-left">
@@ -251,7 +212,7 @@ export default function PinterestPinEditor({
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
         {/* LEFT COLUMN: LARGE PINTEREST MEDIA CONTAINER (MATCHES SCREENSHOT) */}
         <div className="md:col-span-5 space-y-3">
-          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] ${frameShapeClass} overflow-hidden group shadow-2xs`}>
+          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[360px] ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
             {isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
@@ -349,133 +310,39 @@ export default function PinterestPinEditor({
             )}
           </div>
 
-          {/* VIDEO SETTINGS (VIDEO PIN) — aspect ratio + generation task + duration */}
+          {/* VIDEO PIN SETTINGS (9:16 vertical video) */}
           {isVideo && (
             <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Settings2 className="h-3.5 w-3.5 text-red-500" /> Video Settings
+                  <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Video Pin Settings
                 </span>
-                <span className="text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded-full font-mono">
-                  {effectivePinVideoAspect}
-                </span>
+                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/60 px-2 py-0.5 rounded-full font-mono">9:16</span>
               </div>
-
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Aspect Ratio
-                </label>
-                {pinVideoRatioOptions.length > 1 ? (
-                  <select
-                    value={pinVideoAspect}
-                    onChange={(e) => setPinVideoAspect(e.target.value)}
-                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-red-500 focus:outline-none"
-                  >
-                    <option value="auto">Auto ({capability.defaultAspectRatio} Default)</option>
-                    {pinVideoRatioOptions.map((ratio) => (
-                      <option key={ratio} value={ratio}>{ratio}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="flex items-center justify-between h-8.5 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    <span>{pinVideoRatioOptions[0] || capability.defaultAspectRatio}</span>
-                    <span className="text-[10px] text-slate-400 font-medium">Platform standard</span>
-                  </div>
-                )}
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">Duration</label>
+                <select
+                  value={pinVideoDuration}
+                  onChange={(e) => setPinVideoDuration(Number(e.target.value))}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+                >
+                  {[3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
+                    <option key={sec} value={sec}>{sec} seconds{sec === 5 ? " (Recommended)" : ""}</option>
+                  ))}
+                </select>
               </div>
-
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Video Task
-                </label>
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">Video Task</label>
                 <select
                   value={pinVideoTask}
-                  onChange={(e) => {
-                    setPinVideoTask(e.target.value);
-                    if (e.target.value === "text_to_video") setPinSourceImage(null);
-                  }}
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-red-500 focus:outline-none"
+                  onChange={(e) => setPinVideoTask(e.target.value)}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-amber-500 focus:outline-none"
                 >
                   <option value="auto">Auto</option>
                   <option value="text_to_video">Text to Video</option>
                   <option value="image_to_video">Image to Video</option>
                 </select>
               </div>
-
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                  <span className="flex items-center gap-1">
-                    <VideoIcon className="h-3 w-3 text-red-500" /> Duration
-                  </span>
-                  <span className="font-mono">{pinVideoDuration}s</span>
-                </div>
-                <div className="grid grid-cols-4 gap-1">
-                  {[3, 5, 8, 10].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setPinVideoDuration(s)}
-                      className={`py-1 rounded-md text-[11px] font-bold transition-all border ${
-                        pinVideoDuration === s
-                          ? "bg-red-600 text-white border-red-600 shadow-xs"
-                          : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
-                      }`}
-                    >
-                      {s}s
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {pinVideoTask === "image_to_video" && (
-                <div className="p-2.5 rounded-lg border border-red-500/30 bg-red-50/50 dark:bg-red-950/20 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-red-700 dark:text-red-300">
-                    <span className="flex items-center gap-1">
-                      <VideoIcon className="h-3.5 w-3.5" />
-                      Starting Image (First Frame to Animate)
-                    </span>
-                    {pinSourceImage && (
-                      <button
-                        type="button"
-                        onClick={() => setPinSourceImage(null)}
-                        className="text-red-500 hover:underline text-[10px]"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                  {pinSourceImage ? (
-                    <div className="flex items-center gap-2">
-                      <img src={pinSourceImage} alt="Source for video" className="h-12 w-12 object-cover rounded-md border border-red-300 dark:border-red-700" />
-                      <span className="text-[10px] text-slate-500 font-mono">Starting image attached</span>
-                    </div>
-                  ) : (
-                    <div>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        id="pin-source-image-upload"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = () => setPinSourceImage(reader.result as string);
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                      />
-                      <label
-                        htmlFor="pin-source-image-upload"
-                        className="cursor-pointer flex items-center justify-center gap-1.5 p-2 rounded-lg border border-dashed border-red-400 bg-white dark:bg-slate-900 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        Upload Starting Image to Animate into Video
-                      </label>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 

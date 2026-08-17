@@ -3,6 +3,7 @@ import { MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Camera, ChevronLe
 
 interface InstagramPreviewProps {
   currentFormatName: string;
+  displayMediaIsVideo?: boolean;
   displayImageUrl: string | null;
   displayImageUrls: string[];
   displayOverlayTexts: any[];
@@ -14,11 +15,11 @@ interface InstagramPreviewProps {
   currentCaption: string;
   isLoading?: boolean;
   isConnected?: boolean;
-  displayMediaIsVideo?: boolean;
 }
 
 export default function InstagramPreview({
   currentFormatName,
+  displayMediaIsVideo,
   displayImageUrl,
   displayImageUrls,
   displayOverlayTexts,
@@ -30,7 +31,6 @@ export default function InstagramPreview({
   currentCaption,
   isLoading = false,
   isConnected = false,
-  displayMediaIsVideo = false,
 }: InstagramPreviewProps) {
   const [isMuted, setIsMuted] = useState(true);
   const reelVideoRef = useRef<HTMLVideoElement>(null);

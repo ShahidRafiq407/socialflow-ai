@@ -117,16 +117,8 @@ export default function VideoPostEditor({
 
   // Selected aspect (Video settings dropdown) drives the preview frame shape —
   // e.g. LinkedIn Video (16:9 default) with 9:16 selected renders a vertical frame.
-  // Only ratios the video backend can actually synthesize are offered (9:16 / 16:9).
-  const BACKEND_VIDEO_RATIOS = ["16:9", "9:16"];
-  const videoRatioOptions = (capability.supportedAspectRatios?.length
-    ? capability.supportedAspectRatios
-    : BACKEND_VIDEO_RATIOS
-  ).filter((r) => BACKEND_VIDEO_RATIOS.includes(r));
   const selectedAspect = videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio;
   const isVertical = selectedAspect === "9:16";
-  const isSquareFrame = selectedAspect === "1:1";
-  const aspectLabel = isVertical ? "9:16 Vertical Video" : isSquareFrame ? "1:1 Square Video" : "16:9 Widescreen Video";
 
   const handleDownloadVideo = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -171,7 +163,7 @@ export default function VideoPostEditor({
             {capability.label}
           </Badge>
           <span className="text-xs text-slate-500 font-medium">
-            {aspectLabel}
+            {isVertical ? "9:16 Vertical Video (Reels / Shorts / TikTok)" : "16:9 Widescreen Video"}
           </span>
         </div>
 
@@ -195,11 +187,7 @@ export default function VideoPostEditor({
               min-height while generating so the progress UI never gets clipped */}
           <div
             className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
-              isVertical
-                ? "w-full max-w-[240px] aspect-[9/16]"
-                : isSquareFrame
-                ? "w-full max-w-[280px] aspect-square"
-                : "w-full aspect-[16/9]"
+              isVertical ? "w-full max-w-[240px] aspect-[9/16]" : "w-full aspect-[16/9]"
             } ${isRenderingVideo ? "min-h-[320px]" : ""}`}
           >
             {isRenderingVideo ? (
@@ -305,28 +293,20 @@ export default function VideoPostEditor({
               </span>
             </div>
 
-            {/* Aspect Ratio Dropdown — only ratios this platform format + the video backend support */}
+            {/* Aspect Ratio Dropdown */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                 Aspect ratio
               </label>
-              {videoRatioOptions.length > 1 ? (
-                <select
-                  value={videoAspectRatio}
-                  onChange={(e) => setVideoAspectRatio(e.target.value)}
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                >
-                  <option value="auto">Auto ({capability.defaultAspectRatio} Default)</option>
-                  {videoRatioOptions.map((ratio) => (
-                    <option key={ratio} value={ratio}>{ratio}</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex items-center justify-between h-8.5 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  <span>{videoRatioOptions[0] || capability.defaultAspectRatio}</span>
-                  <span className="text-[10px] text-slate-400 font-medium">Platform standard</span>
-                </div>
-              )}
+              <select
+                value={videoAspectRatio}
+                onChange={(e) => setVideoAspectRatio(e.target.value)}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="auto">Auto</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+              </select>
             </div>
 
             {/* 3. Video Task Dropdown */}
@@ -520,7 +500,7 @@ export default function VideoPostEditor({
                   mediaType: "video",
                   duration: durationSec,
                   prompt,
-                  aspectRatio: selectedAspect,
+                  aspectRatio: videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio,
                   videoTask,
                   sourceImage: attachedSourceImage,
                   sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
