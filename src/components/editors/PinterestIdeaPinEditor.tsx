@@ -567,7 +567,7 @@ export default function PinterestIdeaPinEditor({
               size="sm"
               disabled={isRegeneratingPage}
               onClick={() => onRegeneratePageAI(currentIdx)}
-              className="w-full h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
+              className="w-full h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
             >
               {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isRegeneratingPage ? `Generating Page ${currentIdx + 1} Visual...` : `Generate Page ${currentIdx + 1} Visual`}</span>

@@ -657,11 +657,7 @@ export default function StandardSocialEditor({
               size="sm"
               disabled={isRenderingMedia || !prompt.trim()}
               onClick={handleTriggerGenerate}
-              className={`w-full h-9 text-xs font-bold gap-1.5 text-white shadow-xs hover:opacity-90 ${
-                selectedMediaType === "video"
-                  ? "bg-gradient-to-r from-pink-600 to-purple-600"
-                  : "bg-gradient-to-r from-primary to-indigo-600"
-              }`}
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
             >
               {isRenderingMedia ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -251,7 +251,7 @@ export default function MultiMediaEditor({
               onClick={() => onActiveMediaChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 activeMediaIndex === idx
-                  ? "bg-blue-600 text-white shadow-xs ring-2 ring-blue-400/30"
+                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
               }`}
             >
@@ -462,7 +462,7 @@ export default function MultiMediaEditor({
                 size="sm"
                 disabled={isRenderingSingleAI || (!prompt.trim() && !activeMedia.prompt)}
                 onClick={handleGenerateActiveAsset}
-                className="h-9 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white shrink-0 font-bold gap-1"
+                className="h-9 px-3 text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shrink-0 font-bold gap-1"
               >
                 {isRenderingSingleAI && <Loader2 className="h-3 w-3 animate-spin" />}
                 <span>

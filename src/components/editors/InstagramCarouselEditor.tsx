@@ -214,7 +214,7 @@ export default function InstagramCarouselEditor({
               onClick={() => onActiveSlideChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 currentIdx === idx
-                  ? "bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs ring-2 ring-pink-400/30"
+                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
               }`}
             >
@@ -311,7 +311,7 @@ export default function InstagramCarouselEditor({
                 />
                 {/* OVERLAY BADGE */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
-                  <span className="bg-gradient-to-r from-pink-500 to-purple-600 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
+                  <span className="bg-slate-900/90 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
                     Slide {currentIdx + 1} of {effectiveSlides.length}
                   </span>
                   <p className="text-white text-xs font-bold line-clamp-1">{activeSlide.title}</p>
@@ -512,7 +512,7 @@ export default function InstagramCarouselEditor({
                   imageModel: "gemini-3-pro-image",
                 });
               }}
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-xs hover:opacity-90"
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
             >
               {isRenderingSlideMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isRenderingSlideMedia ? `Generating Slide ${currentIdx + 1} Visual...` : `Generate Slide ${currentIdx + 1} Visual`}</span>

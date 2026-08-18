@@ -556,7 +556,7 @@ export default function PinterestPinEditor({
               size="sm"
               disabled={isRenderingMedia || !prompt.trim()}
               onClick={handleGeneratePin}
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 text-white shadow-xs"
+              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
             >
               {isRenderingMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isRenderingMedia ? (isVideo ? "Generating Video Pin..." : "Generating Pin Visual...") : (isVideo ? "Generate Video Pin" : "Generate Pin Visual")}</span>

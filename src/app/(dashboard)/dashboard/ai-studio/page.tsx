@@ -4189,7 +4189,7 @@ export default function AIStudioPage() {
                   await handleRenderMedia();
                   setActiveMediaModal(null);
                 }}
-                className="bg-gradient-to-r from-primary to-indigo-600 text-white font-bold gap-1.5"
+                className="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-bold gap-1.5"
               >
                 {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
@@ -4627,7 +4627,7 @@ export default function AIStudioPage() {
                   await handleRenderMedia();
                   setActiveMediaModal(null);
                 }}
-                className="bg-gradient-to-r from-primary to-indigo-600 text-white font-bold gap-1.5"
+                className="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-bold gap-1.5"
               >
                 {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
