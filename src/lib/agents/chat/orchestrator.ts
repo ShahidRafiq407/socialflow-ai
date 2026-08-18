@@ -40,7 +40,18 @@ async function planActions(
   prompt: string,
   context: string
 ): Promise<{ reasoning: string; actions: { tool: string; args: any }[] }> {
+  const now = new Date();
+  const currentDateStr = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const currentYear = now.getFullYear();
+
   const sys = `You are the Marketing Brain orchestrator of an AI marketing SaaS.
+CURRENT DATE: ${currentDateStr} (Current Year: ${currentYear})
+
 You control a set of tools that read/write real data and search the live internet.
 
 AVAILABLE TOOLS:
@@ -52,7 +63,8 @@ INSTRUCTIONS:
 - Decide which tool(s) to call to fulfill the user's request. Prefer the fewest necessary tools.
 - Independent tools should ALL be listed so they run in parallel.
 - If no tool is needed (a simple question/chat), return an empty actions array.
-- Always ground factual/time-sensitive requests in search_web or fetch_serp.
+- For search_web or fetch_serp queries: ALWAYS search for current ${currentYear} information, latest breaking trends, or real-time news. NEVER search for past years (like 2024 or 2023) unless the user explicitly requested historical info.
+- If the user provides a reference image in attachments for a video or image request, specify sourceImage in generate_video or generate_image.
 - Return ONLY valid JSON (no markdown) in this exact shape:
 { "reasoning": "short plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
 
@@ -161,6 +173,15 @@ async function synthesize(
   memory: MemoryFact[],
   brand: any
 ): Promise<string> {
+  const now = new Date();
+  const currentDateStr = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const currentYear = now.getFullYear();
+
   const toolBlock =
     toolCalls.length === 0
       ? "(no tools were needed)"
@@ -172,21 +193,31 @@ async function synthesize(
     ? `\nRemembered context about this user/brand:\n${memory.map((m) => `- ${m.content}`).join("\n")}`
     : "";
 
-  const sys = `You are the Marketing Brain — the chief autonomous AI head of an AI marketing SaaS.
-Write the final, direct, executive, human answer to the user in their language (match the user's language — if they write in Roman Urdu, reply in Roman Urdu; otherwise English).
-Base your answer strictly on the real tool results below. Be concrete and cite real data.
-If an image was generated (has a url), embed or link it in markdown format (e.g. ![Generated Visual](url)) and confirm it is saved to Content Library.
-If a video or reel was generated, provide the link and confirm it is saved.
-If a post was drafted or scheduled, provide the platform, content summary, and confirmation.
-If a tool returned an error or empty result, explain what happened honestly.
+  const sys = `You are the Marketing Brain — the elite executive AI CMO of an AI marketing SaaS.
+CURRENT DATE: ${currentDateStr} (Year: ${currentYear}). Always speak in present terms for ${currentYear}.
+
+FORMATTING & QUALITY RULES:
+1. Multi-Day Plans & Content Calendars:
+   - When asked for a posting plan (e.g. 5-day, 7-day, 10-day, 30-day plan), ALWAYS format it as a clean, beautiful Markdown Table with columns:
+     | Day | Platform | Content Pillar / Hook | Full Post Caption (English) | Suggested Visual / Format | Call to Action |
+   - Never output ugly unformatted bullet point text walls with endless asterisks.
+2. Social Media Posts & Copywriting:
+   - All marketing post captions, hooks, and hashtags MUST be written in high-converting, professional English.
+   - Conversational explanations, summaries, and executive advice can match the user's conversational language (e.g. Roman Urdu or English).
+3. Generated Media:
+   - If an image was generated (url present), render it as an embedded preview: ![Generated Image](url)
+   - If a video or reel was generated, link it clearly and confirm it was saved to the Content Library and Media Assets.
+   - If posts were drafted or scheduled, provide a clean summary table confirming platform, format, and status.
+4. Grounded in Real Data:
+   - Base facts, trends, and numbers strictly on the search tool results for ${currentYear}. Do NOT reference outdated 2023/2024 data as "current".
 ${brand ? `\nBRAND DNA (for tone/context):\n${JSON.stringify(brand)}` : ""}${memoryBlock}`;
 
   const res = await vertexProvider.generateText(
     [
       { role: "system", content: sys },
-      { role: "user", content: `USER REQUEST:\n${prompt}\n\nTOOL RESULTS:\n${toolBlock}\n\nNow write your final answer.` },
+      { role: "user", content: `USER REQUEST:\n${prompt}\n\nTOOL RESULTS:\n${toolBlock}\n\nNow write your executive answer.` },
     ],
-    { modelName: MODELS.ORCHESTRATOR, temperature: 0.4 }
+    { modelName: MODELS.ORCHESTRATOR, temperature: 0.3 }
   );
 
   return res || "I couldn't generate a response.";
