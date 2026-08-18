@@ -2756,7 +2756,7 @@ export default function AIStudioPage() {
   // RENDER
   // ============================================================================
   return (
-    <div className="flex flex-col min-h-[calc(100vh-4rem)] space-y-6 pb-16 font-sans">
+    <div className="flex flex-col min-h-[calc(100vh-4rem)] space-y-4 pb-8 font-sans">
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*,video/*" className="hidden" />
 
       {/* TOP HEADER */}
@@ -3011,9 +3011,9 @@ export default function AIStudioPage() {
                 <Button
                   onClick={() => setIsMultiAgentModalOpen(true)}
                   disabled={selectedPlatforms.length === 0}
-                  className="w-full sm:w-auto px-6 py-2.5 h-10 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-bold text-xs sm:text-sm shadow-sm gap-2 transition-all"
+                  className="w-full sm:w-auto px-4 py-1.5 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-semibold text-xs shadow-sm gap-1.5 transition-all"
                 >
-                  <Sparkles className="h-4 w-4" />
+                  <Sparkles className="h-3.5 w-3.5" />
                   <span>Generate Content with AI for All Selected Platforms ({selectedPlatforms.length})</span>
                 </Button>
               </div>
@@ -3125,7 +3125,7 @@ export default function AIStudioPage() {
                   </div>
                 </div>
 
-              <CardContent className="p-4 sm:p-5 space-y-6 !overflow-visible">
+              <CardContent className="p-3.5 sm:p-4 space-y-4 !overflow-visible">
                 {/* ---------------------------------------------------------------------------- */}
                 {/* PLATFORM-AWARE NATIVE STUDIO ROUTER */}
                 {/* ---------------------------------------------------------------------------- */}
@@ -3301,7 +3301,7 @@ export default function AIStudioPage() {
             </Card>
 
             {/* RIGHT COLUMN (40%): LIVE PREVIEW & PLATFORM SETTINGS */}
-            <div className="lg:col-span-5 space-y-6">
+            <div className="lg:col-span-5 space-y-4">
               <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
                 {/* TABS HEADER: PREVIEW VS SETTINGS */}
                 <CardHeader className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
