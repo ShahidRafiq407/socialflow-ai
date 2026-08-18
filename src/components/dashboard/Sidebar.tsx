@@ -17,7 +17,7 @@ import {
   Settings,
 } from "lucide-react";
 
-const sidebarLinks = [
+export const sidebarLinks = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Content Studio", href: "/dashboard/ai-studio", icon: Sparkles },
   { name: "Automate Task", href: "/dashboard/chat", icon: Bot },
