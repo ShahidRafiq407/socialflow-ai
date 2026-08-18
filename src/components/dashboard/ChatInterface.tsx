@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -29,6 +31,9 @@ import {
   Calendar as CalendarIcon,
   History,
   MessageSquare,
+  Copy,
+  Check,
+  Pencil,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -113,9 +118,23 @@ export function ChatInterface({
   const [sessionsList, setSessionsList] = useState<ChatSessionItem[]>(initialSessionsList);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  function copyToClipboard(text: string, index: number) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  }
+
+  function editPrompt(text: string) {
+    setInput(text);
+    textareaRef.current?.focus();
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -431,23 +450,116 @@ export function ChatInterface({
                 <Bot className="h-3.5 w-3.5" />
               </div>
             )}
-            <div className={`max-w-[80%] ${m.role === "user" ? "order-first" : ""}`}>
-              <div
-                className={`rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${
-                  m.role === "user"
-                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm"
-                    : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-sm"
-                }`}
-              >
-                {m.content}
-              </div>
-              {m.toolCalls && m.toolCalls.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {m.toolCalls.map((t: any, j: number) => (
-                    <span key={j} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                      ⚙ {TOOL_LABELS[t.tool] || t.tool}
-                    </span>
-                  ))}
+            <div className={`max-w-[85%] ${m.role === "user" ? "order-first" : ""}`}>
+              {m.role === "user" ? (
+                <div className="group relative flex flex-col items-end">
+                  <div className="rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm shadow-sm">
+                    {m.content}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => editPrompt(m.content)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Edit & resubmit prompt"
+                    >
+                      <Pencil className="h-3 w-3" /> Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(m.content, i)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Copy prompt"
+                    >
+                      {copiedIndex === i ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-500" /> Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" /> Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  <div className="rounded-2xl px-4 py-3 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-sm shadow-sm overflow-hidden leading-relaxed">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        table: ({ children }) => (
+                          <div className="my-3 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <table className="w-full text-xs text-left border-collapse">{children}</table>
+                          </div>
+                        ),
+                        thead: ({ children }) => (
+                          <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold border-b border-slate-200 dark:border-slate-700">
+                            {children}
+                          </thead>
+                        ),
+                        th: ({ children }) => (
+                          <th className="px-3 py-2 border border-slate-200 dark:border-slate-700 font-semibold">{children}</th>
+                        ),
+                        td: ({ children }) => (
+                          <td className="px-3 py-2 border border-slate-200 dark:border-slate-700 align-top">{children}</td>
+                        ),
+                        strong: ({ children }) => (
+                          <strong className="font-bold text-slate-900 dark:text-slate-100">{children}</strong>
+                        ),
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc list-outside pl-5 my-2 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 my-2 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="text-slate-700 dark:text-slate-300">{children}</li>,
+                        h1: ({ children }) => <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 mt-3 mb-1.5">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-2.5 mb-1">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-2 mb-1">{children}</h3>,
+                        code: ({ children }) => (
+                          <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono text-pink-600 dark:text-pink-400">
+                            {children}
+                          </code>
+                        ),
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-medium underline hover:opacity-80">
+                            {children}
+                          </a>
+                        ),
+                        img: ({ src, alt }) => (
+                          <img src={src} alt={alt || "Generated visual"} className="rounded-xl border border-slate-200 dark:border-slate-700 max-h-[320px] object-cover my-2 shadow-sm" />
+                        ),
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
+                  </div>
+                  {m.toolCalls && m.toolCalls.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {m.toolCalls.map((t: any, j: number) => (
+                        <span key={j} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          ⚙ {TOOL_LABELS[t.tool] || t.tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(m.content, i)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Copy full response"
+                    >
+                      {copiedIndex === i ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-500" /> Copied to clipboard
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" /> Copy Response
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -567,6 +679,7 @@ export function ChatInterface({
             <FolderOpen className="h-4 w-4" />
           </Button>
           <Textarea
+            ref={textareaRef}
             placeholder="Ask the AI brain anything (e.g. 'generate an image and schedule a LinkedIn post')..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
