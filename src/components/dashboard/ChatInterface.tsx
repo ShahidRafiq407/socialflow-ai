@@ -40,6 +40,7 @@ import {
   Palette,
   ExternalLink,
   Trash2,
+  Square,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -129,6 +130,7 @@ export function ChatInterface({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   function copyToClipboard(text: string, index: number) {
     if (!text) return;
@@ -229,6 +231,14 @@ export function ChatInterface({
     }
   }
 
+  function stopGeneration() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsLoading(false);
+    }
+  }
+
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
     const prompt = input.trim();
@@ -242,12 +252,15 @@ export function ChatInterface({
 
     let finalAnswer = "";
     const finalToolCalls: any[] = [];
+    
+    abortControllerRef.current = new AbortController();
 
     try {
       const res = await fetch("/api/agents/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, workspaceId, chatSessionId: sessionId, files }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!res.ok || !res.body) throw new Error("Failed to connect to the brain.");
@@ -281,15 +294,20 @@ export function ChatInterface({
         { role: "assistant", content: finalAnswer || "No response.", toolCalls: finalToolCalls },
       ]);
     } catch (err: any) {
-      setError(err.message || "Something went wrong.");
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Sorry, something went wrong while contacting the AI brain." },
-      ]);
+      if (err.name === "AbortError") {
+        setNotice("Generation stopped.");
+      } else {
+        setError(err.message || "Something went wrong.");
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Sorry, something went wrong while contacting the AI brain." },
+        ]);
+      }
     } finally {
       setIsLoading(false);
       setActivity([]);
       setFiles([]);
+      abortControllerRef.current = null;
     }
   }
 
@@ -724,9 +742,15 @@ export function ChatInterface({
             onKeyDown={handleKeyDown}
             className="min-h-[40px] max-h-[120px] resize-none text-sm rounded-xl"
           />
-          <Button type="submit" disabled={isLoading || !input.trim()} className="h-10 px-4 rounded-xl font-semibold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          {isLoading ? (
+            <Button type="button" onClick={stopGeneration} className="h-10 px-4 rounded-xl font-semibold gap-1.5 bg-red-500 hover:bg-red-600 text-white" title="Stop generation">
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          ) : (
+            <Button type="submit" disabled={!input.trim()} className="h-10 px-4 rounded-xl font-semibold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white">
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </form>
       </div>
     </Card>

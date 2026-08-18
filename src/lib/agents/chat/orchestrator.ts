@@ -61,6 +61,7 @@ ${context}
 
 INSTRUCTIONS:
 - Decide which tool(s) to call to fulfill the user's request. Prefer the fewest necessary tools.
+- DO NOT call any tool for simple greetings (e.g. "hi", "hello") or general conversational remarks.
 - Independent tools should ALL be listed so they run in parallel.
 - If no tool is needed (a simple question/chat), return an empty actions array.
 - For search_web or fetch_serp queries: ALWAYS search for current ${currentYear} information, latest breaking trends, or real-time news. NEVER search for past years (like 2024 or 2023) unless the user explicitly requested historical info.
