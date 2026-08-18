@@ -54,8 +54,8 @@ interface UploadedFile {
 const QUICK_COMMANDS = [
   { icon: Search, label: "Research latest trends", prompt: "Find the latest trending topics in my industry using live internet search and suggest 3 content ideas." },
   { icon: FileText, label: "Write a LinkedIn post", prompt: "Write a LinkedIn post using my Brand DNA." },
-  { icon: ImageIcon, label: "Generate an image", prompt: "Generate a high-converting product showcase image for Instagram using gemini-3-pro-image." },
-  { icon: VideoIcon, label: "Create a Reel video", prompt: "Create a 9:16 vertical Reel video concept with visual prompt for TikTok." },
+  { icon: ImageIcon, label: "Generate an image", prompt: "Generate a high-converting product showcase image for Instagram." },
+  { icon: VideoIcon, label: "Create a Reel video", prompt: "Create a 9:16 vertical Reel video with visual motion prompt for TikTok." },
 ];
 
 const TOOL_LABELS: Record<string, string> = {

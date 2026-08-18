@@ -134,7 +134,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "generate_image",
     description:
-      "Generate a high-resolution marketing image using Google Nano Banana Pro (gemini-3-pro-image). Use whenever the user asks for an image, graphic, banner, or visual post asset.",
+      "Generate a high-resolution marketing image, visual asset, or social media graphic. Use whenever the user asks to generate, design, or create an image.",
     parameters: {
       type: "object",
       properties: {
@@ -189,7 +189,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "generate_video",
     description:
-      "Generate a dynamic short-form marketing video or Reel using Google Gemini Video (gemini-omni-flash-preview). Use for Reels, TikToks, Shorts, or Video Ads.",
+      "Generate a short-form marketing video or Reel. Use for Reels, TikToks, Shorts, or Video Ads.",
     parameters: {
       type: "object",
       properties: {
