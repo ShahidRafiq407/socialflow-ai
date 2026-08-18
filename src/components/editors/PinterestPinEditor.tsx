@@ -196,26 +196,24 @@ export default function PinterestPinEditor({
   return (
     <div className="space-y-6 text-left">
       {/* HEADER & AI ACTION BAR */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={isGeneratingCopy}
-            onClick={onGenerateCopyAI}
-            className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-          >
-            {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Auto-Generate Pin Copy & SEO</span>
-          </Button>
-        </div>
+      <div className="flex items-center justify-end pb-2.5 border-b border-slate-200 dark:border-slate-800">
+        <Button
+          type="button"
+          size="sm"
+          disabled={isGeneratingCopy}
+          onClick={onGenerateCopyAI}
+          className="h-7 px-3 text-[11px] font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+        >
+          {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          <span>Generate Pin Title, Copy & SEO with AI</span>
+        </Button>
       </div>
 
       {/* TWO-COLUMN PINTEREST LAYOUT */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT COLUMN: PINTEREST MEDIA CONTAINER */}
         <div className="xl:col-span-5 space-y-3.5">
-          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[260px] max-w-[200px] mx-auto ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
+          <div className={`relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[260px] max-w-[210px] sm:max-w-[220px] mx-auto ${isVideo ? "aspect-[9/16]" : "aspect-[2/3]"} overflow-hidden group shadow-2xs`}>
             {isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
@@ -280,33 +278,37 @@ export default function PinterestPinEditor({
                 </div>
               </div>
             ) : (
-              <div className="p-6 text-center space-y-3">
-                <div className="h-14 w-14 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 flex items-center justify-center mx-auto">
-                  <ImageIcon className="h-7 w-7" />
+              <div className="p-3 text-center space-y-2 w-full">
+                <div className="h-11 w-11 rounded-full bg-red-50 dark:bg-red-950/40 text-red-600 flex items-center justify-center mx-auto">
+                  <ImageIcon className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="font-bold text-sm text-slate-800 dark:text-slate-200">Choose a file or drag and drop it here</p>
-                  <p className="text-xs text-slate-400 mt-1">We recommend high quality .jpg or .mp4 files under 20MB</p>
+                <div className="px-1">
+                  <p className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                    {isVideo ? "Upload Video Pin" : "Upload Pin Media"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {isVideo ? "9:16 MP4 under 20MB" : "2:3 JPG/PNG (1000×1500)"}
+                  </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                <div className="flex flex-wrap gap-1.5 justify-center pt-1">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={onOpenUpload}
-                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                    className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                   >
-                    <Upload className="h-3.5 w-3.5 text-emerald-500" /> Upload PC
+                    <Upload className="h-3 w-3 mr-1 text-emerald-500" /> Upload PC
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={onOpenStock}
-                    className="h-8 text-xs font-bold gap-1 w-full sm:w-auto bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                    className="h-7 text-[11px] bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                   >
-                    <ImageIcon className="h-3.5 w-3.5 text-pink-500" /> Stock Media
+                    <ImageIcon className="h-3 w-3 mr-1 text-pink-500" /> Stock Media
                   </Button>
                 </div>
               </div>

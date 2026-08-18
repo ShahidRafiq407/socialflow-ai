@@ -149,27 +149,8 @@ export default function VideoPostEditor({
     }
   };
 
-  // TikTok / Shorts Settings
-  const [allowDuet, setAllowDuet] = React.useState(true);
-  const [allowStitch, setAllowStitch] = React.useState(true);
-  const [aiDisclosure, setAiDisclosure] = React.useState(true);
-
   return (
-    <div className="space-y-6 text-left">
-      {/* HEADER & ACTIONS */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <Button
-          type="button"
-          size="sm"
-          disabled={isGeneratingCopy}
-          onClick={onGenerateCopyAI}
-          className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-        >
-          {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>Auto-Generate Video Script & Hook</span>
-        </Button>
-      </div>
-
+    <div className="space-y-4 text-left">
       {/* TWO COLUMN WORKSPACE */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: VIDEO PLAYER / PREVIEW + VIDEO CONTROLS */}
@@ -540,7 +521,19 @@ export default function VideoPostEditor({
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 {capability.platform === "youtube" ? "Video Description & Timestamps" : "Post Caption & Video Hook Script"}
               </label>
-              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isGeneratingCopy}
+                  onClick={onGenerateCopyAI}
+                  className="h-6.5 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+                >
+                  {isGeneratingCopy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  <span>Generate Script & Hook</span>
+                </Button>
+                <CharacterCounter current={caption.length} max={capability.captionLimit} />
+              </div>
             </div>
             <Textarea
               rows={4}
@@ -555,14 +548,26 @@ export default function VideoPostEditor({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {capability.supportsHashtags && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Hashtags
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Hashtags
+                  </label>
+                  {onGenerateField && (
+                    <button
+                      type="button"
+                      onClick={() => onGenerateField("hashtags")}
+                      disabled={generatingField === "hashtags"}
+                      className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition-colors"
+                    >
+                      {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                    </button>
+                  )}
+                </div>
                 <Input
                   value={hashtags.join(" ")}
                   onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
                   placeholder="#reels #shorts #tiktok #viral"
-                  className="h-9 text-xs bg-white dark:bg-slate-900"
+                  className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
                 />
               </div>
             )}
@@ -576,47 +581,11 @@ export default function VideoPostEditor({
                   value={firstComment}
                   onChange={(e) => onFirstCommentChange(e.target.value)}
                   placeholder="Drop a comment or link..."
-                  className="h-9 text-xs bg-white dark:bg-slate-900"
+                  className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
                 />
               </div>
             )}
           </div>
-
-          {/* TIKTOK NATIVE CONTROLS */}
-          {capability.platform === "tiktok" && (
-            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5 text-xs">
-              <span className="font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider block text-[11px]">
-                TikTok Content & Privacy Settings
-              </span>
-              <div className="flex items-center justify-between">
-                <span>AI-Generated Content Disclosure</span>
-                <input
-                  type="checkbox"
-                  checked={aiDisclosure}
-                  onChange={(e) => setAiDisclosure(e.target.checked)}
-                  className="h-4 w-4 rounded text-pink-600 focus:ring-pink-500"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Allow Duet</span>
-                <input
-                  type="checkbox"
-                  checked={allowDuet}
-                  onChange={(e) => setAllowDuet(e.target.checked)}
-                  className="h-4 w-4 rounded text-pink-600 focus:ring-pink-500"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Allow Stitch</span>
-                <input
-                  type="checkbox"
-                  checked={allowStitch}
-                  onChange={(e) => setAllowStitch(e.target.checked)}
-                  className="h-4 w-4 rounded text-pink-600 focus:ring-pink-500"
-                />
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

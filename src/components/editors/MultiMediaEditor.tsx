@@ -171,67 +171,54 @@ export default function MultiMediaEditor({
   };
 
   return (
-    <div className="space-y-6 text-left">
-      {/* HEADER */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isGeneratingAllMedia}
-            onClick={onGenerateAllMediaAI}
-            className="h-8 text-xs font-bold gap-1"
-          >
-            {isGeneratingAllMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-slate-600" />}
-            <span>Regenerate All Assets</span>
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            disabled={isGeneratingCopy}
-            onClick={onGenerateCopyAI}
-            className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-          >
-            {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Auto-Generate Copy</span>
-          </Button>
-        </div>
-      </div>
-
+    <div className="space-y-4 text-left">
       {/* MEDIA GRID / STRIP */}
       <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-blue-600" />
-            {isThreadFormat ? "Thread Posts" : "Media Assets"} ({mediaItems.length} of {capability.maxMedia})
-          </span>
-          <span className="text-[11px] text-slate-400 font-medium">
-            Active: {slotLabel(activeMediaIndex)}
-          </span>
-          {onReorderCards && mediaItems.length > 1 && (
-            <span className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={activeMediaIndex === 0}
-                onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex - 1)}
-                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
-                title={`Move ${slotLabel(activeMediaIndex)} Left`}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                disabled={activeMediaIndex === mediaItems.length - 1}
-                onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex + 1)}
-                className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
-                title={`Move ${slotLabel(activeMediaIndex)} Right`}
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-blue-600" />
+              {isThreadFormat ? "Thread Posts" : "Media Assets"} ({mediaItems.length} of {capability.maxMedia})
             </span>
-          )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isGeneratingAllMedia}
+              onClick={onGenerateAllMediaAI}
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+            >
+              {isGeneratingAllMedia ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-slate-600" />}
+              <span>Regenerate All Assets</span>
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400 font-medium">
+              Active: {slotLabel(activeMediaIndex)}
+            </span>
+            {onReorderCards && mediaItems.length > 1 && (
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={activeMediaIndex === 0}
+                  onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex - 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title={`Move ${slotLabel(activeMediaIndex)} Left`}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={activeMediaIndex === mediaItems.length - 1}
+                  onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex + 1)}
+                  className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  title={`Move ${slotLabel(activeMediaIndex)} Right`}
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto py-1">
@@ -503,7 +490,19 @@ export default function MultiMediaEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
               Post Caption
             </label>
-            <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isGeneratingCopy}
+                onClick={onGenerateCopyAI}
+                className="h-6.5 px-2 text-[10px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-md"
+              >
+                {isGeneratingCopy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                <span>Generate Caption with AI</span>
+              </Button>
+              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            </div>
           </div>
           <Textarea
             rows={4}

@@ -2934,8 +2934,8 @@ export default function AIStudioPage() {
                   })}
                 </div>
               </div>
-              {/* GENERATE BUTTON — INSIDE CARD */}
-              <div className="pt-2 flex items-center justify-end">
+              {/* GENERATE BUTTON — INSIDE CARD (CENTERED) */}
+              <div className="pt-2.5 flex items-center justify-center">
                 <Button
                   onClick={() => setIsMultiAgentModalOpen(true)}
                   disabled={selectedPlatforms.length === 0}

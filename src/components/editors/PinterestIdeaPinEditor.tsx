@@ -200,21 +200,7 @@ export default function PinterestIdeaPinEditor({
   };
 
   return (
-    <div className="space-y-6 text-left">
-      {/* HEADER & ACTION BAR */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <Button
-          type="button"
-          size="sm"
-          disabled={isGeneratingAI}
-          onClick={onGenerateIdeaPinAI}
-          className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-        >
-          {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin with AI...") : "Generate Full Idea Pin with AI"}</span>
-        </Button>
-      </div>
-
+    <div className="space-y-4 text-left">
       {/* OVERALL IDEA PIN TITLE & BOARD */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="space-y-1">
@@ -257,11 +243,23 @@ export default function PinterestIdeaPinEditor({
 
       {/* MULTI-PAGE STORYBOARD NAVIGATION STRIP */}
       <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-red-600" />
-            Storyboard Pages ({effectivePages.length} Total)
-          </span>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-red-600" />
+              Storyboard Pages ({effectivePages.length} Pages)
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isGeneratingAI}
+              onClick={onGenerateIdeaPinAI}
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+            >
+              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Idea Pin...") : "Generate Idea Pin with AI"}</span>
+            </Button>
+          </div>
           <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Page {currentIdx + 1} of {effectivePages.length}
             {onReorderCards && effectivePages.length > 1 && (

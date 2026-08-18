@@ -147,28 +147,26 @@ export default function InstagramCarouselEditor({
   };
 
   return (
-    <div className="space-y-6 text-left">
-      {/* HEADER & ACTIONS */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <Button
-          type="button"
-          size="sm"
-          disabled={isGeneratingAI}
-          onClick={onGenerateCarouselAI}
-          className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-        >
-          {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel with AI...") : "Generate Full Carousel with AI"}</span>
-        </Button>
-      </div>
-
+    <div className="space-y-4 text-left">
       {/* SLIDE TIMELINE STRIP */}
       <div className="p-3.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-pink-500" />
-            Carousel Slide Sequence ({effectiveSlides.length} Slides)
-          </span>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-pink-500" />
+              Carousel Slide Sequence ({effectiveSlides.length} Slides)
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isGeneratingAI}
+              onClick={onGenerateCarouselAI}
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+            >
+              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Carousel...") : "Generate Carousel with AI"}</span>
+            </Button>
+          </div>
           <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {currentIdx + 1} of {effectiveSlides.length}
             {onReorderCards && effectiveSlides.length > 1 && (
@@ -568,7 +566,19 @@ export default function InstagramCarouselEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
               Instagram Post Caption (Shared)
             </label>
-            <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isGeneratingAI}
+                onClick={onGenerateCarouselAI}
+                className="h-6.5 px-2.5 text-[10px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-md"
+              >
+                {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                <span>Generate Carousel Caption</span>
+              </Button>
+              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            </div>
           </div>
           <Textarea
             rows={4}

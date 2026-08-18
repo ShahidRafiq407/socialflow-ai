@@ -172,21 +172,7 @@ export default function StandardSocialEditor({
     : "Image";
 
   return (
-    <div className="space-y-6 text-left">
-      {/* HEADER */}
-      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
-        <Button
-          type="button"
-          size="sm"
-          disabled={isGeneratingCopy}
-          onClick={onGenerateCopyAI}
-          className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
-        >
-          {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>Generate Caption with AI</span>
-        </Button>
-      </div>
-
+    <div className="space-y-4 text-left">
       {/* TWO COLUMN WORKSPACE */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: MEDIA PREVIEW & UNIFIED PROMPT SECTION */}
@@ -684,7 +670,19 @@ export default function StandardSocialEditor({
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 Post Caption
               </label>
-              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isGeneratingCopy}
+                  onClick={onGenerateCopyAI}
+                  className="h-6.5 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+                >
+                  {isGeneratingCopy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  <span>Generate Caption with AI</span>
+                </Button>
+                <CharacterCounter current={caption.length} max={capability.captionLimit} />
+              </div>
             </div>
             <Textarea
               rows={4}
