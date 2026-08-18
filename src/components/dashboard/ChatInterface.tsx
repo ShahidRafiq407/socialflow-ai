@@ -444,13 +444,13 @@ export function ChatInterface({
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+          <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start w-full"}`}>
             {m.role === "assistant" && (
-              <div className="h-7 w-7 shrink-0 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center mt-0.5">
-                <Bot className="h-3.5 w-3.5" />
+              <div className="h-8 w-8 shrink-0 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center mt-0.5 shadow-sm">
+                <Sparkles className="h-4 w-4" />
               </div>
             )}
-            <div className={`max-w-[85%] ${m.role === "user" ? "order-first" : ""}`}>
+            <div className={`${m.role === "user" ? "max-w-[80%]" : "flex-1 min-w-0"}`}>
               {m.role === "user" ? (
                 <div className="group relative flex flex-col items-end">
                   <div className="rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-tr-sm shadow-sm">
@@ -484,49 +484,62 @@ export function ChatInterface({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col">
-                  <div className="rounded-2xl px-4 py-3 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-sm shadow-sm overflow-hidden leading-relaxed">
+                <div className="flex flex-col w-full min-w-0">
+                  <div className="rounded-2xl px-4 py-3.5 text-sm bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-sm shadow-sm overflow-hidden leading-relaxed">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        table: ({ children }) => (
-                          <div className="my-3 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <table className="w-full text-xs text-left border-collapse">{children}</table>
-                          </div>
-                        ),
+                        table: ({ children }) => <MarkdownTable>{children}</MarkdownTable>,
                         thead: ({ children }) => (
-                          <thead className="bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold border-b border-slate-200 dark:border-slate-700">
+                          <thead className="bg-slate-100/90 dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 font-semibold border-b border-slate-200 dark:border-slate-700">
                             {children}
                           </thead>
                         ),
+                        tbody: ({ children }) => (
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {children}
+                          </tbody>
+                        ),
+                        tr: ({ children }) => (
+                          <tr className="even:bg-slate-50/50 dark:even:bg-slate-800/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                            {children}
+                          </tr>
+                        ),
                         th: ({ children }) => (
-                          <th className="px-3 py-2 border border-slate-200 dark:border-slate-700 font-semibold">{children}</th>
+                          <th className="px-3.5 py-2.5 border-r border-slate-200 dark:border-slate-700 last:border-r-0 font-semibold text-left whitespace-nowrap">
+                            {children}
+                          </th>
                         ),
                         td: ({ children }) => (
-                          <td className="px-3 py-2 border border-slate-200 dark:border-slate-700 align-top">{children}</td>
+                          <td className="px-3.5 py-2.5 border-r border-slate-100 dark:border-slate-800 last:border-r-0 align-top text-slate-700 dark:text-slate-300">
+                            {children}
+                          </td>
                         ),
                         strong: ({ children }) => (
-                          <strong className="font-bold text-slate-900 dark:text-slate-100">{children}</strong>
+                          <strong className="font-bold text-slate-900 dark:text-slate-50">{children}</strong>
                         ),
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        ul: ({ children }) => <ul className="list-disc list-outside pl-5 my-2 space-y-1">{children}</ul>,
-                        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 my-2 space-y-1">{children}</ol>,
+                        p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-relaxed">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc list-outside pl-5 my-2.5 space-y-1.5 leading-relaxed">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 my-2.5 space-y-1.5 leading-relaxed">{children}</ol>,
                         li: ({ children }) => <li className="text-slate-700 dark:text-slate-300">{children}</li>,
-                        h1: ({ children }) => <h1 className="text-base font-bold text-slate-900 dark:text-slate-100 mt-3 mb-1.5">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-2.5 mb-1">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-2 mb-1">{children}</h3>,
-                        code: ({ children }) => (
-                          <code className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-xs font-mono text-pink-600 dark:text-pink-400">
+                        h1: ({ children }) => <h1 className="text-lg font-bold text-slate-900 dark:text-white mt-4 mb-2 tracking-tight">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-base font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5 tracking-tight">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-3 mb-1">{children}</h3>,
+                        blockquote: ({ children }) => (
+                          <blockquote className="border-l-4 border-slate-300 dark:border-slate-600 pl-3 my-2.5 italic text-slate-600 dark:text-slate-400">
                             {children}
-                          </code>
+                          </blockquote>
+                        ),
+                        code: ({ children, className }) => (
+                          <CodeBlock className={className}>{children}</CodeBlock>
                         ),
                         a: ({ href, children }) => (
-                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-medium underline hover:opacity-80">
+                          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 font-medium underline underline-offset-2 hover:opacity-80">
                             {children}
                           </a>
                         ),
                         img: ({ src, alt }) => (
-                          <img src={src} alt={alt || "Generated visual"} className="rounded-xl border border-slate-200 dark:border-slate-700 max-h-[320px] object-cover my-2 shadow-sm" />
+                          <img src={src} alt={alt || "Generated visual"} className="rounded-xl border border-slate-200 dark:border-slate-700 max-h-[380px] object-cover my-3 shadow-md" />
                         ),
                       }}
                     >
@@ -564,8 +577,8 @@ export function ChatInterface({
               )}
             </div>
             {m.role === "user" && (
-              <div className="h-7 w-7 shrink-0 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center mt-0.5">
-                <User className="h-3.5 w-3.5" />
+              <div className="h-8 w-8 shrink-0 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center mt-0.5">
+                <User className="h-4 w-4" />
               </div>
             )}
           </div>
@@ -853,6 +866,90 @@ function formatToolResult(tool?: string, result?: any): string {
   } catch {
     return "Completed.";
   }
+}
+
+/* ── VIP Google Gemini Style Table Component with Copy Action ── */
+function MarkdownTable({ children }: { children?: React.ReactNode }) {
+  const [tableCopied, setTableCopied] = useState(false);
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  function copyTableText() {
+    if (!tableRef.current) return;
+    const text = tableRef.current.innerText;
+    navigator.clipboard.writeText(text);
+    setTableCopied(true);
+    setTimeout(() => setTableCopied(false), 2000);
+  }
+
+  return (
+    <div className="my-3.5 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm bg-white dark:bg-slate-900/90">
+      <div className="flex items-center justify-between px-3.5 py-2 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+          <FileText className="h-3.5 w-3.5 text-indigo-500" /> Structured Table
+        </span>
+        <button
+          type="button"
+          onClick={copyTableText}
+          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-2 py-0.5 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          title="Copy table data"
+        >
+          {tableCopied ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-500" /> Copied Table
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" /> Copy Table
+            </>
+          )}
+        </button>
+      </div>
+      <div ref={tableRef} className="overflow-x-auto">
+        <table className="w-full text-xs text-left border-collapse">{children}</table>
+      </div>
+    </div>
+  );
+}
+
+/* ── VIP Google Gemini Style Code Block Component with Copy Action ── */
+function CodeBlock({ children, className }: { children?: React.ReactNode; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const codeText = String(children).replace(/\n$/, "");
+  const langMatch = /language-(\w+)/.exec(className || "");
+  const lang = langMatch ? langMatch[1] : "";
+
+  function copyCode() {
+    navigator.clipboard.writeText(codeText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (!className && !String(children).includes("\n")) {
+    return (
+      <code className="bg-slate-100 dark:bg-slate-800 text-pink-600 dark:text-pink-400 px-1.5 py-0.5 rounded text-[12px] font-mono">
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-950 text-slate-100 font-mono text-xs shadow-sm">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] text-slate-400">
+        <span>{lang || "code"}</span>
+        <button
+          type="button"
+          onClick={copyCode}
+          className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+        >
+          {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="p-3.5 overflow-x-auto text-[12px] leading-relaxed">
+        <code>{children}</code>
+      </pre>
+    </div>
+  );
 }
 
 

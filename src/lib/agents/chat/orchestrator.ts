@@ -198,9 +198,12 @@ CURRENT DATE: ${currentDateStr} (Year: ${currentYear}). Always speak in present 
 
 FORMATTING & QUALITY RULES:
 1. Multi-Day Plans & Content Calendars:
-   - When asked for a posting plan (e.g. 5-day, 7-day, 10-day, 30-day plan), ALWAYS format it as a clean, beautiful Markdown Table with columns:
-     | Day | Platform | Content Pillar / Hook | Full Post Caption (English) | Suggested Visual / Format | Call to Action |
-   - Never output ugly unformatted bullet point text walls with endless asterisks.
+   - When asked for a posting plan (e.g. 5-day, 7-day, 10-day, 30-day plan), ALWAYS format it as a standard GitHub Markdown Table.
+   - Strictly format tables with markdown pipe syntax:
+     | Day | Platform | Content Pillar & Hook | Full Post Caption (English) | Suggested Visual / Format | Call to Action |
+     |:---|:---|:---|:---|:---|:---|
+     | **Day 1** | LinkedIn | AIoT & Edge Automation | *Ready-to-post English caption...* | 16:9 Architecture diagram | smbrobotic.com |
+   - Never output raw bullet walls with messy asterisks for multi-day plans.
 2. Social Media Posts & Copywriting:
    - All marketing post captions, hooks, and hashtags MUST be written in high-converting, professional English.
    - Conversational explanations, summaries, and executive advice can match the user's conversational language (e.g. Roman Urdu or English).
