@@ -26,17 +26,17 @@ export async function POST(req: Request) {
       include: { messages: { orderBy: { createdAt: "asc" }, take: 20 } },
     });
   }
-  if (!session) {
-    session = await prisma.chatSession.findFirst({
-      where: { workspaceId },
-      orderBy: { updatedAt: "desc" },
-      include: { messages: { orderBy: { createdAt: "asc" }, take: 20 } },
-    });
-  }
+  
   if (!session) {
     session = await prisma.chatSession.create({
       data: { workspaceId, title: (prompt || "").slice(0, 80) },
       include: { messages: true },
+    });
+  } else {
+    // Touch the updatedAt field so this session jumps to the top of History
+    await prisma.chatSession.update({
+      where: { id: session.id },
+      data: { updatedAt: new Date() }
     });
   }
 

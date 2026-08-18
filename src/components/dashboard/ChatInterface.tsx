@@ -39,6 +39,7 @@ import {
   Eye,
   Palette,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -209,6 +210,22 @@ export function ChatInterface({
     } finally {
       setLoadingHistory(false);
       setShowHistory(false);
+    }
+  }
+
+  async function deleteSession(id: string) {
+    if (!confirm("Are you sure you want to delete this chat?")) return;
+    try {
+      const res = await fetch(`/api/agents/chat/sessions?sessionId=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setSessionsList(prev => prev.filter(s => s.id !== id));
+        if (id === sessionId) {
+          setSessionId(null);
+          setMessages([]);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to delete session:", e);
     }
   }
 
@@ -414,24 +431,33 @@ export function ChatInterface({
           )}
           {!loadingHistory &&
             sessionsList.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => loadSession(s.id)}
-                className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors flex flex-col gap-0.5 ${
-                  s.id === sessionId
-                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-medium"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-                }`}
-              >
-                <span className="truncate font-medium flex items-center gap-1.5">
-                  <MessageSquare className="h-3 w-3 shrink-0" />
-                  {s.title || "Untitled Chat"}
-                </span>
-                <span className={`text-[10px] ${s.id === sessionId ? "opacity-80" : "text-slate-400"}`}>
-                  {new Date(s.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </span>
-              </button>
+              <div key={s.id} className="relative group flex items-center">
+                <button
+                  type="button"
+                  onClick={() => loadSession(s.id)}
+                  className={`w-full text-left px-2.5 py-2 pr-8 rounded-lg text-xs transition-colors flex flex-col gap-0.5 ${
+                    s.id === sessionId
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-medium"
+                      : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <span className="truncate font-medium flex items-center gap-1.5">
+                    <MessageSquare className="h-3 w-3 shrink-0" />
+                    {s.title || "Untitled Chat"}
+                  </span>
+                  <span className={`text-[10px] ${s.id === sessionId ? "opacity-80" : "text-slate-400"}`}>
+                    {new Date(s.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                  className="absolute right-2 opacity-0 group-hover:opacity-100 p-1.5 rounded-md hover:bg-red-500 hover:text-white text-slate-400 transition-all"
+                  title="Delete Chat"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
         </div>
       )}
@@ -602,20 +628,14 @@ export function ChatInterface({
                 </div>
               )}
               {activity.map((a, i) => {
-                if (a.type === "memory") {
-                  return <LiveStep key={i} icon={<Database className="h-3 w-3" />} label="Recalling long-term memory…" />;
-                }
-                if (a.type === "memory_done") {
-                  return <LiveStep key={i} icon={<Database className="h-3 w-3" />} label={`Recalled ${a.count ?? 0} memories`} done detail={a.count ? "Loaded relevant context from past conversations" : "No relevant memories found"} />;
-                }
-                if (a.type === "planning") {
-                  return <LiveStep key={i} icon={<Brain className="h-3 w-3" />} label="Planning which tools to use…" />;
-                }
-                if (a.type === "reasoning") {
-                  return <LiveStep key={i} icon={<Sparkles className="h-3 w-3" />} label="Reasoning" done detail={a.text} />;
-                }
-                if (a.type === "synthesizing") {
-                  return <LiveStep key={i} icon={<PenTool className="h-3 w-3" />} label="Writing final answer…" />;
+                if (
+                  a.type === "memory" ||
+                  a.type === "memory_done" ||
+                  a.type === "planning" ||
+                  a.type === "reasoning" ||
+                  a.type === "synthesizing"
+                ) {
+                  return null;
                 }
                 if (a.type === "tool_start" || a.type === "tool_end") {
                   return (
