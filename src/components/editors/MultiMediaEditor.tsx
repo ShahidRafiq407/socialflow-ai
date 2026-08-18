@@ -173,16 +173,7 @@ export default function MultiMediaEditor({
   return (
     <div className="space-y-6 text-left">
       {/* HEADER */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-blue-600 text-white font-bold text-xs uppercase px-2.5 py-0.5">
-            {capability.label}
-          </Badge>
-          <span className="text-xs text-slate-500 font-medium">
-            Attach up to {capability.maxMedia} Photos & Videos
-          </span>
-        </div>
-
+      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -192,7 +183,7 @@ export default function MultiMediaEditor({
             onClick={onGenerateAllMediaAI}
             className="h-8 text-xs font-bold gap-1"
           >
-            {isGeneratingAllMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-blue-600" />}
+            {isGeneratingAllMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-slate-600" />}
             <span>Regenerate All Assets</span>
           </Button>
 
@@ -201,7 +192,7 @@ export default function MultiMediaEditor({
             size="sm"
             disabled={isGeneratingCopy}
             onClick={onGenerateCopyAI}
-            className="h-8 text-xs font-bold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+            className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
           >
             {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             <span>Auto-Generate Copy</span>

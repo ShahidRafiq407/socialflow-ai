@@ -149,22 +149,13 @@ export default function InstagramCarouselEditor({
   return (
     <div className="space-y-6 text-left">
       {/* HEADER & ACTIONS */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold text-xs uppercase px-2.5 py-0.5">
-            Instagram Feed Carousel
-          </Badge>
-          <span className="text-xs text-slate-500 font-medium">
-            2–10 Seamless Slides (1:1 / 4:5 Aspect Ratio)
-          </span>
-        </div>
-
+      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
         <Button
           type="button"
           size="sm"
           disabled={isGeneratingAI}
           onClick={onGenerateCarouselAI}
-          className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 text-white shadow-xs hover:opacity-90"
+          className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
         >
           {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel with AI...") : "Generate Full Carousel with AI"}</span>

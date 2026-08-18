@@ -196,25 +196,14 @@ export default function PinterestPinEditor({
   return (
     <div className="space-y-6 text-left">
       {/* HEADER & AI ACTION BAR */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase px-2.5 py-0.5">
-            Pinterest {capability.format}
-          </Badge>
-          <span className="text-xs text-slate-500 font-medium">
-            {isVideo || capability.format.toLowerCase().includes("idea")
-              ? "9:16 Vertical Recommended (1080 × 1920 px)"
-              : "2:3 Vertical Recommended (1000 × 1500 px)"}
-          </span>
-        </div>
-
+      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <Button
             type="button"
             size="sm"
             disabled={isGeneratingCopy}
             onClick={onGenerateCopyAI}
-            className="h-8 text-xs font-bold gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white shadow-xs"
+            className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
           >
             {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             <span>Auto-Generate Pin Copy & SEO</span>

@@ -128,16 +128,7 @@ export default function LinkedInDocumentEditor({
   return (
     <div className="space-y-6 text-left">
       {/* HEADER & ACTIONS */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Badge className="bg-[#0A66C2] text-white font-bold text-xs uppercase px-2.5 py-0.5">
-            LinkedIn Document Studio (PDF)
-          </Badge>
-          <span className="text-xs text-slate-500 font-medium">
-            Multi-Page PDF Carousel (High B2B Engagement)
-          </span>
-        </div>
-
+      <div className="flex items-center justify-end pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -147,7 +138,7 @@ export default function LinkedInDocumentEditor({
             disabled={isExportingPDF}
             className="h-8 text-xs font-bold gap-1 border-slate-300 dark:border-slate-700"
           >
-            {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-blue-600" />}
+            {isExportingPDF ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5 text-slate-600" />}
             <span>Export Document PDF</span>
           </Button>
 
@@ -156,7 +147,7 @@ export default function LinkedInDocumentEditor({
             size="sm"
             disabled={isGeneratingAI}
             onClick={onGenerateDocumentAI}
-            className="h-8 text-xs font-bold gap-1.5 bg-[#0A66C2] hover:bg-[#084e96] text-white shadow-xs"
+            className="h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-xs"
           >
             {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             <span>Generate Document with AI</span>
