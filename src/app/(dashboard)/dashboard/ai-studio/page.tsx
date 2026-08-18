@@ -1130,7 +1130,7 @@ export default function AIStudioPage() {
               : (getPlatformDef(pId)?.contentTypes || [currentFormatName]);
 
             availableFormats.forEach(otherFmt => {
-              if (pId === targetPlatform || getFormatFamily(pId, otherFmt) === currentFamily) {
+              if (getFormatFamily(pId, otherFmt) === currentFamily) {
                 const currentPlat = updated[pId] || {};
                 const currentFmt = currentPlat[otherFmt] || {};
                 updated[pId] = {
@@ -1167,7 +1167,7 @@ export default function AIStudioPage() {
             : (getPlatformDef(pId)?.contentTypes || [currentFormatName]);
 
           availableFormats.forEach(otherFmt => {
-            if (pId === targetPlatform || getFormatFamily(pId, otherFmt) === currentFamily) {
+            if (getFormatFamily(pId, otherFmt) === currentFamily) {
               const otherKey = `${pId}-${otherFmt}`;
               if (item.title) setTitleDict(prev => ({ ...prev, [otherKey]: item.title }));
               if (item.description) setDescriptionDict(prev => ({ ...prev, [otherKey]: item.description }));
