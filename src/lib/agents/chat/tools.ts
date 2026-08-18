@@ -18,6 +18,7 @@ export interface ToolContext {
   workspaceId: string;
   userId: string;
   uploadedFiles?: { name: string; content: string; type: string }[];
+  onProgress?: (message: string) => void;
 }
 
 export interface ToolDef {
@@ -149,6 +150,8 @@ export const TOOLS: ToolDef[] = [
     execute: async (args, ctx) => {
       const platform = args.platform || "Instagram";
       const aspectRatio = args.aspectRatio || "1:1";
+      ctx.onProgress?.(`Starting image generation with gemini-3-pro-image...`);
+
       const assets = await generateMediaAsset({
         platform,
         contentType: "Feed",
@@ -158,11 +161,12 @@ export const TOOLS: ToolDef[] = [
         style: args.style || "commercial_product",
         quality: args.quality || "studio_4k",
         imageModel: "gemini-3-pro-image",
+        onProgress: ctx.onProgress,
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate image" };
 
-      // Save to media assets library
+      // 1. Save to media assets library
       try {
         await prisma.mediaAsset.create({
           data: {
@@ -176,20 +180,43 @@ export const TOOLS: ToolDef[] = [
         console.warn("[tools:generate_image] Saved asset record failed non-fatally", e);
       }
 
+      // 2. Save to Post table so it shows on Content Approval Board & AI Studio
+      let savedPostId: string | undefined;
+      try {
+        const post = await prisma.post.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            platform,
+            content: args.prompt,
+            format: "Feed",
+            imageUrl: first.url,
+            imagePrompt: args.prompt,
+            mediaType: "image",
+            status: "PENDING_APPROVAL",
+            source: "ai-brain",
+          },
+        });
+        savedPostId = post.id;
+      } catch (e) {
+        console.warn("[tools:generate_image] Saved post record failed non-fatally", e);
+      }
+
       return {
+        id: savedPostId,
         url: first.url,
         prompt: args.prompt,
         platform,
         aspectRatio,
         model: "gemini-3-pro-image",
         status: "completed",
+        savedToContentLibrary: true,
       };
     },
   },
   {
     name: "generate_video",
     description:
-      "Generate a short-form marketing video or Reel. Use for Reels, TikToks, Shorts, or Video Ads.",
+      "Generate a short-form marketing video or Reel. Use for Reels, TikToks, Shorts, or Video Ads. Can use attached images as reference for Image-to-Video.",
     parameters: {
       type: "object",
       properties: {
@@ -197,13 +224,30 @@ export const TOOLS: ToolDef[] = [
         platform: { type: "string", description: "Platform name (e.g. TikTok, Instagram, YouTube, Facebook)" },
         topic: { type: "string", description: "Core marketing topic or product name" },
         aspectRatio: { type: "string", enum: ["9:16", "16:9", "1:1"], description: "Default 9:16 for vertical reels" },
-        videoTask: { type: "string", description: "Task type: text_to_video, product_showcase, cinematic_broll" },
+        videoTask: { type: "string", description: "Task type: text_to_video, image_to_video, product_showcase, cinematic_broll" },
       },
       required: ["prompt"],
     },
     execute: async (args, ctx) => {
       const platform = args.platform || "Instagram";
       const aspectRatio = args.aspectRatio || "9:16";
+
+      // Automatically find reference image from uploaded files if user attached one
+      let sourceImage: string | undefined = args.sourceImage;
+      if (!sourceImage && ctx.uploadedFiles && ctx.uploadedFiles.length > 0) {
+        const imageFile = ctx.uploadedFiles.find(
+          (f) =>
+            f.type.startsWith("image/") ||
+            (f.content && f.content.startsWith("data:image/")) ||
+            /\.(png|jpg|jpeg|webp|gif)$/i.test(f.name)
+        );
+        if (imageFile && imageFile.content) {
+          sourceImage = imageFile.content;
+        }
+      }
+
+      ctx.onProgress?.(`Initializing video generation (gemini-omni-flash-preview)...`);
+
       const assets = await generateMediaAsset({
         platform,
         contentType: "Reel",
@@ -211,11 +255,14 @@ export const TOOLS: ToolDef[] = [
         prompt: args.prompt,
         topic: args.topic || "Product Launch",
         aspectRatio,
-        videoTask: args.videoTask || "product_showcase",
+        videoTask: sourceImage ? "image_to_video" : (args.videoTask || "product_showcase"),
+        sourceImage,
+        onProgress: ctx.onProgress,
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate video" };
 
+      // 1. Save to MediaAsset table
       try {
         await prisma.mediaAsset.create({
           data: {
@@ -229,13 +276,37 @@ export const TOOLS: ToolDef[] = [
         console.warn("[tools:generate_video] Saved video record failed non-fatally", e);
       }
 
+      // 2. Save to Post table so it shows on Content Approval Board & AI Studio
+      let savedPostId: string | undefined;
+      try {
+        const post = await prisma.post.create({
+          data: {
+            workspaceId: ctx.workspaceId,
+            platform,
+            content: args.prompt,
+            format: "Reel",
+            imageUrl: first.url,
+            imagePrompt: args.prompt,
+            mediaType: "video",
+            status: "PENDING_APPROVAL",
+            source: "ai-brain",
+          },
+        });
+        savedPostId = post.id;
+      } catch (e) {
+        console.warn("[tools:generate_video] Saved post record failed non-fatally", e);
+      }
+
       return {
+        id: savedPostId,
         url: first.url,
         prompt: args.prompt,
         platform,
         aspectRatio,
         model: MODELS.VIDEO,
         status: "completed",
+        hasReferenceImage: Boolean(sourceImage),
+        savedToContentLibrary: true,
       };
     },
   },

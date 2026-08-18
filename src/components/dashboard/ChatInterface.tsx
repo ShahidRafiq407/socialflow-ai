@@ -27,6 +27,8 @@ import {
   Image as ImageIcon,
   Video as VideoIcon,
   Calendar as CalendarIcon,
+  History,
+  MessageSquare,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -43,12 +45,20 @@ interface ActivityItem {
   status?: "running" | "done";
   text?: string;
   count?: number;
+  progress?: string;
 }
 
 interface UploadedFile {
   name: string;
   type: string;
   content: string;
+}
+
+export interface ChatSessionItem {
+  id: string;
+  title: string;
+  updatedAt: Date | string;
+  messageCount?: number;
 }
 
 const QUICK_COMMANDS = [
@@ -81,15 +91,28 @@ const IGNORED_DIRS =
   /(^|\/)(node_modules|\.git|\.next|dist|build|\.vercel|coverage|vendor|\.idea|\.vscode|out|\.turbo|\.cache|\.DS_Store)(\/|$)/;
 const MAX_FILES = 200;
 
-export function ChatInterface({ workspaceId }: { workspaceId: string }) {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+export function ChatInterface({
+  workspaceId,
+  initialSessionId = null,
+  initialMessages = [],
+  initialSessionsList = [],
+}: {
+  workspaceId: string;
+  initialSessionId?: string | null;
+  initialMessages?: ChatMsg[];
+  initialSessionsList?: ChatSessionItem[];
+}) {
+  const [messages, setMessages] = useState<ChatMsg[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
+  const [sessionsList, setSessionsList] = useState<ChatSessionItem[]>(initialSessionsList);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -100,11 +123,27 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
 
   function handleEvent(event: any) {
     if (event.type === "session") {
-      if (event.sessionId) setSessionId(event.sessionId);
+      if (event.sessionId) {
+        setSessionId(event.sessionId);
+        setSessionsList((prev) => {
+          if (prev.some((s) => s.id === event.sessionId)) return prev;
+          return [{ id: event.sessionId, title: event.title || "New Chat", updatedAt: new Date() }, ...prev];
+        });
+      }
       return;
     }
     if (event.type === "error") {
       setError(event.message || "An error occurred in the AI brain.");
+      return;
+    }
+    if (event.type === "tool_progress") {
+      setActivity((prev) =>
+        prev.map((a) =>
+          a.tool === event.tool && a.status === "running"
+            ? { ...a, progress: event.progress, text: event.progress }
+            : a
+        )
+      );
       return;
     }
     if (event.type === "tool_start") {
@@ -119,6 +158,33 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
       );
     } else {
       setActivity((prev) => [...prev, event]);
+    }
+  }
+
+  async function loadSession(id: string) {
+    if (id === sessionId) {
+      setShowHistory(false);
+      return;
+    }
+    setLoadingHistory(true);
+    try {
+      const res = await fetch(`/api/agents/chat/sessions?sessionId=${id}`);
+      const data = await res.json();
+      if (data?.session) {
+        setSessionId(data.session.id);
+        setMessages(
+          (data.session.messages || []).map((m: any) => ({
+            role: m.role === "USER" ? "user" : "assistant",
+            content: m.content,
+            toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : undefined,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error("Failed to load session:", e);
+    } finally {
+      setLoadingHistory(false);
+      setShowHistory(false);
     }
   }
 
@@ -269,10 +335,11 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
     setSessionId(null);
     setError("");
     setNotice("");
+    setShowHistory(false);
   }
 
   return (
-    <Card className="w-full flex flex-col h-full overflow-hidden py-0">
+    <Card className="w-full flex flex-col h-full overflow-hidden py-0 relative">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="flex items-center gap-2.5">
@@ -284,10 +351,66 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
             <p className="text-[11px] text-slate-500">Multi-agent AI that controls every tab with real data</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={newChat} className="h-8 text-xs gap-1.5">
-          <Plus className="h-3.5 w-3.5" /> New Chat
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowHistory(!showHistory)}
+            className="h-8 text-xs gap-1.5"
+            title="View chat history"
+          >
+            <History className="h-3.5 w-3.5" /> History {sessionsList.length > 0 && `(${sessionsList.length})`}
+          </Button>
+          <Button variant="outline" size="sm" onClick={newChat} className="h-8 text-xs gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> New Chat
+          </Button>
+        </div>
       </div>
+
+      {/* Chat History Drawer / Dropdown */}
+      {showHistory && (
+        <div className="absolute top-[53px] right-4 z-50 w-80 max-h-[380px] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-3 space-y-1.5">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+            <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <History className="h-3.5 w-3.5" /> Past Chat Sessions
+            </p>
+            <button type="button" onClick={() => setShowHistory(false)} className="text-slate-400 hover:text-slate-600">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {loadingHistory && (
+            <div className="py-6 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading session…
+            </div>
+          )}
+          {!loadingHistory && sessionsList.length === 0 && (
+            <div className="py-6 text-center text-xs text-slate-400">
+              No previous chat history found.
+            </div>
+          )}
+          {!loadingHistory &&
+            sessionsList.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => loadSession(s.id)}
+                className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors flex flex-col gap-0.5 ${
+                  s.id === sessionId
+                    ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-medium"
+                    : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                }`}
+              >
+                <span className="truncate font-medium flex items-center gap-1.5">
+                  <MessageSquare className="h-3 w-3 shrink-0" />
+                  {s.title || "Untitled Chat"}
+                </span>
+                <span className={`text-[10px] ${s.id === sessionId ? "opacity-80" : "text-slate-400"}`}>
+                  {new Date(s.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 dark:bg-slate-950/20">
@@ -371,7 +494,8 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
                       icon={toolIcon(a.tool)}
                       label={toolStepLabel(a.tool, a.args)}
                       done={a.status === "done"}
-                      detail={a.status === "done" ? formatToolResult(a.tool, a.result) : undefined}
+                      progress={a.status === "running" ? a.progress : undefined}
+                      detail={a.status === "done" ? formatToolResult(a.tool, a.result) : (a.progress || undefined)}
                     />
                   );
                 }
@@ -459,11 +583,12 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
 }
 
 /* ── Expandable live step (Claude-like) ── */
-function LiveStep({ icon, label, done, detail }: {
+function LiveStep({ icon, label, done, detail, progress }: {
   icon: React.ReactNode;
   label: string;
   done?: boolean;
   detail?: string;
+  progress?: string;
 }) {
   if (detail) {
     return (
@@ -476,6 +601,11 @@ function LiveStep({ icon, label, done, detail }: {
           )}
           <span className="text-slate-500 shrink-0">{icon}</span>
           <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
+          {progress && !done && (
+            <span className="text-[11px] font-normal text-indigo-600 dark:text-indigo-400 ml-2">
+              ({progress})
+            </span>
+          )}
           <ChevronRight className="h-3 w-3 text-slate-400 ml-auto shrink-0 transition-transform group-open:rotate-90" />
         </summary>
         <div className="ml-[22px] mt-1 pl-3 border-l-2 border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
@@ -493,6 +623,11 @@ function LiveStep({ icon, label, done, detail }: {
       )}
       <span className="text-slate-500 shrink-0">{icon}</span>
       <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
+      {progress && !done && (
+        <span className="text-[11px] font-normal text-indigo-600 dark:text-indigo-400 ml-2">
+          ({progress})
+        </span>
+      )}
     </div>
   );
 }

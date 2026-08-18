@@ -121,8 +121,14 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
         const tool = getTool(action.tool);
         if (!tool) return { tool: action.tool, args: action.args, result: { error: "Unknown tool" } };
         onEvent?.({ type: "tool_start", tool: action.tool, args: action.args });
+        const toolCtx: ToolContext = {
+          ...ctx,
+          onProgress: (progressMsg: string) => {
+            onEvent?.({ type: "tool_progress", tool: action.tool, progress: progressMsg });
+          },
+        };
         try {
-          const result = await tool.execute(action.args, ctx);
+          const result = await tool.execute(action.args, toolCtx);
           onEvent?.({ type: "tool_end", tool: action.tool, result });
           return { tool: action.tool, args: action.args, result };
         } catch (err: any) {

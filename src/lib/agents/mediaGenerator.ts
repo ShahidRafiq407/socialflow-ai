@@ -220,9 +220,9 @@ async function generateRealVideo(options: {
         }
       }
 
-      // 2. generateVideos (Veo path — the API that ships in the SDK today)
+      // 2. generateVideos (Veo path — the standard Google GenAI video API)
       if (typeof ai?.models?.generateVideos === "function") {
-        onProgress?.(`[Visualizer] Submitting video synthesis job (${targetVideoModel})...`);
+        onProgress?.(`[Visualizer] Initializing video synthesis (${targetVideoModel})... 5%`);
         let operation = await ai.models.generateVideos({
           model: targetVideoModel,
           prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
@@ -249,7 +249,13 @@ async function generateRealVideo(options: {
               break;
             }
 
-            onProgress?.(`[Visualizer] Video frame rendering in progress... (${elapsedSec}s elapsed)`);
+            // Real Google API progress percentage or dynamic progression calculation
+            const rawProgress = (operation as any)?.metadata?.progressPercentage;
+            const progressPercent = typeof rawProgress === "number"
+              ? rawProgress
+              : Math.min(98, Math.max(10, Math.round((elapsedSec / 60) * 100)));
+
+            onProgress?.(`Rendering video frames: ${progressPercent}% (${elapsedSec}s elapsed)`);
             await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
             if (typeof (ai.operations as any)?.getVideosOperation === "function") {
@@ -267,11 +273,11 @@ async function generateRealVideo(options: {
           const videoUri = operation?.response?.generatedVideos?.[0]?.video?.uri;
 
           if (videoBytes) {
-            onProgress?.(`[Visualizer] ✅ Video frame synthesis completed (${targetVideoModel})!`);
+            onProgress?.(`[Visualizer] ✅ Video frame synthesis completed 100%!`);
             return `data:video/mp4;base64,${videoBytes}`;
           }
           if (videoUri) {
-            onProgress?.(`[Visualizer] ✅ Video asset ready (${targetVideoModel})!`);
+            onProgress?.(`[Visualizer] ✅ Video asset ready 100%!`);
             return videoUri;
           }
         }
@@ -279,8 +285,6 @@ async function generateRealVideo(options: {
     } catch (err: any) {
       lastErr = err;
       console.warn(`[Visualizer] Video synthesis on ${targetVideoModel} failed:`, err?.message || err);
-      // Move to the next candidate model — a 404 here means this model was
-      // decommissioned by Google, not that generation is impossible.
     }
   }
 
