@@ -81,6 +81,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   // 1. Recall long-term memory (semantic)
   onEvent?.({ type: "memory" });
   const memory = await recallMemories(workspaceId, prompt, 6);
+  onEvent?.({ type: "memory_done", count: memory.length });
 
   // 2. Load brand DNA for grounding
   let brand: any = null;
@@ -106,6 +107,7 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   // 3. Plan
   onEvent?.({ type: "planning" });
   const plan = await planActions(prompt, context);
+  onEvent?.({ type: "reasoning", text: plan.reasoning || "Executing tasks" });
 
   // 4. Execute tools in parallel
   const toolCalls: ToolCallResult[] = [];

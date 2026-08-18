@@ -31,8 +31,11 @@ interface ChatMsg {
 interface ActivityItem {
   type: string;
   tool?: string;
+  args?: any;
   result?: any;
   status?: "running" | "done";
+  text?: string;
+  count?: number;
 }
 
 interface UploadedFile {
@@ -63,6 +66,10 @@ const TOOL_LABELS: Record<string, string> = {
   read_uploaded_files: "Reading uploaded files",
 };
 
+const IGNORED_DIRS =
+  /(^|\/)(node_modules|\.git|\.next|dist|build|\.vercel|coverage|vendor|\.idea|\.vscode|out|\.turbo|\.cache|\.DS_Store)(\/|$)/;
+const MAX_FILES = 200;
+
 export function ChatInterface({ workspaceId }: { workspaceId: string }) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
@@ -70,6 +77,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -171,12 +179,25 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
   async function handleFiles(selected: FileList | null) {
     if (!selected || selected.length === 0) return;
     const read: UploadedFile[] = [];
+    let skipped = 0;
     for (const f of Array.from(selected)) {
+      const relPath = (f as any).webkitRelativePath || f.name;
+      if (IGNORED_DIRS.test(relPath)) {
+        skipped++;
+        continue;
+      }
+      if (read.length >= MAX_FILES) break;
       const content = await readFileText(f);
-      const name = (f as any).webkitRelativePath || f.name;
-      read.push({ name, type: f.type, content });
+      read.push({ name: relPath, type: f.type, content });
     }
     setFiles((prev) => [...prev, ...read]);
+    if (skipped > 0) {
+      setNotice(
+        `Skipped ${skipped} system files (node_modules, .git, build, etc.). Loaded ${read.length} relevant files.`
+      );
+    } else {
+      setNotice(`Loaded ${read.length} files.`);
+    }
   }
 
   function readFileText(file: File): Promise<string> {
@@ -207,10 +228,11 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
     setFiles([]);
     setSessionId(null);
     setError("");
+    setNotice("");
   }
 
   return (
-    <Card className="w-full max-w-4xl flex flex-col h-[calc(100vh-16rem)] overflow-hidden">
+    <Card className="w-full flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="flex items-center gap-2.5">
@@ -287,11 +309,13 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
                 </div>
               )}
               {activity.map((a, i) => {
-                if (a.type === "memory") return <AgentStep key={i} label="Recalling memory" done={false} />;
-                if (a.type === "planning") return <AgentStep key={i} label="Planning tasks" done={false} />;
-                if (a.type === "synthesizing") return <AgentStep key={i} label="Writing answer" done={false} />;
+                if (a.type === "memory") return <AgentStep key={i} label="Recalling memory…" done={false} />;
+                if (a.type === "memory_done") return <AgentStep key={i} label={`Recalled ${a.count ?? 0} memories`} done />;
+                if (a.type === "planning") return <AgentStep key={i} label="Planning tasks…" done={false} />;
+                if (a.type === "reasoning") return <ReasonStep key={i} text={a.text || ""} />;
+                if (a.type === "synthesizing") return <AgentStep key={i} label="Writing answer…" done={false} />;
                 if (a.type === "tool_start" || a.type === "tool_end") {
-                  return <AgentStep key={i} label={TOOL_LABELS[a.tool || ""] || a.tool || "Tool"} done={a.status === "done"} />;
+                  return <AgentStep key={i} label={toolStepLabel(a.tool, a.args)} done={a.status === "done"} />;
                 }
                 return null;
               })}
@@ -310,6 +334,11 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
 
       {/* Footer */}
       <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-2.5">
+        {notice && (
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> {notice}
+          </div>
+        )}
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {files.map((f) => (
@@ -378,6 +407,25 @@ function AgentStep({ label, done }: { label: string; done: boolean }) {
         <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
       )}
       <span className="text-slate-600 dark:text-slate-300">{label}</span>
+    </div>
+  );
+}
+
+function toolStepLabel(tool?: string, args?: any): string {
+  const base = TOOL_LABELS[tool || ""] || tool || "Working";
+  let detail = "";
+  if (args?.query) detail = `: "${args.query}"`;
+  else if (args?.keyword) detail = `: "${args.keyword}"`;
+  else if (args?.url) detail = `: ${args.url}`;
+  else if (args?.platform) detail = `: ${args.platform}${args.format ? ` (${args.format})` : ""}`;
+  return `${base}${detail}`;
+}
+
+function ReasonStep({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <Sparkles className="h-3.5 w-3.5 text-indigo-500 shrink-0 mt-0.5" />
+      <span className="text-slate-600 dark:text-slate-300 italic">{text}</span>
     </div>
   );
 }
