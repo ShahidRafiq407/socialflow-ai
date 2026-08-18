@@ -582,7 +582,7 @@ export default function VideoPostEditor({
               size="sm"
               disabled={isGeneratingCopy}
               onClick={onGenerateCopyAI}
-              className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+              className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
             >
               {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>Generate Caption, Hashtags & Video Prompt with AI</span>

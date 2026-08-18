@@ -202,7 +202,7 @@ export default function PinterestPinEditor({
           size="sm"
           disabled={isGeneratingCopy}
           onClick={onGenerateCopyAI}
-          className="h-7 px-3 text-[11px] font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+          className="h-auto min-h-7 px-3 py-1 text-[11px] font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
         >
           {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           <span>Generate Pin Title, Description & Prompt with AI</span>
