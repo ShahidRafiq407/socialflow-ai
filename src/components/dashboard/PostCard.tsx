@@ -75,7 +75,7 @@ export function PostCard({ post }: { post: PostProps }) {
   );
   const [editedTime, setEditedTime] = useState("08:30 AM EST");
 
-  // Determine Format Tag & Default Optimal Peak Time based on Platform, Format, and MediaType
+  // Determine Format Tag & Icon based on Platform, Format, and MediaType
   const getPlatformMetadata = (
     platformName: string,
     format?: string | null,
@@ -99,7 +99,6 @@ export function PostCard({ post }: { post: PostProps }) {
           : lowerFmt.includes("carousel")
           ? "Instagram Carousel"
           : "Instagram Feed Image",
-        peakTime: "06:30 PM EST (Evening High-Engagement)",
         colorClass: "bg-pink-500/10 text-pink-700 dark:text-pink-300 border-pink-500/20",
       };
     }
@@ -107,7 +106,6 @@ export function PostCard({ post }: { post: PostProps }) {
       return {
         icon: Video,
         formatTag: "9:16 TikTok Short Video",
-        peakTime: "07:15 PM EST (Prime Video Traffic)",
         colorClass: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
       };
     }
@@ -115,7 +113,6 @@ export function PostCard({ post }: { post: PostProps }) {
       return {
         icon: isVideo ? Video : MessageSquare,
         formatTag: isVideo ? "16:9 X Video Post" : "X Post Image",
-        peakTime: "11:00 AM EST (Mid-day Tech Discussions)",
         colorClass: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
       };
     }
@@ -123,7 +120,6 @@ export function PostCard({ post }: { post: PostProps }) {
       return {
         icon: isVideo ? Video : Camera,
         formatTag: isVideo ? "9:16 Video Pin" : "2:3 Vertical Pin",
-        peakTime: "08:00 PM EST (Evening Discovery)",
         colorClass: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20",
       };
     }
@@ -131,7 +127,6 @@ export function PostCard({ post }: { post: PostProps }) {
       return {
         icon: Video,
         formatTag: isVideo ? "9:16 YouTube Short" : "YouTube Community Post",
-        peakTime: "04:00 PM EST (Afternoon Peak)",
         colorClass: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20",
       };
     }
@@ -139,7 +134,6 @@ export function PostCard({ post }: { post: PostProps }) {
       return {
         icon: isVideo ? Video : Share2,
         formatTag: isVideo ? "9:16 Facebook Reel" : "Facebook Feed Image",
-        peakTime: "01:00 PM EST (Lunch Break Engagement)",
         colorClass: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
       };
     }
@@ -150,7 +144,6 @@ export function PostCard({ post }: { post: PostProps }) {
         : lowerFmt.includes("carousel") || lowerFmt.includes("doc")
         ? "4:5 Carousel PDF Document"
         : "LinkedIn Feed Post",
-      peakTime: "08:30 AM EST (Morning Executive Coffee)",
       colorClass: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
     };
   };
@@ -280,14 +273,21 @@ export function PostCard({ post }: { post: PostProps }) {
           </div>
         </CardHeader>
 
-        {/* SCIENTIFIC PEAK POSTING TIME BANNER */}
+        {/* SCHEDULE / STATUS BANNER */}
         <div className="px-4 py-2 bg-slate-100/60 dark:bg-slate-800/40 border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-xs">
           <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
-            <Calendar className="h-3.5 w-3.5 text-primary" />
-            <span>Optimal Peak Time:</span>
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+            <span>Scheduled Time:</span>
           </span>
-          <span className="font-mono font-extrabold text-primary bg-primary/10 px-2 py-0.5 rounded text-[11px]">
-            {meta.peakTime}
+          <span className={`font-mono font-semibold px-2 py-0.5 rounded text-[11px] ${post.scheduledFor ? "text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40" : "text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800"}`}>
+            {post.scheduledFor
+              ? new Date(post.scheduledFor).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "Draft (Unscheduled)"}
           </span>
         </div>
 
@@ -333,12 +333,18 @@ export function PostCard({ post }: { post: PostProps }) {
             className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto text-xs font-bold"
             onClick={() =>
               alert(
-                `Publishing to ${post.platform} is scheduled for its designated Peak Hour!`
+                post.scheduledFor
+                  ? `Publishing scheduled for ${new Date(post.scheduledFor).toLocaleString()}!`
+                  : `Post approved and ready in Content Library!`
               )
             }
           >
             <Send className="h-3.5 w-3.5" />
-            <span>Scheduled for Peak Release ({meta.peakTime})</span>
+            <span>
+              {post.scheduledFor
+                ? `Scheduled (${new Date(post.scheduledFor).toLocaleDateString()})`
+                : "Approved"}
+            </span>
           </Button>
         </CardFooter>
       ) : (
