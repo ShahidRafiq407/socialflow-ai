@@ -121,14 +121,31 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
   const context = `\nCONVERSATION HISTORY:\n${historyBlock || "(none)"}${memoryBlock}${brandBlock}${filesBlock}`;
 
-  // 3. Plan
-  onEvent?.({ type: "planning" });
-  const plan = await planActions(prompt, context);
-  onEvent?.({ type: "reasoning", text: plan.reasoning || "Executing tasks" });
-
-  // 4. Execute tools in parallel
+    // 3 & 4. Agentic execution loop: plan -> execute (parallel batch) -> observe -> re-plan.
+  // A natural-language request describes a DEPENDENCY graph (e.g. "generate an image,
+  // then schedule a post WITH that image URL"). The previous version picked the whole
+  // plan in one LLM call and ran every tool in a single parallel batch, so a dependent
+  // step could never receive an artifact (URL/id) produced by a sibling in the same batch.
+  // This loop re-plans after every batch, feeding real tool results back in, so dependent
+  // steps resolve in the correct order. It also re-emits `reasoning` per iteration (live
+  // plan in the UI) and stops cleanly on a hard batch failure instead of spinning.
   const toolCalls: ToolCallResult[] = [];
-  if (plan.actions.length > 0) {
+  const resultLog: string[] = [];
+  const MAX_ITERATIONS = 6;
+
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    onEvent?.({ type: "planning" });
+    const planCtx = resultLog.length
+      ? `${context}\n\nOBSERVED TOOL RESULTS SO FAR:\n${resultLog.join("\n\n")}\n\n` +
+        `Continue the workflow from these results. ONLY call tools required for the NEXT ` +
+        `dependent step(s). Do NOT repeat a tool that already succeeded unless re-running ` +
+        `is explicitly required by an unresolved dependency.`
+      : context;
+    const plan = await planActions(prompt, planCtx);
+    onEvent?.({ type: "reasoning", text: plan.reasoning || `Planning step ${iter + 1}` });
+
+    if (!plan.actions || plan.actions.length === 0) break;
+
     const settled = await Promise.allSettled(
       plan.actions.map(async (action) => {
         const tool = getTool(action.tool);
@@ -151,9 +168,21 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
         }
       })
     );
+
     for (const s of settled) {
-      toolCalls.push(s.status === "fulfilled" ? s.value : { tool: "unknown", args: {}, result: { error: "failed" } });
+      const r =
+        s.status === "fulfilled"
+          ? s.value
+          : { tool: "unknown", args: {}, result: { error: "failed" } };
+      toolCalls.push(r);
+      const payload = typeof r.result === "string" ? r.result : JSON.stringify(r.result);
+      resultLog.push(
+        `[TOOL ${r.tool}]\nargs: ${JSON.stringify(r.args)}\nresult: ${payload?.slice(0, 10000)}`
+      );
     }
+
+    // Hard failure across the whole batch -> nothing to build on, stop re-planning.
+    if (settled.length > 0 && settled.every((s) => s.status === "rejected")) break;
   }
 
   // 5. Synthesize final answer
