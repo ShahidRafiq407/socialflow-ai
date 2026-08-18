@@ -566,19 +566,7 @@ export default function InstagramCarouselEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
               Instagram Post Caption (Shared)
             </label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={isGeneratingAI}
-                onClick={onGenerateCarouselAI}
-                className="h-6.5 px-2.5 text-[10px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-md"
-              >
-                {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Generate Carousel Caption</span>
-              </Button>
-              <CharacterCounter current={caption.length} max={capability.captionLimit} />
-            </div>
+            <CharacterCounter current={caption.length} max={capability.captionLimit} />
           </div>
           <Textarea
             rows={4}
@@ -602,7 +590,7 @@ export default function InstagramCarouselEditor({
               value={hashtags.join(" ")}
               onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
               placeholder="#marketing #robotics #ai #growth"
-              className="h-9 text-xs bg-white dark:bg-slate-900"
+              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
             />
           </div>
 
@@ -614,9 +602,23 @@ export default function InstagramCarouselEditor({
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               placeholder="e.g. San Francisco, California"
-              className="h-9 text-xs bg-white dark:bg-slate-900"
+              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
             />
           </div>
+        </div>
+
+        {/* AUTO-GENERATE FULL CAROUSEL BUTTON */}
+        <div className="pt-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={isGeneratingAI}
+            onClick={onGenerateCarouselAI}
+            className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+          >
+            {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel...") : "Auto-Generate Full Carousel with AI"}</span>
+          </Button>
         </div>
       </div>
     </div>

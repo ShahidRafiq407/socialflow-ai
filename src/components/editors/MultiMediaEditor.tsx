@@ -490,19 +490,7 @@ export default function MultiMediaEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
               Post Caption
             </label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={isGeneratingCopy}
-                onClick={onGenerateCopyAI}
-                className="h-6.5 px-2 text-[10px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-md"
-              >
-                {isGeneratingCopy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                <span>Generate Caption with AI</span>
-              </Button>
-              <CharacterCounter current={caption.length} max={capability.captionLimit} />
-            </div>
+            <CharacterCounter current={caption.length} max={capability.captionLimit} />
           </div>
           <Textarea
             rows={4}
@@ -526,8 +514,22 @@ export default function MultiMediaEditor({
             value={hashtags.join(" ")}
             onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
             placeholder="#technology #automation #marketing"
-            className="h-9 text-xs bg-white dark:bg-slate-900"
+            className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
           />
+        </div>
+
+        {/* AUTO-GENERATE CAPTION BUTTON */}
+        <div className="pt-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={isGeneratingCopy}
+            onClick={onGenerateCopyAI}
+            className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+          >
+            {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            <span>Auto-Generate Caption with AI</span>
+          </Button>
         </div>
       </div>
     </div>

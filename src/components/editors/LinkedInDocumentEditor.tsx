@@ -376,19 +376,7 @@ export default function LinkedInDocumentEditor({
             <Briefcase className="h-3.5 w-3.5 text-[#0A66C2]" />
             Post Commentary (LinkedIn Feed Copy)
           </label>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={isGeneratingAI}
-              onClick={onGenerateDocumentAI}
-              className="h-6.5 px-2 text-[10px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-md"
-            >
-              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              <span>Generate Copy & Slides</span>
-            </Button>
-            <CharacterCounter current={commentary.length} max={capability.captionLimit} />
-          </div>
+          <CharacterCounter current={commentary.length} max={capability.captionLimit} />
         </div>
         <Textarea
           rows={4}
@@ -406,8 +394,22 @@ export default function LinkedInDocumentEditor({
             value={hashtags.join(" ")}
             onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
             placeholder="#management #leadership #innovation #b2b"
-            className="h-9 text-xs bg-white dark:bg-slate-900"
+            className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
           />
+        </div>
+
+        {/* AUTO-GENERATE DOCUMENT BUTTON */}
+        <div className="pt-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={isGeneratingAI}
+            onClick={onGenerateDocumentAI}
+            className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+          >
+            {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            <span>Auto-Generate Document Slides & Commentary with AI</span>
+          </Button>
         </div>
       </div>
     </div>

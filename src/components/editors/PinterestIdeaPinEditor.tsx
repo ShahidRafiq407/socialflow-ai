@@ -608,6 +608,20 @@ export default function PinterestIdeaPinEditor({
               </div>
             )}
           </div>
+
+          {/* AUTO-GENERATE FULL IDEA PIN BUTTON */}
+          <div className="pt-1">
+            <Button
+              type="button"
+              size="sm"
+              disabled={isGeneratingAI}
+              onClick={onGenerateIdeaPinAI}
+              className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
+            >
+              {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin...") : "Auto-Generate Full Idea Pin with AI"}</span>
+            </Button>
+          </div>
         </div>
       </div>
 
