@@ -102,7 +102,11 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
 
   const brandBlock = brand ? `\nBRAND DNA:\n${JSON.stringify(brand)}` : "";
 
-  const context = `\nCONVERSATION HISTORY:\n${historyBlock || "(none)"}${memoryBlock}${brandBlock}`;
+  const filesBlock = uploadedFiles.length
+    ? `\nUPLOADED ATTACHMENTS (${uploadedFiles.length}):\n${uploadedFiles.map((f) => `- ${f.name} (${f.type || "file"})`).join("\n")}`
+    : "";
+
+  const context = `\nCONVERSATION HISTORY:\n${historyBlock || "(none)"}${memoryBlock}${brandBlock}${filesBlock}`;
 
   // 3. Plan
   onEvent?.({ type: "planning" });
@@ -155,16 +159,20 @@ async function synthesize(
     toolCalls.length === 0
       ? "(no tools were needed)"
       : toolCalls
-          .map((c) => `[TOOL ${c.tool} RESULT]\n${JSON.stringify(c.result)?.slice(0, 6000)}`)
+          .map((c) => `[TOOL ${c.tool} RESULT]\n${JSON.stringify(c.result)?.slice(0, 10000)}`)
           .join("\n\n");
 
   const memoryBlock = memory.length
     ? `\nRemembered context about this user/brand:\n${memory.map((m) => `- ${m.content}`).join("\n")}`
     : "";
 
-  const sys = `You are the Marketing Brain — the chief AI assistant of an AI marketing SaaS.
-Write the final, helpful, human answer to the user in their language (match the user's language — if they write in Roman Urdu, reply in Roman Urdu; otherwise English).
-Base your answer strictly on the real tool results below. Be concrete and cite real data. If a tool returned an error or empty result, say so honestly.
+  const sys = `You are the Marketing Brain — the chief autonomous AI head of an AI marketing SaaS.
+Write the final, direct, executive, human answer to the user in their language (match the user's language — if they write in Roman Urdu, reply in Roman Urdu; otherwise English).
+Base your answer strictly on the real tool results below. Be concrete and cite real data.
+If an image was generated (has a url), embed or link it in markdown format (e.g. ![Generated Visual](url)) and confirm it is saved to Content Library.
+If a video or reel was generated, provide the link and confirm it is saved.
+If a post was drafted or scheduled, provide the platform, content summary, and confirmation.
+If a tool returned an error or empty result, explain what happened honestly.
 ${brand ? `\nBRAND DNA (for tone/context):\n${JSON.stringify(brand)}` : ""}${memoryBlock}`;
 
   const res = await vertexProvider.generateText(

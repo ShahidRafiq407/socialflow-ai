@@ -24,6 +24,9 @@ import {
   Globe,
   Database,
   PenTool,
+  Image as ImageIcon,
+  Video as VideoIcon,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -51,8 +54,8 @@ interface UploadedFile {
 const QUICK_COMMANDS = [
   { icon: Search, label: "Research latest trends", prompt: "Find the latest trending topics in my industry using live internet search and suggest 3 content ideas." },
   { icon: FileText, label: "Write a LinkedIn post", prompt: "Write a LinkedIn post using my Brand DNA." },
-  { icon: Sparkles, label: "Summarize my analytics", prompt: "Summarize my workspace analytics and give me optimization tips." },
-  { icon: Wrench, label: "Create a draft post", prompt: "Create a draft Instagram post about my latest product offering." },
+  { icon: ImageIcon, label: "Generate an image", prompt: "Generate a high-converting product showcase image for Instagram using gemini-3-pro-image." },
+  { icon: VideoIcon, label: "Create a Reel video", prompt: "Create a 9:16 vertical Reel video concept with visual prompt for TikTok." },
 ];
 
 const TOOL_LABELS: Record<string, string> = {
@@ -64,6 +67,10 @@ const TOOL_LABELS: Record<string, string> = {
   list_competitors: "Listing competitors",
   get_analytics: "Reading analytics",
   save_draft: "Saving draft post",
+  schedule_post: "Scheduling post",
+  generate_image: "Generating AI image (gemini-3-pro-image)",
+  generate_video: "Generating AI video (gemini-omni-flash-preview)",
+  create_campaign_post: "Creating full campaign post",
   update_brand_dna: "Updating Brand DNA",
   recall_memory: "Recalling memory",
   save_memory: "Saving memory",
@@ -212,7 +219,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
 
   function readFileText(file: File): Promise<string> {
     return new Promise((resolve) => {
-      // Images → read as base64 data URL so the AI can see them
+      // 1. Images → read as base64 data URL so Gemini can visually process them
       if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
@@ -221,19 +228,29 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
         return;
       }
 
-      // Known binary formats that can't be read as text
-      const binaryExt = /\.(zip|rar|7z|tar|gz|bz2|exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|pdf|doc|docx|xls|xlsx|ppt|pptx|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
-      if (binaryExt.test(file.name)) {
-        // PDFs get a special note since they're common
-        if (/\.pdf$/i.test(file.name)) {
-          resolve(`[PDF file: ${file.name} — PDF text extraction not supported yet. Copy-paste the text content instead.]`);
-        } else {
-          resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — cannot be read as text]`);
-        }
+      // 2. PDFs → read as base64 data URL so Gemini multimodal engine can read documents
+      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => resolve(`[PDF: ${file.name} — failed to read]`);
+        reader.readAsDataURL(file);
         return;
       }
 
-      // Everything else → try to read as text (covers .ino, .pde, .vhd, .sv, .rb, .php, .swift, .kt, .lua, .toml, .ini, .cfg, .proto, .cmake, .gradle, .scss, .vue, .svelte, etc.)
+      // 3. Zip archives → provide structural summary
+      if (/\.(zip|rar|7z|tar|gz)$/i.test(file.name)) {
+        resolve(`[Archive file: ${file.name} (size: ${(file.size / 1024).toFixed(1)} KB)]`);
+        return;
+      }
+
+      // 4. Executable / binary formats
+      const binaryExt = /\.(exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
+      if (binaryExt.test(file.name)) {
+        resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — raw bytes not displayed]`);
+        return;
+      }
+
+      // 5. Everything else (all code .ino, .py, .js, .ts, .md, .txt, .c, .cpp, .doc, configs, etc.) → read as text
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
       reader.onerror = () => resolve(`[Failed to read: ${file.name}]`);
@@ -279,7 +296,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
             <Brain className="h-10 w-10 text-slate-300" />
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Your autonomous marketing AI team is ready</p>
             <p className="text-xs text-slate-400 max-w-sm">
-              Ask anything — research trends, write posts, create drafts, read uploaded files, or control any tab.
+              Ask anything — research trends, generate visual images (gemini-3-pro-image), create video reels, schedule posts, or read uploaded files.
             </p>
           </div>
         )}
@@ -419,14 +436,14 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
             webkitdirectory=""
             onChange={(e) => handleFiles(e.target.files)}
           />
-          <Button type="button" variant="outline" size="icon" title="Attach files" onClick={() => fileInputRef.current?.click()} className="h-10 w-10 shrink-0">
+          <Button type="button" variant="outline" size="icon" title="Attach files / images / PDFs" onClick={() => fileInputRef.current?.click()} className="h-10 w-10 shrink-0">
             <Paperclip className="h-4 w-4" />
           </Button>
           <Button type="button" variant="outline" size="icon" title="Upload folder" onClick={() => folderInputRef.current?.click()} className="h-10 w-10 shrink-0">
             <FolderOpen className="h-4 w-4" />
           </Button>
           <Textarea
-            placeholder="Ask the AI brain anything (e.g. 'research trends and schedule a post')..."
+            placeholder="Ask the AI brain anything (e.g. 'generate an image and schedule a LinkedIn post')..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -488,6 +505,7 @@ function toolStepLabel(tool?: string, args?: any): string {
   else if (args?.keyword) detail = ` → "${args.keyword}"`;
   else if (args?.url) detail = ` → ${args.url}`;
   else if (args?.platform) detail = ` → ${args.platform}${args.format ? ` (${args.format})` : ""}`;
+  else if (args?.prompt) detail = ` → "${(args.prompt || "").slice(0, 40)}…"`;
   return `${base}${detail}`;
 }
 
@@ -502,6 +520,10 @@ function toolIcon(tool?: string): React.ReactNode {
     case "list_competitors": return <Search className="h-3 w-3" />;
     case "get_analytics": return <Database className="h-3 w-3" />;
     case "save_draft": return <PenTool className="h-3 w-3" />;
+    case "schedule_post": return <CalendarIcon className="h-3 w-3" />;
+    case "generate_image": return <ImageIcon className="h-3 w-3" />;
+    case "generate_video": return <VideoIcon className="h-3 w-3" />;
+    case "create_campaign_post": return <Sparkles className="h-3 w-3" />;
     case "update_brand_dna": return <Database className="h-3 w-3" />;
     case "recall_memory": return <Brain className="h-3 w-3" />;
     case "save_memory": return <Brain className="h-3 w-3" />;
@@ -558,8 +580,20 @@ function formatToolResult(tool?: string, result?: any): string {
       case "get_analytics": {
         return `Impressions: ${result.totalImpressions?.toLocaleString() || "—"}\nClicks: ${result.totalClicks?.toLocaleString() || "—"}\nLeads: ${result.leadsAchieved || "—"}\nEngagement: ${result.avgEngagementRate || "—"}`;
       }
+      case "generate_image": {
+        return `Generated Image (gemini-3-pro-image)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "1:1"}\nStatus: Saved to Content Library\nAsset URL: ${(result.url || "").slice(0, 80)}…`;
+      }
+      case "generate_video": {
+        return `Generated Video Reel (gemini-omni-flash-preview)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "9:16"}\nStatus: Saved to Media Assets\nVideo URL: ${(result.url || "").slice(0, 80)}…`;
+      }
+      case "schedule_post": {
+        return `Post Scheduled for ${result.scheduledFor ? new Date(result.scheduledFor).toLocaleString() : "tomorrow"}\nPlatform: ${result.platform}\nStatus: SCHEDULED (Visible in Calendar & Content Library)`;
+      }
+      case "create_campaign_post": {
+        return `Campaign Post Created & Saved!\nPlatform: ${result.platform}\nStatus: ${result.status}\nMedia: ${result.imageUrl ? "Image attached" : result.videoUrl ? "Video attached" : "Text"}\nID: ${result.id?.slice(0, 8) || "—"}`;
+      }
       case "save_draft": {
-        return `Draft saved → ${result.platform || ""} (ID: ${result.id?.slice(0, 8) || "—"}) — Status: ${result.status || "DRAFT"}`;
+        return `Draft saved → ${result.platform || ""} (${result.format || "Feed"})\nStatus: ${result.status || "DRAFT"} (Saved to Content Library)`;
       }
       case "read_uploaded_files": {
         const files = result.files || [];
@@ -572,5 +606,6 @@ function formatToolResult(tool?: string, result?: any): string {
     return "Completed.";
   }
 }
+
 
 
