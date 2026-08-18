@@ -146,7 +146,7 @@ export function Header({ workspaces = [], userDetails = null }: HeaderProps) {
         {/* Search Popover */}
         <Popover open={searchOpen} onOpenChange={setSearchOpen}>
           <PopoverTrigger
-            className="flex items-center justify-between w-48 md:w-64 h-8 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 px-2.5 text-xs text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all focus:outline-none"
+            className="hidden md:flex items-center justify-between w-48 md:w-64 h-8 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 px-2.5 text-xs text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 transition-all focus:outline-none"
           >
             <span className="flex items-center gap-2 truncate">
               <Search className="h-3.5 w-3.5 text-slate-400" />
@@ -215,7 +215,7 @@ export function Header({ workspaces = [], userDetails = null }: HeaderProps) {
         {/* Notifications Popover */}
         <Popover open={notificationsOpen} onOpenChange={setNotificationsOpen}>
           <PopoverTrigger
-            className="relative flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none"
+            className="relative hidden md:flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none"
             title="Notifications"
           >
             <Bell className="h-3.5 w-3.5" />
