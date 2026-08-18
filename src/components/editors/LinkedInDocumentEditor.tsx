@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Sparkles,
   FileText,
@@ -48,10 +48,11 @@ interface LinkedInDocumentEditorProps {
   onActiveSlideChange: (idx: number) => void;
   onGenerateDocumentAI: () => void;
   isGeneratingAI: boolean;
-  onRegenerateSlideAI: (slideIdx: number) => void;
+  onRegenerateSlideAI: (slideIdx: number, prompt?: string) => void;
   isRegeneratingSlide: boolean;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
+  onUploadPDF?: (file: File) => void;
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
@@ -75,10 +76,27 @@ export default function LinkedInDocumentEditor({
   isRegeneratingSlide,
   onExportPDF,
   isExportingPDF,
+  onUploadPDF,
   onReorderCards,
   onGenerateField,
   generatingField = null,
 }: LinkedInDocumentEditorProps) {
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [slideCustomPrompt, setSlideCustomPrompt] = useState("");
+
+  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (onUploadPDF) {
+      onUploadPDF(file);
+    }
+    const cleanName = file.name.replace(/\.pdf$/i, "");
+    if (cleanName) {
+      onDocumentTitleChange(cleanName);
+    }
+    e.target.value = "";
+  };
+
   const activeSlide = slides[activeSlideIndex] || slides[0] || {
     slideNumber: 1,
     type: "hook",
@@ -151,20 +169,38 @@ export default function LinkedInDocumentEditor({
       {/* SLIDE NAVIGATION STRIP */}
       <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mr-1">
               <Layers className="h-3.5 w-3.5 text-[#0A66C2]" />
               Document Slides ({slides.length} Pages)
             </span>
+            <input
+              type="file"
+              ref={pdfInputRef}
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handlePdfUpload}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => pdfInputRef.current?.click()}
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+              title="Upload an existing PDF document"
+            >
+              <Upload className="h-3 w-3 text-slate-600 dark:text-slate-400" />
+              <span>Upload PDF</span>
+            </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={onExportPDF}
               disabled={isExportingPDF}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-slate-300 dark:border-slate-700"
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
             >
-              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 text-slate-600" />}
+              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 text-slate-600 dark:text-slate-400" />}
               <span>Export PDF</span>
             </Button>
           </div>
@@ -291,17 +327,35 @@ export default function LinkedInDocumentEditor({
             </div>
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={isRegeneratingSlide}
-            onClick={() => onRegenerateSlideAI(activeSlideIndex)}
-            className="w-full h-8 text-xs font-bold gap-1.5 border-blue-200 text-[#0A66C2] hover:bg-blue-50 dark:hover:bg-blue-950/30"
-          >
-            {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>Regenerate Slide {activeSlideIndex + 1} with AI</span>
-          </Button>
+          {/* REGENERATE SLIDE WITH CUSTOM PROMPT */}
+          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                <Wand2 className="h-3 w-3 text-[#0A66C2]" /> Regenerate Slide {activeSlideIndex + 1} Prompt
+              </label>
+              <Input
+                value={slideCustomPrompt}
+                onChange={(e) => setSlideCustomPrompt(e.target.value)}
+                placeholder="e.g. Focus on measurable ROI and scalability metrics..."
+                className="h-8 text-xs bg-white dark:bg-slate-900 rounded-lg"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isRegeneratingSlide || !slideCustomPrompt.trim()}
+              onClick={() => {
+                onRegenerateSlideAI(activeSlideIndex, slideCustomPrompt);
+                setSlideCustomPrompt("");
+              }}
+              className="w-full h-8 text-xs font-bold gap-1.5 border-blue-200 dark:border-blue-900/50 text-[#0A66C2] hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!slideCustomPrompt.trim() ? "Type instructions above to enable slide regeneration" : `Regenerate Slide ${activeSlideIndex + 1}`}
+            >
+              {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              <span>Regenerate Slide {activeSlideIndex + 1} with AI</span>
+            </Button>
+          </div>
         </div>
 
         {/* RIGHT: SLIDE EDITING FIELDS */}

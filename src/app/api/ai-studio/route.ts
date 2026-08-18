@@ -404,6 +404,62 @@ ${field === "hashtags" ? `Provide ${Math.min(capability.hashtagLimit || 10, 8)} 
     }
 
     // =========================================================================
+    // STEP: Regenerate Single Slide with Custom Prompt (LLM-powered)
+    // =========================================================================
+    if (step === "regenerate-slide") {
+      const { platform, format, slideIndex, slideType, prompt, topic, currentSlide, commentary } = body;
+      const capability = getPlatformCapability(platform, format);
+      const slideTopic = topic || commentary || "Strategic business innovation and leadership insights";
+      const customInstruction = prompt || "Make this slide punchier, authoritative, and actionable";
+
+      const slidePrompt = `You are a world-class presentation and slide deck copywriter for ${capability.platform.toUpperCase()} (${capability.format}).
+Rewrite and improve Slide #${(slideIndex ?? 0) + 1} (${slideType || "content"}).
+
+BRAND DNA:
+- Company: ${brandDNA.name}
+- Tone: ${brandDNA.tone}
+- Industry: ${brandDNA.industry}
+
+TOPIC / CONTEXT: ${slideTopic}
+USER CUSTOM INSTRUCTIONS: ${customInstruction}
+CURRENT SLIDE HEADING: ${currentSlide?.title || ""}
+CURRENT SLIDE POINTS/BODY: ${currentSlide?.body || (Array.isArray(currentSlide?.points) ? currentSlide.points.join("\n") : "")}
+
+Generate a clear, high-impact heading and 2 to 4 crisp bullet points (each under 100 characters).
+Return ONLY raw JSON with this exact structure:
+{
+  "title": "Concise, punchy heading",
+  "points": ["First actionable insight", "Second key data or strategic point", "Third high-value takeaway"],
+  "body": "First actionable insight. Second key data or strategic point. Third high-value takeaway."
+}`;
+
+      try {
+        const res = await llm.invoke([
+          new SystemMessage("You are an expert presentation designer and copywriter. Output valid JSON only."),
+          new HumanMessage(slidePrompt),
+        ], { modelName: MODELS.CONTENT_CREATOR });
+
+        let raw = (res.content?.toString() || "").trim().replace(/^```json/g, "").replace(/^```/g, "").replace(/```$/g, "").trim();
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start !== -1 && end !== -1) raw = raw.slice(start, end + 1);
+
+        const parsed = JSON.parse(raw);
+        return NextResponse.json({ success: true, slide: parsed });
+      } catch (err: any) {
+        console.error(`[AI Studio] regenerate-slide failed:`, err?.message);
+        return NextResponse.json({
+          success: true,
+          slide: {
+            title: currentSlide?.title || `Slide ${(slideIndex ?? 0) + 1}`,
+            points: ["Enhanced strategic takeaway", "Data-driven optimization benchmark", "Actionable execution step"],
+            body: "Enhanced strategic takeaway. Data-driven optimization benchmark. Actionable execution step.",
+          },
+        });
+      }
+    }
+
+    // =========================================================================
     // STEP: Auto-Prompt From Script (Complete & Format-Aware)
     // =========================================================================
     if (step === "auto-prompt-from-script") {

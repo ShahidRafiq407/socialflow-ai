@@ -80,12 +80,13 @@ export interface PlatformEditorRouterProps {
   // AI Operations
   onGenerateCopyAI: () => void;
   isGeneratingCopy: boolean;
-  onRegenerateSlideAI: (slideIdx: number) => void;
+  onRegenerateSlideAI: (slideIdx: number, prompt?: string) => void;
   isRegeneratingSlide: boolean;
   onGenerateFullCarouselAI: () => void;
   isGeneratingFullCarousel: boolean;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
+  onUploadPDF?: (file: File) => void;
   generationProgress?: number;
   generationStage?: string;
   renderError?: string | null;
@@ -287,6 +288,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isRegeneratingSlide={props.isRegeneratingSlide}
         onReorderCards={props.onReorderCards}
         onExportPDF={props.onExportPDF}
+        onUploadPDF={props.onUploadPDF}
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
         isExportingPDF={props.isExportingPDF}

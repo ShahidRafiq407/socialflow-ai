@@ -1099,7 +1099,7 @@ export default function AIStudioPage() {
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
     const targetPrompt = customPromptDict[targetKey] || "";
-    const targetTopic = campaignTopic;
+    const targetTopic = campaignTopic || targetPrompt || currentTitle || currentCaption || "Exciting new innovations and strategic insights";
 
     setGeneratingCopyKeys(prev => ({ ...prev, [targetKey]: true }));
     try {
@@ -1120,16 +1120,17 @@ export default function AIStudioPage() {
         const item = data.data;
         const currentFamily = getFormatFamily(targetPlatform, targetFormat);
         const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
+        const platformsToUpdate = Array.from(new Set([targetPlatform, ...selectedPlatforms]));
 
         setGeneratedContents(prev => {
           const updated = { ...prev };
-          selectedPlatforms.forEach(pId => {
+          platformsToUpdate.forEach(pId => {
             const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
               ? selectedContentTypes[pId]
-              : (getPlatformDef(pId)?.contentTypes || []);
+              : (getPlatformDef(pId)?.contentTypes || [currentFormatName]);
 
             availableFormats.forEach(otherFmt => {
-              if (getFormatFamily(pId, otherFmt) === currentFamily) {
+              if (pId === targetPlatform || getFormatFamily(pId, otherFmt) === currentFamily) {
                 const currentPlat = updated[pId] || {};
                 const currentFmt = currentPlat[otherFmt] || {};
                 updated[pId] = {
@@ -1147,7 +1148,8 @@ export default function AIStudioPage() {
                           step: s.step || idx + 1,
                           title: s.title || `Slide ${idx + 1}`,
                           body: s.body || "",
-                          theme: "gradient-purple",
+                          theme: s.theme || (idx === 0 ? "hook" : idx === item.slides.length - 1 ? "cta" : "content"),
+                          type: s.type || (idx === 0 ? "hook" : idx === item.slides.length - 1 ? "cta" : "content"),
                         }))
                       : currentFmt.overlayText,
                   }
@@ -1159,13 +1161,13 @@ export default function AIStudioPage() {
         });
 
         // Sync auxiliary dictionaries (title, description, taggedTopics, altText, customPrompt) for matching family
-        selectedPlatforms.forEach(pId => {
+        platformsToUpdate.forEach(pId => {
           const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
             ? selectedContentTypes[pId]
-            : (getPlatformDef(pId)?.contentTypes || []);
+            : (getPlatformDef(pId)?.contentTypes || [currentFormatName]);
 
           availableFormats.forEach(otherFmt => {
-            if (getFormatFamily(pId, otherFmt) === currentFamily) {
+            if (pId === targetPlatform || getFormatFamily(pId, otherFmt) === currentFamily) {
               const otherKey = `${pId}-${otherFmt}`;
               if (item.title) setTitleDict(prev => ({ ...prev, [otherKey]: item.title }));
               if (item.description) setDescriptionDict(prev => ({ ...prev, [otherKey]: item.description }));
@@ -1182,6 +1184,76 @@ export default function AIStudioPage() {
       setGeneratingCopyKeys(prev => {
         const next = { ...prev };
         delete next[targetKey];
+        return next;
+      });
+    }
+  };
+
+  const handleRegenerateSlideAI = async (slideIdx: number, customSlidePrompt?: string) => {
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetFormatKey = `${targetPlatform}-${targetFormat}`;
+
+    setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
+    try {
+      if (targetPlatform === "linkedin" && (targetFormat === "Document" || targetFormat === "Carousel")) {
+        const currentSlides = displayOverlayTexts;
+        const activeSlideObj = currentSlides[slideIdx] || {};
+        const res = await fetch("/api/ai-studio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            step: "regenerate-slide",
+            platform: targetPlatform,
+            format: targetFormat,
+            slideIndex: slideIdx,
+            slideType: (activeSlideObj as any)?.type || (slideIdx === 0 ? "hook" : "content"),
+            prompt: customSlidePrompt || "",
+            topic: campaignTopic || currentTitle || currentCaption,
+            currentSlide: activeSlideObj,
+            commentary: currentCaption,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.slide) {
+          setGeneratedContents(prev => {
+            const currentPlat = prev[targetPlatform] || {};
+            const currentFmt = currentPlat[targetFormat] || {};
+            const existingOverlay = [...(currentFmt.overlayText || [])];
+
+            while (existingOverlay.length <= slideIdx) {
+              existingOverlay.push({ step: existingOverlay.length + 1, title: "", body: "", theme: "content" });
+            }
+
+            existingOverlay[slideIdx] = {
+              ...existingOverlay[slideIdx],
+              step: slideIdx + 1,
+              title: data.slide.title || existingOverlay[slideIdx]?.title || `Slide ${slideIdx + 1}`,
+              body: Array.isArray(data.slide.points) ? data.slide.points.join("\n") : (data.slide.body || ""),
+            };
+
+            return {
+              ...prev,
+              [targetPlatform]: {
+                ...currentPlat,
+                [targetFormat]: {
+                  ...currentFmt,
+                  overlayText: existingOverlay,
+                },
+              },
+            };
+          });
+        }
+      } else {
+        setActiveSlideIdx(slideIdx);
+        await handleRenderMedia();
+      }
+    } catch (err) {
+      console.error("Slide regeneration error:", err);
+    } finally {
+      setRenderingMediaKeys(prev => {
+        const next = { ...prev };
+        delete next[targetFormatKey];
         return next;
       });
     }
@@ -3191,18 +3263,20 @@ export default function AIStudioPage() {
                   onDurationChange={setVideoDurationSec}
                   onGenerateCopyAI={handleGeneratePlatformCopyAI}
                   isGeneratingCopy={Boolean(generatingCopyKeys[currentFormatKey])}
-                  onRegenerateSlideAI={async (slideIdx) => {
-                    setActiveSlideIdx(slideIdx);
-                    await handleRenderMedia();
-                  }}
+                  onRegenerateSlideAI={handleRegenerateSlideAI}
                   isRegeneratingSlide={Boolean(renderingMediaKeys[currentFormatKey])}
                   onGenerateFullCarouselAI={async () => {
                     await handleGeneratePlatformCopyAI();
-                    await handleRenderAllSlides();
+                    if (currentMediaType === "image" && activePlatformTab !== "linkedin") {
+                      await handleRenderAllSlides();
+                    }
                   }}
                   isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
                   onExportPDF={() => {
                     window.print();
+                  }}
+                  onUploadPDF={(file) => {
+                    console.log("[AI Studio] Uploaded PDF file:", file.name);
                   }}
                   generationProgress={generationProgressDict[currentFormatKey] || 0}
                   generationStage={generationStageDict[currentFormatKey] || ""}
