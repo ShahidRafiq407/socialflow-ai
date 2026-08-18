@@ -34,6 +34,7 @@ export interface CarouselSlideItem {
   visualPrompt: string;
   imageUrl?: string;
   theme?: string;
+  type?: string;
 }
 
 interface InstagramCarouselEditorProps {
@@ -54,14 +55,25 @@ interface InstagramCarouselEditorProps {
   isRegeneratingSlide: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderSlideMedia: (options?: { aspectRatio?: string; style?: string; quality?: string; imageModel?: string }) => void;
-  isRenderingSlideMedia: boolean;
+  onRenderSlideMedia: (options?: {
+    mediaType?: "image" | "video";
+    duration?: number;
+    prompt?: string;
+    aspectRatio?: string;
+    videoTask?: string;
+    sourceImage?: string | null;
+    sourceVideo?: string | null;
+    style?: string;
+    quality?: string;
+    slideIndex?: number;
+  }) => void;
+  onReorderCards?: (fromIdx: number, toIdx: number) => void;
+  isRenderingSlideMedia?: boolean;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
   generationProgress?: number;
   generationStage?: string;
   renderError?: string | null;
-  onReorderCards?: (fromIdx: number, toIdx: number) => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
 }
@@ -85,37 +97,40 @@ export default function InstagramCarouselEditor({
   onOpenUpload,
   onOpenStock,
   onRenderSlideMedia,
-  isRenderingSlideMedia,
+  onReorderCards,
+  isRenderingSlideMedia = false,
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
   generationProgress = 0,
-  generationStage = "Rendering carousel slide...",
+  generationStage,
   renderError = null,
-  onReorderCards,
   onGenerateField,
   generatingField = null,
 }: InstagramCarouselEditorProps) {
-  // Model settings for slide image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
-  const [slideAspectRatio, setSlideAspectRatio] = useState<string>("auto");
-  const [slideStyle, setSlideStyle] = useState<string>("photorealistic");
-  const [slideQuality, setSlideQuality] = useState<string>("studio_4k");
+  const [slideStyle, setSlideStyle] = useState("photorealistic");
+  const [slideQuality, setSlideQuality] = useState("studio_4k");
+  const [slideAspectRatio, setSlideAspectRatio] = useState("auto");
   const [location, setLocation] = useState("");
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
 
-  const effectiveSlides = slides && slides.length > 0 ? slides : [
-    { slideNumber: 1, title: "Slide 1", body: "Engaging insight for your audience.", visualPrompt: "Clean modern visual", imageUrl: "" },
-    { slideNumber: 2, title: "Slide 2", body: "Step-by-step breakdown or tactical tip.", visualPrompt: "Clean modern visual", imageUrl: "" },
-    { slideNumber: 3, title: "Slide 3", body: "Summary and call to action.", visualPrompt: "Clean modern visual", imageUrl: "" },
+  const effectiveSlides = slides.length > 0 ? slides : [
+    { slideNumber: 1, title: "Cover Slide", body: "Hook your audience with a compelling headline", visualPrompt: "Clean minimal cover graphic" },
+    { slideNumber: 2, title: "Key Insight 1", body: "Explain the first core concept with value", visualPrompt: "Infographic visual style diagram" },
+    { slideNumber: 3, title: "Action Step", body: "Provide actionable takeaway and closing CTA", visualPrompt: "Call to action checklist graphic" },
   ];
 
-  const currentIdx = Math.min(Math.max(activeSlideIndex, 0), effectiveSlides.length - 1);
+  const currentIdx = Math.min(Math.max(0, activeSlideIndex), effectiveSlides.length - 1);
   const activeSlide = effectiveSlides[currentIdx] || effectiveSlides[0];
   const hasCaption = Boolean(caption && caption.trim().length > 0);
 
-  const handleUpdateActiveSlide = (field: keyof CarouselSlideItem, val: any) => {
+  const handleUpdateActiveSlide = (field: keyof CarouselSlideItem, value: any) => {
     const updated = [...effectiveSlides];
+    if (!updated[currentIdx]) {
+      updated[currentIdx] = { ...activeSlide };
+    }
     updated[currentIdx] = {
       ...updated[currentIdx],
-      [field]: val,
+      [field]: value,
     };
     onSlidesChange(updated);
   };
@@ -127,10 +142,9 @@ export default function InstagramCarouselEditor({
       ...effectiveSlides,
       {
         slideNumber: newSlideNum,
-        title: `Slide ${newSlideNum} Strategy`,
-        body: "Actionable takeaway or breakdown.",
-        visualPrompt: `Professional visual for slide ${newSlideNum}`,
-        imageUrl: "",
+        title: `Slide ${newSlideNum}`,
+        body: `Details and takeaways for slide ${newSlideNum}`,
+        visualPrompt: `Visual design concept for slide ${newSlideNum}`,
       },
     ];
     onSlidesChange(updated);
@@ -138,7 +152,7 @@ export default function InstagramCarouselEditor({
   };
 
   const handleRemoveSlide = (idx: number) => {
-    if (effectiveSlides.length <= 1) return;
+    if (effectiveSlides.length <= 2) return;
     const updated = effectiveSlides
       .filter((_, i) => i !== idx)
       .map((s, i) => ({ ...s, slideNumber: i + 1 }));
@@ -151,22 +165,10 @@ export default function InstagramCarouselEditor({
       {/* SLIDE TIMELINE STRIP */}
       <div className="p-3.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 text-pink-500" />
-              Carousel Slide Sequence ({effectiveSlides.length} Slides)
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isGeneratingAI}
-              onClick={onGenerateCarouselAI}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
-            >
-              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Carousel...") : "Generate Carousel with AI"}</span>
-            </Button>
-          </div>
+          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-pink-500" />
+            Carousel Slide Sequence ({effectiveSlides.length} Slides)
+          </span>
           <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {currentIdx + 1} of {effectiveSlides.length}
             {onReorderCards && effectiveSlides.length > 1 && (
@@ -200,7 +202,6 @@ export default function InstagramCarouselEditor({
             disabled={currentIdx === 0}
             onClick={() => onActiveSlideChange(Math.max(0, currentIdx - 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
-            title="Previous Slide"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -212,12 +213,11 @@ export default function InstagramCarouselEditor({
               onClick={() => onActiveSlideChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 currentIdx === idx
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
+                  ? "bg-pink-600 text-white shadow-xs ring-2 ring-pink-400/30"
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
               }`}
             >
               <span>Slide {idx + 1}</span>
-              {s.imageUrl && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
             </button>
           ))}
 
@@ -226,7 +226,6 @@ export default function InstagramCarouselEditor({
             disabled={currentIdx >= effectiveSlides.length - 1}
             onClick={() => onActiveSlideChange(Math.min(effectiveSlides.length - 1, currentIdx + 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
-            title="Next Slide"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -241,7 +240,7 @@ export default function InstagramCarouselEditor({
             </button>
           )}
 
-          {effectiveSlides.length > 1 && (
+          {effectiveSlides.length > 2 && (
             <button
               type="button"
               onClick={() => handleRemoveSlide(currentIdx)}
@@ -255,17 +254,16 @@ export default function InstagramCarouselEditor({
         </div>
       </div>
 
-      {/* TWO COLUMN SLIDE WORKSPACE */}
+      {/* ACTIVE SLIDE EDITOR (LEFT PREVIEW + RIGHT CONTENT) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-        {/* LEFT: SLIDE PREVIEW BOX (1:1 SQUARE) + UNIFIED PROMPT */}
+        {/* LEFT COLUMN: ACTIVE SLIDE VISUAL CARD */}
         <div className="xl:col-span-5 space-y-3.5">
-          <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[260px] aspect-square overflow-hidden group shadow-2xs">
+          <div className="relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[260px] max-w-[220px] mx-auto aspect-[4/5] overflow-hidden group shadow-2xs">
             {isRenderingSlideMedia ? (
               <GenerationProgressIndicator
-                progress={generationProgress}
+                progress={generationProgress || 0}
                 stage={generationStage}
                 title={`Slide ${currentIdx + 1} Visual`}
-                isVertical={false}
                 accentColor="pink"
                 mediaType="carousel"
               />
@@ -290,7 +288,6 @@ export default function InstagramCarouselEditor({
                       aspectRatio: safeAspectRatio,
                       style: slideStyle,
                       quality: slideQuality,
-                      imageModel: "gemini-3-pro-image",
                     });
                   }}
                   className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
@@ -507,7 +504,6 @@ export default function InstagramCarouselEditor({
                   aspectRatio: safeAspectRatio,
                   style: slideStyle,
                   quality: slideQuality,
-                  imageModel: "gemini-3-pro-image",
                 });
               }}
               className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"

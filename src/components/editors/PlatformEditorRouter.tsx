@@ -249,9 +249,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   if (platform === "linkedin" && (format === "Document" || format === "Carousel")) {
     const docSlides: DocumentSlide[] = props.slides.map((s, i) => ({
       slideNumber: i + 1,
-      type: i === 0 ? "hook" : i === props.slides.length - 1 ? "cta" : "content",
+      type: (s.type as any) || (s.theme as any) || (i === 0 ? "hook" : i === props.slides.length - 1 ? "cta" : "content"),
       title: s.title ?? "",
-      points: s.body ? s.body.split(". ").filter(Boolean) : [],
+      points: s.body ? (s.body.includes("\n") ? s.body.split("\n") : s.body.split(". ").filter(Boolean)) : [],
       visualPrompt: s.visualPrompt ?? "",
       imageUrl: props.displayImageUrls[i] || s.imageUrl || "",
     }));
@@ -266,14 +266,16 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         hashtags={props.hashtags}
         onHashtagsChange={props.onHashtagsChange}
         slides={docSlides}
-        onSlidesChange={(slides) => {
+        onSlidesChange={(newSlides) => {
           props.onSlidesChange(
-            slides.map((s) => ({
+            newSlides.map((s) => ({
               slideNumber: s.slideNumber,
               title: s.title,
-              body: s.points.join(". "),
-              visualPrompt: s.visualPrompt,
+              body: Array.isArray(s.points) ? s.points.join("\n") : (s.points || ""),
+              visualPrompt: s.visualPrompt || "",
               imageUrl: s.imageUrl,
+              type: s.type,
+              theme: s.type,
             }))
           );
         }}

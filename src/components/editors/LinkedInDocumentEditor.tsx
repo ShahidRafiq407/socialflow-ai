@@ -167,16 +167,6 @@ export default function LinkedInDocumentEditor({
               {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 text-slate-600" />}
               <span>Export PDF</span>
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isGeneratingAI}
-              onClick={onGenerateDocumentAI}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
-            >
-              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              <span>Generate Document with AI</span>
-            </Button>
           </div>
           <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {activeSlideIndex + 1} of {slides.length}
@@ -347,23 +337,11 @@ export default function LinkedInDocumentEditor({
               Key Bullet Points (1 per line)
             </label>
             <Textarea
-              rows={3}
+              rows={4}
               value={(activeSlide.points || []).join("\n")}
               onChange={(e) => handleUpdateActiveSlide("points", e.target.value.split("\n"))}
               placeholder="First key insight&#10;Second actionable takeaway&#10;Third supporting data point"
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed font-mono"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Wand2 className="h-3 w-3 text-[#0A66C2]" /> Visual Design Prompt
-            </label>
-            <Input
-              value={activeSlide.visualPrompt}
-              onChange={(e) => handleUpdateActiveSlide("visualPrompt", e.target.value)}
-              placeholder="Visual design instructions for this slide..."
-              className="h-8.5 text-xs rounded-lg bg-white dark:bg-slate-900"
             />
           </div>
         </div>

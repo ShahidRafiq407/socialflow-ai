@@ -3132,6 +3132,8 @@ export default function AIStudioPage() {
                         body: displayOverlayTexts[idx]?.body ?? "",
                         visualPrompt: displayPrompts[idx] ?? "",
                         imageUrl: displayImageUrls[idx] || "",
+                        type: (displayOverlayTexts[idx] as any)?.type || (displayOverlayTexts[idx] as any)?.theme || (idx === 0 ? "hook" : idx === slideCount - 1 ? "cta" : "content"),
+                        theme: (displayOverlayTexts[idx] as any)?.theme,
                       });
                     }
                     return items;
@@ -3148,7 +3150,8 @@ export default function AIStudioPage() {
                             step: s.slideNumber || i + 1,
                             title: s.title,
                             body: s.body,
-                            theme: "gradient-purple",
+                            theme: s.type || s.theme || "content",
+                            type: s.type || "content",
                           })),
                         },
                       },

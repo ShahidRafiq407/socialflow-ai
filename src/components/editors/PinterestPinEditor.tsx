@@ -466,7 +466,7 @@ export default function PinterestPinEditor({
                     onChange={(e) => setPinAspectRatio(e.target.value)}
                     className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                   >
-                    <option value="auto">Auto (2:3 Standard Pin Default)</option>
+                    <option value="auto">Auto (2:3)</option>
                     <option value="2:3">2:3 (Standard Pin)</option>
                     <option value="9:16">9:16 (Tall Pin)</option>
                     <option value="1:1">1:1 (Square Pin)</option>
@@ -474,7 +474,7 @@ export default function PinterestPinEditor({
                   </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {/* 3. Visual Style */}
                   <div className="space-y-1">
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
@@ -485,13 +485,13 @@ export default function PinterestPinEditor({
                       onChange={(e) => setPinStyle(e.target.value)}
                       className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
                     >
-                      <option value="photorealistic">Photorealistic (Studio Lighting)</option>
-                      <option value="cinematic">Cinematic (Dramatic Lighting)</option>
-                      <option value="commercial_product">Commercial Product (Studio Box)</option>
-                      <option value="minimalist">Minimalist Modern (Clean Space)</option>
-                      <option value="3d_render">3D Digital Art (Octane Render)</option>
-                      <option value="editorial">Editorial Fashion (Magazine Style)</option>
-                      <option value="illustration">Vector Illustration (Clean Art)</option>
+                      <option value="photorealistic">Photorealistic</option>
+                      <option value="cinematic">Cinematic</option>
+                      <option value="commercial_product">Commercial Product</option>
+                      <option value="minimalist">Minimalist Modern</option>
+                      <option value="3d_render">3D Digital Art</option>
+                      <option value="editorial">Editorial Fashion</option>
+                      <option value="illustration">Vector Illustration</option>
                     </select>
                   </div>
 
@@ -505,9 +505,9 @@ export default function PinterestPinEditor({
                       onChange={(e) => setPinQuality(e.target.value)}
                       className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
                     >
-                      <option value="studio_4k">Studio 4K (Sharp Focus)</option>
-                      <option value="ultra_hd_8k">Ultra HD 8K (Extreme Detail)</option>
-                      <option value="standard_hd">Standard High Definition</option>
+                      <option value="studio_4k">Studio 4K</option>
+                      <option value="ultra_hd_8k">Ultra HD 8K</option>
+                      <option value="standard_hd">Standard HD</option>
                     </select>
                   </div>
                 </div>

@@ -244,22 +244,10 @@ export default function PinterestIdeaPinEditor({
       {/* MULTI-PAGE STORYBOARD NAVIGATION STRIP */}
       <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 text-red-600" />
-              Storyboard Pages ({effectivePages.length} Pages)
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isGeneratingAI}
-              onClick={onGenerateIdeaPinAI}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
-            >
-              {isGeneratingAI ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Idea Pin...") : "Generate Idea Pin with AI"}</span>
-            </Button>
-          </div>
+          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-red-600" />
+            Storyboard Pages ({effectivePages.length} Pages)
+          </span>
           <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
             Active: Page {currentIdx + 1} of {effectivePages.length}
             {onReorderCards && effectivePages.length > 1 && (
@@ -461,14 +449,14 @@ export default function PinterestIdeaPinEditor({
                   onChange={(e) => setPageAspectRatio(e.target.value)}
                   className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                 >
-                  <option value="auto">Auto (9:16 Story / Idea Pin Default)</option>
+                  <option value="auto">Auto (9:16)</option>
                   <option value="9:16">9:16 (Tall Idea Pin)</option>
                   <option value="2:3">2:3 (Standard Pin)</option>
                   <option value="1:1">1:1 (Square)</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {/* 3. Visual Style */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
@@ -479,13 +467,13 @@ export default function PinterestIdeaPinEditor({
                     onChange={(e) => setPageStyle(e.target.value)}
                     className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
                   >
-                    <option value="photorealistic">Photorealistic (Studio Lighting)</option>
-                    <option value="cinematic">Cinematic (Dramatic Lighting)</option>
-                    <option value="commercial_product">Commercial Product (Studio Box)</option>
-                    <option value="minimalist">Minimalist Modern (Clean Space)</option>
-                    <option value="3d_render">3D Digital Art (Octane Render)</option>
-                    <option value="editorial">Editorial Fashion (Magazine Style)</option>
-                    <option value="illustration">Vector Illustration (Clean Art)</option>
+                    <option value="photorealistic">Photorealistic</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="commercial_product">Commercial Product</option>
+                    <option value="minimalist">Minimalist Modern</option>
+                    <option value="3d_render">3D Digital Art</option>
+                    <option value="editorial">Editorial Fashion</option>
+                    <option value="illustration">Vector Illustration</option>
                   </select>
                 </div>
 
@@ -499,9 +487,9 @@ export default function PinterestIdeaPinEditor({
                     onChange={(e) => setPageQuality(e.target.value)}
                     className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
                   >
-                    <option value="studio_4k">Studio 4K (Sharp Focus)</option>
-                    <option value="ultra_hd_8k">Ultra HD 8K (Extreme Detail)</option>
-                    <option value="standard_hd">Standard High Definition</option>
+                    <option value="studio_4k">Studio 4K</option>
+                    <option value="ultra_hd_8k">Ultra HD 8K</option>
+                    <option value="standard_hd">Standard HD</option>
                   </select>
                 </div>
               </div>
