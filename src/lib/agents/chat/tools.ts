@@ -148,19 +148,36 @@ export const TOOLS: ToolDef[] = [
       required: ["prompt"],
     },
     execute: async (args, ctx) => {
-      const platform = args.platform || "Instagram";
+      const platform = args.platform || "Brand Asset";
       const aspectRatio = args.aspectRatio || "1:1";
-      ctx.onProgress?.(`Starting image generation with gemini-3-pro-image...`);
+      const format = args.format || "Feed";
+
+      // Automatically find reference image from uploaded files if user attached one
+      let sourceImage: string | undefined = args.sourceImage;
+      if (!sourceImage && ctx.uploadedFiles && ctx.uploadedFiles.length > 0) {
+        const imageFile = ctx.uploadedFiles.find(
+          (f) =>
+            f.type.startsWith("image/") ||
+            (f.content && f.content.startsWith("data:image/")) ||
+            /\.(png|jpg|jpeg|webp|gif)$/i.test(f.name)
+        );
+        if (imageFile && imageFile.content) {
+          sourceImage = imageFile.content;
+        }
+      }
+
+      ctx.onProgress?.(`Starting image synthesis with gemini-3-pro-image...`);
 
       const assets = await generateMediaAsset({
         platform,
-        contentType: "Feed",
+        contentType: format,
         mediaType: "image",
         prompt: args.prompt,
         aspectRatio,
         style: args.style || "commercial_product",
         quality: args.quality || "studio_4k",
         imageModel: "gemini-3-pro-image",
+        sourceImage,
         onProgress: ctx.onProgress,
       });
       const first = assets[0];
@@ -171,7 +188,7 @@ export const TOOLS: ToolDef[] = [
         await prisma.mediaAsset.create({
           data: {
             url: first.url,
-            filename: `ai-image-${platform.toLowerCase()}-${Date.now()}.png`,
+            filename: `ai-image-${platform.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.png`,
             contentType: "image/png",
             workspaceId: ctx.workspaceId,
           },
@@ -188,7 +205,7 @@ export const TOOLS: ToolDef[] = [
             workspaceId: ctx.workspaceId,
             platform,
             content: args.prompt,
-            format: "Feed",
+            format,
             imageUrl: first.url,
             imagePrompt: args.prompt,
             mediaType: "image",
@@ -206,9 +223,11 @@ export const TOOLS: ToolDef[] = [
         url: first.url,
         prompt: args.prompt,
         platform,
+        format,
         aspectRatio,
         model: "gemini-3-pro-image",
         status: "completed",
+        hasReferenceImage: Boolean(sourceImage),
         savedToContentLibrary: true,
       };
     },

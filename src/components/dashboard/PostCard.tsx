@@ -54,6 +54,7 @@ export interface PostProps {
   createdAt: Date;
   updatedAt: Date;
   format?: string | null;
+  mediaType?: string | null;
   hashtags?: string[];
   campaignTopic?: string | null;
   mediaHistory?: any;
@@ -74,42 +75,87 @@ export function PostCard({ post }: { post: PostProps }) {
   );
   const [editedTime, setEditedTime] = useState("08:30 AM EST");
 
-  // Determine Format Tag & Default Optimal Peak Time based on Platform
-  const getPlatformMetadata = (platformName: string) => {
-    const lower = platformName.toLowerCase();
-    if (lower.includes("instagram") || lower.includes("reel")) {
+  // Determine Format Tag & Default Optimal Peak Time based on Platform, Format, and MediaType
+  const getPlatformMetadata = (
+    platformName: string,
+    format?: string | null,
+    mediaType?: string | null
+  ) => {
+    const lowerPlat = (platformName || "LinkedIn").toLowerCase();
+    const lowerFmt = (format || "").toLowerCase();
+    const isVideo =
+      mediaType === "video" ||
+      lowerFmt.includes("reel") ||
+      lowerFmt.includes("video") ||
+      lowerFmt.includes("short");
+
+    if (lowerPlat.includes("instagram")) {
       return {
-        icon: Camera,
-        formatTag: "9:16 Vertical Phone Reel",
+        icon: isVideo ? Video : Camera,
+        formatTag: isVideo
+          ? "9:16 Instagram Reel"
+          : lowerFmt.includes("story")
+          ? "9:16 Story Image"
+          : lowerFmt.includes("carousel")
+          ? "Instagram Carousel"
+          : "Instagram Feed Image",
         peakTime: "06:30 PM EST (Evening High-Engagement)",
         colorClass: "bg-pink-500/10 text-pink-700 dark:text-pink-300 border-pink-500/20",
       };
     }
-    if (lower.includes("tiktok")) {
+    if (lowerPlat.includes("tiktok")) {
       return {
         icon: Video,
-        formatTag: "9:16 Short Viral Video",
+        formatTag: "9:16 TikTok Short Video",
         peakTime: "07:15 PM EST (Prime Video Traffic)",
         colorClass: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
       };
     }
-    if (lower.includes("x") || lower.includes("twitter")) {
+    if (lowerPlat.includes("x") || lowerPlat.includes("twitter")) {
       return {
-        icon: MessageSquare,
-        formatTag: "16:9 Infographic + 4-Tweet Thread",
+        icon: isVideo ? Video : MessageSquare,
+        formatTag: isVideo ? "16:9 X Video Post" : "X Post Image",
         peakTime: "11:00 AM EST (Mid-day Tech Discussions)",
         colorClass: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
       };
     }
+    if (lowerPlat.includes("pinterest")) {
+      return {
+        icon: isVideo ? Video : Camera,
+        formatTag: isVideo ? "9:16 Video Pin" : "2:3 Vertical Pin",
+        peakTime: "08:00 PM EST (Evening Discovery)",
+        colorClass: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20",
+      };
+    }
+    if (lowerPlat.includes("youtube")) {
+      return {
+        icon: Video,
+        formatTag: isVideo ? "9:16 YouTube Short" : "YouTube Community Post",
+        peakTime: "04:00 PM EST (Afternoon Peak)",
+        colorClass: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20",
+      };
+    }
+    if (lowerPlat.includes("facebook")) {
+      return {
+        icon: isVideo ? Video : Share2,
+        formatTag: isVideo ? "9:16 Facebook Reel" : "Facebook Feed Image",
+        peakTime: "01:00 PM EST (Lunch Break Engagement)",
+        colorClass: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
+      };
+    }
     return {
-      icon: Briefcase,
-      formatTag: "4:5 Carousel PDF Document",
+      icon: isVideo ? Video : Briefcase,
+      formatTag: isVideo
+        ? "16:9 LinkedIn Video"
+        : lowerFmt.includes("carousel") || lowerFmt.includes("doc")
+        ? "4:5 Carousel PDF Document"
+        : "LinkedIn Feed Post",
       peakTime: "08:30 AM EST (Morning Executive Coffee)",
       colorClass: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20",
     };
   };
 
-  const meta = getPlatformMetadata(post.platform);
+  const meta = getPlatformMetadata(post.platform, post.format, post.mediaType);
   const PlatformIcon = meta.icon;
 
   const handleApprove = () => {

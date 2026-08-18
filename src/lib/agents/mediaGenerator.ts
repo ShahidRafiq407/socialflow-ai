@@ -73,6 +73,13 @@ function validateAssetUrl(url: string, type: "image" | "video") {
   }
 }
 
+// Helper to convert data URLs to inline MIME and bytes for Google GenAI
+const toInlineInput = (url: string | null | undefined): { mimeType: string; bytes: string } | null => {
+  if (!url) return null;
+  const match = url.match(/^data:([^;]+);base64,(.+)$/);
+  return match ? { mimeType: match[1], bytes: match[2] } : null;
+};
+
 /**
  * Flagship Video Synthesis Handler — Google Veo family via the Gemini SDK
  * generateVideos API with automatic model fallback. Google decommissions
@@ -103,13 +110,6 @@ async function generateRealVideo(options: {
     ].filter(Boolean) as string[]
   ));
 
-  // generateVideos accepts gcsUri or inline base64 bytes — http(s) URLs are not
-  // valid image/video inputs, so only data: URLs become source inputs.
-  const toInlineInput = (url: string | null | undefined): { mimeType: string; bytes: string } | null => {
-    if (!url) return null;
-    const match = url.match(/^data:([^;]+);base64,(.+)$/);
-    return match ? { mimeType: match[1], bytes: match[2] } : null;
-  };
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
 
@@ -489,12 +489,32 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               totalAttempts++;
 
               try {
-                onProgress?.(`[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${tryModel} (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})...`);
+                const statusLabel = assetCount > 1
+                  ? `[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${tryModel}...`
+                  : `[Visualizer] Generating image via ${tryModel}...`;
+                onProgress?.(statusLabel);
                 console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
+
+                let contentsInput: any = slidePrompt;
+                if (input.sourceImage) {
+                  const inline = toInlineInput(input.sourceImage);
+                  if (inline) {
+                    contentsInput = [
+                      {
+                        inlineData: {
+                          mimeType: inline.mimeType,
+                          data: inline.bytes,
+                        },
+                      },
+                      { text: `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}` },
+                    ];
+                  }
+                }
+
                 const genRes = await Promise.race([
                   ai.models.generateContent({
                     model: tryModel,
-                    contents: slidePrompt,
+                    contents: contentsInput,
                     config: {
                       responseModalities: modalities,
                       imageConfig: {
