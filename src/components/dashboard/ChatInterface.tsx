@@ -92,6 +92,10 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
       if (event.sessionId) setSessionId(event.sessionId);
       return;
     }
+    if (event.type === "error") {
+      setError(event.message || "An error occurred in the AI brain.");
+      return;
+    }
     if (event.type === "tool_start") {
       setActivity((prev) => [...prev, { ...event, status: "running" }]);
     } else if (event.type === "tool_end") {
@@ -113,6 +117,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
     if (!prompt || isLoading) return;
     setInput("");
     setError("");
+    setNotice("");
     setActivity([]);
     setMessages((prev) => [...prev, { role: "user", content: prompt }]);
     setIsLoading(true);
@@ -146,6 +151,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
             const event = JSON.parse(line.slice(6));
             handleEvent(event);
             if (event.type === "done") finalAnswer = event.answer || "";
+            if (event.type === "tool_end" && event.tool) finalToolCalls.push({ tool: event.tool, args: event.args, result: event.result });
           } catch {
             /* ignore partial */
           }
@@ -232,7 +238,7 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
   }
 
   return (
-    <Card className="w-full flex flex-col h-full overflow-hidden">
+    <Card className="w-full flex flex-col h-full overflow-hidden py-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
         <div className="flex items-center gap-2.5">
@@ -353,17 +359,19 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5">
-          {QUICK_COMMANDS.map((c) => {
-            const Icon = c.icon;
-            return (
-              <button key={c.label} type="button" onClick={() => setInput(c.prompt)} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-slate-400 transition-colors">
-                <Icon className="h-3 w-3" />
-                {c.label}
-              </button>
-            );
-          })}
-        </div>
+        {messages.length === 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_COMMANDS.map((c) => {
+              const Icon = c.icon;
+              return (
+                <button key={c.label} type="button" onClick={() => setInput(c.prompt)} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-slate-400 transition-colors">
+                  <Icon className="h-3 w-3" />
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="flex gap-2 items-end">
           <input type="file" multiple ref={fileInputRef} className="hidden" onChange={(e) => handleFiles(e.target.files)} />

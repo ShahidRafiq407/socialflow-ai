@@ -19,7 +19,7 @@ export default async function CEOChatPage() {
   }
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-7rem)]">
+    <div className="flex flex-col w-full h-[calc(100vh-4.5rem)]">
       <ChatInterface workspaceId={workspace.id} />
     </div>
   );
