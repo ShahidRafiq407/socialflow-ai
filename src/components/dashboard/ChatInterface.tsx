@@ -212,19 +212,32 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
 
   function readFileText(file: File): Promise<string> {
     return new Promise((resolve) => {
-      const textLike =
-        file.type.startsWith("text/") ||
-        /\.(txt|md|csv|json|js|ts|tsx|jsx|mjs|mts|html|css|py|java|c|h|cpp|rs|go|yml|yaml|xml|env|gitignore|prisma|sh|sql)$/i.test(
-          file.name
-        );
-      if (textLike) {
+      // Images → read as base64 data URL so the AI can see them
+      if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => resolve("");
-        reader.readAsText(file);
-      } else {
-        resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — content not extracted in this version]`);
+        reader.onerror = () => resolve(`[Image: ${file.name} — failed to read]`);
+        reader.readAsDataURL(file);
+        return;
       }
+
+      // Known binary formats that can't be read as text
+      const binaryExt = /\.(zip|rar|7z|tar|gz|bz2|exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|pdf|doc|docx|xls|xlsx|ppt|pptx|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
+      if (binaryExt.test(file.name)) {
+        // PDFs get a special note since they're common
+        if (/\.pdf$/i.test(file.name)) {
+          resolve(`[PDF file: ${file.name} — PDF text extraction not supported yet. Copy-paste the text content instead.]`);
+        } else {
+          resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — cannot be read as text]`);
+        }
+        return;
+      }
+
+      // Everything else → try to read as text (covers .ino, .pde, .vhd, .sv, .rb, .php, .swift, .kt, .lua, .toml, .ini, .cfg, .proto, .cmake, .gradle, .scss, .vue, .svelte, etc.)
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => resolve(`[Failed to read: ${file.name}]`);
+      reader.readAsText(file);
     });
   }
 
