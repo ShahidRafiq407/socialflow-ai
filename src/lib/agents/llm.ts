@@ -19,6 +19,10 @@ export const MODELS = {
   VIDEO: process.env.MODEL_VIDEO_GENERATOR || "gemini-omni-flash-preview",
 
   SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro-preview",
+
+  // The "Marketing Brain" orchestrator / planner / synthesizer model
+  ORCHESTRATOR: process.env.MODEL_ORCHESTRATOR || "gemini-3.1-pro-preview",
+  EMBEDDING: process.env.MODEL_EMBEDDING || "text-embedding-004",
 };
 
 let currentWorkingModel = MODELS.CONTENT_CREATOR;

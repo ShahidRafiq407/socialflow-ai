@@ -281,4 +281,27 @@ export class VertexAIProvider {
     const cleanErr = lastError?.message || (typeof lastError === "string" ? lastError : "Vertex AI JSON model response error.");
     throw new Error(`Vertex AI Provider JSON: ${cleanErr}`);
   }
+
+  /**
+   * Generate text embeddings using Vertex AI (text-embedding-004, 768 dims by default).
+   * Returns one float[] per input string. Configurable via MODEL_EMBEDDING.
+   */
+  async embed(texts: string[]): Promise<number[][]> {
+    const modelName = process.env.MODEL_EMBEDDING || "text-embedding-004";
+    const out: number[][] = [];
+    for (const text of texts) {
+      try {
+        const response = (await this.ai.models.embedContent({
+          model: modelName,
+          contents: text,
+        })) as any;
+        const values = response?.embeddings?.[0]?.values;
+        out.push(Array.isArray(values) && values.length > 0 ? values.map(Number) : []);
+      } catch (err: any) {
+        console.warn(`[Vertex AI Embed] ❌ ${modelName} failed:`, err?.message || err);
+        out.push([]);
+      }
+    }
+    return out;
+  }
 }

@@ -33,6 +33,7 @@ model Workspace {
   posts           Post[]
   mediaAssets     MediaAsset[]
   hashtagGroups   HashtagGroup[]
+  memories        Memory[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -99,6 +100,7 @@ model Competitor {
 
 model ChatSession {
   id          String    @id @default(uuid())
+  title       String?
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id])
   messages    Message[]
@@ -117,12 +119,26 @@ model Message {
   id            String      @id @default(uuid())
   role          Role
   content       String      @db.Text
+  toolCalls     Json?
   chatSessionId String
   chatSession   ChatSession @relation(fields: [chatSessionId], references: [id])
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([chatSessionId])
+}
+
+model Memory {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  category    String    @default("general")
+  content     String    @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([category])
 }
 
 enum Frequency {
