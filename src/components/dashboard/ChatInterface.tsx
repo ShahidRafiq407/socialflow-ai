@@ -20,6 +20,10 @@ import {
   AlertCircle,
   Search,
   FileText,
+  ChevronRight,
+  Globe,
+  Database,
+  PenTool,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -302,26 +306,44 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
           </div>
         ))}
 
-        {/* Live agent activity */}
+        {/* Live agent activity — Claude-like expandable steps */}
         {isLoading && (
           <div className="flex gap-2.5 justify-start">
             <div className="h-7 w-7 shrink-0 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center mt-0.5">
               <Bot className="h-3.5 w-3.5" />
             </div>
-            <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-3 text-xs space-y-1.5">
+            <div className="max-w-[85%] w-full rounded-2xl rounded-tl-sm border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-3 text-xs space-y-1">
               {activity.length === 0 && (
                 <div className="flex items-center gap-2 text-slate-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking...
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
                 </div>
               )}
               {activity.map((a, i) => {
-                if (a.type === "memory") return <AgentStep key={i} label="Recalling memory…" done={false} />;
-                if (a.type === "memory_done") return <AgentStep key={i} label={`Recalled ${a.count ?? 0} memories`} done />;
-                if (a.type === "planning") return <AgentStep key={i} label="Planning tasks…" done={false} />;
-                if (a.type === "reasoning") return <ReasonStep key={i} text={a.text || ""} />;
-                if (a.type === "synthesizing") return <AgentStep key={i} label="Writing answer…" done={false} />;
+                if (a.type === "memory") {
+                  return <LiveStep key={i} icon={<Database className="h-3 w-3" />} label="Recalling long-term memory…" />;
+                }
+                if (a.type === "memory_done") {
+                  return <LiveStep key={i} icon={<Database className="h-3 w-3" />} label={`Recalled ${a.count ?? 0} memories`} done detail={a.count ? "Loaded relevant context from past conversations" : "No relevant memories found"} />;
+                }
+                if (a.type === "planning") {
+                  return <LiveStep key={i} icon={<Brain className="h-3 w-3" />} label="Planning which tools to use…" />;
+                }
+                if (a.type === "reasoning") {
+                  return <LiveStep key={i} icon={<Sparkles className="h-3 w-3" />} label="Reasoning" done detail={a.text} />;
+                }
+                if (a.type === "synthesizing") {
+                  return <LiveStep key={i} icon={<PenTool className="h-3 w-3" />} label="Writing final answer…" />;
+                }
                 if (a.type === "tool_start" || a.type === "tool_end") {
-                  return <AgentStep key={i} label={toolStepLabel(a.tool, a.args)} done={a.status === "done"} />;
+                  return (
+                    <LiveStep
+                      key={i}
+                      icon={toolIcon(a.tool)}
+                      label={toolStepLabel(a.tool, a.args)}
+                      done={a.status === "done"}
+                      detail={a.status === "done" ? formatToolResult(a.tool, a.result) : undefined}
+                    />
+                  );
                 }
                 return null;
               })}
@@ -406,7 +428,32 @@ export function ChatInterface({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function AgentStep({ label, done }: { label: string; done: boolean }) {
+/* ── Expandable live step (Claude-like) ── */
+function LiveStep({ icon, label, done, detail }: {
+  icon: React.ReactNode;
+  label: string;
+  done?: boolean;
+  detail?: string;
+}) {
+  if (detail) {
+    return (
+      <details className="group" open>
+        <summary className="flex items-center gap-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+          {done ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+          ) : (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
+          )}
+          <span className="text-slate-500 shrink-0">{icon}</span>
+          <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
+          <ChevronRight className="h-3 w-3 text-slate-400 ml-auto shrink-0 transition-transform group-open:rotate-90" />
+        </summary>
+        <div className="ml-[22px] mt-1 pl-3 border-l-2 border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
+          {detail}
+        </div>
+      </details>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
       {done ? (
@@ -414,28 +461,103 @@ function AgentStep({ label, done }: { label: string; done: boolean }) {
       ) : (
         <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
       )}
-      <span className="text-slate-600 dark:text-slate-300">{label}</span>
+      <span className="text-slate-500 shrink-0">{icon}</span>
+      <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
     </div>
   );
 }
 
+/* ── Tool step label with argument details ── */
 function toolStepLabel(tool?: string, args?: any): string {
   const base = TOOL_LABELS[tool || ""] || tool || "Working";
   let detail = "";
-  if (args?.query) detail = `: "${args.query}"`;
-  else if (args?.keyword) detail = `: "${args.keyword}"`;
-  else if (args?.url) detail = `: ${args.url}`;
-  else if (args?.platform) detail = `: ${args.platform}${args.format ? ` (${args.format})` : ""}`;
+  if (args?.query) detail = ` → "${args.query}"`;
+  else if (args?.keyword) detail = ` → "${args.keyword}"`;
+  else if (args?.url) detail = ` → ${args.url}`;
+  else if (args?.platform) detail = ` → ${args.platform}${args.format ? ` (${args.format})` : ""}`;
   return `${base}${detail}`;
 }
 
-function ReasonStep({ text }: { text: string }) {
-  return (
-    <div className="flex items-start gap-2">
-      <Sparkles className="h-3.5 w-3.5 text-indigo-500 shrink-0 mt-0.5" />
-      <span className="text-slate-600 dark:text-slate-300 italic">{text}</span>
-    </div>
-  );
+/* ── Tool-specific icon ── */
+function toolIcon(tool?: string): React.ReactNode {
+  switch (tool) {
+    case "search_web": return <Globe className="h-3 w-3" />;
+    case "fetch_serp": return <Search className="h-3 w-3" />;
+    case "scrape_url": return <Globe className="h-3 w-3" />;
+    case "get_brand_dna": return <Database className="h-3 w-3" />;
+    case "list_posts": return <FileText className="h-3 w-3" />;
+    case "list_competitors": return <Search className="h-3 w-3" />;
+    case "get_analytics": return <Database className="h-3 w-3" />;
+    case "save_draft": return <PenTool className="h-3 w-3" />;
+    case "update_brand_dna": return <Database className="h-3 w-3" />;
+    case "recall_memory": return <Brain className="h-3 w-3" />;
+    case "save_memory": return <Brain className="h-3 w-3" />;
+    case "read_uploaded_files": return <FileText className="h-3 w-3" />;
+    default: return <Wrench className="h-3 w-3" />;
+  }
+}
+
+/* ── Format tool results for the detail dropdown ── */
+function formatToolResult(tool?: string, result?: any): string {
+  if (!result) return "Completed.";
+  if (result.error) return `Error: ${result.error}`;
+  try {
+    switch (tool) {
+      case "search_web": {
+        const sources = result.sources || [];
+        let out = result.answer ? result.answer.slice(0, 400) : "";
+        if (sources.length > 0) {
+          out += "\n\nSources found:";
+          for (const s of sources.slice(0, 5)) {
+            out += `\n• ${s.title || s.url}${s.url ? " — " + s.url : ""}`;
+          }
+        }
+        return out || "Search completed.";
+      }
+      case "fetch_serp": {
+        const data = result.data || result;
+        const results = data.topResults || [];
+        let out = `Found ${results.length} organic results`;
+        if (data.peopleAlsoAsk?.length) out += `, ${data.peopleAlsoAsk.length} PAA questions`;
+        if (results.length > 0) {
+          out += ":";
+          for (const r of results.slice(0, 4)) {
+            out += `\n${r.position}. ${r.title}\n   ${r.link}`;
+          }
+        }
+        return out;
+      }
+      case "scrape_url": {
+        const name = result.companyName || result.industry || "";
+        return name ? `Extracted: ${name} (${result.industry || "unknown industry"})` : JSON.stringify(result).slice(0, 300);
+      }
+      case "get_brand_dna": {
+        return `Brand: ${result.name || "—"}\nIndustry: ${result.industry || "—"}\nTone: ${result.tone || "—"}\nAudience: ${(result.targetAudience || "—").slice(0, 120)}`;
+      }
+      case "list_posts": {
+        const posts = Array.isArray(result) ? result : [];
+        return posts.length ? `Found ${posts.length} posts (${posts.map((p: any) => p.platform).filter(Boolean).join(", ")})` : "No posts found.";
+      }
+      case "list_competitors": {
+        const comps = Array.isArray(result) ? result : [];
+        return comps.length ? `Found ${comps.length} competitors:\n${comps.map((c: any) => `• ${c.name} (${c.platform})`).join("\n")}` : "No competitors tracked.";
+      }
+      case "get_analytics": {
+        return `Impressions: ${result.totalImpressions?.toLocaleString() || "—"}\nClicks: ${result.totalClicks?.toLocaleString() || "—"}\nLeads: ${result.leadsAchieved || "—"}\nEngagement: ${result.avgEngagementRate || "—"}`;
+      }
+      case "save_draft": {
+        return `Draft saved → ${result.platform || ""} (ID: ${result.id?.slice(0, 8) || "—"}) — Status: ${result.status || "DRAFT"}`;
+      }
+      case "read_uploaded_files": {
+        const files = result.files || [];
+        return files.length ? `Read ${files.length} files:\n${files.map((f: any) => `• ${f.name} (${f.type || "text"})`).join("\n")}` : result.note || "No files.";
+      }
+      default:
+        return JSON.stringify(result).slice(0, 300);
+    }
+  } catch {
+    return "Completed.";
+  }
 }
 
 
