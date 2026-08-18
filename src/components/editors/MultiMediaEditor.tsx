@@ -59,6 +59,7 @@ interface MultiMediaEditorProps {
     aspectRatio?: string;
     style?: string;
     quality?: string;
+    imageModel?: string;
   }) => void;
   isRenderingSingleAI: boolean;
   prompt: string;
@@ -159,6 +160,7 @@ export default function MultiMediaEditor({
       aspectRatio: safeAspectRatio,
       style: imageStyle,
       quality: imageQuality,
+      imageModel: "gemini-3-pro-image",
     });
   };
 

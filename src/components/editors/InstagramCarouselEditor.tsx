@@ -65,6 +65,7 @@ interface InstagramCarouselEditorProps {
     sourceVideo?: string | null;
     style?: string;
     quality?: string;
+    imageModel?: string;
     slideIndex?: number;
   }) => void;
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
@@ -288,6 +289,7 @@ export default function InstagramCarouselEditor({
                       aspectRatio: safeAspectRatio,
                       style: slideStyle,
                       quality: slideQuality,
+                      imageModel: "gemini-3-pro-image",
                     });
                   }}
                   className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
@@ -504,6 +506,7 @@ export default function InstagramCarouselEditor({
                   aspectRatio: safeAspectRatio,
                   style: slideStyle,
                   quality: slideQuality,
+                  imageModel: "gemini-3-pro-image",
                 });
               }}
               className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"

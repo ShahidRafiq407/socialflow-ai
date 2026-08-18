@@ -188,6 +188,7 @@ export default function PinterestPinEditor({
         aspectRatio: pinAspectRatio === "auto" ? "2:3" : pinAspectRatio,
         style: pinStyle,
         quality: pinQuality,
+        imageModel: "gemini-3-pro-image",
       });
     }
   };

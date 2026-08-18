@@ -48,6 +48,9 @@ export interface PlatformEditorRouterProps {
     videoTask?: string;
     sourceImage?: string | null;
     sourceVideo?: string | null;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
   }) => void;
   isRenderingMedia: boolean;
 
