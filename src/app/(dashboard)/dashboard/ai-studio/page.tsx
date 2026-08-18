@@ -3023,7 +3023,7 @@ export default function AIStudioPage() {
           {/* MAIN WORKSPACE */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 items-start">
             {/* LEFT: CREATIVE EDITOR */}
-            <Card className="lg:col-span-9 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
+            <Card className="lg:col-span-8 border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 !overflow-visible relative z-20 flex flex-col">
               {/* SINGLE SLEEK 1-LINE TOOLBAR (ULTRA THIN HEADER) */}
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-t-xl">
                   <div className="flex items-center gap-2.5">
@@ -3301,7 +3301,7 @@ export default function AIStudioPage() {
             </Card>
 
             {/* RIGHT COLUMN (40%): LIVE PREVIEW & PLATFORM SETTINGS */}
-            <div className="lg:col-span-3 space-y-4">
+            <div className="lg:col-span-4 space-y-4">
               <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
                 {/* TABS HEADER: PREVIEW VS SETTINGS */}
                 <CardHeader className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
