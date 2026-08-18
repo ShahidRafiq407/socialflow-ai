@@ -489,10 +489,10 @@ export default function PinterestIdeaPinEditor({
                   </select>
                 </div>
 
-                {/* 4. Quality Standard */}
+                {/* 4. Quality */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                    Quality Standard
+                    Quality
                   </label>
                   <select
                     value={pageQuality}
@@ -619,7 +619,7 @@ export default function PinterestIdeaPinEditor({
               className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
             >
               {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin...") : "Auto-Generate Full Idea Pin with AI"}</span>
+              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin...") : "Generate Idea Pin Pages, Title & Prompts with AI"}</span>
             </Button>
           </div>
         </div>

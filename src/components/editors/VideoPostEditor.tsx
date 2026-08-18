@@ -519,7 +519,7 @@ export default function VideoPostEditor({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                {capability.platform === "youtube" ? "Video Description & Timestamps" : "Post Caption & Video Hook Script"}
+                {capability.platform === "youtube" ? "Video Description" : "Post Caption"}
               </label>
               <CharacterCounter current={caption.length} max={capability.captionLimit} />
             </div>
@@ -585,7 +585,7 @@ export default function VideoPostEditor({
               className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
             >
               {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>Auto-Generate Video Script & Hook with AI</span>
+              <span>Generate Caption, Hashtags & Video Prompt with AI</span>
             </Button>
           </div>
         </div>

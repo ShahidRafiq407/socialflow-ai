@@ -408,7 +408,7 @@ export default function LinkedInDocumentEditor({
             className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
           >
             {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Auto-Generate Document Slides & Commentary with AI</span>
+            <span>Generate Document Slides & Post Copy with AI</span>
           </Button>
         </div>
       </div>

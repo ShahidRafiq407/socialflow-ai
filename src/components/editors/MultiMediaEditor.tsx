@@ -385,10 +385,10 @@ export default function MultiMediaEditor({
                   </select>
                 </div>
 
-                {/* 4. Quality Standard */}
+                {/* 4. Quality */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                    Quality Standard
+                    Quality
                   </label>
                   <select
                     value={imageQuality}
@@ -528,7 +528,7 @@ export default function MultiMediaEditor({
             className="w-full h-8.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
           >
             {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Auto-Generate Caption with AI</span>
+            <span>Generate Captions, Hashtags & Media Prompts with AI</span>
           </Button>
         </div>
       </div>

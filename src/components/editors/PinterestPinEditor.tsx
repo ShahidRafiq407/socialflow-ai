@@ -205,7 +205,7 @@ export default function PinterestPinEditor({
           className="h-7 px-3 text-[11px] font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg"
         >
           {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>Generate Pin Title, Copy & SEO with AI</span>
+          <span>Generate Pin Title, Description & Prompt with AI</span>
         </Button>
       </div>
 
@@ -495,10 +495,10 @@ export default function PinterestPinEditor({
                     </select>
                   </div>
 
-                  {/* 4. Quality Standard */}
+                  {/* 4. Quality */}
                   <div className="space-y-1">
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                      Quality Standard
+                      Quality
                     </label>
                     <select
                       value={pinQuality}
