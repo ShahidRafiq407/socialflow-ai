@@ -41,12 +41,19 @@ import {
   ExternalLink,
   Trash2,
   Square,
+  BarChart3,
+  TrendingUp,
+  RefreshCw,
+  Layers,
+  Clock,
+  ArrowRight,
 } from "lucide-react";
 
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
   toolCalls?: any[];
+  suggestions?: string[];
 }
 
 interface ActivityItem {
@@ -54,7 +61,7 @@ interface ActivityItem {
   tool?: string;
   args?: any;
   result?: any;
-  status?: "running" | "done";
+  status?: "running" | "done" | "failed";
   text?: string;
   count?: number;
   progress?: string;
@@ -74,10 +81,14 @@ export interface ChatSessionItem {
 }
 
 const QUICK_COMMANDS = [
-  { icon: Search, label: "Research latest trends", prompt: "Find the latest trending topics in my industry using live internet search and suggest 3 content ideas." },
-  { icon: FileText, label: "Write a LinkedIn post", prompt: "Write a LinkedIn post using my Brand DNA." },
-  { icon: ImageIcon, label: "Generate an image", prompt: "Generate a high-converting product showcase image for Instagram." },
-  { icon: VideoIcon, label: "Create a Reel video", prompt: "Create a 9:16 vertical Reel video with visual motion prompt for TikTok." },
+  { icon: CalendarIcon, label: "Plan My Week", prompt: "Create a 7-day multi-platform content plan for my brand." },
+  { icon: TrendingUp, label: "Find Trends", prompt: "Find the latest trending topics in my industry using live search and suggest 3 content ideas." },
+  { icon: Sparkles, label: "Create Content", prompt: "Create today's social media content across my active platforms." },
+  { icon: BarChart3, label: "Analyze Performance", prompt: "Analyze our recent content performance and tell me what we should change." },
+  { icon: RefreshCw, label: "Repurpose Best Content", prompt: "Find my best-performing post and repurpose it for LinkedIn and X." },
+  { icon: Layers, label: "Create Campaign", prompt: "Create a campaign for our new product launch with posts for all platforms." },
+  { icon: Clock, label: "Manage Calendar", prompt: "Show me what is scheduled on my calendar for the next 7 days." },
+  { icon: FileText, label: "Review Drafts", prompt: "Show me all drafts in my Content Library and help me finalize them." },
 ];
 
 const TOOL_LABELS: Record<string, string> = {
@@ -97,6 +108,18 @@ const TOOL_LABELS: Record<string, string> = {
   recall_memory: "Recalling memory",
   save_memory: "Saving memory",
   read_uploaded_files: "Reading uploaded files",
+  get_post: "Reading post details",
+  update_post: "Updating post",
+  delete_post: "Deleting post",
+  reschedule_post: "Rescheduling post",
+  publish_post: "Publishing to social platform",
+  approve_content: "Approving post",
+  cancel_scheduled_post: "Cancelling scheduled post",
+  get_calendar: "Reading scheduled calendar",
+  get_workspace_state: "Checking workspace overview",
+  list_campaigns: "Listing campaigns",
+  get_content_library: "Browsing Content Library",
+  repurpose_content: "Repurposing content",
 };
 
 const IGNORED_DIRS =
@@ -176,10 +199,11 @@ export function ChatInterface({
     if (event.type === "tool_start") {
       setActivity((prev) => [...prev, { ...event, status: "running" }]);
     } else if (event.type === "tool_end") {
+      const isFailed = Boolean(event.result?.error);
       setActivity((prev) =>
         prev.map((a) =>
           a.tool === event.tool && a.status === "running"
-            ? { ...a, result: event.result, status: "done" }
+            ? { ...a, result: event.result, status: isFailed ? "failed" : "done" }
             : a
         )
       );
@@ -251,6 +275,7 @@ export function ChatInterface({
     setIsLoading(true);
 
     let finalAnswer = "";
+    let finalSuggestions: string[] = [];
     const finalToolCalls: any[] = [];
     
     abortControllerRef.current = new AbortController();
@@ -281,7 +306,12 @@ export function ChatInterface({
           try {
             const event = JSON.parse(line.slice(6));
             handleEvent(event);
-            if (event.type === "done") finalAnswer = event.answer || "";
+            if (event.type === "done") {
+              finalAnswer = event.answer || "";
+              if (Array.isArray(event.suggestions)) {
+                finalSuggestions = event.suggestions;
+              }
+            }
             if (event.type === "tool_end" && event.tool) finalToolCalls.push({ tool: event.tool, args: event.args, result: event.result });
           } catch {
             /* ignore partial */
@@ -291,7 +321,12 @@ export function ChatInterface({
 
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: finalAnswer || "No response.", toolCalls: finalToolCalls },
+        {
+          role: "assistant",
+          content: finalAnswer || "No response.",
+          toolCalls: finalToolCalls,
+          suggestions: finalSuggestions.length > 0 ? finalSuggestions : undefined,
+        },
       ]);
     } catch (err: any) {
       if (err.name === "AbortError") {
@@ -305,7 +340,6 @@ export function ChatInterface({
       }
     } finally {
       setIsLoading(false);
-      setActivity([]);
       setFiles([]);
       abortControllerRef.current = null;
     }
@@ -344,7 +378,6 @@ export function ChatInterface({
 
   function readFileText(file: File): Promise<string> {
     return new Promise((resolve) => {
-      // 1. Images → read as base64 data URL so Gemini can visually process them
       if (file.type.startsWith("image/")) {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
@@ -352,8 +385,6 @@ export function ChatInterface({
         reader.readAsDataURL(file);
         return;
       }
-
-      // 2. PDFs → read as base64 data URL so Gemini multimodal engine can read documents
       if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
@@ -361,21 +392,15 @@ export function ChatInterface({
         reader.readAsDataURL(file);
         return;
       }
-
-      // 3. Zip archives → provide structural summary
       if (/\.(zip|rar|7z|tar|gz)$/i.test(file.name)) {
         resolve(`[Archive file: ${file.name} (size: ${(file.size / 1024).toFixed(1)} KB)]`);
         return;
       }
-
-      // 4. Executable / binary formats
       const binaryExt = /\.(exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
       if (binaryExt.test(file.name)) {
         resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — raw bytes not displayed]`);
         return;
       }
-
-      // 5. Everything else (all code .ino, .py, .js, .ts, .md, .txt, .c, .cpp, .doc, configs, etc.) → read as text
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
       reader.onerror = () => resolve(`[Failed to read: ${file.name}]`);
@@ -407,7 +432,7 @@ export function ChatInterface({
           </div>
           <div>
             <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Marketing Brain</p>
-            <p className="text-[11px] text-slate-500">Multi-agent AI that controls every tab with real data</p>
+            <p className="text-[11px] text-slate-500">Autonomous marketing command center controlling your entire workspace</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -486,8 +511,8 @@ export function ChatInterface({
           <div className="h-full flex flex-col items-center justify-center text-center gap-3 py-10">
             <Brain className="h-10 w-10 text-slate-300" />
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Your autonomous marketing AI team is ready</p>
-            <p className="text-xs text-slate-400 max-w-sm">
-              Ask anything — research trends, generate visual images (gemini-3-pro-image), create video reels, schedule posts, or read uploaded files.
+            <p className="text-xs text-slate-400 max-w-md">
+              Give a natural-language instruction — plan weekly content, generate graphics & reels, research trends, manage your calendar, or analyze performance.
             </p>
           </div>
         )}
@@ -595,15 +620,59 @@ export function ChatInterface({
                       {m.content}
                     </ReactMarkdown>
                   </div>
+
+                  {/* Tool Call Badges */}
                   {m.toolCalls && m.toolCalls.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {m.toolCalls.map((t: any, j: number) => (
-                        <span key={j} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          ⚙ {TOOL_LABELS[t.tool] || t.tool}
-                        </span>
-                      ))}
+                      {m.toolCalls.map((t: any, j: number) => {
+                        const isErr = Boolean(t.result?.error);
+                        return (
+                          <span
+                            key={j}
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                              isErr
+                                ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800"
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                            }`}
+                          >
+                            {isErr ? (
+                              <AlertCircle className="h-2.5 w-2.5 text-red-500" />
+                            ) : (
+                              <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                            )}
+                            {TOOL_LABELS[t.tool] || t.tool}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
+
+                  {/* Contextual Smart Action Suggestions */}
+                  {m.suggestions && m.suggestions.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60 flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3 text-indigo-500" /> Suggested next actions:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {m.suggestions.map((s, k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => {
+                              setInput(s);
+                              textareaRef.current?.focus();
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 transition-all text-left cursor-pointer"
+                          >
+                            <ArrowRight className="h-2.5 w-2.5 shrink-0 opacity-70" />
+                            <span>{s}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Response Actions Toolbar */}
                   <div className="flex items-center gap-2 mt-1 px-1">
                     <button
                       type="button"
@@ -642,7 +711,7 @@ export function ChatInterface({
             <div className="max-w-[85%] w-full rounded-2xl rounded-tl-sm border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3.5 py-3 text-xs space-y-1">
               {activity.length === 0 && (
                 <div className="flex items-center gap-2 text-slate-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Orchestrating plan…
                 </div>
               )}
               {activity.map((a, i) => {
@@ -661,9 +730,9 @@ export function ChatInterface({
                       key={i}
                       icon={toolIcon(a.tool)}
                       label={toolStepLabel(a.tool, a.args)}
-                      done={a.status === "done"}
+                      status={a.status}
                       progress={a.status === "running" ? a.progress : undefined}
-                      detail={a.status === "done" ? formatToolResult(a.tool, a.result) : (a.progress || undefined)}
+                      detail={a.status === "done" || a.status === "failed" ? formatToolResult(a.tool, a.result) : (a.progress || undefined)}
                     />
                   );
                 }
@@ -708,8 +777,8 @@ export function ChatInterface({
             {QUICK_COMMANDS.map((c) => {
               const Icon = c.icon;
               return (
-                <button key={c.label} type="button" onClick={() => setInput(c.prompt)} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-slate-400 transition-colors">
-                  <Icon className="h-3 w-3" />
+                <button key={c.label} type="button" onClick={() => setInput(c.prompt)} className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-slate-400 transition-colors">
+                  <Icon className="h-3 w-3 text-indigo-500" />
                   {c.label}
                 </button>
               );
@@ -736,7 +805,7 @@ export function ChatInterface({
           </Button>
           <Textarea
             ref={textareaRef}
-            placeholder="Ask the AI brain anything (e.g. 'generate an image and schedule a LinkedIn post')..."
+            placeholder="Ask the AI brain anything (e.g. 'plan a 7-day content schedule', 'create a Reel and schedule it')..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -758,32 +827,43 @@ export function ChatInterface({
 }
 
 /* ── Expandable live step (Claude-like) ── */
-function LiveStep({ icon, label, done, detail, progress }: {
+function LiveStep({ icon, label, status = "running", detail, progress }: {
   icon: React.ReactNode;
   label: string;
-  done?: boolean;
+  status?: "running" | "done" | "failed";
   detail?: string;
   progress?: string;
 }) {
+  const isDone = status === "done";
+  const isFailed = status === "failed";
+
+  const statusIcon = isFailed ? (
+    <AlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+  ) : isDone ? (
+    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+  ) : (
+    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
+  );
+
   if (detail) {
     return (
       <details className="group" open>
         <summary className="flex items-center gap-2 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
-          {done ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-          ) : (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
-          )}
+          {statusIcon}
           <span className="text-slate-500 shrink-0">{icon}</span>
-          <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
-          {progress && !done && (
+          <span className={`font-medium ${isFailed ? "text-red-600 dark:text-red-400" : "text-slate-700 dark:text-slate-200"}`}>{label}</span>
+          {progress && !isDone && !isFailed && (
             <span className="text-[11px] font-normal text-indigo-600 dark:text-indigo-400 ml-2">
               ({progress})
             </span>
           )}
           <ChevronRight className="h-3 w-3 text-slate-400 ml-auto shrink-0 transition-transform group-open:rotate-90" />
         </summary>
-        <div className="ml-[22px] mt-1 pl-3 border-l-2 border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto">
+        <div className={`ml-[22px] mt-1 pl-3 border-l-2 text-[11px] whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-y-auto ${
+          isFailed
+            ? "border-red-300 dark:border-red-800 text-red-600 dark:text-red-400"
+            : "border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400"
+        }`}>
           {detail}
         </div>
       </details>
@@ -791,14 +871,10 @@ function LiveStep({ icon, label, done, detail, progress }: {
   }
   return (
     <div className="flex items-center gap-2">
-      {done ? (
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-      ) : (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400 shrink-0" />
-      )}
+      {statusIcon}
       <span className="text-slate-500 shrink-0">{icon}</span>
-      <span className="text-slate-700 dark:text-slate-200 font-medium">{label}</span>
-      {progress && !done && (
+      <span className={`font-medium ${isFailed ? "text-red-600 dark:text-red-400" : "text-slate-700 dark:text-slate-200"}`}>{label}</span>
+      {progress && !isDone && !isFailed && (
         <span className="text-[11px] font-normal text-indigo-600 dark:text-indigo-400 ml-2">
           ({progress})
         </span>
@@ -815,7 +891,11 @@ function toolStepLabel(tool?: string, args?: any): string {
   else if (args?.keyword) detail = ` → "${args.keyword}"`;
   else if (args?.url) detail = ` → ${args.url}`;
   else if (args?.platform) detail = ` → ${args.platform}${args.format ? ` (${args.format})` : ""}`;
-  else if (args?.prompt) detail = ` → "${(args.prompt || "").slice(0, 40)}…"`;
+  else if (args?.prompt) detail = ` → "${(args.prompt || "").slice(0, 35)}…"`;
+  else if (args?.targetPlatform) detail = ` → to ${args.targetPlatform}`;
+  else if (args?.topic) detail = ` → "${args.topic}"`;
+  else if (args?.scheduledFor) detail = ` → ${new Date(args.scheduledFor).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  else if (args?.id) detail = ` → #${args.id.slice(0, 8)}`;
   return `${base}${detail}`;
 }
 
@@ -828,7 +908,7 @@ function toolIcon(tool?: string): React.ReactNode {
     case "get_brand_dna": return <Database className="h-3 w-3" />;
     case "list_posts": return <FileText className="h-3 w-3" />;
     case "list_competitors": return <Search className="h-3 w-3" />;
-    case "get_analytics": return <Database className="h-3 w-3" />;
+    case "get_analytics": return <BarChart3 className="h-3 w-3" />;
     case "save_draft": return <PenTool className="h-3 w-3" />;
     case "schedule_post": return <CalendarIcon className="h-3 w-3" />;
     case "generate_image": return <ImageIcon className="h-3 w-3" />;
@@ -838,6 +918,18 @@ function toolIcon(tool?: string): React.ReactNode {
     case "recall_memory": return <Brain className="h-3 w-3" />;
     case "save_memory": return <Brain className="h-3 w-3" />;
     case "read_uploaded_files": return <FileText className="h-3 w-3" />;
+    case "get_post": return <FileText className="h-3 w-3" />;
+    case "update_post": return <Pencil className="h-3 w-3" />;
+    case "delete_post": return <Trash2 className="h-3 w-3" />;
+    case "reschedule_post": return <CalendarIcon className="h-3 w-3" />;
+    case "publish_post": return <ExternalLink className="h-3 w-3" />;
+    case "approve_content": return <CheckCircle2 className="h-3 w-3" />;
+    case "cancel_scheduled_post": return <X className="h-3 w-3" />;
+    case "get_calendar": return <CalendarIcon className="h-3 w-3" />;
+    case "get_workspace_state": return <Layers className="h-3 w-3" />;
+    case "list_campaigns": return <Sparkles className="h-3 w-3" />;
+    case "get_content_library": return <FolderOpen className="h-3 w-3" />;
+    case "repurpose_content": return <RefreshCw className="h-3 w-3" />;
     default: return <Wrench className="h-3 w-3" />;
   }
 }
@@ -908,6 +1000,62 @@ function formatToolResult(tool?: string, result?: any): string {
       case "read_uploaded_files": {
         const files = result.files || [];
         return files.length ? `Read ${files.length} files:\n${files.map((f: any) => `• ${f.name} (${f.type || "text"})`).join("\n")}` : result.note || "No files.";
+      }
+      case "update_brand_dna": {
+        return "Brand DNA updated and saved to workspace settings.";
+      }
+      case "recall_memory": {
+        const mems = Array.isArray(result) ? result : [];
+        return mems.length ? `Recalled ${mems.length} long-term facts:\n${mems.map((m: any) => `• [${m.category}] ${m.content}`).join("\n")}` : "No matching memories.";
+      }
+      case "save_memory": {
+        return "Fact stored in long-term memory store.";
+      }
+      case "get_post": {
+        return `Post Details (#${result.id?.slice(0, 8)})\nPlatform: ${result.platform} (${result.format || "Feed"})\nStatus: ${result.status}\nScheduled: ${result.scheduledFor ? new Date(result.scheduledFor).toLocaleString() : "None"}\nContent: ${(result.content || "").slice(0, 100)}…`;
+      }
+      case "update_post": {
+        return `Post Updated (#${result.id?.slice(0, 8)})\nPlatform: ${result.platform} (${result.format || "Feed"})\nStatus: ${result.status}`;
+      }
+      case "delete_post": {
+        return `Post Deleted (#${result.id?.slice(0, 8)})\nPlatform: ${result.platform || "—"}\nStatus: Removed from Content Library`;
+      }
+      case "reschedule_post": {
+        return `Post Rescheduled (#${result.id?.slice(0, 8)})\nNew Date: ${result.newDate ? new Date(result.newDate).toLocaleString() : "—"}\nPlatform: ${result.platform}\nStatus: SCHEDULED`;
+      }
+      case "publish_post": {
+        return `Published to ${result.platform} (#${result.id?.slice(0, 8)})\nStatus: ${result.status}${result.publishedAt ? ` at ${new Date(result.publishedAt).toLocaleTimeString()}` : ""}${result.publishError ? `\nError: ${result.publishError}` : ""}`;
+      }
+      case "approve_content": {
+        return `Content Approved (#${result.id?.slice(0, 8)})\nPlatform: ${result.platform}\nStatus: ${result.status}`;
+      }
+      case "cancel_scheduled_post": {
+        return `Post Cancelled (#${result.id?.slice(0, 8)})\nStatus: Moved back to DRAFT (unscheduled)`;
+      }
+      case "get_calendar": {
+        const count = result.count || 0;
+        const posts = result.posts || [];
+        if (count === 0) return "No scheduled posts found in this date range.";
+        return `Found ${count} scheduled items:\n${posts.map((p: any) => `• [${p.scheduledFor ? new Date(p.scheduledFor).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}] ${p.platform} (${p.format}): "${p.contentPreview}"`).join("\n")}`;
+      }
+      case "get_workspace_state": {
+        const platforms = (result.connectedPlatforms || []).map((p: any) => p.platform).join(", ");
+        const counts = Object.entries(result.contentCounts || {}).map(([k, v]) => `${k}: ${v}`).join(" | ");
+        return `Workspace Overview\nConnected: ${platforms || "None"}\nContent Counts: ${counts || "0 posts"}\nBrand: ${result.brandDNA?.name || "—"} (${result.brandDNA?.tone || "standard"})`;
+      }
+      case "list_campaigns": {
+        const campaigns = result.campaigns || [];
+        if (campaigns.length === 0) return result.note || "No campaigns found.";
+        return `Found ${campaigns.length} campaigns:\n${campaigns.map((c: any) => `• "${c.campaignTopic}": ${c.totalPosts} posts`).join("\n")}`;
+      }
+      case "get_content_library": {
+        const count = result.count || 0;
+        const posts = result.posts || [];
+        if (count === 0) return "No posts match the filter criteria.";
+        return `Content Library (${count} items):\n${posts.slice(0, 6).map((p: any) => `• [${p.status}] ${p.platform} (${p.format}): "${p.contentPreview}"`).join("\n")}`;
+      }
+      case "repurpose_content": {
+        return `Repurposed for ${result.targetPlatform} (${result.targetFormat})\nNew Draft ID: #${result.id?.slice(0, 8)}\nStatus: DRAFT (Saved to Content Library)\nPreview: "${result.contentPreview}"`;
       }
       default:
         return JSON.stringify(result).slice(0, 300);

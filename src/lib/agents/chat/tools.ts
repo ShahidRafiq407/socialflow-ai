@@ -7,6 +7,8 @@ import { getWorkspaceAnalytics } from "@/actions/analytics";
 import { saveWorkspaceBrandDNA, getWorkspaceBrandDNA } from "@/actions/brand";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset } from "../mediaGenerator";
+import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
+import { removeFromScheduleQueue } from "@/lib/redis";
 
 // ============================================================================
 // MARKETING BRAIN — TOOL REGISTRY
@@ -581,6 +583,446 @@ export const TOOLS: ToolDef[] = [
           type: f.type,
           content: (f.content || "").slice(0, 35000),
         })),
+      };
+    },
+  },
+
+  // ---------------- CRUD / CALENDAR / CONTENT CONTROL ----------------
+  {
+    name: "get_post",
+    description:
+      "Read a single post by its ID with all details (caption, media, status, schedule, platform, format, hashtags).",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to look up" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const post = await prisma.post.findUnique({
+        where: { id: args.id },
+      });
+      if (!post) return { error: `Post not found: ${args.id}` };
+      return {
+        id: post.id,
+        platform: post.platform,
+        content: post.content,
+        format: post.format,
+        status: post.status,
+        imageUrl: post.imageUrl,
+        mediaType: post.mediaType,
+        hashtags: post.hashtags,
+        campaignTopic: post.campaignTopic,
+        scheduledFor: post.scheduledFor?.toISOString() || null,
+        publishedAt: post.publishedAt?.toISOString() || null,
+        createdAt: post.createdAt.toISOString(),
+      };
+    },
+  },
+  {
+    name: "update_post",
+    description:
+      "Update an existing post's content, caption, hashtags, format, media URL, or campaign topic. Resets status to DRAFT when content changes to prevent publishing stale content.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to update" },
+        content: { type: "string", description: "New caption / post text" },
+        hashtags: { type: "array", items: { type: "string" } },
+        format: { type: "string" },
+        imageUrl: { type: "string" },
+        mediaType: { type: "string" },
+        campaignTopic: { type: "string" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const existing = await prisma.post.findUnique({ where: { id: args.id } });
+      if (!existing) return { error: `Post not found: ${args.id}` };
+      const data: any = {};
+      if (args.content !== undefined) data.content = args.content;
+      if (args.hashtags !== undefined) data.hashtags = normalizeHashtags(args.hashtags);
+      if (args.format !== undefined) data.format = args.format;
+      if (args.imageUrl !== undefined) data.imageUrl = args.imageUrl;
+      if (args.mediaType !== undefined) data.mediaType = args.mediaType;
+      if (args.campaignTopic !== undefined) data.campaignTopic = args.campaignTopic;
+      // Reset status to DRAFT if content changed to prevent publishing stale content
+      if (data.content || data.imageUrl || data.hashtags) {
+        data.status = "DRAFT";
+      }
+      const post = await prisma.post.update({ where: { id: args.id }, data });
+      return { id: post.id, platform: post.platform, format: post.format, status: post.status, updated: true };
+    },
+  },
+  {
+    name: "delete_post",
+    description:
+      "Delete a post (draft, scheduled, or failed) by its ID. This is a destructive action — only call when the user explicitly requests deletion.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to delete" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const existing = await prisma.post.findUnique({ where: { id: args.id } });
+      if (!existing) return { error: `Post not found: ${args.id}` };
+      await prisma.post.delete({ where: { id: args.id } });
+      // Clean up Redis schedule queue if it was scheduled
+      if (existing.status === "SCHEDULED" && existing.scheduledFor) {
+        try { await removeFromScheduleQueue(args.id); } catch { /* non-fatal */ }
+      }
+      return { deleted: true, id: args.id, platform: existing.platform, format: existing.format };
+    },
+  },
+  {
+    name: "reschedule_post",
+    description:
+      "Change the scheduled date/time of an existing post. The new date must be in the future.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to reschedule" },
+        scheduledFor: { type: "string", description: "New ISO 8601 date string (e.g. 2026-08-22T19:00:00Z)" },
+      },
+      required: ["id", "scheduledFor"],
+    },
+    execute: async (args, ctx) => {
+      const existing = await prisma.post.findUnique({ where: { id: args.id } });
+      if (!existing) return { error: `Post not found: ${args.id}` };
+      const newDate = new Date(args.scheduledFor);
+      if (isNaN(newDate.getTime())) return { error: "Invalid date format" };
+      if (newDate.getTime() <= Date.now()) return { error: "Scheduled date must be in the future" };
+      const post = await prisma.post.update({
+        where: { id: args.id },
+        data: { scheduledFor: newDate, status: "SCHEDULED" },
+      });
+      return {
+        id: post.id,
+        platform: post.platform,
+        previousDate: existing.scheduledFor?.toISOString() || null,
+        newDate: post.scheduledFor?.toISOString(),
+        status: "SCHEDULED",
+      };
+    },
+  },
+  {
+    name: "publish_post",
+    description:
+      "Publish a post immediately to its connected social platform. This is a real publishing action — only call when the user explicitly requests immediate publishing.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to publish" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const post = await prisma.post.findUnique({
+        where: { id: args.id },
+        include: { workspace: true },
+      });
+      if (!post) return { error: `Post not found: ${args.id}` };
+      if (!post.content && !post.imageUrl) return { error: "Post has no content or media to publish" };
+
+      const platformEnumMap: Record<string, string> = {
+        instagram: "INSTAGRAM", facebook: "FACEBOOK", linkedin: "LINKEDIN",
+        x: "X", youtube: "YOUTUBE", tiktok: "TIKTOK", pinterest: "PINTEREST",
+      };
+      const basePlatform = post.platform.split(/[\s\-_]+/)[0].toLowerCase();
+      const platformEnum = platformEnumMap[basePlatform];
+      if (!platformEnum) return { error: `Unknown platform: ${post.platform}` };
+
+      const account = await prisma.socialAccount.findFirst({
+        where: { workspaceId: post.workspaceId, platform: platformEnum as any },
+      });
+      if (!account) return { error: `Social account not connected for: ${post.platform}` };
+
+      // Import at runtime to avoid circular dependencies with server actions
+      const { publishToPlatform } = await import("@/actions/publish");
+      try {
+        const result = await publishToPlatform(post, account);
+        return {
+          id: result.id,
+          platform: result.platform,
+          status: result.status,
+          publishedAt: result.publishedAt?.toISOString() || null,
+          publishError: result.publishError || null,
+        };
+      } catch (err: any) {
+        return { error: `Publishing failed: ${err.message}` };
+      }
+    },
+  },
+  {
+    name: "approve_content",
+    description:
+      "Approve a post that is pending approval. Changes status to APPROVED (or SCHEDULED if it has a scheduled date).",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to approve" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const post = await prisma.post.findUnique({ where: { id: args.id } });
+      if (!post) return { error: `Post not found: ${args.id}` };
+      const newStatus = post.scheduledFor ? "SCHEDULED" : "APPROVED";
+      const updated = await prisma.post.update({
+        where: { id: args.id },
+        data: { status: newStatus },
+      });
+      return { id: updated.id, platform: updated.platform, status: updated.status, approved: true };
+    },
+  },
+  {
+    name: "cancel_scheduled_post",
+    description:
+      "Cancel a scheduled post and move it back to DRAFT status. The post is NOT deleted, just unscheduled.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "The post ID to cancel scheduling for" },
+      },
+      required: ["id"],
+    },
+    execute: async (args, ctx) => {
+      const existing = await prisma.post.findUnique({ where: { id: args.id } });
+      if (!existing) return { error: `Post not found: ${args.id}` };
+      if (existing.status !== "SCHEDULED") return { error: `Post is not scheduled (current status: ${existing.status})` };
+      const post = await prisma.post.update({
+        where: { id: args.id },
+        data: { status: "DRAFT", scheduledFor: null },
+      });
+      try { await removeFromScheduleQueue(args.id); } catch { /* non-fatal */ }
+      return { id: post.id, platform: post.platform, status: "DRAFT", cancelled: true };
+    },
+  },
+  {
+    name: "get_calendar",
+    description:
+      "Read scheduled posts for a date range. Shows what is scheduled in the calendar. Defaults to the next 7 days if no dates are provided.",
+    parameters: {
+      type: "object",
+      properties: {
+        startDate: { type: "string", description: "Start date (ISO 8601), defaults to now" },
+        endDate: { type: "string", description: "End date (ISO 8601), defaults to 7 days from now" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const start = args.startDate ? new Date(args.startDate) : new Date();
+      const end = args.endDate ? new Date(args.endDate) : new Date(Date.now() + 7 * 86400000);
+      const posts = await prisma.post.findMany({
+        where: {
+          workspaceId: ctx.workspaceId,
+          scheduledFor: { gte: start, lte: end },
+          status: { in: ["SCHEDULED", "PUBLISHING", "PUBLISHED"] },
+        },
+        orderBy: { scheduledFor: "asc" },
+        select: {
+          id: true, platform: true, content: true, format: true, status: true,
+          scheduledFor: true, mediaType: true, campaignTopic: true,
+        },
+      });
+      return {
+        range: { start: start.toISOString(), end: end.toISOString() },
+        count: posts.length,
+        posts: posts.map((p) => ({
+          ...p,
+          contentPreview: p.content.slice(0, 100),
+          scheduledFor: p.scheduledFor?.toISOString(),
+        })),
+      };
+    },
+  },
+  {
+    name: "get_workspace_state",
+    description:
+      "Get a quick overview of the current workspace state — connected platforms, content counts by status, Brand DNA summary, recent campaigns.",
+    parameters: { type: "object", properties: {} },
+    execute: async (args, ctx) => {
+      const [accounts, postCounts, brand, recentPosts] = await Promise.all([
+        prisma.socialAccount.findMany({
+          where: { workspaceId: ctx.workspaceId },
+          select: { platform: true, handle: true, pageName: true },
+        }),
+        prisma.post.groupBy({
+          by: ["status"],
+          where: { workspaceId: ctx.workspaceId },
+          _count: true,
+        }),
+        getWorkspaceBrandDNA(ctx.workspaceId).catch(() => null),
+        prisma.post.findMany({
+          where: { workspaceId: ctx.workspaceId },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: { id: true, platform: true, status: true, format: true, campaignTopic: true, createdAt: true },
+        }),
+      ]);
+      const statusMap: Record<string, number> = {};
+      for (const g of postCounts) statusMap[g.status] = g._count;
+      return {
+        connectedPlatforms: accounts.map((a) => ({ platform: a.platform, handle: a.handle || a.pageName })),
+        contentCounts: statusMap,
+        brandDNA: brand ? { name: brand.name, industry: brand.industry, tone: brand.tone, hasAudience: Boolean(brand.targetAudience) } : null,
+        recentPosts: recentPosts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString() })),
+      };
+    },
+  },
+  {
+    name: "list_campaigns",
+    description:
+      "List campaigns — groups of posts that share a campaign topic. Returns campaign names, post counts, and status breakdown.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max campaigns to return (default 10)" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const campaigns = await prisma.post.groupBy({
+        by: ["campaignTopic"],
+        where: { workspaceId: ctx.workspaceId, campaignTopic: { not: null } },
+        _count: true,
+        orderBy: { _count: { campaignTopic: "desc" } },
+        take: args.limit || 10,
+      });
+      if (campaigns.length === 0) return { campaigns: [], note: "No campaigns found. Create one by asking me!" };
+      // Fetch status breakdown per campaign
+      const details = await Promise.all(
+        campaigns.map(async (c) => {
+          const posts = await prisma.post.findMany({
+            where: { workspaceId: ctx.workspaceId, campaignTopic: c.campaignTopic },
+            select: { id: true, platform: true, status: true, format: true, scheduledFor: true },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+          });
+          return {
+            campaignTopic: c.campaignTopic,
+            totalPosts: c._count,
+            posts: posts.map((p) => ({ ...p, scheduledFor: p.scheduledFor?.toISOString() || null })),
+          };
+        })
+      );
+      return { campaigns: details };
+    },
+  },
+  {
+    name: "get_content_library",
+    description:
+      "Browse the content library with optional filters for status, platform, or search text. Returns posts from the Content Library.",
+    parameters: {
+      type: "object",
+      properties: {
+        status: { type: "string", description: "Filter by status: DRAFT, SCHEDULED, PUBLISHED, PENDING_APPROVAL, FAILED, APPROVED" },
+        platform: { type: "string", description: "Filter by platform name (e.g. Instagram, LinkedIn)" },
+        search: { type: "string", description: "Search text in caption content" },
+        limit: { type: "number", description: "Max results (default 20)" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const where: any = { workspaceId: ctx.workspaceId };
+      if (args.status) where.status = args.status;
+      if (args.platform) where.platform = { contains: args.platform, mode: "insensitive" };
+      if (args.search) where.content = { contains: args.search, mode: "insensitive" };
+      const posts = await prisma.post.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: args.limit || 20,
+        select: {
+          id: true, platform: true, content: true, format: true, status: true,
+          imageUrl: true, mediaType: true, hashtags: true, scheduledFor: true,
+          campaignTopic: true, createdAt: true,
+        },
+      });
+      return {
+        count: posts.length,
+        filters: { status: args.status || "all", platform: args.platform || "all" },
+        posts: posts.map((p) => ({
+          ...p,
+          contentPreview: p.content.slice(0, 120),
+          scheduledFor: p.scheduledFor?.toISOString() || null,
+          createdAt: p.createdAt.toISOString(),
+        })),
+      };
+    },
+  },
+  {
+    name: "repurpose_content",
+    description:
+      "Take an existing post and adapt it for a different platform. Creates a new draft with the content rewritten using platform-specific rules, format, character limits, and hashtag limits.",
+    parameters: {
+      type: "object",
+      properties: {
+        sourcePostId: { type: "string", description: "The ID of the post to repurpose" },
+        targetPlatform: { type: "string", description: "Target platform (e.g. LinkedIn, Instagram, X, TikTok)" },
+        targetFormat: { type: "string", description: "Target format (e.g. Feed, Reel, Post, Thread)" },
+      },
+      required: ["sourcePostId", "targetPlatform"],
+    },
+    execute: async (args, ctx) => {
+      const source = await prisma.post.findUnique({ where: { id: args.sourcePostId } });
+      if (!source) return { error: `Source post not found: ${args.sourcePostId}` };
+
+      const targetFormat = args.targetFormat || "Feed";
+      const cap = getPlatformCapability(args.targetPlatform.toLowerCase() as any, targetFormat);
+
+      // Use LLM to adapt the content for the target platform
+      const repurposePrompt = `Adapt the following social media post for ${args.targetPlatform} (${targetFormat} format).
+
+ORIGINAL POST (${source.platform} ${source.format || "Feed"}):
+${source.content}
+
+TARGET PLATFORM RULES:
+- Platform: ${args.targetPlatform} ${targetFormat}
+- Max caption length: ${cap.captionLimit} characters
+- Max hashtags: ${cap.hashtagLimit}
+- Supports title: ${cap.supportsTitle}
+- Supports description: ${cap.supportsDescription}
+${cap.supportsTitle ? `- Max title length: ${cap.titleLimit || 100} chars` : ""}
+
+INSTRUCTIONS:
+- Rewrite the caption to match ${args.targetPlatform} tone and format norms
+- Do NOT simply copy-paste — adapt the hook, length, CTA and style
+- If the target supports title/description, include them
+- Keep core message but optimize for the platform audience
+- Return ONLY valid JSON: { "caption": "...", "hashtags": ["#Tag1"], "title": "..." (if applicable) }`;
+
+      const adapted = await vertexProvider.generateJSON(
+        [{ role: "user", content: repurposePrompt }],
+        { modelName: MODELS.CONTENT_CREATOR, temperature: 0.3 }
+      );
+
+      const caption = adapted?.caption || source.content.slice(0, cap.captionLimit);
+      const hashtags = normalizeHashtags(adapted?.hashtags || source.hashtags, { limit: cap.hashtagLimit });
+
+      const newPost = await prisma.post.create({
+        data: {
+          workspaceId: ctx.workspaceId,
+          platform: args.targetPlatform,
+          content: caption,
+          format: targetFormat,
+          hashtags,
+          imageUrl: source.imageUrl,
+          imagePrompt: source.imagePrompt,
+          mediaType: source.mediaType,
+          campaignTopic: source.campaignTopic,
+          status: "DRAFT",
+          source: `repurposed-from-${source.id}`,
+        },
+      });
+
+      return {
+        id: newPost.id,
+        sourcePlatform: source.platform,
+        targetPlatform: args.targetPlatform,
+        targetFormat,
+        contentPreview: caption.slice(0, 120),
+        status: "DRAFT",
+        repurposed: true,
       };
     },
   },
