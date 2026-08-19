@@ -1208,8 +1208,54 @@ INSTRUCTIONS:
       "Read the active organic lead target, days remaining, achieved leads, current pacing vs required pacing, AI growth status, autopilot mode, and current strategy.",
     parameters: { type: "object", properties: {} },
     execute: async (args, ctx) => {
-      const { getWorkspaceGrowthGoal } = await import("@/actions/goals");
-      return getWorkspaceGrowthGoal(ctx.workspaceId);
+      const { getWorkspaceGrowthGoal, getRecentGrowthActivity } = await import("@/actions/goals");
+      const [growth, activity] = await Promise.all([
+        getWorkspaceGrowthGoal(ctx.workspaceId),
+        getRecentGrowthActivity(ctx.workspaceId),
+      ]);
+      return {
+        ...growth,
+        recentActivitySummary: activity.slice(0, 5).map((a) => ({
+          type: a.type,
+          platform: a.platform,
+          topic: a.topic,
+          time: a.formattedTime,
+          status: a.status,
+        })),
+      };
+    },
+  },
+  {
+    name: "validate_lead_goal",
+    description:
+      "Validate if an organic lead goal target and timeframe is realistic, moderate, or highly aggressive based on real historical organic reach/CTR/CVR data. Returns realistic expected range and recommended target.",
+    parameters: {
+      type: "object",
+      properties: {
+        leadTarget: { type: "number", description: "Desired lead target (e.g. 150 or 1000)" },
+        timeframeDays: { type: "number", description: "Timeframe in days (e.g. 7, 30, 60)" },
+        leadType: { type: "string", enum: ["QUALIFIED_LEADS", "LEADS", "WEBSITE_INQUIRIES", "CONTACT_FORM", "WHATSAPP", "BOOKINGS", "CUSTOM"] },
+      },
+      required: ["leadTarget", "timeframeDays"],
+    },
+    execute: async (args, ctx) => {
+      const { validateGoalAction } = await import("@/actions/goals");
+      return validateGoalAction(
+        ctx.workspaceId,
+        Number(args.leadTarget),
+        Number(args.timeframeDays),
+        args.leadType || "QUALIFIED_LEADS"
+      );
+    },
+  },
+  {
+    name: "get_recent_growth_activity",
+    description:
+      "Get the list of real recent AI actions — posts scheduled, posts published (with links), drafts created, and strategic adjustments.",
+    parameters: { type: "object", properties: {} },
+    execute: async (args, ctx) => {
+      const { getRecentGrowthActivity } = await import("@/actions/goals");
+      return getRecentGrowthActivity(ctx.workspaceId);
     },
   },
   {
@@ -1283,8 +1329,8 @@ INSTRUCTIONS:
         targetLeads: strategy.targetLeads,
         requiredImpressions: strategy.funnel.requiredImpressions,
         requiredPostsPerWeek: strategy.funnel.requiredPostsPerWeek,
-        todayTasksCount: strategy.todayPlan.length,
-        pillars: strategy.contentPillars.map((p) => p.name),
+        todayTasksCount: strategy.todayPlan?.length || 0,
+        pillars: strategy.contentPillars?.map((p: any) => p.name) || [],
       };
     },
   },

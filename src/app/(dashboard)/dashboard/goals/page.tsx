@@ -26,7 +26,10 @@ export default async function LeadGoalPage() {
   const industry = workspace?.industry || "Embedded Systems & AI Robotics";
   const website = workspace?.website || "https://smbrobotic.com";
 
-  const { goal, kpis, strategy } = await getWorkspaceGrowthGoal(workspaceId);
+  const [{ goal, kpis, strategy }, initialActivity] = await Promise.all([
+    getWorkspaceGrowthGoal(workspaceId),
+    import("@/actions/goals").then((m) => m.getRecentGrowthActivity(workspaceId)).catch(() => []),
+  ]);
 
   const connectedPlatforms = (workspace?.socialAccounts || []).map((a: any) => {
     const p = a.platform.toLowerCase();
@@ -50,6 +53,7 @@ export default async function LeadGoalPage() {
         initialGoal={goal}
         initialKPIs={kpis}
         initialStrategy={strategy}
+        initialActivity={initialActivity}
         connectedPlatforms={connectedPlatforms}
       />
     </div>

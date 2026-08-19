@@ -4,185 +4,29 @@ import { PLATFORM_CAPABILITIES, getPlatformCapability, PlatformId } from "@/lib/
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getNextBestTime } from "@/lib/bestPublishTime";
 
-// ============================================================================
-// GROWTH ENGINE TYPES
-// ============================================================================
+import {
+  LeadType,
+  AutopilotMode,
+  GoalStatus,
+  AutopilotPermissions,
+  FunnelCalculation,
+  PlatformStrategyItem,
+  ContentPillar,
+  GrowthPlanTask,
+  ExperimentItem,
+  DecisionItem,
+  LearningInsight,
+  GrowthRecommendation,
+  GrowthStrategy,
+  GrowthKPIs,
+  GoalFeasibilityResult,
+  validateGoalFeasibility,
+} from "@/lib/types/growth";
 
-export type LeadType =
-  | "QUALIFIED_LEADS"
-  | "LEADS"
-  | "WEBSITE_INQUIRIES"
-  | "CONTACT_FORM"
-  | "WHATSAPP"
-  | "BOOKINGS"
-  | "CUSTOM";
+export * from "@/lib/types/growth";
 
-export type AutopilotMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
-
-export type GoalStatus =
-  | "ON_TRACK"
-  | "NEEDS_OPTIMIZATION"
-  | "BEHIND_TARGET"
-  | "INSUFFICIENT_DATA"
-  | "GOAL_ACHIEVED";
-
-export interface AutopilotPermissions {
-  createContent: boolean;
-  generateVisuals: boolean;
-  schedule: boolean;
-  autoPublish: boolean;
-  autoModifyStrategy: boolean;
-}
-
-export interface FunnelCalculation {
-  targetLeads: number;
-  leadType: string;
-  qualificationRate: number; // e.g. 0.35 for qualified leads
-  requiredConversions: number;
-  organicCVR: number; // Click/Profile visit -> Conversion (e.g. 0.021 = 2.1%)
-  requiredProfileVisits: number;
-  engagementCTR: number; // Impression -> Click/Profile Visit (e.g. 0.048 = 4.8%)
-  requiredImpressions: number;
-  avgImpressionsPerPost: number;
-  requiredTotalPosts: number;
-  requiredPostsPerWeek: number;
-  requiredDailyPace: number;
-  isBenchmarkFallback: boolean;
-  assumptions: string[];
-  dataSourceSummary: string;
-}
-
-export interface PlatformStrategyItem {
-  platform: string;
-  role: string;
-  leadPotential: "HIGH" | "MEDIUM" | "LOW";
-  recommendedFrequency: string;
-  postsPerWeek: number;
-  priority: "HIGH" | "MEDIUM" | "LOW";
-  confidence: number;
-  supportedFormats: string[];
-  supportedMedia: string[];
-  capabilityNotice: string;
-  status: "ACTIVE" | "PAUSED" | "UNAVAILABLE";
-  attributionData: {
-    clicks: number;
-    leads: number;
-    conversionRate: string;
-  };
-  reason: string;
-}
-
-export interface ContentPillar {
-  id: string;
-  name: string;
-  purpose: string;
-  audienceStage: "Top of Funnel (Awareness)" | "Middle of Funnel (Consideration)" | "Bottom of Funnel (Decision/Conversion)";
-  allocationPercentage: number;
-  targetPlatforms: string[];
-  recommendedFormats: string[];
-  cta: string;
-  leadGenerationRole: string;
-  exampleHook: string;
-}
-
-export interface GrowthPlanTask {
-  id: string;
-  date: string; // ISO string
-  time: string; // "09:00 AM"
-  day: string; // "Today", "Tomorrow", "Mon", "Tue", etc.
-  platform: string;
-  format: string;
-  topic: string;
-  hook: string;
-  cta: string;
-  leadGoalRole: string;
-  status: "DRAFT" | "GENERATING" | "PENDING_APPROVAL" | "SCHEDULED" | "PUBLISHED" | "FAILED" | "REJECTED";
-  reason: string;
-  postId?: string;
-  mediaUrl?: string;
-  mediaType?: "image" | "video" | "carousel" | "document" | "text";
-}
-
-export interface AIDecision {
-  id: string;
-  date: string;
-  title: string;
-  action: string;
-  reason: string;
-  data: string;
-  expectedImpact: string;
-  status: "APPLIED" | "PENDING_REVIEW" | "REJECTED";
-}
-
-export interface GrowthRecommendation {
-  id: string;
-  type: "ALERT" | "OPPORTUNITY" | "OPTIMIZATION" | "WARNING";
-  title: string;
-  description: string;
-  why: string;
-  data: string;
-  expectedImpact: string;
-  actionType: "INCREASE_CADENCE" | "PAUSE_PLATFORM" | "SHIFT_PILLAR" | "UPDATE_CTA" | "CUSTOM";
-  applied: boolean;
-}
-
-export interface GrowthExperiment {
-  id: string;
-  name: string;
-  type: "HOOK" | "CTA" | "FORMAT" | "POSTING_TIME" | "PILLAR";
-  hypothesis: string;
-  status: "RUNNING" | "COMPLETED" | "PLANNED";
-  metric: string;
-  winner?: string;
-  impact?: string;
-  sampleSize?: number;
-}
-
-export interface GrowthStrategy {
-  targetLeads: number;
-  leadType: string;
-  timeframeDays: number;
-  startDate: string;
-  funnel: FunnelCalculation;
-  platformStrategies: PlatformStrategyItem[];
-  contentPillars: ContentPillar[];
-  todayPlan: GrowthPlanTask[];
-  weeklyPlan: GrowthPlanTask[];
-  decisions: AIDecision[];
-  recommendations: GrowthRecommendation[];
-  experiments: GrowthExperiment[];
-  learningInsights: { observation: string; conclusion: string; nextAction: string }[];
-  dataSources: {
-    brandDNASynced: boolean;
-    analyzedPostsCount: number;
-    trackedLeadsCount: number;
-    connectedPlatformsCount: number;
-    trendSourcesCount: number;
-    competitorSourcesCount: number;
-    historicalPeriod: string;
-    isBenchmarkFallback: boolean;
-  };
-  recoveryPlan?: {
-    isNeeded: boolean;
-    bottlenecks: string[];
-    recoverySteps: string[];
-  };
-}
-
-export interface GrowthKPIs {
-  targetLeads: number;
-  achievedLeads: number;
-  remainingLeads: number;
-  daysTotal: number;
-  daysElapsed: number;
-  daysLeft: number;
-  currentPace: number; // leads / day
-  requiredPace: number; // leads / day
-  projectedResult: number;
-  progressPercentage: number;
-  status: GoalStatus;
-  statusReason: string;
-}
+export type AIDecision = DecisionItem;
+export type GrowthExperiment = ExperimentItem;
 
 // ============================================================================
 // FUNNEL & CAPACITY CALCULATOR (DATA PRIORITY: REAL DATA -> BENCHMARKS)
@@ -684,8 +528,8 @@ export async function generateGrowthStrategy(
       platform: targetPl,
       format,
       topic: `${pillar.name}: ${brand.name} Strategy Breakdown`,
-      hook: pillar.exampleHook,
-      cta: pillar.cta,
+      hook: pillar.exampleHook || `Discover how ${brand.name} helps achieve consistent results.`,
+      cta: pillar.cta || "Book a strategy consultation",
       leadGoalRole: pillar.leadGenerationRole,
       status: "DRAFT",
       reason: `Aligned with ${pillar.name} (${pillar.allocationPercentage}% pillar quota) to maintain consistent pipeline pacing.`,
