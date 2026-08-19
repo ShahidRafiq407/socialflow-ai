@@ -198,13 +198,17 @@ export async function runCampaignGraph(
     data: { label: "Searching Google for live viral trends...", detail: `Querying trends for ${state.brandData.industry}` },
   });
 
-  const searchQuery = `Google News: Latest business news, product launches, and highly relevant content strategies for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) 2026`;
-  onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery } });
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const searchQuery = `Latest business news, emerging market trends, and content opportunities for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) ${currentYear}`;
+  onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery, searchDate: currentDateStr } });
 
   try {
-    const trendPrompt = `You are a professional Trend Researcher. Search for real news, real industry updates, and real competitor moves.
-    Extract the top 3 actionable insights or news items. Return them as a bulleted list. 
-    Analyze query: ${searchQuery}`;
+    const trendPrompt = `You are a professional Trend Researcher. Current search date: ${currentDateStr} (Year: ${currentYear}).
+Search for real news, industry updates, emerging market conversations, and competitor moves for ${state.brandData.industry}.
+Extract the top 3 actionable insights or news items. Return them as a clear bulleted list.
+Analyze query: ${searchQuery}`;
 
     const groundingRes = await vertexProvider.generateWithGrounding(trendPrompt, {
       modelName: MODELS.TREND_RESEARCHER,

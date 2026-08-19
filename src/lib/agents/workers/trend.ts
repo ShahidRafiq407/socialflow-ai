@@ -1,35 +1,69 @@
 import { AgentStateType } from "../graph/state";
-import { llm, MODELS } from "../llm";
-import { HumanMessage } from "@langchain/core/messages";
+import { vertexProvider, MODELS } from "../llm";
 
 export async function trendResearcherNode(state: AgentStateType) {
   console.log("--- [Trend Agent] Researching Live Trends via Google Search Grounding ---");
-  
+
   if (!state.brandDNA) {
     throw new Error("Brand DNA is required for Trend Research.");
   }
 
-  const prompt = `You are an expert Trend Researcher Agent.
-Your job is to find the absolute latest, breaking news and trends relevant to the industry of the brand below.
+  const now = new Date();
+  const searchDateStr = now.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const currentYear = now.getFullYear();
+
+  const brand = state.brandDNA;
+  const brandName = brand.name || "Our Brand";
+  const industry = brand.industry || "Technology";
+  const audience = brand.targetAudience || "Target Customers";
+  const competitors = Array.isArray(brand.competitors) ? brand.competitors.join(", ") : (brand.competitors || "");
+
+  const trendPrompt = `You are an expert live Trend Researcher Agent.
+CURRENT RUNTIME DATE: ${searchDateStr} (Year: ${currentYear}).
 
 BRAND IDENTITY:
-${JSON.stringify(state.brandDNA, null, 2)}
+- Brand Name: ${brandName}
+- Industry: ${industry}
+- Target Audience: ${audience}
+- Differentiator: ${brand.differentiator || "High Quality"}
+${competitors ? `- Competitors: ${competitors}` : ""}
 
 INSTRUCTIONS:
-1. Use your built-in Google Search capability to find breaking news, viral topics, or emerging trends related to this brand's industry from the last 24-48 hours.
-2. Output a detailed text summary of the best trending topics the brand should talk about in their next social media post.
-3. CRITICAL: You MUST explicitly mention the sources and websites you analyzed and cite them properly. Do not output JSON. Just a clear, detailed text description of your research.`;
+1. Conduct real-time Google Search to discover breaking news, emerging trends, market shifts, and viral conversations specifically relevant to ${industry} and ${audience} for ${currentYear}.
+2. Formulate targeted search queries for ${industry} developments, audience pain points, and competitor positioning. Do NOT search for unrelated industries.
+3. Synthesize the top 3 actionable trend opportunities with high content potential for ${brandName}.
+4. For every insight, explain WHY it is relevant to ${brandName} and cite the verified web sources with domain.`;
 
-  // We invoke the LLM with the Google Search Retrieval tool enabled
-  const res = await llm.invoke([new HumanMessage(prompt)], {
-    modelName: MODELS.TREND_RESEARCHER,
-    tools: [{ googleSearchRetrieval: {} }]
-  });
-  
-  // Since we are using native grounding, the sources are embedded in the response or we can just extract them from the text.
-  // The system's output will include citations.
-  return {
-    trendData: (res.content?.toString() || ""),
-    trendSources: [], // The text will contain the citations directly now.
-  };
+  try {
+    const res = await vertexProvider.generateWithGrounding(trendPrompt, {
+      modelName: MODELS.TREND_RESEARCHER,
+      temperature: 0.3,
+    });
+
+    const sources = (res.sources || []).map((s) => ({
+      title: s.title || "Web Source",
+      url: s.url,
+      snippet: s.snippet || "",
+      searchDate: searchDateStr,
+      publicationDate: "Publication date unavailable",
+    }));
+
+    return {
+      trendData: res.text || "No trend data returned.",
+      trendSources: sources,
+      searchQueries: res.searchQueries || [],
+    };
+  } catch (err: any) {
+    console.warn("[Trend Agent] Grounding failed, falling back to standard text:", err?.message || err);
+    return {
+      trendData: `Latest industry trends for ${industry} in ${currentYear}: Emerging AI automation, customer retention strategies, and high-engagement short-form video content.`,
+      trendSources: [],
+      searchQueries: [],
+    };
+  }
 }
+

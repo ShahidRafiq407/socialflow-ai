@@ -19,6 +19,7 @@ import { removeFromScheduleQueue } from "@/lib/redis";
 export interface ToolContext {
   workspaceId: string;
   userId: string;
+  brandDNA?: any;
   uploadedFiles?: { name: string; content: string; type: string }[];
   onProgress?: (message: string) => void;
 }
@@ -30,25 +31,198 @@ export interface ToolDef {
   execute: (args: any, ctx: ToolContext) => Promise<any>;
 }
 
+/**
+ * Extract publication date from source snippet/title if present.
+ * Never invents a publication date; returns "Publication date unavailable" if not verified.
+ */
+function extractPublicationDate(snippet?: string, title?: string): string {
+  if (!snippet && !title) return "Publication date unavailable";
+  const combined = `${title || ""} ${snippet || ""}`;
+  
+  // Patterns like "2 hours ago", "3 days ago", "15 mins ago", "1 week ago"
+  const relativeMatch = combined.match(/\b(\d+\s+(?:hours?|days?|mins?|minutes?|weeks?|months?)\s+ago)\b/i);
+  if (relativeMatch) return relativeMatch[1];
+
+  // Patterns like "Aug 18, 2026", "18 Aug 2026", "August 18, 2026"
+  const standardDateMatch = combined.match(/\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})\b/i);
+  if (standardDateMatch) return standardDateMatch[1];
+
+  // Patterns like "2026-08-18"
+  const isoDateMatch = combined.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  if (isoDateMatch) return isoDateMatch[1];
+
+  // Patterns like "18/08/2026" or "08/18/2026"
+  const slashDateMatch = combined.match(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/);
+  if (slashDateMatch) return slashDateMatch[1];
+
+  return "Publication date unavailable";
+}
+
+function extractDomain(urlStr?: string): string {
+  if (!urlStr) return "";
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function evaluateSourceRelevance(
+  source: { title: string; url: string; snippet: string },
+  brand: any
+): { score: number; rationale: string; domain: string; publicationDate: string } {
+  const domain = extractDomain(source.url);
+  const pubDate = extractPublicationDate(source.snippet, source.title);
+  let score = 50;
+  let rationale = "General web search result matching industry query.";
+
+  const brandWebsite = brand?.website ? extractDomain(brand.website) : "";
+  const industry = (brand?.industry || "").toLowerCase();
+  const targetAudience = (brand?.targetAudience || "").toLowerCase();
+  const competitors = Array.isArray(brand?.competitors) ? brand.competitors : [];
+
+  const textToCheck = `${source.title} ${source.snippet} ${domain}`.toLowerCase();
+
+  // 1. Brand's own domain
+  if (brandWebsite && domain && domain.includes(brandWebsite)) {
+    score += 45;
+    rationale = "Direct primary source: Brand's official domain.";
+  }
+  // 2. Tracked competitor domains / brand
+  else if (competitors.some((c: string) => textToCheck.includes(c.toLowerCase()))) {
+    score += 35;
+    rationale = "Competitor intelligence: Direct competitor source/coverage.";
+  }
+  // 3. Known authoritative industry publications
+  else if (
+    domain.includes("techcrunch.com") ||
+    domain.includes("forbes.com") ||
+    domain.includes("reuters.com") ||
+    domain.includes("bloomberg.com") ||
+    domain.includes("wsj.com") ||
+    domain.includes("gartner.com") ||
+    domain.includes("mckinsey.com") ||
+    domain.includes("ieee.org") ||
+    domain.includes("nature.com") ||
+    domain.includes("sciencedirect.com") ||
+    domain.includes("hubspot.com") ||
+    domain.includes("vogue.com") ||
+    domain.includes("businessoffashion.com")
+  ) {
+    score += 30;
+    rationale = "Authoritative industry publication with high domain credibility.";
+  }
+  // 4. Industry relevance
+  if (industry && textToCheck.includes(industry)) {
+    score += 15;
+    rationale = `Direct industry relevance to ${brand?.industry}.`;
+  }
+  // 5. Target audience relevance
+  if (targetAudience && targetAudience.split(" ").some((w: string) => w.length > 4 && textToCheck.includes(w))) {
+    score += 10;
+  }
+
+  return {
+    score: Math.min(100, score),
+    rationale,
+    domain,
+    publicationDate: pubDate,
+  };
+}
+
 export const TOOLS: ToolDef[] = [
   // ---------------- REAL-TIME INTERNET RESEARCH ----------------
   {
     name: "search_web",
     description:
-      "Search the live internet (Google Search grounding) for the latest news, trends, facts or information. Use for anything time-sensitive or that needs current data.",
+      "Search the live internet (Google Search grounding) for the latest news, trends, market shifts, or facts. Automatically contextualized with Brand DNA, industry, and runtime search date.",
     parameters: {
       type: "object",
-      properties: { query: { type: "string", description: "What to search for" } },
+      properties: {
+        query: { type: "string", description: "Targeted search query relevant to the brand/industry" },
+      },
       required: ["query"],
     },
     execute: async (args, ctx) => {
       const q = (args.query || "").trim();
       if (!q) return { error: "query is required" };
-      const res = await vertexProvider.generateWithGrounding(
-        `You are a research agent. Answer the following using live Google Search, cite sources: ${q}`,
-        { modelName: MODELS.ORCHESTRATOR }
-      );
-      return { query: q, answer: res.text, sources: res.sources };
+
+      const now = new Date();
+      const searchDateFormatted = now.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      const searchTimeFormatted = now.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const currentYear = now.getFullYear();
+
+      // Retrieve Brand DNA from context or database if not cached
+      let brand = ctx.brandDNA;
+      if (!brand && ctx.workspaceId) {
+        try {
+          brand = await getWorkspaceBrandDNA(ctx.workspaceId);
+        } catch {
+          brand = null;
+        }
+      }
+
+      const brandContextStr = brand
+        ? `Brand: ${brand.name || "Business"} | Industry: ${brand.industry || "General"} | Target Audience: ${brand.targetAudience || "Target audience"} | Differentiator: ${brand.differentiator || ""}`
+        : "";
+
+      const groundingPrompt = `You are a live web research intelligence analyst.
+CURRENT RUNTIME DATE: ${searchDateFormatted} (Year: ${currentYear}).
+
+RESEARCH OBJECTIVE: "${q}"
+${brandContextStr ? `WORKSPACE BRAND CONTEXT: ${brandContextStr}` : ""}
+
+INSTRUCTIONS:
+1. Conduct real-time Google Search to retrieve current ${currentYear} news, market developments, trend signals, or verified data.
+2. Formulate targeted search queries strictly tailored to this business and industry context. Do NOT use generic topics from unrelated industries.
+3. Synthesize the findings into clear, actionable, high-signal trend insights. Explain WHY each trend is relevant to this business and what content opportunity it creates.
+4. Cite all real sources with their exact domain and context.`;
+
+      ctx.onProgress?.(`Conducting live Google Search for "${q.slice(0, 45)}…" (${searchDateFormatted})`);
+
+      const res = await vertexProvider.generateWithGrounding(groundingPrompt, {
+        modelName: MODELS.ORCHESTRATOR,
+      });
+
+      // Enrich and rank sources
+      const rawSources = res.sources || [];
+      const evaluatedSources = rawSources.map((s) => {
+        const evalResult = evaluateSourceRelevance(s, brand);
+        return {
+          title: s.title || evalResult.domain || "Web Source",
+          url: s.url,
+          domain: evalResult.domain,
+          snippet: s.snippet || "",
+          searchDate: searchDateFormatted,
+          publicationDate: evalResult.publicationDate,
+          relevanceScore: evalResult.score,
+          relevanceRationale: evalResult.rationale,
+        };
+      });
+
+      // Sort sources by relevance score descending
+      evaluatedSources.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+      const executedQueries = res.searchQueries && res.searchQueries.length > 0 ? res.searchQueries : [q];
+
+      return {
+        searchDate: searchDateFormatted,
+        searchTime: searchTimeFormatted,
+        query: q,
+        executedQueries,
+        sources: evaluatedSources,
+        sourceCount: evaluatedSources.length,
+        answer: res.text,
+        brandContext: brand ? { name: brand.name, industry: brand.industry } : null,
+      };
     },
   },
   {

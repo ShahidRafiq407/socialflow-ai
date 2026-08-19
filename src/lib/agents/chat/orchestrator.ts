@@ -92,8 +92,16 @@ ORCHESTRATION & PLANNING RULES:
    - Never generate an image when the user requested a video or Reel.
    - Never generate a video when the user requested an image or graphic.
 
-5. LIVE INTERNET & TRENDS:
-   - For search_web and fetch_serp queries: ALWAYS search for current ${currentYear} data, latest news, and active trends. Never search for outdated years.
+5. LIVE INTERNET & TREND RESEARCH:
+   - ALWAYS construct dynamic, brand-specific search queries tailored specifically to the active workspace BRAND DNA (industry, target audience, brand name, products/services, competitors) and current runtime date (${currentDateStr}).
+   - NEVER generate generic, hard-coded search queries like "latest trends in robotics and AI automation" unless the brand is specifically in robotics.
+   - Tailor search queries dynamically to the workspace's actual industry:
+     * If Brand is in Fashion / Apparel: search for "fashion e-commerce trends ${currentYear}", "sustainable apparel consumer trends ${currentYear}"
+     * If Brand is in Digital Marketing / SaaS: search for "B2B SaaS marketing strategies ${currentYear}", "digital agency client acquisition ${currentYear}"
+     * If Brand is in Healthcare / MedTech: search for "digital health tech developments ${currentYear}", "telehealth patient trends ${currentYear}"
+     * If Brand is in Embedded Systems / IoT: search for "industrial IoT automation trends ${currentYear}"
+   - If competitors are listed in Brand DNA or context, include competitor names or domains to search for their recent moves.
+   - For search_web and fetch_serp queries: ALWAYS search for current ${currentYear} data, latest news, and active trends. Never search for past years.
 
 6. RETURN FORMAT:
    - Return ONLY valid JSON (no markdown fences) in this exact shape:
@@ -128,8 +136,9 @@ function generateSuggestions(
   const suggestions: string[] = [];
 
   if (toolsUsed.has("search_web") || toolsUsed.has("fetch_serp")) {
+    const ind = brand?.industry || "this industry";
     suggestions.push(
-      "Create a LinkedIn post from these trends",
+      `Create a LinkedIn post from these ${ind} trends`,
       "Create an Instagram Reel script for this topic",
       "Save these ideas to my 7-day content plan"
     );
@@ -210,8 +219,6 @@ function generateSuggestions(
 export async function runBrain(input: BrainInput): Promise<BrainResult> {
   const { prompt, workspaceId, userId, history = [], uploadedFiles = [], onEvent } = input;
 
-  const ctx: ToolContext = { workspaceId, userId, uploadedFiles };
-
   // 1. Recall long-term memory (semantic)
   onEvent?.({ type: "memory" });
   const memory = await recallMemories(workspaceId, prompt, 6);
@@ -224,6 +231,9 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   } catch {
     brand = null;
   }
+
+  // Pass cached brandDNA into ToolContext so tools never re-fetch it unnecessarily
+  const ctx: ToolContext = { workspaceId, userId, brandDNA: brand, uploadedFiles };
 
   const historyBlock = history
     .slice(-10)
@@ -366,8 +376,11 @@ FORMATTING & QUALITY RULES:
    - If a tool encountered an error, explicitly tell the user what failed and why (e.g. "Image generation failed: API timeout. The caption draft was saved.").
    - Never show fake success for failed actions.
 
-5. Grounded in Real Data:
-   - Base facts, trends, and numbers strictly on the search tool results for ${currentYear}. Do NOT reference outdated 2023/2024 data as "current".
+5. Grounded Live Trend Research Reporting:
+   - Base all trend and news claims strictly on the verified search tool results for ${currentYear}.
+   - Explicitly state the runtime search date (${currentDateStr}).
+   - For sources, distinguish between the current search date and verified publication dates. If a source publication date is unavailable, never fabricate one — report "Publication date unavailable".
+   - Clearly articulate WHY each trend is directly relevant to this specific business/audience and what high-converting content opportunity it unlocks.
 ${brand ? `\nBRAND DNA (for tone/context):\n${JSON.stringify(brand)}` : ""}${memoryBlock}`;
 
   const res = await vertexProvider.generateText(

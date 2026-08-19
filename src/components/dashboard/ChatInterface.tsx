@@ -941,15 +941,35 @@ function formatToolResult(tool?: string, result?: any): string {
   try {
     switch (tool) {
       case "search_web": {
+        const searchDate = result.searchDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const queries = result.executedQueries && result.executedQueries.length > 0 ? result.executedQueries : [result.query || "Web Search"];
         const sources = result.sources || [];
-        let out = result.answer ? result.answer.slice(0, 400) : "";
+        
+        let out = `🔎 LIVE WEB RESEARCH\nSearch Date: ${searchDate}\n`;
+        if (queries.length === 1) {
+          out += `Executed Query: "${queries[0]}"\n`;
+        } else {
+          out += `Executed Queries (${queries.length}):\n${queries.map((q: string, idx: number) => `  ${idx + 1}. "${q}"`).join("\n")}\n`;
+        }
+        out += `Sources Found: ${sources.length}\n`;
+
         if (sources.length > 0) {
-          out += "\n\nSources found:";
-          for (const s of sources.slice(0, 5)) {
-            out += `\n• ${s.title || s.url}${s.url ? " — " + s.url : ""}`;
+          out += `\nVerified Sources:\n`;
+          for (const s of sources.slice(0, 6)) {
+            const domain = s.domain || (s.url ? (() => { try { return new URL(s.url).hostname.replace(/^www\./, ''); } catch { return ""; } })() : "");
+            const pubDate = s.publicationDate || "Publication date unavailable";
+            out += `• [${s.title || domain || "Source"}]${domain ? ` (${domain})` : ""}\n`;
+            if (s.url) out += `  URL: ${s.url}\n`;
+            out += `  Published: ${pubDate} | Searched: ${s.searchDate || searchDate}\n`;
+            if (s.relevanceRationale) out += `  Relevance: ${s.relevanceRationale}\n`;
           }
         }
-        return out || "Search completed.";
+
+        if (result.answer) {
+          out += `\nKey Research Findings:\n${result.answer.slice(0, 500)}${result.answer.length > 500 ? "…" : ""}`;
+        }
+
+        return out.trim() || "Search completed.";
       }
       case "fetch_serp": {
         const data = result.data || result;

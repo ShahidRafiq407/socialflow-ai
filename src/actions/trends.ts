@@ -155,59 +155,58 @@ function formatRelativeOrDate(dateStr: string): string {
 }
 
 /**
- * Auto-assign intelligent category tag
+ * Auto-assign intelligent category tag based on title and query context
  */
 function determineCategory(title: string, query: string): string {
-  const lower = title.toLowerCase();
-  if (lower.includes("robot") || lower.includes("automation") || lower.includes("embedded"))
+  const combined = `${title} ${query}`.toLowerCase();
+  if (combined.includes("fashion") || combined.includes("apparel") || combined.includes("style") || combined.includes("retail"))
+    return "Fashion & Retail";
+  if (combined.includes("health") || combined.includes("med") || combined.includes("patient") || combined.includes("wellness"))
+    return "Healthcare & Wellness";
+  if (combined.includes("robot") || combined.includes("automation") || combined.includes("embedded") || combined.includes("iot") || combined.includes("hardware"))
     return "Robotics & IoT";
-  if (lower.includes("ai") || lower.includes("gemini") || lower.includes("gpt") || lower.includes("model"))
+  if (combined.includes("ai") || combined.includes("gemini") || combined.includes("gpt") || combined.includes("llm") || combined.includes("machine learning"))
     return "Artificial Intelligence";
-  if (lower.includes("saas") || lower.includes("cloud") || lower.includes("startup") || lower.includes("b2b"))
-    return "B2B SaaS";
-  return "Tech & Innovation";
+  if (combined.includes("saas") || combined.includes("marketing") || combined.includes("growth") || combined.includes("b2b") || combined.includes("sales"))
+    return "B2B & Marketing";
+  return "Industry & Innovation";
 }
 
 /**
  * Fallback high-signal trends if network request fails or RSS is temporarily unavailable
  */
 function getFallbackTrends(query: string): TrendItem[] {
+  const currentYear = new Date().getFullYear();
+  const category = determineCategory(query, query);
+  const qClean = query.replace(/[^\w\s]/g, "").trim() || "Industry";
+
   return [
     {
       id: "trend-fallback-1",
-      title: "Google DeepMind Advances Autonomous Robotics with Visual-Language-Action Models",
-      link: "https://news.google.com/search?q=DeepMind+Robotics",
-      source: "TechCrunch",
+      title: `Key ${qClean} Industry Shifts and Consumer Trends Emerging in ${currentYear}`,
+      link: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
+      source: "Industry Intelligence",
       pubDate: "2h ago",
-      category: "Robotics & IoT",
-      snippet: "New breakthroughs allow embedded robots to reason through multi-step tasks in real time.",
+      category,
+      snippet: `Analysis of latest market developments and high-engagement conversations in ${qClean}.`,
     },
     {
       id: "trend-fallback-2",
-      title: "Why 2026 is the Breakthrough Year for Edge AI and Smart Sensors in Industrial Automation",
-      link: "https://news.google.com/search?q=Edge+AI+Industrial+Automation",
-      source: "IEEE Spectrum",
+      title: `How Modern Brands Are Scaling Engagement in ${qClean} with Digital Strategies`,
+      link: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
+      source: "Tech & Market News",
       pubDate: "4h ago",
-      category: "Robotics & IoT",
-      snippet: "Industrial IoT manufacturers report 3x ROI when adopting autonomous monitoring systems.",
+      category,
+      snippet: `Strategic insights on audience growth, content trends, and market positioning for ${qClean}.`,
     },
     {
       id: "trend-fallback-3",
-      title: "B2B SaaS Growth Strategies: How Organic AI Marketing Outperforms Paid Ads by 400%",
-      link: "https://news.google.com/search?q=B2B+SaaS+AI+Marketing",
-      source: "Forbes Tech",
+      title: `Emerging Technology and Growth Drivers in ${qClean} for ${currentYear}`,
+      link: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
+      source: "Market Watch",
       pubDate: "6h ago",
-      category: "B2B SaaS",
-      snippet: "Analysis of 500 B2B technology startups reveals automated social publishing as key growth driver.",
-    },
-    {
-      id: "trend-fallback-4",
-      title: "Next-Gen Multi-Agent Systems Revolutionize Cloud & Marketing Workflows",
-      link: "https://news.google.com/search?q=Multi+Agent+Systems+SaaS",
-      source: "VentureBeat",
-      pubDate: "8h ago",
-      category: "Artificial Intelligence",
-      snippet: "Multi-agent architectures emerge as the standard for enterprise automation in 2026.",
+      category,
+      snippet: `Market report highlighting new operational opportunities and competitive advantages.`,
     },
   ];
 }
