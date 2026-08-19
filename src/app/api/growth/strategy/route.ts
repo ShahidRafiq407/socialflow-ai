@@ -66,7 +66,22 @@ export async function POST(req: Request) {
           },
         });
 
-        // Persist or upsert to database
+        // 1. Persist to Redis Cache for instant ultra-fast retrieval
+        try {
+          const { cacheSet } = await import("@/lib/redis");
+          await cacheSet(`growth:strategy:${workspaceId}`, strategy, 86400 * 30);
+          await cacheSet(`growth:meta:${workspaceId}`, {
+            leadTarget: Number(leadTarget),
+            leadType,
+            timeframeDays: Number(timeframeDays),
+            targetPlatforms,
+            updatedAt: new Date().toISOString(),
+          }, 86400 * 30);
+        } catch (cacheErr) {
+          console.warn("[Growth Strategy SSE] Redis cache warning:", cacheErr);
+        }
+
+        // 2. Persist or upsert to database
         try {
           await (prisma as any).growthGoal.upsert({
             where: { workspaceId },
@@ -97,7 +112,7 @@ export async function POST(req: Request) {
             },
           });
         } catch (dbErr) {
-          console.warn("[Growth Strategy SSE] Non-fatal DB upsert warning (falling back to memory response):", dbErr);
+          console.warn("[Growth Strategy SSE] Non-fatal DB upsert warning:", dbErr);
         }
 
         await sendEvent("strategy_completed", {

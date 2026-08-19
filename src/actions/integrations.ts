@@ -47,10 +47,13 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
       }));
     }
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-      include: { socialAccounts: true },
-    });
+    const workspace = await Promise.race([
+      prisma.workspace.findFirst({
+        where: { userId },
+        include: { socialAccounts: true },
+      }),
+      new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]).catch(() => null);
 
     if (!workspace) {
       return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => ({
@@ -67,9 +70,9 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
       }));
     }
 
-    // Use a properly typed SocialAccountModel instead of `any` and ensure relation arrays are safe
-    const accountMap = new Map<string, SocialAccountModel>(
-      ensureArray(workspace.socialAccounts).map((sa: SocialAccountModel) => [sa.platform.toLowerCase(), sa])
+    const accounts = Array.isArray(workspace?.socialAccounts) ? workspace.socialAccounts : [];
+    const accountMap = new Map<string, any>(
+      accounts.map((sa: any) => [sa.platform.toLowerCase(), sa])
     );
 
     return Object.entries(PLATFORM_DEFINITIONS).map(([key, def]) => {
@@ -250,16 +253,20 @@ export async function getConnectedPlatformIds(): Promise<string[]> {
       return [];
     }
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-      include: { socialAccounts: true },
-    });
+    const workspace = await Promise.race([
+      prisma.workspace.findFirst({
+        where: { userId },
+        include: { socialAccounts: true },
+      }),
+      new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]).catch(() => null);
 
     if (!workspace) {
       return [];
     }
 
-    return ensureArray(workspace.socialAccounts).map((sa: SocialAccountModel) => sa.platform.toLowerCase());
+    const accounts = Array.isArray(workspace?.socialAccounts) ? workspace.socialAccounts : [];
+    return accounts.map((sa: any) => sa.platform.toLowerCase());
   } catch (err) {
     console.error("Error getting connected platform ids:", err);
     return [];

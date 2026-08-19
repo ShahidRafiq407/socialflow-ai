@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -34,9 +35,14 @@ export const sidebarLinks = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [navigatingTo, setNavigatingTo] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setNavigatingTo(null);
+  }, [pathname]);
 
   return (
-    <aside className="w-[250px] fixed inset-y-0 left-0 z-50 hidden md:flex flex-col border-r bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+    <aside className="w-[250px] fixed inset-y-0 left-0 z-50 hidden md:flex flex-col border-r bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 select-none">
       <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 dark:border-slate-800 px-6">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
           <Bot className="h-5 w-5" />
@@ -49,28 +55,43 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {sidebarLinks.map((item) => {
           const isActive =
-            item.href === "/dashboard"
-              ? pathname === "/dashboard"
-              : pathname === item.href || pathname.startsWith(item.href + "/");
+            navigatingTo === item.href ||
+            (!navigatingTo &&
+              (item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname === item.href || pathname.startsWith(item.href + "/")));
+
+          const isPending = navigatingTo === item.href && pathname !== item.href;
 
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
+              prefetch={true}
+              onClick={() => {
+                if (pathname !== item.href) {
+                  setNavigatingTo(item.href);
+                }
+              }}
+              className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
                 isActive
                   ? "bg-primary/10 text-primary font-semibold shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100"
               }`}
             >
-              <item.icon
-                className={`h-4 w-4 shrink-0 ${
-                  isActive
-                    ? "text-primary"
-                    : "text-slate-500 dark:text-slate-400"
-                }`}
-              />
-              <span>{item.name}</span>
+              <div className="flex items-center gap-3">
+                <item.icon
+                  className={`h-4 w-4 shrink-0 ${
+                    isActive
+                      ? "text-primary"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}
+                />
+                <span>{item.name}</span>
+              </div>
+              {isPending && (
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+              )}
             </Link>
           );
         })}

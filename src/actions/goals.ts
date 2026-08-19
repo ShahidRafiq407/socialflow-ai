@@ -45,29 +45,48 @@ export async function getWorkspaceGrowthGoal(workspaceId: string): Promise<{
   strategy: GrowthStrategy | null;
 }> {
   try {
-    const [growthGoal, posts, workspace] = await Promise.all([
-      (prisma as any).growthGoal?.findUnique({ where: { workspaceId } }).catch(() => null),
-      prisma.post.findMany({
-        where: { workspaceId },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }).catch(() => []),
-      prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        include: { socialAccounts: true },
-      }).catch(() => null),
+    const { cacheGet, cacheSet } = await import("@/lib/redis");
+
+    // Fetch DB records and Redis cache in parallel with timeout guard
+    const [growthGoal, posts, cachedStrategy, cachedMeta] = await Promise.all([
+      Promise.race([
+        (prisma as any).growthGoal?.findUnique({ where: { workspaceId } }).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+      ]),
+      Promise.race([
+        prisma.post.findMany({
+          where: { workspaceId },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }).catch(() => []),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+      ]),
+      cacheGet<GrowthStrategy>(`growth:strategy:${workspaceId}`).catch(() => null),
+      cacheGet<any>(`growth:meta:${workspaceId}`).catch(() => null),
     ]);
 
-    const activeGoal = growthGoal || {
-      id: "default-goal",
+    const resolvedStrategy = (growthGoal?.strategy as GrowthStrategy) || cachedStrategy || null;
+
+    const activeGoal = {
+      id: growthGoal?.id || "default-goal",
       workspaceId,
-      ...DEFAULT_GROWTH_GOAL,
-      startDate: new Date(),
-      status: "INSUFFICIENT_DATA",
-      statusReason: "Goal initialized. Click 'Build Growth Strategy' to generate organic blueprint.",
-      strategy: null,
-      decisions: [],
-      experiments: [],
+      leadTarget: growthGoal?.leadTarget || cachedMeta?.leadTarget || DEFAULT_GROWTH_GOAL.leadTarget,
+      leadType: growthGoal?.leadType || cachedMeta?.leadType || DEFAULT_GROWTH_GOAL.leadType,
+      timeframeDays: growthGoal?.timeframeDays || cachedMeta?.timeframeDays || DEFAULT_GROWTH_GOAL.timeframeDays,
+      targetPlatforms: growthGoal?.targetPlatforms || cachedMeta?.targetPlatforms || DEFAULT_GROWTH_GOAL.targetPlatforms,
+      pausedPlatforms: growthGoal?.pausedPlatforms || DEFAULT_GROWTH_GOAL.pausedPlatforms,
+      autopilotMode: (growthGoal?.autopilotMode || DEFAULT_GROWTH_GOAL.autopilotMode) as AutopilotMode,
+      autopilotPermissions: growthGoal?.autopilotPermissions || DEFAULT_GROWTH_GOAL.autopilotPermissions,
+      isAutopilotPaused: Boolean(growthGoal?.isAutopilotPaused),
+      isPublishingPaused: Boolean(growthGoal?.isPublishingPaused),
+      startDate: growthGoal?.startDate || new Date(),
+      status: resolvedStrategy ? "ON_TRACK" : "INSUFFICIENT_DATA",
+      statusReason: resolvedStrategy
+        ? `Active growth strategy active for ${growthGoal?.leadTarget || cachedMeta?.leadTarget || DEFAULT_GROWTH_GOAL.leadTarget} leads.`
+        : "Goal initialized. Click 'Build Growth Strategy' to generate organic blueprint.",
+      strategy: resolvedStrategy,
+      decisions: growthGoal?.decisions || resolvedStrategy?.decisions || [],
+      experiments: growthGoal?.experiments || resolvedStrategy?.experiments || [],
     };
 
     const kpis = computeGrowthKPIs(
@@ -77,13 +96,18 @@ export async function getWorkspaceGrowthGoal(workspaceId: string): Promise<{
         timeframeDays: activeGoal.timeframeDays,
         leadType: activeGoal.leadType,
       },
-      posts
+      posts || []
     );
+
+    // If strategy exists in memory/DB but not Redis, backfill Redis
+    if (resolvedStrategy && !cachedStrategy) {
+      cacheSet(`growth:strategy:${workspaceId}`, resolvedStrategy, 86400 * 30).catch(() => null);
+    }
 
     return {
       goal: activeGoal,
       kpis,
-      strategy: (activeGoal.strategy as GrowthStrategy) || null,
+      strategy: resolvedStrategy,
     };
   } catch (error) {
     console.warn("[getWorkspaceGrowthGoal] Fallback state due to DB connection:", error);

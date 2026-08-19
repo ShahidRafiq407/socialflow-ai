@@ -12,42 +12,49 @@ export default async function CEOChatPage() {
     redirect("/sign-in");
   }
 
-  const workspace = await prisma.workspace.findFirst({
-    where: { userId },
-  });
+  const workspace = await Promise.race([
+    prisma.workspace.findFirst({
+      where: { userId },
+    }),
+    new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
+  ]).catch(() => null);
 
-  if (!workspace) {
-    redirect("/onboarding");
-  }
+  const workspaceId = workspace?.id || "default-workspace";
 
-  // Load the most recent chat session with its messages
-  const lastSession = await prisma.chatSession.findFirst({
-    where: { workspaceId: workspace.id },
-    orderBy: { updatedAt: "desc" },
-    include: {
-      messages: {
-        orderBy: { createdAt: "asc" },
-        take: 50,
-      },
-    },
-  });
+  // Load chat session and history in parallel with timeout guard
+  const [lastSession, sessions] = await Promise.all([
+    Promise.race([
+      prisma.chatSession.findFirst({
+        where: { workspaceId },
+        orderBy: { updatedAt: "desc" },
+        include: {
+          messages: {
+            orderBy: { createdAt: "asc" },
+            take: 50,
+          },
+        },
+      }),
+      new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]).catch(() => null),
+    Promise.race([
+      prisma.chatSession.findMany({
+        where: { workspaceId },
+        orderBy: { updatedAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          title: true,
+          updatedAt: true,
+          _count: {
+            select: { messages: true },
+          },
+        },
+      }),
+      new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+    ]).catch(() => []),
+  ]);
 
-  // Load list of all previous sessions for history switching
-  const sessions = await prisma.chatSession.findMany({
-    where: { workspaceId: workspace.id },
-    orderBy: { updatedAt: "desc" },
-    take: 20,
-    select: {
-      id: true,
-      title: true,
-      updatedAt: true,
-      _count: {
-        select: { messages: true },
-      },
-    },
-  });
-
-  const initialMessages = (lastSession?.messages || []).map((m) => ({
+  const initialMessages = (lastSession?.messages || []).map((m: any) => ({
     role: m.role === "USER" ? ("user" as const) : ("assistant" as const),
     content: m.content,
     toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : undefined,
@@ -56,14 +63,14 @@ export default async function CEOChatPage() {
   return (
     <div className="flex flex-col w-full h-[calc(100vh-4.5rem)]">
       <ChatInterface
-        workspaceId={workspace.id}
+        workspaceId={workspaceId}
         initialSessionId={lastSession?.id || null}
         initialMessages={initialMessages}
-        initialSessionsList={sessions.map((s) => ({
+        initialSessionsList={(sessions || []).map((s: any) => ({
           id: s.id,
           title: s.title || "Untitled Chat",
           updatedAt: s.updatedAt,
-          messageCount: s._count.messages,
+          messageCount: s._count?.messages || 0,
         }))}
       />
     </div>

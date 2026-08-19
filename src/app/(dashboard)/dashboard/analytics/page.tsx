@@ -18,9 +18,12 @@ export default async function AnalyticsPage() {
   let analyticsData: WorkspaceAnalyticsData;
 
   try {
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await Promise.race([
+      prisma.workspace.findFirst({
+        where: { userId },
+      }),
+      new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]).catch(() => null);
 
     if (!workspace) {
       redirect("/onboarding");

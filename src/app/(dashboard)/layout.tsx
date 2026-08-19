@@ -13,17 +13,31 @@ export default async function DashboardLayout({
   let workspaces: { id: string; name: string }[] = [];
 
   if (userId) {
-    const user = await currentUser();
-    userDetails = {
-      name: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "User",
-      email: user?.emailAddresses[0]?.emailAddress || "",
-    };
+    try {
+      const [user, dbWorkspaces] = await Promise.all([
+        Promise.race([
+          currentUser(),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+        ]),
+        Promise.race([
+          prisma.workspace.findMany({
+            where: { userId },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+          }),
+          new Promise<{ id: string; name: string }[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+        ]),
+      ]);
 
-    workspaces = await prisma.workspace.findMany({
-      where: { userId },
-      select: { id: true, name: true },
-      orderBy: { createdAt: "asc" },
-    });
+      userDetails = {
+        name: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "Shahid",
+        email: user?.emailAddresses?.[0]?.emailAddress || "",
+      };
+
+      workspaces = dbWorkspaces || [];
+    } catch (err) {
+      console.warn("[DashboardLayout] Fast fallback for user/workspaces:", err);
+    }
   }
 
   return (

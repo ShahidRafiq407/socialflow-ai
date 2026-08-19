@@ -124,6 +124,48 @@ export function LeadGoalHQ({
   const [executingTaskId, setExecutingTaskId] = useState<string | null>(null);
   const [taskExecutionStatus, setTaskExecutionStatus] = useState<Record<string, string>>({});
 
+  // Storage Key for Instant Workspace Persistence
+  const STORAGE_KEY = `socialflow_lead_goal_data_${workspaceId}`;
+
+  // Hydrate from localStorage on client-side mount if initialStrategy was empty/cached
+  React.useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.strategy && !initialStrategy) {
+            setStrategy(parsed.strategy);
+          }
+          if (parsed.kpis && initialKPIs.status === "INSUFFICIENT_DATA") {
+            setKpis(parsed.kpis);
+          }
+          if (parsed.leadTarget && !initialGoal?.leadTarget) setLeadTarget(parsed.leadTarget);
+          if (parsed.leadType && !initialGoal?.leadType) setLeadType(parsed.leadType);
+          if (parsed.timeframeDays && !initialGoal?.timeframeDays) setTimeframeDays(parsed.timeframeDays);
+          if (parsed.targetPlatforms && !initialGoal?.targetPlatforms) setTargetPlatforms(parsed.targetPlatforms);
+          if (parsed.autopilotMode && !initialGoal?.autopilotMode) setAutopilotMode(parsed.autopilotMode);
+        } else if (initialStrategy) {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+              strategy: initialStrategy,
+              kpis: initialKPIs,
+              leadTarget,
+              leadType,
+              timeframeDays,
+              targetPlatforms,
+              autopilotMode,
+              updatedAt: Date.now(),
+            })
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[LeadGoalHQ] LocalStorage hydration warning:", e);
+    }
+  }, [workspaceId]);
+
   // Lead Type options
   const leadTypeOptions: { value: LeadType; label: string }[] = [
     { value: "QUALIFIED_LEADS", label: "Qualified Leads (High-Intent B2B)" },
@@ -146,6 +188,27 @@ export function LeadGoalHQ({
     } else {
       setTargetPlatforms([...targetPlatforms, pl]);
     }
+  };
+
+  // Helper to persist state to localStorage
+  const persistState = (newStrategy: GrowthStrategy | null, newKpis?: GrowthKPIs) => {
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            strategy: newStrategy,
+            kpis: newKpis || kpis,
+            leadTarget,
+            leadType,
+            timeframeDays,
+            targetPlatforms,
+            autopilotMode,
+            updatedAt: Date.now(),
+          })
+        );
+      }
+    } catch {}
   };
 
   // 1. REAL STREAMED AGENT WORKFLOW: BUILD GROWTH STRATEGY
@@ -198,13 +261,18 @@ export function LeadGoalHQ({
                 { step: data.step, status: data.status || "running" },
               ]);
             } else if (eventType === "strategy_completed") {
-              setStrategy(data.strategy);
-              setKpis((prev) => ({
-                ...prev,
-                targetLeads: data.strategy.targetLeads,
+              const newStrategy = data.strategy as GrowthStrategy;
+              const newKpis: GrowthKPIs = {
+                ...kpis,
+                targetLeads: newStrategy.targetLeads,
                 status: "ON_TRACK",
-                statusReason: `Active strategy generated: ${data.strategy.funnel.requiredPostsPerWeek} posts/week across ${data.strategy.platformStrategies.length} channels.`,
-              }));
+                statusReason: `Active strategy generated: ${newStrategy.funnel.requiredPostsPerWeek} posts/week across ${newStrategy.platformStrategies.length} channels.`,
+              };
+
+              setStrategy(newStrategy);
+              setKpis(newKpis);
+              persistState(newStrategy, newKpis);
+
               setStreamSteps((prev) => [
                 ...prev.map((s) => ({ ...s, status: "done" as const })),
                 { step: "✓ Organic Growth Strategy successfully generated & active!", status: "done" },
@@ -231,6 +299,7 @@ export function LeadGoalHQ({
   // 2. SAVE GOAL CONFIGURATION & RECALCULATE
   const handleSaveGoalSettings = () => {
     startTransition(async () => {
+      persistState(strategy);
       await saveGrowthGoal(workspaceId, {
         leadTarget,
         leadType,
@@ -260,7 +329,7 @@ export function LeadGoalHQ({
           ...prev,
           [task.id]: scheduleNow ? "✓ Scheduled & Saved to Library" : "✓ Draft Created in Studio",
         }));
-        // Update task status in local state
+        // Update task status in local state and persistent storage
         if (strategy) {
           const updatedToday: GrowthPlanTask[] = strategy.todayPlan.map((t) =>
             t.id === task.id
@@ -272,7 +341,9 @@ export function LeadGoalHQ({
                 }
               : t
           );
-          setStrategy({ ...strategy, todayPlan: updatedToday });
+          const updatedStrategy = { ...strategy, todayPlan: updatedToday };
+          setStrategy(updatedStrategy);
+          persistState(updatedStrategy);
         }
       } else {
         setTaskExecutionStatus((prev) => ({ ...prev, [task.id]: `Failed: ${res.error}` }));
@@ -292,7 +363,9 @@ export function LeadGoalHQ({
         const updatedRecs = strategy.recommendations.map((r) =>
           r.id === recId ? { ...r, applied: true } : r
         );
-        setStrategy({ ...strategy, recommendations: updatedRecs });
+        const updatedStrategy = { ...strategy, recommendations: updatedRecs };
+        setStrategy(updatedStrategy);
+        persistState(updatedStrategy);
       }
     });
   };
