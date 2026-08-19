@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -24,1115 +23,1066 @@ import {
 import {
   Target,
   Users,
-  Briefcase,
   Sparkles,
   ArrowRight,
   Calculator,
-  Flame,
-  Download,
   RefreshCw,
   Check,
-  MessageSquare,
   Building2,
   FileText,
   Loader2,
-  ChevronRight,
-  Layers,
   Sliders,
+  Calendar,
+  Zap,
+  TrendingUp,
+  AlertTriangle,
+  HelpCircle,
+  Clock,
+  Send,
+  Layers,
+  ChevronRight,
+  ExternalLink,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Play,
+  Pause,
+  MessageSquare,
+  BarChart3,
+  Flame,
+  Globe,
+  Settings,
 } from "lucide-react";
 import Link from "next/link";
-import { createCampaignFromGoal } from "@/actions/goals";
+import { useRouter } from "next/navigation";
+import {
+  GrowthStrategy,
+  GrowthKPIs,
+  LeadType,
+  AutopilotMode,
+  GrowthPlanTask,
+  PlatformStrategyItem,
+  ContentPillar,
+} from "@/lib/agents/growthEngine";
+import {
+  saveGrowthGoal,
+  toggleAutopilot,
+  executeGrowthPlanTask,
+  applyGrowthRecommendation,
+} from "@/actions/goals";
 
 interface LeadGoalHQProps {
   workspaceId: string;
   workspaceName: string;
+  industry: string;
+  website: string;
+  initialGoal: any;
+  initialKPIs: GrowthKPIs;
+  initialStrategy: GrowthStrategy | null;
+  connectedPlatforms: string[];
 }
 
 export function LeadGoalHQ({
   workspaceId,
   workspaceName,
+  industry,
+  website,
+  initialGoal,
+  initialKPIs,
+  initialStrategy,
+  connectedPlatforms,
 }: LeadGoalHQProps) {
-  // STAGES: CONFIG -> PLAN_PREVIEW -> WAR_ROOM
-  const [stage, setStage] = useState<"CONFIG" | "PLAN_PREVIEW" | "WAR_ROOM">(
-    "CONFIG"
-  );
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  // Selected Sprint Tier (Curated Realistic Organic Targets)
-  const [sprintTier, setSprintTier] = useState<"1_MONTH" | "2_MONTHS" | "3_MONTHS">(
-    "2_MONTHS"
+  // State Management
+  const [kpis, setKpis] = useState<GrowthKPIs>(initialKPIs);
+  const [strategy, setStrategy] = useState<GrowthStrategy | null>(initialStrategy);
+  const [leadTarget, setLeadTarget] = useState<number>(initialGoal?.leadTarget || 150);
+  const [leadType, setLeadType] = useState<LeadType>(initialGoal?.leadType || "QUALIFIED_LEADS");
+  const [timeframeDays, setTimeframeDays] = useState<number>(initialGoal?.timeframeDays || 60);
+  const [targetPlatforms, setTargetPlatforms] = useState<string[]>(
+    initialGoal?.targetPlatforms || ["LinkedIn", "Instagram", "X", "TikTok"]
+  );
+  const [autopilotMode, setAutopilotMode] = useState<AutopilotMode>(
+    initialGoal?.autopilotMode || "ASSISTED"
+  );
+  const [isAutopilotPaused, setIsAutopilotPaused] = useState<boolean>(
+    Boolean(initialGoal?.isAutopilotPaused)
   );
 
-  // Optional Custom Override Toggle
-  const [showCustomOverride, setShowCustomOverride] = useState<boolean>(false);
-  const [customLeadTarget, setCustomLeadTarget] = useState<number>(150);
+  // Modals & Drawers
+  const [openGoalSettings, setOpenGoalSettings] = useState<boolean>(false);
+  const [openFunnelModal, setOpenFunnelModal] = useState<boolean>(false);
+  const [openWhyModal, setOpenWhyModal] = useState<boolean>(false);
+  const [whyModalData, setWhyModalData] = useState<{ title: string; explanation: string; metrics?: string } | null>(null);
+  const [openAutopilotModal, setOpenAutopilotModal] = useState<boolean>(false);
 
-  // Dynamic Multi-Platform Selection (Supports up to 7 platforms)
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([
-    "LinkedIn",
-    "Instagram",
-    "X",
-    "TikTok",
-  ]);
+  // Live Streamed Strategy Generation
+  const [isBuildingStrategy, setIsBuildingStrategy] = useState<boolean>(false);
+  const [streamSteps, setStreamSteps] = useState<{ step: string; status: "running" | "done" | "info" }[]>([]);
+  const [executingTaskId, setExecutingTaskId] = useState<string | null>(null);
+  const [taskExecutionStatus, setTaskExecutionStatus] = useState<Record<string, string>>({});
 
-  // Revision / Feedback State
-  const [openRevisionModal, setOpenRevisionModal] = useState<boolean>(false);
-  const [customFeedback, setCustomFeedback] = useState<string>("");
-  const [revisionCount, setRevisionCount] = useState<number>(0);
+  // Lead Type options
+  const leadTypeOptions: { value: LeadType; label: string }[] = [
+    { value: "QUALIFIED_LEADS", label: "Qualified Leads (High-Intent B2B)" },
+    { value: "LEADS", label: "All Organic Leads" },
+    { value: "WEBSITE_INQUIRIES", label: "Website & Quote Inquiries" },
+    { value: "CONTACT_FORM", label: "Contact Form Submissions" },
+    { value: "WHATSAPP", label: "WhatsApp & DM Inquiries" },
+    { value: "BOOKINGS", label: "Consultation / Demo Bookings" },
+    { value: "CUSTOM", label: "Custom Conversion Target" },
+  ];
 
-  // Sprint Tier Definitions (Short, clear, easy to understand)
-  const sprintDefinitions = {
-    "1_MONTH": {
-      label: "30-Day Starter Sprint",
-      days: 30,
-      targetLeads: 60,
-      pace: "Steady Posting (~2 leads/day)",
-    },
-    "2_MONTHS": {
-      label: "60-Day Growth Acceleration",
-      days: 60,
-      targetLeads: 150,
-      pace: "Active Omnichannel Posting (~2.5 leads/day)",
-    },
-    "3_MONTHS": {
-      label: "90-Day Market Domination",
-      days: 90,
-      targetLeads: 300,
-      pace: "High-Volume Posting (~3.3 leads/day)",
-    },
-  };
+  // Available platform list
+  const availablePlatforms = ["LinkedIn", "Instagram", "X", "TikTok", "YouTube", "Facebook", "Pinterest"];
 
-  const activeSprint = sprintDefinitions[sprintTier];
-  const effectiveLeads = showCustomOverride
-    ? customLeadTarget
-    : activeSprint.targetLeads;
-  const totalDays = activeSprint.days;
-
-  // Funnel Math: 1.5% Capture CVR + 8% Profile Click CTR
-  const requiredClicks = Math.round((effectiveLeads / 1.5) * 100);
-  const requiredImpressions = Math.round((requiredClicks / 8) * 100);
-
-  const postsPerDayTotal = Math.max(
-    1,
-    Math.ceil(effectiveLeads / (totalDays * 1.2))
-  );
-  const totalPostsNeeded = postsPerDayTotal * totalDays;
-
-  // Toggle Platform Checkbox
-  const togglePlatform = (platform: string) => {
-    if (selectedPlatforms.includes(platform)) {
-      if (selectedPlatforms.length > 1) {
-        setSelectedPlatforms(
-          selectedPlatforms.filter((p) => p !== platform)
-        );
+  const togglePlatformSelection = (pl: string) => {
+    if (targetPlatforms.includes(pl)) {
+      if (targetPlatforms.length > 1) {
+        setTargetPlatforms(targetPlatforms.filter((p) => p !== pl));
       }
     } else {
-      setSelectedPlatforms([...selectedPlatforms, platform]);
+      setTargetPlatforms([...targetPlatforms, pl]);
     }
   };
 
-  // Stage 1: Generate Plan
-  const handleGeneratePlan = () => {
-    setStage("PLAN_PREVIEW");
-  };
+  // 1. REAL STREAMED AGENT WORKFLOW: BUILD GROWTH STRATEGY
+  const handleBuildStrategy = async () => {
+    setIsBuildingStrategy(true);
+    setStreamSteps([
+      { step: "Initializing Organic Growth Engine & Agent Architecture...", status: "running" },
+    ]);
 
-  // Stage 2: Regenerate Plan with Feedback
-  const handleApplyRevision = () => {
-    setRevisionCount((prev) => prev + 1);
-    setOpenRevisionModal(false);
-  };
-
-  // Stage 3: Approve & Start Autonomous War Room
-  const handleApproveAndLaunch = () => {
-    startTransition(async () => {
-      try {
-        await createCampaignFromGoal({
+    try {
+      const response = await fetch("/api/growth/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           workspaceId,
-          leadTarget: effectiveLeads,
-          timeframe: sprintTier,
-          customFeedback: customFeedback.trim()
-            ? customFeedback.trim()
-            : undefined,
-        });
-        setStage("WAR_ROOM");
-      } catch (error) {
-        console.error("Failed to launch autonomous squad:", error);
-        setStage("WAR_ROOM");
+          leadTarget,
+          leadType,
+          timeframeDays,
+          targetPlatforms,
+        }),
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error("Failed to start strategy generation");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const block of lines) {
+          const eventMatch = block.match(/^event:\s*(\w+)/);
+          const dataMatch = block.match(/data:\s*(.+)$/m);
+
+          if (eventMatch && dataMatch) {
+            const eventType = eventMatch[1];
+            const data = JSON.parse(dataMatch[1]);
+
+            if (eventType === "agent_step") {
+              setStreamSteps((prev) => [
+                ...prev.map((s) => ({ ...s, status: "done" as const })),
+                { step: data.step, status: data.status || "running" },
+              ]);
+            } else if (eventType === "strategy_completed") {
+              setStrategy(data.strategy);
+              setKpis((prev) => ({
+                ...prev,
+                targetLeads: data.strategy.targetLeads,
+                status: "ON_TRACK",
+                statusReason: `Active strategy generated: ${data.strategy.funnel.requiredPostsPerWeek} posts/week across ${data.strategy.platformStrategies.length} channels.`,
+              }));
+              setStreamSteps((prev) => [
+                ...prev.map((s) => ({ ...s, status: "done" as const })),
+                { step: "✓ Organic Growth Strategy successfully generated & active!", status: "done" },
+              ]);
+              setTimeout(() => {
+                setIsBuildingStrategy(false);
+              }, 1200);
+            } else if (eventType === "strategy_error") {
+              setStreamSteps((prev) => [
+                ...prev,
+                { step: `Error: ${data.error}`, status: "info" },
+              ]);
+              setIsBuildingStrategy(false);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Strategy build stream error:", err);
+      setIsBuildingStrategy(false);
+    }
+  };
+
+  // 2. SAVE GOAL CONFIGURATION & RECALCULATE
+  const handleSaveGoalSettings = () => {
+    startTransition(async () => {
+      await saveGrowthGoal(workspaceId, {
+        leadTarget,
+        leadType,
+        timeframeDays,
+        targetPlatforms,
+        autopilotMode,
+      });
+      setOpenGoalSettings(false);
+      // Trigger automatic recalculation
+      handleBuildStrategy();
+    });
+  };
+
+  // 3. EXECUTE TASK (HAND OFF TO CONTENT CREATOR & AI STUDIO)
+  const handleExecuteTask = async (task: GrowthPlanTask, scheduleNow: boolean = false) => {
+    setExecutingTaskId(task.id);
+    setTaskExecutionStatus((prev) => ({ ...prev, [task.id]: "Generating copy & visuals via AI..." }));
+
+    try {
+      const res = await executeGrowthPlanTask(workspaceId, task, {
+        generateVisuals: true,
+        scheduleNow,
+      });
+
+      if (res.success) {
+        setTaskExecutionStatus((prev) => ({
+          ...prev,
+          [task.id]: scheduleNow ? "✓ Scheduled & Saved to Library" : "✓ Draft Created in Studio",
+        }));
+        // Update task status in local state
+        if (strategy) {
+          const updatedToday: GrowthPlanTask[] = strategy.todayPlan.map((t) =>
+            t.id === task.id
+              ? {
+                  ...t,
+                  status: (scheduleNow ? "SCHEDULED" : "PENDING_APPROVAL") as any,
+                  postId: res.postId,
+                  mediaUrl: res.mediaUrl || undefined,
+                }
+              : t
+          );
+          setStrategy({ ...strategy, todayPlan: updatedToday });
+        }
+      } else {
+        setTaskExecutionStatus((prev) => ({ ...prev, [task.id]: `Failed: ${res.error}` }));
+      }
+    } catch (err: any) {
+      setTaskExecutionStatus((prev) => ({ ...prev, [task.id]: "Execution failed" }));
+    } finally {
+      setExecutingTaskId(null);
+    }
+  };
+
+  // 4. APPLY RECOMMENDATION
+  const handleApplyRec = (recId: string) => {
+    startTransition(async () => {
+      await applyGrowthRecommendation(workspaceId, recId);
+      if (strategy && strategy.recommendations) {
+        const updatedRecs = strategy.recommendations.map((r) =>
+          r.id === recId ? { ...r, applied: true } : r
+        );
+        setStrategy({ ...strategy, recommendations: updatedRecs });
       }
     });
   };
 
-  // Boardroom Live Inter-Agent Consultation Log
-  const boardroomLog = [
-    {
-      time: "08:45:12 AM",
-      from: "Intelligence Scout",
-      to: "Copywriting Lead",
-      message: `Extracted ${workspaceName} Brand DNA profile. Identified top organic hooks across ${selectedPlatforms.length} platforms.`,
-      color: "text-amber-600 dark:text-amber-400",
-    },
-    {
-      time: "08:45:15 AM",
-      from: "Copywriting Lead",
-      to: "CEO Orchestrator",
-      message: `Drafted ${selectedPlatforms.length} channel campaigns using your Brand DNA value proposition and destination URL. Requesting review.`,
-      color: "text-blue-600 dark:text-blue-400",
-    },
-    {
-      time: "08:45:18 AM",
-      from: "CEO Orchestrator",
-      to: "Copywriting Lead",
-      message: `Approved. Tone aligns with Brand DNA. Directing Visual Studio to render creative assets.`,
-      color: "text-primary font-bold",
-    },
-    {
-      time: "08:45:22 AM",
-      from: "Visual Studio",
-      to: "Publisher Lead",
-      message: `Rendered Carousel slides, 9:16 Reels, and Card assets. High contrast and branding verified.`,
-      color: "text-purple-600 dark:text-purple-400",
-    },
-    {
-      time: "08:45:26 AM",
-      from: "Publisher Lead",
-      to: "CEO Orchestrator",
-      message: `All ${selectedPlatforms.length} platform queues ready for peak hour release across ${selectedPlatforms.join(", ")}.`,
-      color: "text-emerald-600 dark:text-emerald-400 font-bold",
-    },
-  ];
+  // 5. OPEN "WHY?" MODAL
+  const openWhyExplanation = (title: string, explanation: string, metrics?: string) => {
+    setWhyModalData({ title, explanation, metrics });
+    setOpenWhyModal(true);
+  };
+
+  // Status Badge Helper
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "ON_TRACK":
+        return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-black">🟢 ON TRACK</Badge>;
+      case "NEEDS_OPTIMIZATION":
+        return <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 text-xs font-black">🟡 NEEDS OPTIMIZATION</Badge>;
+      case "BEHIND_TARGET":
+        return <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 text-xs font-black">🔴 BEHIND TARGET</Badge>;
+      case "GOAL_ACHIEVED":
+        return <Badge className="bg-emerald-600 text-white text-xs font-black">✓ GOAL ACHIEVED</Badge>;
+      default:
+        return <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 text-xs font-bold">⚪ INSUFFICIENT DATA</Badge>;
+    }
+  };
 
   return (
-    <div className="flex flex-col space-y-8 w-full max-w-6xl mx-auto font-sans pb-16">
-      {/* TOP HEADER - SIMPLE & CLEAR COPY */}
+    <div className="flex flex-col space-y-6 w-full max-w-7xl mx-auto font-sans pb-20">
+      {/* =====================================================================
+          1. HEADER ROW: CONTROL CENTER TITLE + STATUS + AUTOPILOT CONTROLS
+         ===================================================================== */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-indigo-600 text-white shadow-sm">
-              <Building2 className="h-5 w-5" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm font-black">
+              <Target className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
-                Lead Goal &amp; Strategy HQ
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Set your organic lead target and let AI agents build your marketing plan.
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100">
+                  Organic Lead Growth Control Center
+                </h1>
+                {getStatusBadge(kpis.status)}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                AI orchestration layer for {workspaceName} • Target: <strong>{leadTarget} {leadType.replace(/_/g, " ")}</strong> in {timeframeDays} days.
               </p>
             </div>
           </div>
         </div>
 
-        {/* PREMIUM SEGMENTED WORKFLOW STEPPER */}
-        <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 overflow-x-auto max-w-full shrink-0">
-          {/* STEP 1 */}
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs font-extrabold ${
-              stage === "CONFIG"
-                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-200/80 dark:border-slate-700"
-                : "text-slate-500 dark:text-slate-400"
-            }`}
-          >
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${
-                stage === "CONFIG"
-                  ? "bg-primary text-white"
-                  : stage === "PLAN_PREVIEW" || stage === "WAR_ROOM"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }`}
+        {/* TOP ACTION CONTROLS */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Autopilot Mode Pill */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-bold">
+            <span className="text-slate-500 dark:text-slate-400">Mode:</span>
+            <span className="text-slate-900 dark:text-white font-extrabold">{autopilotMode}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setOpenAutopilotModal(true)}
+              className="h-6 px-1.5 text-[10px] text-primary hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md ml-1"
             >
-              {stage === "PLAN_PREVIEW" || stage === "WAR_ROOM" ? "✓" : "1"}
-            </span>
-            <span>Goal &amp; Channels</span>
+              Configure
+            </Button>
           </div>
 
-          <ChevronRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-
-          {/* STEP 2 */}
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs font-extrabold ${
-              stage === "PLAN_PREVIEW"
-                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs border border-slate-200/80 dark:border-slate-700"
-                : "text-slate-500 dark:text-slate-400"
-            }`}
-          >
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${
-                stage === "PLAN_PREVIEW"
-                  ? "bg-primary text-white"
-                  : stage === "WAR_ROOM"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }`}
+          {/* Ask Marketing Brain */}
+          <Link href="/dashboard/chat">
+            <Button
+              variant="outline"
+              className="h-9 px-3.5 text-xs font-bold gap-1.5 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
             >
-              {stage === "WAR_ROOM" ? "✓" : "2"}
-            </span>
-            <span>Strategy Review</span>
-          </div>
+              <MessageSquare className="h-3.5 w-3.5 text-primary" />
+              <span>Ask Marketing Brain</span>
+            </Button>
+          </Link>
 
-          <ChevronRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-
-          {/* STEP 3 */}
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all whitespace-nowrap text-xs font-extrabold ${
-              stage === "WAR_ROOM"
-                ? "bg-emerald-600 text-white shadow-xs"
-                : "text-slate-500 dark:text-slate-400"
-            }`}
+          {/* Goal Settings */}
+          <Button
+            variant="outline"
+            onClick={() => setOpenGoalSettings(true)}
+            className="h-9 px-3.5 text-xs font-bold gap-1.5 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
           >
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black ${
-                stage === "WAR_ROOM"
-                  ? "bg-white text-emerald-700"
-                  : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-              }`}
-            >
-              3
-            </span>
-            <span>Agency War Room</span>
-          </div>
+            <Sliders className="h-3.5 w-3.5 text-slate-600 dark:text-slate-300" />
+            <span>Goal Settings</span>
+          </Button>
+
+          {/* Primary CTA: Build / Recalculate Strategy */}
+          <Button
+            onClick={handleBuildStrategy}
+            disabled={isBuildingStrategy}
+            className="h-9 px-4 text-xs font-extrabold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 gap-1.5 shadow-sm"
+          >
+            {isBuildingStrategy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Agent Squad Operating...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                <span>{strategy ? "Recalculate Growth Strategy" : "Build Growth Strategy"}</span>
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
       {/* =====================================================================
-          STAGE 1: GOAL CONFIGURATOR
+          2. LIVE KPI DASHBOARD BAR (REAL DATA & PACING MATH)
          ===================================================================== */}
-      {stage === "CONFIG" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in-50 duration-300">
-          {/* LEFT CARD: CURATED ORGANIC SPRINT GROWTH TIERS */}
-          <Card className="lg:col-span-1 border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900">
-            <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
-              <CardTitle className="text-base font-extrabold flex items-center gap-2">
-                <Target className="h-4 w-4 text-primary" />
-                <span>1. Select Growth Tier</span>
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Choose a realistic organic target for your brand.
-              </CardDescription>
-            </CardHeader>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* KPI 1: TARGET */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Target Goal
+          </p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
+            {leadTarget}
+          </p>
+          <p className="text-[10px] text-slate-400 truncate">
+            {leadType.replace(/_/g, " ")}
+          </p>
+        </Card>
 
-            <CardContent className="p-5 space-y-5">
-              {/* CURATED ORGANIC SPRINT TIERS (STACKED VERTICAL RESPONSIVE DESIGN) */}
-              <div className="space-y-2.5">
-                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                  Target &amp; Timeframe
-                </label>
+        {/* KPI 2: ACHIEVED */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Achieved
+            </p>
+            <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+              {kpis.progressPercentage}%
+            </span>
+          </div>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+            {kpis.achievedLeads}
+          </p>
+          {/* Progress Bar */}
+          <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(5, kpis.progressPercentage))}%` }}
+            />
+          </div>
+        </Card>
 
-                <div className="space-y-3">
-                  {/* TIER 1: 1 MONTH */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSprintTier("1_MONTH");
-                      setShowCustomOverride(false);
-                    }}
-                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2.5 ${
-                      sprintTier === "1_MONTH" && !showCustomOverride
-                        ? "border-primary bg-primary/10 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-primary/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full flex-wrap gap-1">
-                      <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                        30-Day Starter Sprint
-                      </p>
-                      <span className="text-[10px] text-slate-400 font-semibold">
-                        1 Month
-                      </span>
-                    </div>
+        {/* KPI 3: REMAINING */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Remaining
+          </p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
+            {kpis.remainingLeads}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            Leads to target
+          </p>
+        </Card>
 
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                      Consistent posting across{" "}
-                      <strong>{selectedPlatforms.length} selected platforms</strong>.
-                    </p>
+        {/* KPI 4: DAYS LEFT */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Time Remaining
+          </p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
+            {kpis.daysLeft} <span className="text-xs font-normal text-slate-400">days</span>
+          </p>
+          <p className="text-[10px] text-slate-400">
+            {kpis.daysElapsed} of {kpis.daysTotal} elapsed
+          </p>
+        </Card>
 
-                    <div className="flex items-center justify-between w-full pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        Projected Organic Leads
-                      </span>
-                      <Badge className="bg-primary/15 text-primary border-primary/30 text-xs font-bold font-mono px-2.5 py-0.5">
-                        ~60 Leads
-                      </Badge>
-                    </div>
-                  </button>
+        {/* KPI 5: CURRENT PACE */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Current Pace
+          </p>
+          <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
+            {kpis.currentPace} <span className="text-xs font-normal text-slate-400">/day</span>
+          </p>
+          <p className="text-[10px] text-slate-400">
+            Projected: ~{kpis.projectedResult} total
+          </p>
+        </Card>
 
-                  {/* TIER 2: 2 MONTHS (RECOMMENDED) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSprintTier("2_MONTHS");
-                      setShowCustomOverride(false);
-                    }}
-                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2.5 ${
-                      sprintTier === "2_MONTHS" && !showCustomOverride
-                        ? "border-emerald-500 bg-emerald-500/10 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-500/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full flex-wrap gap-1.5">
-                      <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                        60-Day Growth Acceleration
-                      </p>
-                      <span className="text-[10px] bg-emerald-500 text-white font-extrabold px-2 py-0.5 rounded-full shrink-0">
-                        ⭐ RECOMMENDED
-                      </span>
-                    </div>
+        {/* KPI 6: REQUIRED PACE */}
+        <Card className="p-4 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs space-y-1">
+          <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Required Pace
+          </p>
+          <p className="text-2xl font-black text-primary">
+            {kpis.requiredPace} <span className="text-xs font-normal text-primary/70">/day</span>
+          </p>
+          <p className="text-[10px] text-primary/80 font-bold">
+            Target Velocity
+          </p>
+        </Card>
+      </div>
 
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                      Active omnichannel posting across{" "}
-                      <strong>{selectedPlatforms.length} selected platforms</strong>.
-                    </p>
-
-                    <div className="flex items-center justify-between w-full pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        Projected Organic Leads
-                      </span>
-                      <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-black font-mono px-2.5 py-0.5">
-                        ~150 Leads
-                      </Badge>
-                    </div>
-                  </button>
-
-                  {/* TIER 3: 3 MONTHS */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSprintTier("3_MONTHS");
-                      setShowCustomOverride(false);
-                    }}
-                    className={`w-full text-left p-4 rounded-xl border-2 transition-all flex flex-col gap-2.5 ${
-                      sprintTier === "3_MONTHS" && !showCustomOverride
-                        ? "border-primary bg-primary/10 shadow-xs"
-                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-primary/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full flex-wrap gap-1">
-                      <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                        90-Day Market Domination
-                      </p>
-                      <span className="text-[10px] text-slate-400 font-semibold">
-                        3 Months
-                      </span>
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                      High-volume posting across{" "}
-                      <strong>{selectedPlatforms.length} selected platforms</strong>.
-                    </p>
-
-                    <div className="flex items-center justify-between w-full pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        Projected Organic Leads
-                      </span>
-                      <Badge className="bg-primary/15 text-primary border-primary/30 text-xs font-bold font-mono px-2.5 py-0.5">
-                        ~300 Leads
-                      </Badge>
-                    </div>
-                  </button>
-                </div>
-
-                {/* OPTIONAL ADVANCED TOGGLE */}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomOverride(!showCustomOverride)}
-                    className="text-[11px] font-bold text-slate-500 hover:text-primary flex items-center gap-1"
-                  >
-                    <Sliders className="h-3 w-3" />
-                    <span>
-                      {showCustomOverride
-                        ? "← Use Standard Tiers"
-                        : "Advanced: Set Custom Lead Number"}
-                    </span>
-                  </button>
-
-                  {showCustomOverride && (
-                    <div className="mt-2 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 space-y-1.5 animate-in fade-in-50 duration-200">
-                      <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        Custom Leads Goal ({totalDays} Days):
-                      </label>
-                      <Input
-                        type="number"
-                        min={10}
-                        max={5000}
-                        value={customLeadTarget}
-                        onChange={(e) =>
-                          setCustomLeadTarget(Number(e.target.value) || 10)
-                        }
-                        className="h-9 text-xs font-extrabold"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* TARGET PLATFORMS CHECKBOX PILLS (DYNAMICS FOR ALL 7 PLATFORMS) */}
-              <div className="space-y-2">
-                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Target Social Channels</span>
-                  <span className="text-[11px] text-primary font-bold">
-                    {selectedPlatforms.length} Selected
-                  </span>
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    "LinkedIn",
-                    "Instagram",
-                    "X",
-                    "TikTok",
-                    "YouTube",
-                    "Facebook",
-                    "Pinterest",
-                  ].map((pl) => {
-                    const isChecked = selectedPlatforms.includes(pl);
-                    return (
-                      <button
-                        key={pl}
-                        type="button"
-                        onClick={() => togglePlatform(pl)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                          isChecked
-                            ? "bg-primary text-white border-primary shadow-xs"
-                            : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-primary"
-                        }`}
-                      >
-                        {isChecked ? "✓ " : ""}
-                        {pl}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* RIGHT CARD: AI ORGANIC FEASIBILITY MATH & FUNNEL CALCULATION */}
-          <Card className="lg:col-span-2 border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 flex flex-col justify-between overflow-hidden">
-            <div>
-              <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40 flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-base font-extrabold flex items-center gap-2">
-                    <Calculator className="h-4 w-4 text-primary" />
-                    <span>2. Projected Pipeline Math</span>
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    How your agent squad converts viewers into leads over {totalDays} days.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-6 space-y-6">
-                {/* ACHIEVABLE ORGANIC BANNER */}
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="h-9 w-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-base shrink-0">
-                      ✓
-                    </div>
-                    <div>
-                      <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                        {activeSprint.label} ({totalDays} Days)
-                      </p>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                        Pace: <strong>{activeSprint.pace}</strong>. Engineered
-                        for organic reach without paid ads.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* FUNNEL MATH GRID */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-center space-y-1">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                      1. Required Impressions
-                    </p>
-                    <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
-                      {requiredImpressions.toLocaleString()}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      8% avg. engagement rate
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-center space-y-1">
-                    <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
-                      2. Profile Visitors
-                    </p>
-                    <p className="text-2xl font-extrabold text-primary">
-                      {requiredClicks.toLocaleString()}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      1.5% capture conversion
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 text-center space-y-1">
-                    <p className="text-[11px] font-bold text-primary uppercase">
-                      3. Projected Leads
-                    </p>
-                    <p className="text-3xl font-black text-primary">
-                      ~{effectiveLeads}
-                    </p>
-                    <p className="text-[10px] text-primary/80 font-bold">
-                      Estimated Pipeline Goal
-                    </p>
-                  </div>
-                </div>
-
-                {/* SIMPLE SUMMARY STRATEGY BANNER (100% DYNAMIC CHANNELS) */}
-                <div className="p-4 rounded-xl bg-slate-100/70 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 flex items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
-                  <Flame className="h-5 w-5 text-amber-500 shrink-0" />
-                  <span>
-                    To achieve <strong>~{effectiveLeads} projected leads</strong>{" "}
-                    across <strong>{selectedPlatforms.length} platforms</strong> (
-                    {selectedPlatforms.join(", ")}), your agent squad will
-                    create <strong>{postsPerDayTotal} posts per day</strong>{" "}
-                    (<strong>{totalPostsNeeded} total campaigns</strong> across{" "}
-                    {totalDays} days).
-                  </span>
-                </div>
-              </CardContent>
-            </div>
-
-            {/* CARD FOOTER WITH BIG GENERATE PLAN BUTTON */}
-            <CardFooter className="p-5 border-t bg-slate-50/60 dark:bg-slate-800/40 flex justify-end">
-              <Button
-                onClick={handleGeneratePlan}
-                className="h-11 px-7 font-extrabold bg-primary text-white gap-2 shadow-sm hover:opacity-95 text-sm"
-              >
-                <Sparkles className="h-4 w-4" />
-                <span>Generate Strategy Plan</span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </CardFooter>
-          </Card>
+      {/* STATUS EXPLANATION BANNER */}
+      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 flex items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2.5">
+          <Flame className="h-4 w-4 text-amber-500 shrink-0" />
+          <span className="text-slate-700 dark:text-slate-300 font-medium">
+            <strong>AI Growth Diagnostic:</strong> {kpis.statusReason}
+          </span>
         </div>
-      )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => openWhyExplanation("AI Growth Status Analysis", kpis.statusReason)}
+          className="h-7 px-2.5 text-xs text-primary font-bold hover:bg-slate-200 dark:hover:bg-slate-800"
+        >
+          Why?
+        </Button>
+      </div>
 
       {/* =====================================================================
-          STAGE 2: STRATEGY PLAN PREVIEW, PDF DOWNLOAD, FEEDBACK & REGENERATE
+          3. REAL-TIME STREAMED AGENT ACTIVITY MODAL / ACCORDION
          ===================================================================== */}
-      {stage === "PLAN_PREVIEW" && (
-        <Card className="border-2 border-primary/30 bg-white dark:bg-slate-900 shadow-lg animate-in fade-in-50 duration-300 overflow-hidden">
-          {/* HEADER BAR WITH DOWNLOAD PDF AND REGENERATE BUTTONS */}
-          <CardHeader className="p-6 border-b bg-slate-50/80 dark:bg-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <Badge className="bg-primary text-white text-xs font-bold">
-                  Strategy Plan v1.{revisionCount}
-                </Badge>
-                {revisionCount > 0 && (
-                  <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-xs font-bold">
-                    ✓ Feedback Applied
-                  </Badge>
-                )}
+      {isBuildingStrategy && (
+        <Card className="border-2 border-slate-900 dark:border-white p-5 bg-slate-950 text-white shadow-xl animate-in fade-in-50 duration-200 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Loader2 className="h-5 w-5 text-amber-400 animate-spin" />
+              <div>
+                <h3 className="text-sm font-extrabold text-white">
+                  Autonomous Growth Engine Active
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Executing multi-agent strategy pipeline for {leadTarget} leads across {targetPlatforms.join(", ")}...
+                </p>
               </div>
-              <CardTitle className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                Organic Lead Strategy &amp; Roadmap
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Prepared for <strong>{workspaceName}</strong> • Target:{" "}
-                <strong>~{effectiveLeads} Projected Leads</strong> across{" "}
-                <strong>{selectedPlatforms.length} platforms</strong> ({totalDays} days).
-              </CardDescription>
             </div>
+            <Badge className="bg-amber-400 text-slate-900 text-xs font-black">
+              STREAMING LIVE
+            </Badge>
+          </div>
 
-            {/* ACTION BUTTONS: DOWNLOAD PDF & REGENERATE */}
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <Button
-                variant="outline"
-                onClick={() => window.print()}
-                className="h-9 px-3.5 text-xs font-bold gap-1.5 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow-2xs"
-              >
-                <Download className="h-3.5 w-3.5 text-primary" />
-                <span>Download PDF Plan</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                onClick={() => setOpenRevisionModal(true)}
-                className="h-9 px-3.5 text-xs font-bold gap-1.5 border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-              >
-                <RefreshCw className="h-3.5 w-3.5 text-amber-500" />
-                <span>Request Plan Change</span>
-              </Button>
-            </div>
-          </CardHeader>
-
-          {/* DOCUMENT BODY */}
-          <CardContent className="p-6 space-y-6 text-xs sm:text-sm">
-            {/* 1. EXECUTIVE SUMMARY BOX */}
-            <div className="p-5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-3">
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <FileText className="h-4 w-4 text-primary" />
-                <span>1. Strategy Overview</span>
-              </h3>
-              <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-xs">
-                To drive an estimated <strong>~{effectiveLeads} qualified leads</strong>{" "}
-                for <strong>{workspaceName}</strong>, your AI agent squad will
-                publish consistent organic content across{" "}
-                <strong>{selectedPlatforms.length} selected platforms ({selectedPlatforms.join(", ")})</strong>. Every
-                post is tailored to your Brand DNA without requiring paid ads.
-              </p>
-              {customFeedback && (
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs italic">
-                  <strong>Applied Guidance:</strong> "{customFeedback}"
-                </div>
-              )}
-            </div>
-
-            {/* 2. FORMAT PRODUCTION BREAKDOWN */}
-            <div className="space-y-3">
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-primary" />
-                <span>
-                  2. Content Production Goal ({totalPostsNeeded} Total Posts
-                  across {selectedPlatforms.length} Channels)
+          <div className="space-y-2 font-mono text-xs max-h-60 overflow-y-auto pr-2">
+            {streamSteps.map((s, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-slate-300">
+                <span className="shrink-0 mt-0.5">
+                  {s.status === "done" ? (
+                    <span className="text-emerald-400 font-bold">✓</span>
+                  ) : s.status === "running" ? (
+                    <span className="text-amber-400 font-bold animate-pulse">⟳</span>
+                  ) : (
+                    <span className="text-slate-500 font-bold">○</span>
+                  )}
                 </span>
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                      Short-Form Reels
-                    </span>
-                    <Badge className="bg-pink-500/10 text-pink-700 dark:text-pink-300 border-pink-500/20 text-[10px]">
-                      9:16 Reel
-                    </Badge>
-                  </div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
-                    {Math.ceil(totalPostsNeeded * 0.45)} videos
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Vertical video explainers &amp; reveals
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                      Carousels &amp; Slides
-                    </span>
-                    <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20 text-[10px]">
-                      4:5 Carousel
-                    </Badge>
-                  </div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
-                    {Math.ceil(totalPostsNeeded * 0.3)} posts
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Step-by-step slide breakdowns
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
-                      Text &amp; Infographic Cards
-                    </span>
-                    <Badge className="bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20 text-[10px]">
-                      16:9 Card
-                    </Badge>
-                  </div>
-                  <p className="text-2xl font-black text-slate-900 dark:text-slate-100">
-                    {Math.ceil(totalPostsNeeded * 0.25)} posts
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Engaging announcement posts
-                  </p>
-                </div>
+                <span className={s.status === "running" ? "text-white font-bold" : "text-slate-300"}>
+                  {s.step}
+                </span>
               </div>
-            </div>
-
-            {/* 3. SPRINT RELEASE CALENDAR */}
-            <div className="space-y-3">
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <Briefcase className="h-4 w-4 text-primary" />
-                <span>3. Publishing Schedule</span>
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 space-y-1">
-                  <p className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
-                    Phase 1 — Hook &amp; Problem Awareness
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    Publishing authoritative hooks and educational slides
-                    tailored to your Brand DNA.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 space-y-1">
-                  <p className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
-                    Phase 2 — Conversion &amp; CTA Focus
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    Deploying social proof and clear CTAs across all{" "}
-                    <strong>{selectedPlatforms.length} channels</strong> to capture leads.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-
-          {/* CARD FOOTER: APPROVE PLAN AND LAUNCH AUTONOMOUS WAR ROOM */}
-          <CardFooter className="p-6 border-t bg-slate-50/80 dark:bg-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <Button
-              variant="outline"
-              onClick={() => setStage("CONFIG")}
-              disabled={isPending}
-              className="w-full sm:w-auto text-xs font-bold"
-            >
-              ← Back to Configuration
-            </Button>
-
-            <Button
-              onClick={handleApproveAndLaunch}
-              disabled={isPending}
-              className="w-full sm:w-auto h-11 px-8 font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-md text-sm"
-            >
-              {isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Launching Agent Squad...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4" />
-                  <span>Approve Plan &amp; Start Live War Room</span>
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </Button>
-          </CardFooter>
+            ))}
+          </div>
         </Card>
       )}
 
       {/* =====================================================================
-          REVISION / FEEDBACK MODAL
+          4. MAIN SECTION (2 COLUMNS): STRATEGY & FUNNEL | TODAY'S AI PLAN
          ===================================================================== */}
-      <Dialog open={openRevisionModal} onOpenChange={setOpenRevisionModal}>
-        <DialogContent className="sm:max-w-[540px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-extrabold flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 text-amber-500" />
-              <span>Request Plan Change</span>
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Tell your AI CEO what you want changed so it can generate an
-              upgraded plan.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4 space-y-4">
-            {/* QUICK CHIP FEEDBACK */}
-            <div className="space-y-2">
-              <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                Quick Changes:
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  "More Video Reels",
-                  "Focus 80% on LinkedIn",
-                  "Target Decision Makers",
-                  "Add ROI Calculator CTA",
-                  "Increase Carousel Posts",
-                ].map((chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    onClick={() =>
-                      setCustomFeedback((prev) =>
-                        prev ? `${prev}, ${chip}` : chip
-                      )
-                    }
-                    className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-primary"
-                  >
-                    + {chip}
-                  </button>
-                ))}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* LEFT COLUMN (7 COLUMNS): FUNNEL & PLATFORM ALLOCATION */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* CARD: ORGANIC LEAD FUNNEL & BLUEPRINT */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+            <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-extrabold flex items-center gap-2">
+                  <Calculator className="h-4 w-4 text-primary" />
+                  <span>Organic Lead Funnel Math</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Requirements to achieve {leadTarget} leads in {timeframeDays} days.
+                </CardDescription>
               </div>
-            </div>
 
-            {/* CUSTOM NOTE TEXTAREA */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                Custom Guidance:
-              </label>
-              <Textarea
-                value={customFeedback}
-                onChange={(e) => setCustomFeedback(e.target.value)}
-                placeholder="e.g., We want more LinkedIn PDF Carousels and an ROI calculator CTA..."
-                className="min-h-[100px] text-xs leading-relaxed rounded-xl"
-              />
-            </div>
-          </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setOpenFunnelModal(true)}
+                className="h-8 px-2.5 text-xs font-bold border-slate-300 dark:border-slate-700"
+              >
+                View Calculation
+              </Button>
+            </CardHeader>
 
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setOpenRevisionModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleApplyRevision}
-              className="font-bold bg-primary text-white gap-1.5"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>Generate New Plan</span>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <CardContent className="p-5 space-y-5">
+              {strategy ? (
+                <>
+                  {/* FUNNEL STEPPER GRID */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-center space-y-1">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                        1. Required Impressions
+                      </p>
+                      <p className="text-xl font-black text-slate-900 dark:text-slate-100">
+                        {strategy.funnel.requiredImpressions.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {(strategy.funnel.engagementCTR * 100).toFixed(1)}% CTR target
+                      </p>
+                    </div>
 
-      {/* =====================================================================
-          STAGE 3: AUTONOMOUS WAR ROOM
-         ===================================================================== */}
-      {stage === "WAR_ROOM" && (
-        <div className="space-y-6 animate-in fade-in-50 duration-500">
-          {/* CELEBRATION BANNER */}
-          <Card className="border-2 border-emerald-500 bg-gradient-to-r from-emerald-500/10 via-white to-emerald-500/5 dark:from-emerald-950/40 dark:via-slate-900 dark:to-slate-900 p-6 shadow-md">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-sm shrink-0 font-bold text-lg">
-                  ✓
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-emerald-600 text-white text-[11px] font-bold">
-                      Strategy Approved • War Room Active
-                    </Badge>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-center space-y-1">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                        2. Profile / Link Visits
+                      </p>
+                      <p className="text-xl font-black text-slate-900 dark:text-slate-100">
+                        {strategy.funnel.requiredProfileVisits.toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        {(strategy.funnel.organicCVR * 100).toFixed(1)}% organic CVR
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-center space-y-1">
+                      <p className="text-[10px] font-bold opacity-80 uppercase">
+                        3. Target Leads
+                      </p>
+                      <p className="text-2xl font-black">
+                        {strategy.targetLeads}
+                      </p>
+                      <p className="text-[10px] opacity-80">
+                        {strategy.funnel.requiredPostsPerWeek} posts/week needed
+                      </p>
+                    </div>
                   </div>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                    4-Agent Specialist Squad Operating in Parallel!
-                  </h3>
-                  <p className="text-xs text-slate-700 dark:text-slate-300">
-                    Campaign drafts for an estimated <strong>~{effectiveLeads} leads</strong>{" "}
-                    across <strong>{selectedPlatforms.length} platforms</strong> have been generated in your Content Library.
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <Link href="/dashboard/content">
-                  <Button className="h-10 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white text-xs gap-1.5 shadow-sm">
-                    <span>View Content Library</span>
-                    <ArrowRight className="h-4 w-4" />
+                  {/* DATA DISCLOSURE BADGE */}
+                  <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
+                    <span>{strategy.funnel.dataSourceSummary}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-6 space-y-3">
+                  <p className="text-xs text-slate-500">
+                    Click <strong>"Build Growth Strategy"</strong> to generate your dynamic organic funnel calculations.
+                  </p>
+                  <Button
+                    onClick={handleBuildStrategy}
+                    className="h-9 px-4 text-xs font-bold bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                  >
+                    Build Growth Strategy
                   </Button>
-                </Link>
-              </div>
-            </div>
+                </div>
+              )}
+            </CardContent>
           </Card>
 
-          {/* VIRTUAL AGENCY WAR ROOM */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Users className="h-5 w-5 text-primary" />
-                  <span>
-                    Agency Floor — 4 Specialist Squads Collaborating Live
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Specialists audit each other and report to the CEO Orchestrator.
-                </p>
-              </div>
-              <Badge className="bg-primary/10 text-primary border-primary/20 text-xs font-bold px-3 py-1 animate-pulse">
-                ● LIVE RUNNING
-              </Badge>
-            </div>
-
-            {/* 4 SPECIALIST ROOM CARDS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* ROOM 1: EXECUTIVE SUITE */}
-              <Card className="border-2 border-primary/30 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-                <CardHeader className="p-4 border-b bg-slate-50/70 dark:bg-slate-800/40 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-xl bg-primary text-white flex items-center justify-center font-bold">
-                      🏛️
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
-                        Room 1: CEO Orchestrator
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Final Validator &amp; Brand DNA Enforcer
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                    ● ACTIVE
-                  </Badge>
-                </CardHeader>
-
-                <CardContent className="p-4 space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
-                      Live Supervision Status:
-                    </p>
-                    <p className="text-slate-600 dark:text-slate-300">
-                      Verifying all outputs against{" "}
-                      <strong>{workspaceName} Brand DNA</strong>. Approved{" "}
-                      <strong>{selectedPlatforms.length} platform queues</strong> for release.
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>Consults: All 3 Squads</span>
-                    <span className="font-bold text-primary">
-                      100% Brand Safe
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ROOM 2: INTELLIGENCE LAB */}
-              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-                <CardHeader className="p-4 border-b bg-slate-50/70 dark:bg-slate-800/40 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                      📡
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
-                        Room 2: Intelligence Scout
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Trend &amp; Keyword Spy
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
-                    ● SCANNING
-                  </Badge>
-                </CardHeader>
-
-                <CardContent className="p-4 space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
-                      Live Discovery:
-                    </p>
-                    <p className="text-slate-600 dark:text-slate-300">
-                      Extracted target audience pain points. Forwarded high-intent
-                      hooks across {selectedPlatforms.length} channels.
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>Consults → Copywriting Lead</span>
-                    <span className="font-bold text-amber-600 dark:text-amber-400">
-                      {selectedPlatforms.length} Hooks Exported
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ROOM 3: CREATIVE STUDIO */}
-              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-                <CardHeader className="p-4 border-b bg-slate-50/70 dark:bg-slate-800/40 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
-                      🎨
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
-                        Room 3: Creative Studio
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Visual &amp; Video Production
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <Badge className="bg-purple-500/15 text-purple-600 dark:text-purple-400 text-[10px] font-bold">
-                    ● RENDERING
-                  </Badge>
-                </CardHeader>
-
-                <CardContent className="p-4 space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
-                      Live Production Task:
-                    </p>
-                    <p className="text-slate-600 dark:text-slate-300">
-                      Rendered Carousel slides &amp; 9:16 Reels. Verified visual
-                      branding against Brand DNA.
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>Consults → Publisher Lead</span>
-                    <span className="font-bold text-purple-600 dark:text-purple-400">
-                      {selectedPlatforms.length} Assets Rendered
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ROOM 4: OPERATIONS & CTA ROOM */}
-              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
-                <CardHeader className="p-4 border-b bg-slate-50/70 dark:bg-slate-800/40 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-                      🚀
-                    </div>
-                    <div>
-                      <CardTitle className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
-                        Room 4: Distribution Lead
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        Publishing &amp; CTR Engine
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                    ● QUEUED
-                  </Badge>
-                </CardHeader>
-
-                <CardContent className="p-4 space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                    <p className="font-extrabold text-slate-800 dark:text-slate-200">
-                      Live CTA Destination:
-                    </p>
-                    <p className="font-mono text-[11px] text-primary truncate bg-primary/5 p-1 rounded">
-                      Synced from Brand DNA Profile
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                    <span>Consults → CEO Orchestrator</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                      {selectedPlatforms.length} Channels Synced
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* BOARDROOM LIVE INTER-AGENT CONSULTATION LOG */}
-          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden">
+          {/* CARD: PLATFORM STRATEGY & CAPABILITIES MATRIX */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
             <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
               <CardTitle className="text-base font-extrabold flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                <span>4. Live Squad Activity Log</span>
+                <Globe className="h-4 w-4 text-primary" />
+                <span>Platform Strategy &amp; Channel Roles</span>
               </CardTitle>
               <CardDescription className="text-xs">
-                Real-time transcript of autonomous agents collaborating and reporting to the CEO Orchestrator.
+                AI allocation based on platform conversion potential and capability limits.
               </CardDescription>
             </CardHeader>
 
-            <CardContent className="p-5 space-y-3 font-mono text-xs">
-              {boardroomLog.map((log, index) => (
-                <div
-                  key={index}
-                  className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800 space-y-1"
-                >
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      [{log.time}] • {log.from}{" "}
-                      <span className="text-slate-400">→</span> {log.to}
-                    </span>
-                    <span className={log.color}>Verified</span>
+            <CardContent className="p-5 space-y-3">
+              {strategy ? (
+                <div className="space-y-3">
+                  {strategy.platformStrategies.map((ps) => {
+                    const isConnected = connectedPlatforms.map(p => p.toLowerCase()).includes(ps.platform.toLowerCase());
+                    return (
+                      <div
+                        key={ps.platform}
+                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-sm text-slate-900 dark:text-slate-100">
+                              {ps.platform}
+                            </span>
+                            <Badge
+                              className={`text-[10px] font-bold ${
+                                ps.leadPotential === "HIGH"
+                                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                  : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                              }`}
+                            >
+                              {ps.leadPotential} Lead Potential
+                            </Badge>
+                            <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px]">
+                              {ps.recommendedFrequency}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-snug">
+                            <strong>Role:</strong> {ps.role}
+                          </p>
+                          <p className="text-[11px] text-slate-400 leading-tight">
+                            {ps.capabilityNotice}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openWhyExplanation(`Why ${ps.platform}?`, ps.reason, `Confidence: ${ps.confidence}% • Attribution CVR: ${ps.attributionData.conversionRate}`)}
+                            className="h-8 px-2.5 text-xs text-primary font-bold"
+                          >
+                            Why?
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 text-center py-4">
+                  Channel allocation will appear once strategy is built.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* RIGHT COLUMN (5 COLUMNS): TODAY'S AI PLAN & RECOMMENDATIONS */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* CARD: TODAY'S GROWTH PLAN */}
+          <Card className="border-2 border-slate-900 dark:border-white bg-white dark:bg-slate-900 shadow-md overflow-hidden">
+            <CardHeader className="p-5 border-b bg-slate-900 text-white dark:bg-white dark:text-slate-900 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-black flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-amber-400" />
+                  <span>Today's AI Growth Plan</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-300 dark:text-slate-600">
+                  Daily content tasks scheduled to maintain required lead velocity.
+                </CardDescription>
+              </div>
+              <Badge className="bg-amber-400 text-slate-900 text-xs font-black">
+                TODAY
+              </Badge>
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-4">
+              {strategy && strategy.todayPlan.length > 0 ? (
+                strategy.todayPlan.map((task) => {
+                  const isExecuting = executingTaskId === task.id;
+                  const executionStatus = taskExecutionStatus[task.id];
+
+                  return (
+                    <div
+                      key={task.id}
+                      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
+                            {task.time}
+                          </span>
+                          <span className="text-slate-400">•</span>
+                          <span className="font-extrabold text-xs text-slate-800 dark:text-slate-200">
+                            {task.platform}
+                          </span>
+                          <Badge className="text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                            {task.format}
+                          </Badge>
+                        </div>
+                        <Badge
+                          className={`text-[10px] ${
+                            task.status === "SCHEDULED"
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                              : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                          }`}
+                        >
+                          {task.status}
+                        </Badge>
+                      </div>
+
+                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                        {task.topic}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed italic">
+                        "{task.hook}"
+                      </p>
+
+                      <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-400 truncate">
+                          Reason: {task.reason}
+                        </span>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+                            size="sm"
+                            disabled={isExecuting}
+                            onClick={() => handleExecuteTask(task, false)}
+                            className="h-7 px-2 text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900"
+                          >
+                            {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Generate"}
+                          </Button>
+                          <Link href="/dashboard/ai-studio">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-[11px] font-bold"
+                            >
+                              Studio
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+
+                      {executionStatus && (
+                        <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                          {executionStatus}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8 space-y-2">
+                  <p className="text-xs text-slate-500">
+                    No active tasks for today. Build strategy to generate today's growth schedule.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* CARD: AI RECOMMENDATIONS & ALERTS */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+            <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
+              <CardTitle className="text-base font-extrabold flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                <span>AI Recommendations</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Data-backed optimizations to increase organic pipeline velocity.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-3">
+              {strategy && strategy.recommendations.length > 0 ? (
+                strategy.recommendations.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
+                          {rec.title}
+                        </span>
+                      </div>
+                      {rec.applied ? (
+                        <Badge className="bg-emerald-500/15 text-emerald-600 text-[10px]">
+                          ✓ Applied
+                        </Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => handleApplyRec(rec.id)}
+                          className="h-6 px-2 text-[10px] font-bold bg-primary text-white"
+                        >
+                          Apply
+                        </Button>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      {rec.description}
+                    </p>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                      <span>Impact: <strong>{rec.expectedImpact}</strong></span>
+                      <button
+                        onClick={() => openWhyExplanation(rec.title, rec.why, rec.data)}
+                        className="text-primary font-bold hover:underline"
+                      >
+                        Why?
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-slate-600 dark:text-slate-300 font-sans leading-relaxed text-xs">
-                    {log.message}
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 text-center py-4">
+                  Recommendations will appear after strategy generation.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* =====================================================================
+          5. 7-DAY GROWTH CALENDAR & TASK BOARD
+         ===================================================================== */}
+      <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+        <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-extrabold flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-primary" />
+              <span>7-Day Growth Plan Calendar</span>
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Upcoming scheduled campaigns to maintain lead generation pace.
+            </CardDescription>
+          </div>
+          <Link href="/dashboard/content">
+            <Button variant="outline" size="sm" className="h-8 text-xs font-bold">
+              Open Content Library
+            </Button>
+          </Link>
+        </CardHeader>
+
+        <CardContent className="p-5">
+          {strategy && strategy.weeklyPlan.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+              {strategy.weeklyPlan.map((task, idx) => (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex flex-col justify-between space-y-3"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
+                        {task.day}
+                      </span>
+                      <Badge className="text-[9px] bg-slate-200 dark:bg-slate-800">
+                        {task.platform}
+                      </Badge>
+                    </div>
+
+                    <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 line-clamp-2">
+                      {task.topic}
+                    </p>
+                    <p className="text-[10px] text-slate-400 line-clamp-2 italic">
+                      "{task.hook}"
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {task.time}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleExecuteTask(task, false)}
+                      className="h-6 px-1.5 text-[10px] text-primary font-bold hover:bg-slate-200 dark:hover:bg-slate-800"
+                    >
+                      Create
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 text-center py-6">
+              7-Day Growth Calendar will populate when you build your strategy.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* =====================================================================
+          6. DYNAMIC CONTENT PILLARS
+         ===================================================================== */}
+      {strategy && strategy.contentPillars.length > 0 && (
+        <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+          <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
+            <CardTitle className="text-base font-extrabold flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <span>AI Content Pillars &amp; Lead Conversion Roles</span>
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Synthesized from Brand DNA, buyer awareness stages, and competitor content gaps.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="p-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {strategy.contentPillars.map((pillar) => (
+                <div
+                  key={pillar.id}
+                  className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-2.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] font-black">
+                      {pillar.allocationPercentage}% Volume
+                    </Badge>
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      {pillar.audienceStage.split(" ")[0]}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-slate-100">
+                      {pillar.name}
+                    </h4>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mt-1">
+                      {pillar.purpose}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-slate-100 dark:bg-slate-800/60 text-[11px] space-y-1">
+                    <p className="font-bold text-slate-700 dark:text-slate-300 text-[10px] uppercase">
+                      Lead-Gen Role:
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400 text-[10px] leading-tight">
+                      {pillar.leadGenerationRole}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* =====================================================================
+          7. EXPERIMENTS & AI LEARNING LOOP
+         ===================================================================== */}
+      {strategy && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* EXPERIMENTS */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+            <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
+              <CardTitle className="text-sm font-extrabold flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-primary" />
+                <span>Growth Experiments</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                A/B tests on hooks, formats, and posting times to maximize conversion.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-3">
+              {strategy.experiments.map((exp) => (
+                <div
+                  key={exp.id}
+                  className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
+                      {exp.name}
+                    </span>
+                    <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600">
+                      {exp.status}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                    {exp.hypothesis}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Target Metric: <strong>{exp.metric}</strong> • Sample Size: {exp.sampleSize} posts
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          {/* AI LEARNING LOOP */}
+          <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+            <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40">
+              <CardTitle className="text-sm font-extrabold flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                <span>Daily AI Learning Loop</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Autonomous performance insights driving strategic adjustments.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-3">
+              {strategy.learningInsights.map((insight, idx) => (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-1.5 text-xs"
+                >
+                  <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+                    <strong>Observation:</strong> {insight.observation}
+                  </p>
+                  <p className="text-primary font-medium leading-relaxed">
+                    <strong>AI Conclusion:</strong> {insight.conclusion}
+                  </p>
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
+                    <strong>Next Action:</strong> {insight.nextAction}
                   </p>
                 </div>
               ))}
@@ -1140,6 +1090,318 @@ export function LeadGoalHQ({
           </Card>
         </div>
       )}
+
+      {/* =====================================================================
+          8. EXPLAINABLE AI DECISION LOG & DATA TRANSPARENCY
+         ===================================================================== */}
+      {strategy && (
+        <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+          <CardHeader className="p-5 border-b bg-slate-50/60 dark:bg-slate-800/40 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-extrabold flex items-center gap-2">
+                <FileText className="h-4 w-4 text-primary" />
+                <span>Explainable AI Decision Log &amp; Data Sources</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Full transparency into every strategic choice and the underlying datasets used.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span>Brand DNA Synced: <strong>{strategy.dataSources.brandDNASynced ? "Yes" : "No"}</strong></span>
+              <span>•</span>
+              <span>Analyzed Posts: <strong>{strategy.dataSources.analyzedPostsCount}</strong></span>
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-5 space-y-3 font-mono text-xs">
+            {strategy.decisions.map((dec) => (
+              <div
+                key={dec.id}
+                className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1 font-sans"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-xs text-slate-900 dark:text-slate-100">
+                    [{dec.date}] • {dec.title}
+                  </span>
+                  <Badge className="bg-emerald-500/15 text-emerald-600 text-[10px]">
+                    {dec.status}
+                  </Badge>
+                </div>
+                <p className="text-slate-700 dark:text-slate-300 text-xs">
+                  <strong>Action:</strong> {dec.action}
+                </p>
+                <p className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  <strong>Reason:</strong> {dec.reason} ({dec.data})
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* =====================================================================
+          MODAL: GOAL CONFIGURATION & EDITING
+         ===================================================================== */}
+      <Dialog open={openGoalSettings} onOpenChange={setOpenGoalSettings}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold flex items-center gap-2">
+              <Sliders className="h-4 w-4 text-primary" />
+              <span>Set Your Organic Lead Target</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              AI will recalculate required impressions, funnel flow, and posting cadence.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-3 text-xs">
+            {/* Field 1: Lead Target */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Lead Target (Total Volume):
+              </label>
+              <Input
+                type="number"
+                min={10}
+                max={5000}
+                value={leadTarget}
+                onChange={(e) => setLeadTarget(Number(e.target.value) || 10)}
+                className="h-10 text-sm font-black"
+              />
+            </div>
+
+            {/* Field 2: Lead Type */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Lead Type:
+              </label>
+              <select
+                value={leadType}
+                onChange={(e) => setLeadType(e.target.value as LeadType)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold"
+              >
+                {leadTypeOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Field 3: Timeframe Days */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Timeframe (Days):
+              </label>
+              <div className="flex gap-2">
+                {[14, 30, 60, 90, 180].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setTimeframeDays(d)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${
+                      timeframeDays === d
+                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    {d} Days
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Field 4: Target Platforms */}
+            <div className="space-y-1.5">
+              <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                <span>Target Social Channels:</span>
+                <span className="text-primary font-bold">{targetPlatforms.length} Selected</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {availablePlatforms.map((pl) => {
+                  const isChecked = targetPlatforms.includes(pl);
+                  return (
+                    <button
+                      key={pl}
+                      type="button"
+                      onClick={() => togglePlatformSelection(pl)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                        isChecked
+                          ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      {isChecked ? "✓ " : ""}
+                      {pl}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setOpenGoalSettings(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveGoalSettings}
+              disabled={isPending}
+              className="bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-extrabold"
+            >
+              {isPending ? "Saving..." : "Save & Recalculate Strategy"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* =====================================================================
+          MODAL: VIEW FUNNEL CALCULATION
+         ===================================================================== */}
+      <Dialog open={openFunnelModal} onOpenChange={setOpenFunnelModal}>
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold flex items-center gap-2">
+              <Calculator className="h-4 w-4 text-primary" />
+              <span>Organic Lead Funnel Mathematics</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Complete calculation flow derived from active project analytics and industry benchmarks.
+            </DialogDescription>
+          </DialogHeader>
+
+          {strategy && (
+            <div className="space-y-4 py-3 text-xs">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2">
+                <p className="font-bold text-slate-900 dark:text-slate-100">
+                  Mathematical Conversion Sequence:
+                </p>
+                <div className="font-mono text-[11px] space-y-1 text-slate-700 dark:text-slate-300">
+                  <p>1. Target Lead Volume: <strong>{strategy.targetLeads} leads</strong></p>
+                  <p>2. Lead Conversion CVR: <strong>{(strategy.funnel.organicCVR * 100).toFixed(1)}%</strong> → Requires <strong>{strategy.funnel.requiredProfileVisits.toLocaleString()} profile clicks</strong></p>
+                  <p>3. Profile Click CTR: <strong>{(strategy.funnel.engagementCTR * 100).toFixed(1)}%</strong> → Requires <strong>{strategy.funnel.requiredImpressions.toLocaleString()} organic impressions</strong></p>
+                  <p>4. Avg Post Reach: <strong>~{strategy.funnel.avgImpressionsPerPost.toLocaleString()} impressions / post</strong></p>
+                  <p>5. Total Production Volume: <strong>{strategy.funnel.requiredTotalPosts} posts</strong> over {strategy.timeframeDays} days (<strong>{strategy.funnel.requiredPostsPerWeek} posts/week</strong>)</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-bold text-slate-800 dark:text-slate-200">
+                  Assumptions &amp; Data Priority Applied:
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-400 text-[11px]">
+                  {strategy.funnel.assumptions.map((ass, i) => (
+                    <li key={i}>{ass}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setOpenFunnelModal(false)} className="font-bold">
+              Close Breakdown
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* =====================================================================
+          MODAL: "WHY?" AI EXPLANATION DRAWER
+         ===================================================================== */}
+      <Dialog open={openWhyModal} onOpenChange={setOpenWhyModal}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-primary" />
+              <span>{whyModalData?.title || "AI Strategic Rationale"}</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="py-3 space-y-3 text-xs">
+            <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+              {whyModalData?.explanation}
+            </p>
+            {whyModalData?.metrics && (
+              <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-mono text-primary font-bold">
+                {whyModalData.metrics}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setOpenWhyModal(false)}>
+              Got It
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* =====================================================================
+          MODAL: AUTOPILOT PERMISSIONS
+         ===================================================================== */}
+      <Dialog open={openAutopilotModal} onOpenChange={setOpenAutopilotModal}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold flex items-center gap-2">
+              <Zap className="h-4 w-4 text-amber-500" />
+              <span>Growth Autopilot Controls</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Configure how autonomously AI agents operate across your growth pipeline.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-3 text-xs">
+            <div className="space-y-2">
+              <label className="font-bold text-slate-800 dark:text-slate-200">
+                Operating Mode:
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["MANUAL", "ASSISTED", "AUTOPILOT"] as AutopilotMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setAutopilotMode(mode)}
+                    className={`py-2.5 px-3 rounded-xl border text-center font-extrabold text-xs transition-all ${
+                      autopilotMode === mode
+                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900"
+                        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-2 text-[11px]">
+              <p className="font-bold text-slate-800 dark:text-slate-200">
+                Active Permissions (Guaranteed Safety):
+              </p>
+              <p className="text-slate-600 dark:text-slate-400">✓ AI generates captions &amp; copy into drafts</p>
+              <p className="text-slate-600 dark:text-slate-400">✓ AI generates visual assets via gemini-3-pro-image</p>
+              <p className="text-slate-600 dark:text-slate-400">✓ AI schedules content during audience peak hours</p>
+              <p className="text-slate-600 dark:text-slate-400">□ Direct API publishing requires user approval in Assisted mode</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                toggleAutopilot(workspaceId, { mode: autopilotMode });
+                setOpenAutopilotModal(false);
+              }}
+              className="font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+            >
+              Save Autopilot Preferences
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

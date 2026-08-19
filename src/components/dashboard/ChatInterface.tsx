@@ -120,6 +120,10 @@ const TOOL_LABELS: Record<string, string> = {
   list_campaigns: "Listing campaigns",
   get_content_library: "Browsing Content Library",
   repurpose_content: "Repurposing content",
+  get_lead_goal: "Checking organic lead goal & KPIs",
+  update_lead_goal: "Updating organic lead goal",
+  recalculate_growth_strategy: "Recalculating growth strategy",
+  explain_growth_strategy: "Analyzing strategy decisions",
 };
 
 const IGNORED_DIRS =

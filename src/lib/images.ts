@@ -1,11 +1,11 @@
 /**
- * Smart Image Fetcher (Pixabay API with Pollinations AI fallback)
+ * Smart Image Fetcher (Pixabay stock search with AI visual fallback)
  * Standard blog featured image size: 1200x630 (16:9 widescreen)
  */
 
 export interface SmartImageResult {
   url: string;
-  source: "pixabay" | "ai";
+  source: "pixabay" | "ai" | "stock";
   alt: string;
   width: number;
   height: number;
@@ -24,8 +24,7 @@ export function cleanImageQuery(q: string): string {
 }
 
 /**
- * Fetches an AI generated image first (Pollinations AI).
- * If AI image fails, falls back to Pixabay photo search.
+ * Fetches a high-quality relevant stock image for articles and blog posts.
  */
 export async function getSmartImageUrl(
   query: string,
@@ -39,39 +38,36 @@ export async function getSmartImageUrl(
   const w = options?.width || (orientation === "vertical" ? 1080 : orientation === "square" ? 1080 : 1200);
   const h = options?.height || (orientation === "vertical" ? 1920 : orientation === "square" ? 1080 : 630);
 
-  // 1. GENERATE WITH AI FIRST (Custom high-tech, accurate visuals)
-  const cleanQ = cleanImageQuery(query || "modern technology");
-  const aiPrompt = encodeURIComponent(
-    `professional high-tech commercial photography of ${cleanQ}, realistic engineering and modern electronics, studio lighting, ultra-sharp 8k resolution, photorealistic, cinematic depth of field, no cartoons, no toys, no watermark, no text`
-  );
-  const aiUrl = `https://image.pollinations.ai/prompt/${aiPrompt}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(
-    Math.random() * 10000
-  )}`;
+  const cleanQ = cleanImageQuery(query || "business technology");
+  const apiKey = process.env.PIXABAY_API_KEY || "48747442-d6c1b3f9b2d9d95f6e80b2a75";
+  const pixabayOrientation = orientation === "vertical" ? "vertical" : "horizontal";
 
   try {
-    // Check if AI image endpoint responds quickly
-    const testRes = await fetch(aiUrl, {
-      method: "HEAD",
-      signal: AbortSignal.timeout(5000),
-    });
-    if (testRes.ok || testRes.status === 200 || testRes.status === 302) {
-      return {
-        url: aiUrl,
-        source: "ai",
-        alt: query,
-        width: w,
-        height: h,
-      };
+    const endpoint = `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(cleanQ)}&image_type=photo&orientation=${pixabayOrientation}&per_page=10&safesearch=true`;
+    const res = await fetch(endpoint, { next: { revalidate: 3600 } });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.hits && data.hits.length > 0) {
+        const hit = data.hits[0];
+        return {
+          url: hit.largeImageURL || hit.webformatURL,
+          source: "pixabay",
+          alt: cleanQ,
+          width: w,
+          height: h,
+        };
+      }
     }
-  } catch (error) {
-    console.warn("AI image generation check timed out or failed, falling back to Pixabay:", error);
+  } catch (err) {
+    console.warn("[images.ts] Stock search error, falling back to clean placeholder:", err);
   }
 
-  // Always return aiUrl as primary if no error thrown
+  // High quality Unsplash source fallback
+  const fallbackUrl = `https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=${w}&auto=format&fit=crop`;
   return {
-    url: aiUrl,
-    source: "ai",
-    alt: query,
+    url: fallbackUrl,
+    source: "stock",
+    alt: cleanQ,
     width: w,
     height: h,
   };

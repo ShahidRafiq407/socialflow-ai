@@ -34,6 +34,7 @@ model Workspace {
   mediaAssets     MediaAsset[]
   hashtagGroups   HashtagGroup[]
   memories        Memory[]
+  growthGoal      GrowthGoal?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -246,6 +247,34 @@ model HashtagGroup {
   workspace   Workspace @relation(fields: [workspaceId], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model GrowthGoal {
+  id                   String       @id @default(uuid())
+  workspaceId          String       @unique
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id])
+  leadTarget           Int          @default(150)
+  leadType             String       @default("QUALIFIED_LEADS")
+  customLeadTypeName   String?
+  timeframeDays        Int          @default(60)
+  startDate            DateTime     @default(now())
+  targetPlatforms      String[]     @default(["LinkedIn", "Instagram", "X", "TikTok"])
+  pausedPlatforms      String[]     @default([])
+  status               String       @default("INSUFFICIENT_DATA")
+  statusReason         String?      @db.Text
+  autopilotMode        String       @default("ASSISTED")
+  autopilotPermissions Json?
+  isAutopilotPaused    Boolean      @default(false)
+  isPublishingPaused   Boolean      @default(false)
+  strategy             Json?
+  decisions            Json?
+  experiments          Json?
+  metricSnapshots      Json?
+  lastAuditedAt        DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   @@index([workspaceId])
 }

@@ -103,7 +103,13 @@ ORCHESTRATION & PLANNING RULES:
    - If competitors are listed in Brand DNA or context, include competitor names or domains to search for their recent moves.
    - For search_web and fetch_serp queries: ALWAYS search for current ${currentYear} data, latest news, and active trends. Never search for past years.
 
-6. RETURN FORMAT:
+6. ORGANIC LEAD GOAL & STRATEGY HQ CONTROL:
+   - When the user asks about their goals, pacing, lead targets, or asks "Am I on track?", use get_lead_goal.
+   - When the user says "Increase my lead goal to 300", "Change timeframe to 90 days", "Pause Pinterest", or "Switch to autopilot", use update_lead_goal.
+   - When the user asks to recalculate or refocus the growth plan (e.g. "Focus more on LinkedIn"), use recalculate_growth_strategy.
+   - When the user asks "Why are we posting 5 times a week on Instagram?" or "Why did you choose this platform/format?", use explain_growth_strategy.
+
+7. RETURN FORMAT:
    - Return ONLY valid JSON (no markdown fences) in this exact shape:
 { "reasoning": "short explanation of the plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
 

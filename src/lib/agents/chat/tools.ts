@@ -1200,6 +1200,119 @@ INSTRUCTIONS:
       };
     },
   },
+
+  // ---------------- ORGANIC LEAD GOAL & STRATEGY HQ CONTROL ----------------
+  {
+    name: "get_lead_goal",
+    description:
+      "Read the active organic lead target, days remaining, achieved leads, current pacing vs required pacing, AI growth status, autopilot mode, and current strategy.",
+    parameters: { type: "object", properties: {} },
+    execute: async (args, ctx) => {
+      const { getWorkspaceGrowthGoal } = await import("@/actions/goals");
+      return getWorkspaceGrowthGoal(ctx.workspaceId);
+    },
+  },
+  {
+    name: "update_lead_goal",
+    description:
+      "Update the organic lead target (e.g. increase leads from 150 to 300), timeframe (days), lead type (QUALIFIED_LEADS, LEADS, WEBSITE_INQUIRIES, etc.), target platforms, paused platforms, or autopilot mode (MANUAL, ASSISTED, AUTOPILOT). Automatically triggers recalculation.",
+    parameters: {
+      type: "object",
+      properties: {
+        leadTarget: { type: "number", description: "Target number of leads (e.g. 150, 300)" },
+        timeframeDays: { type: "number", description: "Timeframe in days (e.g. 30, 60, 90)" },
+        leadType: { type: "string", enum: ["QUALIFIED_LEADS", "LEADS", "WEBSITE_INQUIRIES", "CONTACT_FORM", "WHATSAPP", "BOOKINGS", "CUSTOM"] },
+        targetPlatforms: { type: "array", items: { type: "string" } },
+        pausedPlatforms: { type: "array", items: { type: "string" } },
+        autopilotMode: { type: "string", enum: ["MANUAL", "ASSISTED", "AUTOPILOT"] },
+      },
+    },
+    execute: async (args, ctx) => {
+      const { getWorkspaceGrowthGoal, saveGrowthGoal } = await import("@/actions/goals");
+      const current = await getWorkspaceGrowthGoal(ctx.workspaceId);
+      const updatedData = {
+        leadTarget: args.leadTarget !== undefined ? Number(args.leadTarget) : current.goal.leadTarget,
+        leadType: args.leadType || current.goal.leadType,
+        timeframeDays: args.timeframeDays !== undefined ? Number(args.timeframeDays) : current.goal.timeframeDays,
+        targetPlatforms: args.targetPlatforms || current.goal.targetPlatforms,
+        pausedPlatforms: args.pausedPlatforms || current.goal.pausedPlatforms,
+        autopilotMode: args.autopilotMode || current.goal.autopilotMode,
+      };
+      const result = await saveGrowthGoal(ctx.workspaceId, updatedData);
+      return { success: true, updated: updatedData, result };
+    },
+  },
+  {
+    name: "recalculate_growth_strategy",
+    description:
+      "Recalculate the entire organic growth strategy, funnel requirements, posting cadence, content pillars, and 7-day plan with optional custom natural-language guidance.",
+    parameters: {
+      type: "object",
+      properties: {
+        guidance: { type: "string", description: "Optional strategic guidance (e.g. 'Focus 80% on LinkedIn', 'Increase video reels')" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const { getWorkspaceGrowthGoal } = await import("@/actions/goals");
+      const { generateGrowthStrategy } = await import("@/lib/agents/growthEngine");
+      const current = await getWorkspaceGrowthGoal(ctx.workspaceId);
+
+      const strategy = await generateGrowthStrategy({
+        workspaceId: ctx.workspaceId,
+        userId: ctx.userId,
+        leadTarget: current.goal.leadTarget,
+        leadType: current.goal.leadType,
+        timeframeDays: current.goal.timeframeDays,
+        targetPlatforms: current.goal.targetPlatforms,
+        customGuidance: args.guidance,
+      });
+
+      try {
+        await (prisma as any).growthGoal.update({
+          where: { workspaceId: ctx.workspaceId },
+          data: {
+            strategy: strategy as any,
+            decisions: strategy.decisions as any,
+            updatedAt: new Date(),
+          },
+        });
+      } catch {}
+
+      return {
+        success: true,
+        targetLeads: strategy.targetLeads,
+        requiredImpressions: strategy.funnel.requiredImpressions,
+        requiredPostsPerWeek: strategy.funnel.requiredPostsPerWeek,
+        todayTasksCount: strategy.todayPlan.length,
+        pillars: strategy.contentPillars.map((p) => p.name),
+      };
+    },
+  },
+  {
+    name: "explain_growth_strategy",
+    description:
+      "Explain the exact reasoning, data calculations, platform allocations, or posting cadence chosen for the organic lead strategy.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "What to explain: 'platforms', 'cadence', 'funnel', 'pillars', 'reasons', or 'general'" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const { getWorkspaceGrowthGoal } = await import("@/actions/goals");
+      const current = await getWorkspaceGrowthGoal(ctx.workspaceId);
+      const strat = current.strategy;
+      if (!strat) return { error: "No growth strategy built yet. Build one by saying 'Build growth strategy'." };
+
+      return {
+        kpis: current.kpis,
+        funnel: strat.funnel,
+        platformStrategies: strat.platformStrategies,
+        contentPillars: strat.contentPillars,
+        decisions: strat.decisions,
+      };
+    },
+  },
 ];
 
 export function getTool(name: string): ToolDef | undefined {

@@ -2,7 +2,373 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import {
+  computeGrowthKPIs,
+  generateGrowthStrategy,
+  GrowthStrategy,
+  GrowthKPIs,
+  LeadType,
+  AutopilotMode,
+  AutopilotPermissions,
+  GrowthPlanTask,
+} from "@/lib/agents/growthEngine";
+import { vertexProvider, MODELS } from "@/lib/agents/llm";
+import { normalizeHashtags } from "@/lib/hashtags";
+import { generateMediaAsset } from "@/lib/agents/mediaGenerator";
+import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 
+// Default standard goal parameters
+const DEFAULT_GROWTH_GOAL = {
+  leadTarget: 150,
+  leadType: "QUALIFIED_LEADS" as LeadType,
+  timeframeDays: 60,
+  targetPlatforms: ["LinkedIn", "Instagram", "X", "TikTok"],
+  pausedPlatforms: [] as string[],
+  autopilotMode: "ASSISTED" as AutopilotMode,
+  autopilotPermissions: {
+    createContent: true,
+    generateVisuals: true,
+    schedule: true,
+    autoPublish: false,
+    autoModifyStrategy: false,
+  },
+  isAutopilotPaused: false,
+  isPublishingPaused: false,
+};
+
+/**
+ * Fetch workspace growth goal and compute real-time KPIs and status.
+ */
+export async function getWorkspaceGrowthGoal(workspaceId: string): Promise<{
+  goal: any;
+  kpis: GrowthKPIs;
+  strategy: GrowthStrategy | null;
+}> {
+  try {
+    const [growthGoal, posts, workspace] = await Promise.all([
+      (prisma as any).growthGoal?.findUnique({ where: { workspaceId } }).catch(() => null),
+      prisma.post.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }).catch(() => []),
+      prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        include: { socialAccounts: true },
+      }).catch(() => null),
+    ]);
+
+    const activeGoal = growthGoal || {
+      id: "default-goal",
+      workspaceId,
+      ...DEFAULT_GROWTH_GOAL,
+      startDate: new Date(),
+      status: "INSUFFICIENT_DATA",
+      statusReason: "Goal initialized. Click 'Build Growth Strategy' to generate organic blueprint.",
+      strategy: null,
+      decisions: [],
+      experiments: [],
+    };
+
+    const kpis = computeGrowthKPIs(
+      {
+        leadTarget: activeGoal.leadTarget,
+        startDate: activeGoal.startDate,
+        timeframeDays: activeGoal.timeframeDays,
+        leadType: activeGoal.leadType,
+      },
+      posts
+    );
+
+    return {
+      goal: activeGoal,
+      kpis,
+      strategy: (activeGoal.strategy as GrowthStrategy) || null,
+    };
+  } catch (error) {
+    console.warn("[getWorkspaceGrowthGoal] Fallback state due to DB connection:", error);
+    const kpis = computeGrowthKPIs(
+      {
+        leadTarget: DEFAULT_GROWTH_GOAL.leadTarget,
+        startDate: new Date(),
+        timeframeDays: DEFAULT_GROWTH_GOAL.timeframeDays,
+        leadType: DEFAULT_GROWTH_GOAL.leadType,
+      },
+      []
+    );
+    return {
+      goal: {
+        id: "default-goal",
+        workspaceId,
+        ...DEFAULT_GROWTH_GOAL,
+        startDate: new Date(),
+        status: "INSUFFICIENT_DATA",
+        statusReason: "Goal initialized. Ready to build strategy.",
+        strategy: null,
+      },
+      kpis,
+      strategy: null,
+    };
+  }
+}
+
+/**
+ * Save / update growth goal configuration.
+ */
+export async function saveGrowthGoal(
+  workspaceId: string,
+  data: {
+    leadTarget: number;
+    leadType: LeadType;
+    timeframeDays: number;
+    targetPlatforms: string[];
+    autopilotMode?: AutopilotMode;
+    autopilotPermissions?: Partial<AutopilotPermissions>;
+    pausedPlatforms?: string[];
+  }
+) {
+  try {
+    const updated = await (prisma as any).growthGoal.upsert({
+      where: { workspaceId },
+      create: {
+        workspaceId,
+        leadTarget: Number(data.leadTarget),
+        leadType: data.leadType,
+        timeframeDays: Number(data.timeframeDays),
+        targetPlatforms: data.targetPlatforms,
+        pausedPlatforms: data.pausedPlatforms || [],
+        autopilotMode: data.autopilotMode || "ASSISTED",
+        autopilotPermissions: data.autopilotPermissions || DEFAULT_GROWTH_GOAL.autopilotPermissions,
+        status: "ON_TRACK",
+        statusReason: `Target updated to ${data.leadTarget} ${data.leadType.replace(/_/g, " ")} (${data.timeframeDays} days).`,
+      },
+      update: {
+        leadTarget: Number(data.leadTarget),
+        leadType: data.leadType,
+        timeframeDays: Number(data.timeframeDays),
+        targetPlatforms: data.targetPlatforms,
+        ...(data.pausedPlatforms ? { pausedPlatforms: data.pausedPlatforms } : {}),
+        ...(data.autopilotMode ? { autopilotMode: data.autopilotMode } : {}),
+        ...(data.autopilotPermissions ? { autopilotPermissions: data.autopilotPermissions } : {}),
+        updatedAt: new Date(),
+      },
+    });
+
+    revalidatePath("/dashboard/goals");
+    revalidatePath("/dashboard/chat");
+    return { success: true, goal: updated };
+  } catch (error: any) {
+    console.error("[saveGrowthGoal] Error saving goal:", error);
+    return { success: false, error: error.message || "Failed to update goal" };
+  }
+}
+
+/**
+ * Toggle autopilot mode, pause/resume platform or publishing.
+ */
+export async function toggleAutopilot(
+  workspaceId: string,
+  options: {
+    mode?: AutopilotMode;
+    isAutopilotPaused?: boolean;
+    isPublishingPaused?: boolean;
+    pausedPlatforms?: string[];
+    permissions?: AutopilotPermissions;
+  }
+) {
+  try {
+    const updateData: any = {};
+    if (options.mode !== undefined) updateData.autopilotMode = options.mode;
+    if (options.isAutopilotPaused !== undefined) updateData.isAutopilotPaused = options.isAutopilotPaused;
+    if (options.isPublishingPaused !== undefined) updateData.isPublishingPaused = options.isPublishingPaused;
+    if (options.pausedPlatforms !== undefined) updateData.pausedPlatforms = options.pausedPlatforms;
+    if (options.permissions !== undefined) updateData.autopilotPermissions = options.permissions;
+
+    const updated = await (prisma as any).growthGoal.update({
+      where: { workspaceId },
+      data: updateData,
+    });
+
+    revalidatePath("/dashboard/goals");
+    return { success: true, goal: updated };
+  } catch (error: any) {
+    console.error("[toggleAutopilot] Error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Execute a Growth Plan Task — Hands work to Content Creator and AI Studio / Visualizer.
+ * Creates a real post record in prisma.post.
+ */
+export async function executeGrowthPlanTask(
+  workspaceId: string,
+  task: GrowthPlanTask,
+  options?: {
+    generateVisuals?: boolean;
+    scheduleNow?: boolean;
+  }
+) {
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { brandDNA: true },
+    });
+
+    const capability = getPlatformCapability(task.platform.toLowerCase() as any, task.format);
+    const brandName = workspace?.name || "SMB Robotics";
+    const industry = workspace?.industry || "Embedded Systems & AI Robotics";
+    const website = workspace?.website || "https://smbrobotic.com";
+
+    // 1. Generate Platform-Optimized Caption via Content Creator (Google Vertex AI)
+    const prompt = `You are the Content Creator agent. Create high-converting organic social media copy for ${task.platform} (${task.format}).
+
+TOPIC: ${task.topic}
+HOOK ANGLE: ${task.hook}
+CTA: ${task.cta}
+GOAL ROLE: ${task.leadGoalRole}
+BRAND: ${brandName} (${industry})
+WEBSITE: ${website}
+
+PLATFORM RULES:
+- Caption character limit: ${capability.captionLimit}
+- Max hashtags: ${capability.hashtagLimit}
+- Tone: ${workspace?.brandDNA?.tone || "Professional, authoritative, high-value"}
+- Writing Style: Direct, conversational, clear paragraphs, zero corporate fluff.
+
+OUTPUT VALID JSON ONLY:
+{
+  "caption": "Full formatted caption with hook and CTA",
+  "hashtags": ["#Tag1", "#Tag2"],
+  "visualPrompt": "Detailed photorealistic visual prompt for AI image/video generator",
+  "mediaType": "${capability.mediaType}"
+}`;
+
+    const res = await vertexProvider.generateJSON(
+      [{ role: "user", content: prompt }],
+      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.3 }
+    );
+
+    const caption = res?.caption || `${task.hook}\n\n${task.topic}\n\n${task.cta}`;
+    const hashtags = normalizeHashtags(res?.hashtags || [], { limit: capability.hashtagLimit });
+    const visualPrompt = res?.visualPrompt || `${task.topic}, high-tech photorealistic 8k commercial photography`;
+    const isVideo = capability.mediaType === "video" || task.format === "Reel" || task.format === "Shorts";
+
+    let mediaUrl: string | undefined;
+    let actualMediaType = isVideo ? "video" : "image";
+
+    // 2. Generate Real AI Visual Media if requested (via Visualizer / AI Studio)
+    if (options?.generateVisuals) {
+      try {
+        const assets = await generateMediaAsset({
+          platform: task.platform,
+          contentType: task.format,
+          mediaType: isVideo ? "video" : "image",
+          prompt: visualPrompt,
+          aspectRatio: capability.defaultAspectRatio,
+          imageModel: "gemini-3-pro-image",
+        });
+        if (assets[0]?.url) {
+          mediaUrl = assets[0].url;
+          actualMediaType = assets[0].type;
+        }
+      } catch (mediaErr) {
+        console.warn("[executeGrowthPlanTask] Media generation non-fatal error:", mediaErr);
+      }
+    }
+
+    // 3. Create real Post record in Database (Content Library & AI Studio synced)
+    const scheduledDate = options?.scheduleNow ? new Date(task.date || Date.now() + 86400000) : null;
+    const postStatus = options?.scheduleNow ? "SCHEDULED" : "APPROVED";
+
+    const post = await prisma.post.create({
+      data: {
+        workspaceId,
+        platform: task.platform,
+        format: task.format,
+        content: caption,
+        hashtags,
+        imageUrl: mediaUrl,
+        imagePrompt: visualPrompt,
+        mediaType: actualMediaType,
+        campaignTopic: task.topic,
+        campaignHook: task.hook,
+        status: postStatus,
+        scheduledFor: scheduledDate,
+        source: "growth-autopilot",
+      },
+    });
+
+    revalidatePath("/dashboard/goals");
+    revalidatePath("/dashboard/content");
+    revalidatePath("/dashboard/ai-studio");
+
+    return {
+      success: true,
+      postId: post.id,
+      platform: post.platform,
+      format: post.format,
+      status: post.status,
+      mediaUrl: post.imageUrl,
+      caption: post.content,
+      scheduledFor: post.scheduledFor?.toISOString() || null,
+    };
+  } catch (error: any) {
+    console.error("[executeGrowthPlanTask] Error executing task:", error);
+    return { success: false, error: error.message || "Failed to execute growth task" };
+  }
+}
+
+/**
+ * Apply an AI Growth Recommendation.
+ */
+export async function applyGrowthRecommendation(
+  workspaceId: string,
+  recommendationId: string
+) {
+  try {
+    const goal = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } });
+    if (!goal) return { success: false, error: "Goal not found" };
+
+    const strategy = (goal.strategy as GrowthStrategy) || null;
+    if (strategy && strategy.recommendations) {
+      const rec = strategy.recommendations.find((r) => r.id === recommendationId);
+      if (rec) {
+        rec.applied = true;
+
+        // Log decision in decision log
+        strategy.decisions.unshift({
+          id: `dec-applied-${Date.now()}`,
+          date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          title: `Applied Recommendation: ${rec.title}`,
+          action: rec.description,
+          reason: rec.why,
+          data: rec.data,
+          expectedImpact: rec.expectedImpact,
+          status: "APPLIED",
+        });
+
+        await (prisma as any).growthGoal.update({
+          where: { workspaceId },
+          data: {
+            strategy: strategy as any,
+            decisions: strategy.decisions as any,
+            updatedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    revalidatePath("/dashboard/goals");
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Legacy compatibility wrapper for createCampaignFromGoal.
+ */
 export async function createCampaignFromGoal({
   workspaceId,
   leadTarget,
@@ -14,113 +380,28 @@ export async function createCampaignFromGoal({
   timeframe: string;
   customFeedback?: string;
 }) {
-  try {
-    const feedbackNote = customFeedback
-      ? `\n\n[Executive Revision Incorporated: "${customFeedback}"]`
-      : "";
+  const timeframeDays = timeframe === "1_MONTH" ? 30 : timeframe === "3_MONTHS" ? 90 : 60;
+  const strategy = await generateGrowthStrategy({
+    workspaceId,
+    userId: "system",
+    leadTarget,
+    leadType: "QUALIFIED_LEADS",
+    timeframeDays,
+    targetPlatforms: ["LinkedIn", "Instagram", "X", "TikTok"],
+    customGuidance: customFeedback,
+  });
 
-    // 1. Fetch Workspace & Brand DNA automatically from DB
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      include: { brandDNA: true },
-    });
-
-    const companyName = workspace?.name || "SMB Robotics";
-    const websiteUrl = workspace?.website || "https://smbrobotic.com";
-    const industry = workspace?.industry || "AI Embedded Technology & SaaS";
-    const valueProposition =
-      workspace?.brandDNA?.missionVision ||
-      "Delivering high-ROI autonomous marketing and smart systems.";
-
-    const now = new Date();
-    const morningTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    morningTime.setHours(8, 30, 0, 0);
-
-    const eveningTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    eveningTime.setHours(18, 30, 0, 0);
-
-    const postsToCreate = [
-      {
-        workspaceId,
-        platform: "LinkedIn",
-        content: `🚨 Why 80% of businesses in ${industry} struggle to scale organic lead velocity (And how ${companyName} solves it).
-
-Most leaders focus on surface-level metrics instead of conversion bottlenecks. Here is our executive framework:
-${valueProposition}
-
-1️⃣ Diagnose conversion friction points
-2️⃣ Deploy high-value educational carousels
-3️⃣ Automate follow-up intent signals
-4️⃣ Scale organic domain authority
-
-💡 READY TO ELEVATE YOUR PIPELINE?
-👉 Visit ${companyName} today: ${websiteUrl}${feedbackNote}`,
-        imagePrompt:
-          "Professional high-contrast corporate 4:5 carousel slide infographic showing executive strategy metrics in modern sleek dark mode with crisp typography.",
-        status: "APPROVED",
-        scheduledFor: morningTime,
-      },
-      {
-        workspaceId,
-        platform: "Instagram",
-        content: `Stop wasting your budget on vanity metrics! 🛑📈
-
-We help ambitious leaders in ${industry} capture qualified leads without paid ad bloat. Here is how ${companyName} transforms organic reach into revenue.
-
-✨ Learn more about our blueprint:
-👉 Visit link in bio (${websiteUrl})
-#${companyName.replace(/\s+/g, "")} #IndustryLeadership #OrganicGrowth #ExecutiveStrategy${feedbackNote}`,
-        imagePrompt:
-          "Vertical 9:16 cinematic video still of an executive entrepreneur analyzing a glowing high-contrast performance dashboard in a silicon valley boardroom.",
-        status: "APPROVED",
-        scheduledFor: eveningTime,
-      },
-      {
-        workspaceId,
-        platform: "X",
-        content: `How ${companyName} generates high-intent leads in ${industry} organically.
-
-Here is our 4-Point Execution Blueprint (Thread) 🧵👇
-
-1/ Align content with actual decision-maker pain points
-2/ Offer immediate value: ${valueProposition}
-3/ Use clear 16:9 infographic data proof
-4/ Publish during peak morning executive windows
-
-🔗 Discover more: ${websiteUrl}${feedbackNote}`,
-        imagePrompt:
-          "16:9 Widescreen clean data infographic contrasting amateur vanity metrics vs professional organic conversion lead velocity.",
-        status: "APPROVED",
-        scheduledFor: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000),
-      },
-      {
-        workspaceId,
-        platform: "TikTok",
-        content: `Here is the secret organic growth framework ${companyName} uses to capture leads! 🔥📱
-
-Stop making generic posts. Hook your audience in the first 2 seconds with actionable authority.
-
-👇 Check out ${websiteUrl} to see our full blueprint!
-#${companyName.replace(/\s+/g, "")} #GrowthStrategy #MarketingAI #BusinessHacks${feedbackNote}`,
-        imagePrompt:
-          "Vertical 9:16 viral phone recording style showing a sleek modern dark-mode analytics dashboard with floating green success badges.",
-        status: "APPROVED",
-        scheduledFor: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
-      },
-    ];
-
-    await prisma.post.createMany({
-      data: postsToCreate,
-    });
-
-    revalidatePath("/dashboard/content");
-    revalidatePath("/dashboard/chat");
-    return {
-      success: true,
-      message: `Generated 4 platform-specific campaigns for ${leadTarget} leads synced with ${companyName} Brand DNA!`,
-    };
-  } catch (error: any) {
-    console.error("Error creating campaign from goal:", error);
-    throw new Error(error.message || "Failed to create campaign from goal");
+  // Execute today's top tasks
+  for (const task of strategy.todayPlan.slice(0, 3)) {
+    await executeGrowthPlanTask(workspaceId, task, { scheduleNow: true });
   }
+
+  revalidatePath("/dashboard/goals");
+  revalidatePath("/dashboard/content");
+  revalidatePath("/dashboard/chat");
+
+  return {
+    success: true,
+    message: `Generated organic growth strategy for ${leadTarget} leads!`,
+  };
 }

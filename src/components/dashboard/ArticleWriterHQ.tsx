@@ -2368,11 +2368,7 @@ export function ArticleWriterHQ({
                           ) || article.content.match(/<img[^>]+src="([^">]+)"/i);
                         const coverUrl = match
                           ? match[1]
-                          : `https://image.pollinations.ai/prompt/${encodeURIComponent(
-                              `${
-                                article.title || keyword
-                              }, modern high-tech professional editorial photography, realistic, high resolution, clean lighting, 8k, no watermark, no text`
-                            )}?width=1200&height=630&nologo=true`;
+                          : `https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1200&auto=format&fit=crop`;
                         return (
                           <div className="relative aspect-video w-full overflow-hidden bg-slate-900">
                             <img
@@ -3241,18 +3237,37 @@ export function ArticleWriterHQ({
                   {!aiPreviewUrl ? (
                     <Button
                       type="button"
-                      onClick={() => {
-                        const w = aiAspectRatio === "vertical" ? 1080 : aiAspectRatio === "square" ? 1080 : 1200;
-                        const h = aiAspectRatio === "vertical" ? 1920 : aiAspectRatio === "square" ? 1080 : 630;
-                        const clean = encodeURIComponent(
-                          (aiPromptInput || keyword || "modern technology").replace(/^\d+\s+(best|top|essential|proven|steps|ways|tips)\s+/i, "") +
-                            ", professional commercial high-tech photography, realistic engineering, studio lighting, ultra-sharp 8k resolution, photorealistic, no cartoons, no toys, no watermark, no text"
-                        );
-                        const generatedUrl = `https://image.pollinations.ai/prompt/${clean}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(
-                          Math.random() * 100000
-                        )}`;
+                      onClick={async () => {
+                        const targetAspect = aiAspectRatio === "vertical" ? "9:16" : aiAspectRatio === "square" ? "1:1" : "16:9";
+                        const cleanPrompt = (aiPromptInput || keyword || "modern technology").replace(/^\d+\s+(best|top|essential|proven|steps|ways|tips)\s+/i, "") +
+                          ", professional commercial photography, realistic engineering, studio lighting, ultra-sharp 8k resolution, photorealistic";
                         setIsGeneratingAiPreview(true);
-                        setAiPreviewUrl(generatedUrl);
+                        try {
+                          const res = await fetch("/api/ai-studio", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              step: "generate-media",
+                              platform: "Blog",
+                              format: "Article",
+                              prompt: cleanPrompt,
+                              aspectRatio: targetAspect,
+                              imageModel: "gemini-3-pro-image",
+                            }),
+                          });
+                          const data = await res.json();
+                          if (data.success && data.asset?.url) {
+                            setAiPreviewUrl(data.asset.url);
+                          } else {
+                            // High-quality stock fallback
+                            setAiPreviewUrl(`https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1200&auto=format&fit=crop`);
+                          }
+                        } catch (e) {
+                          console.warn("[ArticleWriterHQ] AI preview generation error:", e);
+                          setAiPreviewUrl(`https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1200&auto=format&fit=crop`);
+                        } finally {
+                          setIsGeneratingAiPreview(false);
+                        }
                       }}
                       className="w-full h-11 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl"
                     >
@@ -3278,20 +3293,35 @@ export function ArticleWriterHQ({
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => {
-                            const w = aiAspectRatio === "vertical" ? 1080 : aiAspectRatio === "square" ? 1080 : 1200;
-                            const h = aiAspectRatio === "vertical" ? 1920 : aiAspectRatio === "square" ? 1080 : 630;
-                            const newSeed = aiPreviewSeed + 1;
-                            setAiPreviewSeed(newSeed);
-                            const clean = encodeURIComponent(
-                              (aiPromptInput || keyword || "modern technology").replace(/^\d+\s+(best|top|essential|proven|steps|ways|tips)\s+/i, "") +
-                                ", professional commercial high-tech photography, realistic engineering, studio lighting, ultra-sharp 8k resolution, photorealistic, no cartoons, no toys, no watermark, no text"
-                            );
-                            const generatedUrl = `https://image.pollinations.ai/prompt/${clean}?width=${w}&height=${h}&nologo=true&seed=${Math.floor(
-                              Math.random() * 100000
-                            ) + newSeed}`;
+                          onClick={async () => {
+                            const targetAspect = aiAspectRatio === "vertical" ? "9:16" : aiAspectRatio === "square" ? "1:1" : "16:9";
+                            const cleanPrompt = (aiPromptInput || keyword || "modern technology").replace(/^\d+\s+(best|top|essential|proven|steps|ways|tips)\s+/i, "") +
+                              ", professional commercial photography, realistic engineering, studio lighting, ultra-sharp 8k resolution, photorealistic";
                             setIsGeneratingAiPreview(true);
-                            setAiPreviewUrl(generatedUrl);
+                            try {
+                              const res = await fetch("/api/ai-studio", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  step: "generate-media",
+                                  platform: "Blog",
+                                  format: "Article",
+                                  prompt: cleanPrompt,
+                                  aspectRatio: targetAspect,
+                                  imageModel: "gemini-3-pro-image",
+                                }),
+                              });
+                              const data = await res.json();
+                              if (data.success && data.asset?.url) {
+                                setAiPreviewUrl(data.asset.url);
+                              } else {
+                                setAiPreviewUrl(`https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop`);
+                              }
+                            } catch (e) {
+                              setAiPreviewUrl(`https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=1200&auto=format&fit=crop`);
+                            } finally {
+                              setIsGeneratingAiPreview(false);
+                            }
                           }}
                           className="flex-1 h-10 border-amber-500/40 text-amber-600 hover:bg-amber-500/10 text-xs font-bold rounded-xl"
                         >
