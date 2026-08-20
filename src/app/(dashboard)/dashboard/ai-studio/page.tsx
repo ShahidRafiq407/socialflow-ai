@@ -2427,6 +2427,62 @@ export default function AIStudioPage() {
     setTimeout(() => setPublishResult(null), 2500);
   };
 
+  // Robust media resolver: finds images/videos from custom media, rendered images, multi-slides, or cross-platform fallbacks
+  const resolvePostMediaUrls = (platform: string, format: string, data: GeneratedFormat) => {
+    const isMulti = format === "Carousel" || format === "Idea Pin" || format === "Document" || format === "Thread";
+    const mediaUrls: string[] = [];
+
+    if (isMulti) {
+      for (let i = 0; i < 10; i++) {
+        const slideKey = `${platform}-${format}-${i}`;
+        if (clearedMediaKeys[slideKey]) continue;
+        const url =
+          customMediaDict[slideKey]?.url ||
+          renderedImageUrlsDict[slideKey] ||
+          (data.imageUrls && data.imageUrls[i]) ||
+          "";
+        if (url) mediaUrls.push(url);
+      }
+    } else {
+      const primaryKey = `${platform}-${format}-0`;
+      if (!clearedMediaKeys[primaryKey]) {
+        const primaryUrl =
+          customMediaDict[primaryKey]?.url ||
+          renderedImageUrlsDict[primaryKey] ||
+          data.videoUrl ||
+          data.imageUrl ||
+          (data.imageUrls || [])[0] ||
+          "";
+        if (primaryUrl) mediaUrls.push(primaryUrl);
+      }
+    }
+
+    // Cross-platform sync fallback: if no image specifically on this format, inherit from rendered images in this campaign
+    if (mediaUrls.length === 0) {
+      const family = getFormatFamily(platform, format);
+      for (const [key, renderedUrl] of Object.entries(renderedImageUrlsDict)) {
+        if (renderedUrl && !clearedMediaKeys[key]) {
+          const [p, f] = key.split("-");
+          if (p === platform || getFormatFamily(p, f) === family) {
+            mediaUrls.push(renderedUrl);
+            break;
+          }
+        }
+      }
+      if (mediaUrls.length === 0) {
+        for (const [key, cust] of Object.entries(customMediaDict)) {
+          if (cust?.url && !clearedMediaKeys[key]) {
+            mediaUrls.push(cust.url);
+            break;
+          }
+        }
+      }
+    }
+
+    const primaryMediaUrl = mediaUrls[0] || "";
+    return { mediaUrls, primaryMediaUrl };
+  };
+
   // All generated campaign posts that actually have content (caption or media).
   // Handles the duplicate keys stored by handleMultiAgentPayload (raw/lowercase/TitleCase).
   const collectCampaignPosts = () => {
@@ -2434,8 +2490,8 @@ export default function AIStudioPage() {
     for (const [plt, formats] of Object.entries(generatedContents)) {
       for (const [fmt, data] of Object.entries(formats)) {
         if (fmt !== fmt.toLowerCase() && formats[fmt.toLowerCase()] === data) continue; // TitleCase alias
-        const hasMedia =
-          (data.imageUrls || []).some(Boolean) || Boolean(data.imageUrl) || Boolean(data.videoUrl);
+        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(plt, fmt, data);
+        const hasMedia = mediaUrls.length > 0 || Boolean(primaryMediaUrl);
         if ((data.caption || "").trim() || hasMedia) {
           entries.push({ platform: plt, format: fmt, data });
         }
@@ -2507,8 +2563,8 @@ export default function AIStudioPage() {
         // Use the exact time the AI plan showed in the modal (fallback: static best time)
         const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
         const bestAt = planned ? planned.time : getNextBestTime(platform);
-        const mediaUrls = (data.imageUrls || []).filter(Boolean);
-        const mediaUrl = data.videoUrl || data.imageUrl || mediaUrls[0] || "";
+        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+        const mediaUrl = primaryMediaUrl;
         const draftRes = await apiSaveDraft({
           platform,
           content: data.caption || "",
@@ -2566,8 +2622,8 @@ export default function AIStudioPage() {
     const modalItems: PublishItemResult[] = [];
     try {
       for (const { platform, format, data } of posts) {
-        const mediaUrls = (data.imageUrls || []).filter(Boolean);
-        const mediaUrl = data.videoUrl || data.imageUrl || mediaUrls[0] || "";
+        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+        const mediaUrl = primaryMediaUrl;
         try {
           const draftRes = await apiSaveDraft({
             platform,

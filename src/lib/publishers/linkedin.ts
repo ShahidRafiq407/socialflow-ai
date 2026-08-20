@@ -10,72 +10,142 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     }
 
     const { content, imageUrl } = post;
+    const caption = [content, Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '']
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
     
     let specificContent: any = {
       'com.linkedin.ugc.ShareContent': {
         shareCommentary: {
-          text: content || '',
+          text: caption || '',
         },
         shareMediaCategory: 'NONE',
-      }
+      },
     };
 
+    // If an image is attached, perform the 3-step LinkedIn Image Upload
     if (imageUrl) {
-      // NOTE: For a real production app, you first need to register an image upload,
-      // upload the binary data, and get an asset URN.
-      // Here we assume imageUrl is already a registered asset URN or we use an article share for simplicity if it's a URL.
-      // We will map it to an ARTICLE if it's an HTTP url, since uploading raw images requires a 3-step process.
-      specificContent['com.linkedin.ugc.ShareContent'].shareMediaCategory = 'ARTICLE';
-      specificContent['com.linkedin.ugc.ShareContent'].media = [
-        {
-          status: 'READY',
-          description: {
-            text: 'Image',
+      try {
+        // Step 1: Register upload with LinkedIn
+        const regRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-Restli-Protocol-Version': '2.0.0',
           },
-          originalUrl: imageUrl,
+          body: JSON.stringify({
+            registerUploadRequest: {
+              recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+              owner: `urn:li:person:${personUrn}`,
+              supportedUploadMechanism: ['SYNCHRONOUS_UPLOAD'],
+            },
+          }),
+        });
+
+        if (regRes.ok) {
+          const regData = await regRes.json();
+          const assetUrn = regData.value?.asset;
+          const uploadUrl =
+            regData.value?.uploadMechanism?.[
+              'com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'
+            ]?.uploadUrl;
+
+          if (assetUrn && uploadUrl) {
+            // Step 2: Extract binary bytes and PUT to LinkedIn uploadUrl
+            let buffer: Buffer;
+            let mimeType = 'image/png';
+
+            if (imageUrl.startsWith('data:')) {
+              const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
+              mimeType = match ? match[1] : 'image/png';
+              buffer = Buffer.from(match ? match[2] : imageUrl, 'base64');
+            } else {
+              const imgRes = await fetch(imageUrl);
+              buffer = Buffer.from(await imgRes.arrayBuffer());
+              mimeType = imgRes.headers.get('content-type') || 'image/png';
+            }
+
+            const uploadRes = await fetch(uploadUrl, {
+              method: 'PUT',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': mimeType,
+              },
+              body: new Uint8Array(buffer),
+            });
+
+            if (uploadRes.ok || uploadRes.status === 201) {
+              // Step 3: Attach uploaded asset URN to post
+              specificContent['com.linkedin.ugc.ShareContent'].shareMediaCategory = 'IMAGE';
+              specificContent['com.linkedin.ugc.ShareContent'].media = [
+                {
+                  status: 'READY',
+                  description: {
+                    text: caption.slice(0, 200),
+                  },
+                  media: assetUrn,
+                  title: {
+                    text: post.settings?.contentTitle || 'Image',
+                  },
+                },
+              ];
+            }
+          }
         }
-      ];
+      } catch (uploadErr) {
+        console.warn('[LinkedIn Publisher] Image upload failed, falling back to text post:', uploadErr);
+      }
     }
 
     const url = 'https://api.linkedin.com/v2/ugcPosts';
-    // Settings tab → real LinkedIn visibility (Anyone = PUBLIC, Connections = CONNECTIONS)
     const settings = post.settings || {};
     const visibilityCode =
       settings.linkedinVisibility === 'connections'
         ? 'CONNECTIONS'
         : 'PUBLIC';
+
     const body = {
       author: `urn:li:person:${personUrn}`,
       lifecycleState: 'PUBLISHED',
       specificContent,
       visibility: {
-        'com.linkedin.ugc.MemberNetworkVisibility': visibilityCode
-      }
+        'com.linkedin.ugc.MemberNetworkVisibility': visibilityCode,
+      },
     };
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'X-Restli-Protocol-Version': '2.0.0',
       },
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      return { success: false, error: data.message || 'Failed to publish to LinkedIn', platform: 'LINKEDIN' };
+    if (!response.ok || data.error) {
+      return {
+        success: false,
+        error: data.message || `Failed to publish to LinkedIn (${response.status})`,
+        platform: 'LINKEDIN',
+      };
     }
 
     return {
       success: true,
       platformPostId: data.id,
       liveUrl: `https://www.linkedin.com/feed/update/${data.id}`,
-      platform: 'LINKEDIN'
+      platform: 'LINKEDIN',
     };
   } catch (error: any) {
-    return { success: false, error: error.message || 'Unknown error publishing to LinkedIn', platform: 'LINKEDIN' };
+    return {
+      success: false,
+      error: error.message || 'Unknown error publishing to LinkedIn',
+      platform: 'LINKEDIN',
+    };
   }
 }

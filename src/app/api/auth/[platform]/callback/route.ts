@@ -125,6 +125,7 @@ export async function GET(
     const accessToken = tokenData.access_token || tokenData.data?.access_token || "";
     const refreshToken = tokenData.refresh_token || tokenData.data?.refresh_token || null;
     const expiresIn = tokenData.expires_in || tokenData.data?.expires_in || 3600;
+    let finalAccessToken = accessToken;
 
     if (!accessToken) {
       dashboardUrl.searchParams.set("error", `No access token received from ${config.displayName}.`);
@@ -203,25 +204,39 @@ export async function GET(
         pageName = profileData.name || null;
         avatarUrl = profileData.picture?.data?.url || null;
 
-        // For Instagram: try to get Instagram business account
-        if (platform === "instagram") {
-          try {
-            const pagesRes = await fetch(
-              `https://graph.facebook.com/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`
-            );
-            const pagesData = await pagesRes.json();
-            const igPage = pagesData.data?.find((p: any) => p.instagram_business_account);
-            if (igPage?.instagram_business_account?.id) {
-              const igRes = await fetch(
-                `https://graph.facebook.com/${igPage.instagram_business_account.id}?fields=id,username,name,profile_picture_url&access_token=${accessToken}`
-              );
-              const igData = await igRes.json();
-              accountId = igData.id || accountId;
-              handle = igData.username ? `@${igData.username}` : handle;
-              pageName = igData.name || pageName;
-              avatarUrl = igData.profile_picture_url || avatarUrl;
+        // Fetch User's Managed Facebook Pages and linked Instagram Business accounts
+        try {
+          const pagesRes = await fetch(
+            `https://graph.facebook.com/me/accounts?fields=id,name,access_token,category,picture,instagram_business_account{id,username,name,profile_picture_url}&access_token=${accessToken}`
+          );
+          const pagesData = await pagesRes.json();
+          const pagesList = Array.isArray(pagesData.data) ? pagesData.data : [];
+
+          if (platform === "facebook" && pagesList.length > 0) {
+            const primaryPage = pagesList[0];
+            accountId = primaryPage.id;
+            pageName = primaryPage.name;
+            handle = primaryPage.name;
+            avatarUrl = primaryPage.picture?.data?.url || avatarUrl;
+            if (primaryPage.access_token) {
+              finalAccessToken = primaryPage.access_token;
             }
-          } catch {}
+          } else if (platform === "instagram") {
+            const igPage = pagesList.find((p: any) => p.instagram_business_account);
+            if (igPage?.instagram_business_account?.id) {
+              accountId = igPage.instagram_business_account.id;
+              handle = igPage.instagram_business_account.username
+                ? `@${igPage.instagram_business_account.username}`
+                : handle;
+              pageName = igPage.instagram_business_account.name || pageName;
+              avatarUrl = igPage.instagram_business_account.profile_picture_url || avatarUrl;
+              if (igPage.access_token) {
+                finalAccessToken = igPage.access_token;
+              }
+            }
+          }
+        } catch (pageErr) {
+          console.warn("Could not fetch Facebook/Instagram pages in OAuth callback:", pageErr);
         }
       } else if (platform === "linkedin") {
         const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
@@ -294,7 +309,7 @@ export async function GET(
       create: {
         workspaceId: workspace.id,
         platform: prismaEnum as any,
-        accessToken,
+        accessToken: finalAccessToken,
         refreshToken,
         accountId,
         handle,
@@ -303,7 +318,7 @@ export async function GET(
         tokenExpiresAt: new Date(Date.now() + expiresIn * 1000),
       },
       update: {
-        accessToken,
+        accessToken: finalAccessToken,
         refreshToken,
         accountId,
         handle,
