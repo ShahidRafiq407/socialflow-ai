@@ -34,6 +34,7 @@ import {
   Briefcase,
   MessageSquare,
   Video,
+  ExternalLink,
 } from "lucide-react";
 import {
   approvePost,
@@ -58,6 +59,8 @@ export interface PostProps {
   hashtags?: string[];
   campaignTopic?: string | null;
   mediaHistory?: any;
+  source?: string | null;
+  publishError?: string | null;
 }
 
 export function PostCard({ post }: { post: PostProps }) {
@@ -326,7 +329,28 @@ export function PostCard({ post }: { post: PostProps }) {
       </div>
 
       {/* CARD FOOTER */}
-      {post.status === "APPROVED" ? (
+      {post.status === "PUBLISHED" ? (
+        <CardFooter className="border-t p-3 bg-slate-50/30 dark:bg-slate-900/30 flex justify-between items-center">
+          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Published
+          </span>
+          {post.source && (post.source.startsWith("http") || post.source.startsWith("https")) ? (
+            <a
+              href={post.source}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
+            >
+              <span>View Live Post</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : (
+            <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] font-bold py-0 h-5">
+              Live
+            </Badge>
+          )}
+        </CardFooter>
+      ) : post.status === "APPROVED" ? (
         <CardFooter className="border-t p-3 bg-slate-50/30 dark:bg-slate-900/30 flex justify-end">
           <Button
             size="sm"

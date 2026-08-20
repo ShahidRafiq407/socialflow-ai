@@ -69,7 +69,12 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
       return { success: false, error: data.message || 'Failed to publish to LinkedIn', platform: 'LINKEDIN' };
     }
 
-    return { success: true, platformPostId: data.id, platform: 'LINKEDIN' };
+    return {
+      success: true,
+      platformPostId: data.id,
+      liveUrl: `https://www.linkedin.com/feed/update/${data.id}`,
+      platform: 'LINKEDIN'
+    };
   } catch (error: any) {
     return { success: false, error: error.message || 'Unknown error publishing to LinkedIn', platform: 'LINKEDIN' };
   }

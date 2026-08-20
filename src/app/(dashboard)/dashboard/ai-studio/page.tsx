@@ -10,6 +10,7 @@ import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import MultiAgentStreamModal from "@/components/ai-studio/MultiAgentStreamModal";
+import PublishStatusModal, { type PublishItemResult } from "@/components/modals/PublishStatusModal";
 import {
   Card,
   CardHeader,
@@ -565,6 +566,17 @@ export default function AIStudioPage() {
   const [customPromptModalOpen, setCustomPromptModalOpen] = useState(false);
   const [customPromptText, setCustomPromptText] = useState("");
   const [customPromptSlideIdx, setCustomPromptSlideIdx] = useState<number>(0);
+
+  // Verification & live link modal for Publish, Schedule, and Draft actions
+  const [statusModalData, setStatusModalData] = useState<{
+    isOpen: boolean;
+    actionType: "publish" | "schedule" | "draft";
+    items: PublishItemResult[];
+  }>({
+    isOpen: false,
+    actionType: "publish",
+    items: [],
+  });
 
   const [rightPanelTab, setRightPanelTab] = useState<"preview" | "settings">("preview");
   const [devicePreviewMode, setDevicePreviewMode] = useState<"desktop" | "mobile">("mobile");
@@ -2374,13 +2386,24 @@ export default function AIStudioPage() {
       });
       post.id = res.id;
       store.addPost(post);
-      setPublishResult({ success: true, message: "✓ Saved to Content Library — open the Content board anytime to reuse & post it" });
+      setStatusModalData({
+        isOpen: true,
+        actionType: "draft",
+        items: [
+          {
+            platform: post.platform,
+            format: post.format,
+            status: "DRAFT",
+            title: post.caption?.slice(0, 60),
+            thumbnailUrl: post.mediaUrls[0],
+          },
+        ],
+      });
     } catch (e: any) {
       console.error(e);
       setPublishResult({ success: false, message: e.message || "Failed to save draft" });
     } finally {
       setPublishLoading(false);
-      setTimeout(() => setPublishResult(null), 4000);
     }
   };
 
@@ -2478,7 +2501,7 @@ export default function AIStudioPage() {
       return;
     }
     setPublishLoading(true);
-    const scheduled: string[] = [];
+    const modalItems: PublishItemResult[] = [];
     try {
       for (const { platform, format, data } of posts) {
         // Use the exact time the AI plan showed in the modal (fallback: static best time)
@@ -2509,19 +2532,26 @@ export default function AIStudioPage() {
           },
         });
         await apiSchedulePost(draftRes.id, bestAt);
-        scheduled.push(`${getPlatformDef(platform)?.label || platform} → ${bestAt.toLocaleString()}`);
+        modalItems.push({
+          platform,
+          format,
+          status: "SCHEDULED",
+          scheduledFor: bestAt,
+          title: data.caption?.slice(0, 60),
+          thumbnailUrl: mediaUrl,
+        });
       }
       setPublishModal({ type: null });
-      setPublishResult({
-        success: true,
-        message: `AI scheduled ${scheduled.length} post${scheduled.length > 1 ? "s" : ""} at peak audience times: ${scheduled.join(" • ")}`,
+      setStatusModalData({
+        isOpen: true,
+        actionType: "schedule",
+        items: modalItems,
       });
     } catch (e: any) {
       console.error(e);
       setPublishResult({ success: false, message: e.message || "Failed to schedule posts" });
     } finally {
       setPublishLoading(false);
-      setTimeout(() => setPublishResult(null), 8000);
     }
   };
 
@@ -2533,14 +2563,12 @@ export default function AIStudioPage() {
       return;
     }
     setPublishLoading(true);
-    const published: string[] = [];
-    const failed: string[] = [];
+    const modalItems: PublishItemResult[] = [];
     try {
       for (const { platform, format, data } of posts) {
-        const label = getPlatformDef(platform)?.label || platform;
+        const mediaUrls = (data.imageUrls || []).filter(Boolean);
+        const mediaUrl = data.videoUrl || data.imageUrl || mediaUrls[0] || "";
         try {
-          const mediaUrls = (data.imageUrls || []).filter(Boolean);
-          const mediaUrl = data.videoUrl || data.imageUrl || mediaUrls[0] || "";
           const draftRes = await apiSaveDraft({
             platform,
             content: data.caption || "",
@@ -2562,23 +2590,46 @@ export default function AIStudioPage() {
               visualPrompts: data.visualPrompts || [],
             },
           });
-          await apiPublishNow(draftRes.id);
-          published.push(label);
+          const pubRes: any = await apiPublishNow(draftRes.id);
+          if (pubRes?.success) {
+            modalItems.push({
+              platform,
+              format,
+              status: "PUBLISHED",
+              liveUrl: pubRes.liveUrl || `https://${platform.toLowerCase()}.com`,
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            });
+          } else {
+            modalItems.push({
+              platform,
+              format,
+              status: "FAILED",
+              error: pubRes?.error || "Publishing was rejected by social platform API.",
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            });
+          }
         } catch (e: any) {
           console.error(`Publish failed for ${platform}:`, e);
-          failed.push(`${label}: ${e.message || "failed"}`);
+          modalItems.push({
+            platform,
+            format,
+            status: "FAILED",
+            error: e.message || "Failed to dispatch post.",
+            title: data.caption?.slice(0, 60),
+            thumbnailUrl: mediaUrl,
+          });
         }
       }
-      if (published.length > 0 && failed.length === 0) {
-        setPublishResult({ success: true, message: `Published to ${published.join(", ")} ✓` });
-      } else if (published.length > 0) {
-        setPublishResult({ success: true, message: `Published to ${published.join(", ")} ✓ — failed: ${failed.join("; ")}` });
-      } else {
-        setPublishResult({ success: false, message: `Publish failed — ${failed.join("; ")}` });
-      }
+      setPublishModal({ type: null });
+      setStatusModalData({
+        isOpen: true,
+        actionType: "publish",
+        items: modalItems,
+      });
     } finally {
       setPublishLoading(false);
-      setTimeout(() => setPublishResult(null), 8000);
     }
   };
 
@@ -4795,6 +4846,17 @@ export default function AIStudioPage() {
         platforms={selectedPlatforms}
         contentTypes={selectedContentTypes}
         onCompletePayload={handleMultiAgentPayload}
+      />
+
+      {/* ============================================================================ */}
+      {/* 6. REAL SOCIAL PUBLISH & SCHEDULE VERIFICATION MODAL */}
+      {/* ============================================================================ */}
+      <PublishStatusModal
+        isOpen={statusModalData.isOpen}
+        onClose={() => setStatusModalData(prev => ({ ...prev, isOpen: false }))}
+        actionType={statusModalData.actionType}
+        items={statusModalData.items}
+        campaignTopic={campaignTopic}
       />
     </div>
   );

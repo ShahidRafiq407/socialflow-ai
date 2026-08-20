@@ -130,31 +130,48 @@ export async function publishToPlatform(post: any, account: any) {
     const result = await publishToPlatformProvider(post, account);
 
     if (result.success) {
-      return await prisma.post.update({
+      const updated = await prisma.post.update({
         where: { id: post.id },
         data: {
           status: 'PUBLISHED',
           publishedAt: new Date(),
-          source: result.platformPostId, // Or wherever you want to store it
+          source: result.liveUrl || result.platformPostId || 'published',
         },
       });
+      return {
+        success: true,
+        post: updated,
+        liveUrl: result.liveUrl,
+        platformPostId: result.platformPostId,
+      };
     } else {
-      return await prisma.post.update({
+      const updated = await prisma.post.update({
         where: { id: post.id },
         data: {
           status: 'FAILED',
-          publishError: result.error,
+          publishError: result.error || 'Failed to publish to platform',
         },
       });
+      return {
+        success: false,
+        post: updated,
+        error: result.error || 'Failed to publish to platform',
+      };
     }
   } catch (error: any) {
-    return await prisma.post.update({
+    const errorMsg = error.message || 'Unknown error during publishing';
+    const updated = await prisma.post.update({
       where: { id: post.id },
       data: {
         status: 'FAILED',
-        publishError: error.message || 'Unknown error',
+        publishError: errorMsg,
       },
     });
+    return {
+      success: false,
+      post: updated,
+      error: errorMsg,
+    };
   }
 }
 

@@ -1,6 +1,7 @@
 export interface PublishResult {
   success: boolean;
   platformPostId?: string;
+  liveUrl?: string;
   error?: string;
   platform: string;
 }

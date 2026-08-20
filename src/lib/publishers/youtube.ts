@@ -107,9 +107,11 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
       };
     }
 
+    const videoId = uploadData?.id;
     return {
       success: true,
-      platformPostId: uploadData?.id,
+      platformPostId: videoId,
+      liveUrl: videoId ? `https://www.youtube.com/watch?v=${videoId}` : 'https://www.youtube.com/',
       platform: 'YOUTUBE',
     };
   } catch (error: any) {

@@ -46,11 +46,13 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return { success: false, error: data.detail || 'Failed to publish to X', platform: 'X' };
-    }
-
-    return { success: true, platformPostId: data.data?.id, platform: 'X' };
+    const tweetId = data.data?.id;
+    return {
+      success: true,
+      platformPostId: tweetId,
+      liveUrl: tweetId ? `https://x.com/i/status/${tweetId}` : 'https://x.com/',
+      platform: 'X'
+    };
   } catch (error: any) {
     return { success: false, error: error.message || 'Unknown error publishing to X', platform: 'X' };
   }

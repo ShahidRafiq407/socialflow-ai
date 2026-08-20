@@ -919,11 +919,13 @@ INSTRUCTIONS:
       try {
         const result = await publishToPlatform(post, account);
         return {
-          id: result.id,
-          platform: result.platform,
-          status: result.status,
-          publishedAt: result.publishedAt?.toISOString() || null,
-          publishError: result.publishError || null,
+          id: result.post.id,
+          platform: result.post.platform,
+          status: result.post.status,
+          publishedAt: result.post.publishedAt?.toISOString() || null,
+          publishError: result.post.publishError || null,
+          liveUrl: result.liveUrl || null,
+          success: result.success,
         };
       } catch (err: any) {
         return { error: `Publishing failed: ${err.message}` };

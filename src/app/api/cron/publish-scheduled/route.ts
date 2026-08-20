@@ -105,7 +105,7 @@ export async function GET(request: Request) {
             data: {
               status: 'PUBLISHED',
               publishedAt: new Date(),
-              source: result.platformPostId,
+              source: result.liveUrl || result.platformPostId || 'published',
             },
           });
           results.push({ id: post.id, status: 'PUBLISHED' });
