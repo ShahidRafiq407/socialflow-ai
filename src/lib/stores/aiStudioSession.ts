@@ -85,6 +85,16 @@ interface AIStudioSessionState {
   clearedMediaKeys: Record<string, boolean>;
   videoAspectDict: Record<string, string>;
 
+  // Generation & rendering progress/status (survives tab transitions)
+  renderingMediaKeys: Record<string, boolean>;
+  renderingAllSlidesKeys: Record<string, boolean>;
+  generatingCopyKeys: Record<string, boolean>;
+  videoStatusDict: Record<string, "idle" | "queued" | "processing" | "completed" | "failed">;
+  videoErrorDict: Record<string, string | null>;
+  renderErrorDict: Record<string, string | null>;
+  generationProgressDict: Record<string, number>;
+  generationStageDict: Record<string, string>;
+
   // HTML slides (LinkedIn Document)
   htmlSlidesDict: Record<string, string>;
 
@@ -120,6 +130,14 @@ interface AIStudioSessionState {
   setCustomMediaDict: (arg: SetStateArg<Record<string, { url: string; type: "image" | "video" }>>) => void;
   setClearedMediaKeys: (arg: SetStateArg<Record<string, boolean>>) => void;
   setVideoAspectDict: (arg: SetStateArg<Record<string, string>>) => void;
+  setRenderingMediaKeys: (arg: SetStateArg<Record<string, boolean>>) => void;
+  setRenderingAllSlidesKeys: (arg: SetStateArg<Record<string, boolean>>) => void;
+  setGeneratingCopyKeys: (arg: SetStateArg<Record<string, boolean>>) => void;
+  setVideoStatusDict: (arg: SetStateArg<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>) => void;
+  setVideoErrorDict: (arg: SetStateArg<Record<string, string | null>>) => void;
+  setRenderErrorDict: (arg: SetStateArg<Record<string, string | null>>) => void;
+  setGenerationProgressDict: (arg: SetStateArg<Record<string, number>>) => void;
+  setGenerationStageDict: (arg: SetStateArg<Record<string, string>>) => void;
   setHtmlSlidesDict: (arg: SetStateArg<Record<string, string>>) => void;
 
   // Bulk reset
@@ -213,6 +231,14 @@ export const useAIStudioSessionStore = create<AIStudioSessionState>()(
       customMediaDict: {},
       clearedMediaKeys: {},
       videoAspectDict: {},
+      renderingMediaKeys: {},
+      renderingAllSlidesKeys: {},
+      generatingCopyKeys: {},
+      videoStatusDict: {},
+      videoErrorDict: {},
+      renderErrorDict: {},
+      generationProgressDict: {},
+      generationStageDict: {},
       htmlSlidesDict: {},
       _lastUpdated: 0,
 
@@ -245,6 +271,14 @@ export const useAIStudioSessionStore = create<AIStudioSessionState>()(
       setCustomMediaDict: (arg) => set((s) => ({ customMediaDict: resolveArg(arg, s.customMediaDict), _lastUpdated: Date.now() })),
       setClearedMediaKeys: (arg) => set((s) => ({ clearedMediaKeys: resolveArg(arg, s.clearedMediaKeys), _lastUpdated: Date.now() })),
       setVideoAspectDict: (arg) => set((s) => ({ videoAspectDict: resolveArg(arg, s.videoAspectDict), _lastUpdated: Date.now() })),
+      setRenderingMediaKeys: (arg) => set((s) => ({ renderingMediaKeys: resolveArg(arg, s.renderingMediaKeys), _lastUpdated: Date.now() })),
+      setRenderingAllSlidesKeys: (arg) => set((s) => ({ renderingAllSlidesKeys: resolveArg(arg, s.renderingAllSlidesKeys), _lastUpdated: Date.now() })),
+      setGeneratingCopyKeys: (arg) => set((s) => ({ generatingCopyKeys: resolveArg(arg, s.generatingCopyKeys), _lastUpdated: Date.now() })),
+      setVideoStatusDict: (arg) => set((s) => ({ videoStatusDict: resolveArg(arg, s.videoStatusDict), _lastUpdated: Date.now() })),
+      setVideoErrorDict: (arg) => set((s) => ({ videoErrorDict: resolveArg(arg, s.videoErrorDict), _lastUpdated: Date.now() })),
+      setRenderErrorDict: (arg) => set((s) => ({ renderErrorDict: resolveArg(arg, s.renderErrorDict), _lastUpdated: Date.now() })),
+      setGenerationProgressDict: (arg) => set((s) => ({ generationProgressDict: resolveArg(arg, s.generationProgressDict), _lastUpdated: Date.now() })),
+      setGenerationStageDict: (arg) => set((s) => ({ generationStageDict: resolveArg(arg, s.generationStageDict), _lastUpdated: Date.now() })),
       setHtmlSlidesDict: (arg) => set((s) => ({ htmlSlidesDict: resolveArg(arg, s.htmlSlidesDict), _lastUpdated: Date.now() })),
 
       resetSession: () => set({
@@ -276,6 +310,14 @@ export const useAIStudioSessionStore = create<AIStudioSessionState>()(
         customMediaDict: {},
         clearedMediaKeys: {},
         videoAspectDict: {},
+        renderingMediaKeys: {},
+        renderingAllSlidesKeys: {},
+        generatingCopyKeys: {},
+        videoStatusDict: {},
+        videoErrorDict: {},
+        renderErrorDict: {},
+        generationProgressDict: {},
+        generationStageDict: {},
         htmlSlidesDict: {},
         _lastUpdated: Date.now(),
       }),

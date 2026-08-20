@@ -476,6 +476,14 @@ export default function AIStudioPage() {
     customMediaDict, setCustomMediaDict,
     clearedMediaKeys, setClearedMediaKeys,
     videoAspectDict, setVideoAspectDict,
+    renderingMediaKeys, setRenderingMediaKeys,
+    renderingAllSlidesKeys, setRenderingAllSlidesKeys,
+    generatingCopyKeys, setGeneratingCopyKeys,
+    videoStatusDict, setVideoStatusDict,
+    videoErrorDict, setVideoErrorDict,
+    renderErrorDict, setRenderErrorDict,
+    generationProgressDict, setGenerationProgressDict,
+    generationStageDict, setGenerationStageDict,
     htmlSlidesDict, setHtmlSlidesDict,
   } = useAIStudioSessionStore();
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
@@ -1075,8 +1083,7 @@ export default function AIStudioPage() {
   // altTextDict, mediaItemsDict, activeMediaIndexDict, publishSettingsDict are now in the persisted session store
   const [isApplyingTrend, setIsApplyingTrend] = useState(false);
 
-  // Format-Scoped Parallel Generation States (transient — reset on mount is fine)
-  const [generatingCopyKeys, setGeneratingCopyKeys] = useState<Record<string, boolean>>({});
+  // Format-Scoped Parallel Generation States
   const [enhancingPromptKeys, setEnhancingPromptKeys] = useState<Record<string, boolean>>({});
   const [scriptPromptKeys, setScriptPromptKeys] = useState<Record<string, boolean>>({});
 
@@ -1563,9 +1570,7 @@ export default function AIStudioPage() {
     }
   };
 
-  const [renderingMediaKeys, setRenderingMediaKeys] = useState<Record<string, boolean>>({});
-  const [renderingAllSlidesKeys, setRenderingAllSlidesKeys] = useState<Record<string, boolean>>({});
-  // renderedImageUrlsDict, customPromptDict, originalPromptDict are now in the persisted session store
+  // renderingMediaKeys, renderingAllSlidesKeys, renderedImageUrlsDict, customPromptDict, originalPromptDict are now in the persisted session store
   const customPrompt = customPromptDict[currentFormatKey] !== undefined
     ? customPromptDict[currentFormatKey]
     : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
@@ -1755,12 +1760,7 @@ export default function AIStudioPage() {
 
 
   const [videoDurationSec, setVideoDurationSec] = useState<number>(5);
-  const [videoStatusDict, setVideoStatusDict] = useState<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>({});
-  const [videoErrorDict, setVideoErrorDict] = useState<Record<string, string | null>>({});
-  const [renderErrorDict, setRenderErrorDict] = useState<Record<string, string | null>>({});
-  // videoAspectDict is now in the persisted session store
-  const [generationProgressDict, setGenerationProgressDict] = useState<Record<string, number>>({});
-  const [generationStageDict, setGenerationStageDict] = useState<Record<string, string>>({});
+  // videoStatusDict, videoErrorDict, renderErrorDict, videoAspectDict, generationProgressDict, generationStageDict are in the persisted session store
 
   const videoStatus = videoStatusDict[currentFormatKey] || "idle";
   const videoError = videoErrorDict[currentFormatKey] || null;
