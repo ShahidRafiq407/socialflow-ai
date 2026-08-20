@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { create } from "zustand";
+import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
@@ -442,6 +443,41 @@ export default function AIStudioPage() {
   // STORE + PLATFORM CONNECTIONS
   // ============================================================================
   const store = useContentStudioStore();
+
+  // ============================================================================
+  // PERSISTED SESSION STORE — survives tab switches, refresh, format changes
+  // ============================================================================
+  const {
+    generatedContents, setGeneratedContents,
+    campaignTopic, setCampaignTopic,
+    campaignHook, setCampaignHook,
+    campaignTrendSource, setCampaignTrendSource,
+    aiCampaignId, setAiCampaignId,
+    generationState, setGenerationState,
+    brandTone, setBrandTone,
+    activePlatformTab, setActivePlatformTab,
+    activeFormatTab, setActiveFormatTab,
+    selectedPlatforms, setSelectedPlatforms,
+    selectedContentTypes, setSelectedContentTypes,
+    titleDict, setTitleDict,
+    descriptionDict, setDescriptionDict,
+    destinationUrlDict, setDestinationUrlDict,
+    boardDict, setBoardDict,
+    taggedTopicsDict, setTaggedTopicsDict,
+    altTextDict, setAltTextDict,
+    mediaItemsDict, setMediaItemsDict,
+    activeMediaIndexDict, setActiveMediaIndexDict,
+    publishSettingsDict, setPublishSettingsDict,
+    customPromptDict, setCustomPromptDict,
+    originalPromptDict, setOriginalPromptDict,
+    captionHistory, setCaptionHistory,
+    captionHistoryIdx, setCaptionHistoryIdx,
+    renderedImageUrlsDict, setRenderedImageUrlsDict,
+    customMediaDict, setCustomMediaDict,
+    clearedMediaKeys, setClearedMediaKeys,
+    videoAspectDict, setVideoAspectDict,
+    htmlSlidesDict, setHtmlSlidesDict,
+  } = useAIStudioSessionStore();
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [integrationsList, setIntegrationsList] = useState<any[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(true);
@@ -550,16 +586,7 @@ export default function AIStudioPage() {
   // ============================================================================
   // PLATFORM & CONTENT TYPE SELECTION
   // ============================================================================
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [selectedContentTypes, setSelectedContentTypes] = useState<Record<string, string[]>>({
-    instagram: ["Feed", "Reel"],
-    facebook: ["Feed", "Reel"],
-    linkedin: ["Post", "Document"],
-    x: ["Post"],
-    youtube: ["Shorts"],
-    tiktok: ["Video"],
-    pinterest: ["Pin", "Idea Pin"],
-  });
+  // selectedPlatforms and selectedContentTypes are now in the persisted session store
 
   useEffect(() => {
     if (connectedPlatforms.length > 0 && selectedPlatforms.length === 0) {
@@ -622,7 +649,7 @@ export default function AIStudioPage() {
   // ============================================================================
   // GENERATION PIPELINE
   // ============================================================================
-  const [generationState, setGenerationState] = useState<"idle" | "running" | "completed">("idle");
+  // generationState is now in the persisted session store
   const [isMultiAgentModalOpen, setIsMultiAgentModalOpen] = useState(false);
 
   const handleMultiAgentPayload = (campaignPayload: any) => {
@@ -725,20 +752,13 @@ export default function AIStudioPage() {
   const [pipelineStep, setPipelineStep] = useState(0);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
-  const [campaignTopic, setCampaignTopic] = useState("");
-  const [campaignHook, setCampaignHook] = useState("");
-  const [campaignTrendSource, setCampaignTrendSource] = useState("");
-  const [generatedContents, setGeneratedContents] = useState<Record<string, Record<string, GeneratedFormat>>>({});
-  const [aiCampaignId, setAiCampaignId] = useState<string | null>(null);
+  // campaignTopic, campaignHook, campaignTrendSource, generatedContents, aiCampaignId,
+  // htmlSlidesDict, brandTone are now in the persisted session store
 
-  const [htmlSlidesDict, setHtmlSlidesDict] = useState<Record<string, string>>({});
   const [loadingHtmlSlides, setLoadingHtmlSlides] = useState<Record<string, boolean>>({});
 
   type AgentLog = { node: string; payload?: any; timestamp: number };
   const [agentLogs, setAgentLogs] = useState<AgentLog[]>([]);
-
-  // Brand tone (dynamically loaded from Brand Analyst in future)
-  const [brandTone, setBrandTone] = useState("Professional and engaging");
 
   // ============================================================================
   // AI CAMPAIGN GENERATION
@@ -861,11 +881,8 @@ export default function AIStudioPage() {
   // ============================================================================
   // WORKSPACE STATE
   // ============================================================================
-  const [activePlatformTab, setActivePlatformTab] = useState<string>("instagram");
+  // activePlatformTab and activeFormatTab are now in the persisted session store
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
-  const [activeFormatTab, setActiveFormatTab] = useState<Record<string, string>>({
-    instagram: "Reel", linkedin: "Post", facebook: "Feed", x: "Post", youtube: "Shorts", tiktok: "Video", pinterest: "Pin"
-  });
 
   useEffect(() => {
     if (!selectedPlatforms.includes(activePlatformTab) && selectedPlatforms.length > 0) {
@@ -960,8 +977,7 @@ export default function AIStudioPage() {
   const currentAspectRatio = getAspectRatio(currentFormatName);
 
   // Caption undo/redo history per format
-  const [captionHistory, setCaptionHistory] = useState<Record<string, string[]>>({});
-  const [captionHistoryIdx, setCaptionHistoryIdx] = useState<Record<string, number>>({});
+  // captionHistory and captionHistoryIdx are now in the persisted session store
 
   const historyKey = `${activePlatformTab}-${currentFormatName}`;
 
@@ -1055,20 +1071,11 @@ export default function AIStudioPage() {
   // PLATFORM-NATIVE FIELD DICTIONARIES
   // ============================================================================
   const currentFormatKey = `${activePlatformTab}-${currentFormatName}`;
-  const [titleDict, setTitleDict] = useState<Record<string, string>>({});
-  const [descriptionDict, setDescriptionDict] = useState<Record<string, string>>({});
-  const [destinationUrlDict, setDestinationUrlDict] = useState<Record<string, string>>({});
-  const [boardDict, setBoardDict] = useState<Record<string, string>>({});
-  const [taggedTopicsDict, setTaggedTopicsDict] = useState<Record<string, string[]>>({});
-  const [altTextDict, setAltTextDict] = useState<Record<string, string>>({});
-  const [mediaItemsDict, setMediaItemsDict] = useState<Record<string, MultiMediaItem[]>>({});
-  const [activeMediaIndexDict, setActiveMediaIndexDict] = useState<Record<string, number>>({});
-  // Platform-native publishing settings — ONLY settings the real publishers apply.
-  // Keyed per formatKey so switching platform/format never leaks stale settings.
-  const [publishSettingsDict, setPublishSettingsDict] = useState<Record<string, Record<string, any>>>({});
+  // titleDict, descriptionDict, destinationUrlDict, boardDict, taggedTopicsDict,
+  // altTextDict, mediaItemsDict, activeMediaIndexDict, publishSettingsDict are now in the persisted session store
   const [isApplyingTrend, setIsApplyingTrend] = useState(false);
 
-  // Format-Scoped Parallel Generation States
+  // Format-Scoped Parallel Generation States (transient — reset on mount is fine)
   const [generatingCopyKeys, setGeneratingCopyKeys] = useState<Record<string, boolean>>({});
   const [enhancingPromptKeys, setEnhancingPromptKeys] = useState<Record<string, boolean>>({});
   const [scriptPromptKeys, setScriptPromptKeys] = useState<Record<string, boolean>>({});
@@ -1510,7 +1517,7 @@ export default function AIStudioPage() {
   // MEDIA UPLOAD & MULTI-SLIDE RESOLUTION (with memory leak fix)
   // ============================================================================
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [customMediaDict, setCustomMediaDict] = useState<Record<string, { url: string; type: "image" | "video" }>>({});
+  // customMediaDict is now in the persisted session store;
 
   // MEMORY LEAK FIX: revoke URLs when removed or component unmounts
   const revokeMediaUrl = (key: string) => {
@@ -1533,7 +1540,7 @@ export default function AIStudioPage() {
   const currentMediaKey = `${activePlatformTab}-${currentFormatName}-${activeSlideIdx}`;
   const customMedia = customMediaDict[currentMediaKey] || null;
 
-  const [clearedMediaKeys, setClearedMediaKeys] = useState<Record<string, boolean>>({});
+  // clearedMediaKeys is now in the persisted session store
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1558,10 +1565,7 @@ export default function AIStudioPage() {
 
   const [renderingMediaKeys, setRenderingMediaKeys] = useState<Record<string, boolean>>({});
   const [renderingAllSlidesKeys, setRenderingAllSlidesKeys] = useState<Record<string, boolean>>({});
-  const [renderedImageUrlsDict, setRenderedImageUrlsDict] = useState<Record<string, string>>({});
-  const [customPromptDict, setCustomPromptDict] = useState<Record<string, string>>({});
-  // Original (pre-enhancement) prompts so "Enhance Prompt" never destroys user wording
-  const [originalPromptDict, setOriginalPromptDict] = useState<Record<string, string>>({});
+  // renderedImageUrlsDict, customPromptDict, originalPromptDict are now in the persisted session store
   const customPrompt = customPromptDict[currentFormatKey] !== undefined
     ? customPromptDict[currentFormatKey]
     : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
@@ -1754,8 +1758,7 @@ export default function AIStudioPage() {
   const [videoStatusDict, setVideoStatusDict] = useState<Record<string, "idle" | "queued" | "processing" | "completed" | "failed">>({});
   const [videoErrorDict, setVideoErrorDict] = useState<Record<string, string | null>>({});
   const [renderErrorDict, setRenderErrorDict] = useState<Record<string, string | null>>({});
-  // Last aspect ratio actually used for a generation per format (drives preview frame)
-  const [videoAspectDict, setVideoAspectDict] = useState<Record<string, string>>({});
+  // videoAspectDict is now in the persisted session store
   const [generationProgressDict, setGenerationProgressDict] = useState<Record<string, number>>({});
   const [generationStageDict, setGenerationStageDict] = useState<Record<string, string>>({});
 

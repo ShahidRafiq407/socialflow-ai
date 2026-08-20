@@ -439,8 +439,8 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
     }
     if (idx > 0) {
-      onProgress?.(`[Visualizer] Rate limit buffer: waiting 3 seconds before slide ${idx + 1}/${assetCount}...`);
-      await new Promise(r => setTimeout(r, 3000));
+      onProgress?.(`[Visualizer] Preparing slide ${idx + 1}/${assetCount}...`);
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     const currentPrompt = (input.visualPrompts && input.visualPrompts[idx])
@@ -459,118 +459,100 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       // Strictly Google Cloud Model Garden gemini-3-pro-image (Nano Banana Pro)
       const modelName = "gemini-3-pro-image";
 
-      // 1. generateContent with responseModalities ["TEXT", "IMAGE"] (Official Google Gemini Image Generation API)
+      // 1. generateContent with responseModalities (Official Google Gemini Image Generation API)
       if (typeof ai?.models?.generateContent === "function") {
-        // Try with primary model, then fallback models
-        const imageModels = [modelName, "gemini-2.0-flash-preview-image-generation", "gemini-2.0-flash-exp"];
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
-
-        // BOUNDED strategy chain: Gemini image models sometimes return a text-only
-        // response (no inlineData). The previous loop never terminated in that case,
-        // which hung the whole Visualizer. Every iteration now consumes an attempt,
-        // so this loop ALWAYS finishes — success, model fallback, or clean failure.
-        const MAX_TOTAL_ATTEMPTS = 6;
-        const MAX_RATE_LIMIT_WAITS = 5;
+        const MAX_TOTAL_ATTEMPTS = 3;
+        const MAX_RATE_LIMIT_WAITS = 2;
         let totalAttempts = 0;
         let rateLimitWaits = 0;
 
-        for (const tryModel of imageModels) {
+        for (const modalities of modalityCombos) {
           if (imageUrl || totalAttempts >= MAX_TOTAL_ATTEMPTS) break;
-          for (const modalities of modalityCombos) {
-            if (imageUrl || totalAttempts >= MAX_TOTAL_ATTEMPTS) break;
 
-            let comboAttempts = 0;
-            while (!imageUrl && comboAttempts < 2 && totalAttempts < MAX_TOTAL_ATTEMPTS) {
-              if (input.signal?.aborted) {
-                throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
-              }
+          if (input.signal?.aborted) {
+            throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+          }
 
-              comboAttempts++;
-              totalAttempts++;
+          totalAttempts++;
 
-              try {
-                const statusLabel = assetCount > 1
-                  ? `[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${tryModel}...`
-                  : `[Visualizer] Generating image via ${tryModel}...`;
-                onProgress?.(statusLabel);
-                console.log(`[Visualizer] Trying generateContent on ${tryModel} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
+          try {
+            const statusLabel = assetCount > 1
+              ? `[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${modelName}...`
+              : `[Visualizer] Generating image via ${modelName}...`;
+            onProgress?.(statusLabel);
+            console.log(`[Visualizer] Generating image on ${modelName} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
 
-                let contentsInput: any = slidePrompt;
-                if (input.sourceImage) {
-                  const inline = toInlineInput(input.sourceImage);
-                  if (inline) {
-                    contentsInput = [
-                      {
-                        inlineData: {
-                          mimeType: inline.mimeType,
-                          data: inline.bytes,
-                        },
-                      },
-                      { text: `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}` },
-                    ];
-                  }
-                }
-
-                const genRes = await Promise.race([
-                  ai.models.generateContent({
-                    model: tryModel,
-                    contents: contentsInput,
-                    config: {
-                      responseModalities: modalities,
-                      imageConfig: {
-                        aspectRatio: targetImageAspect,
-                      },
+            let contentsInput: any = slidePrompt;
+            if (input.sourceImage) {
+              const inline = toInlineInput(input.sourceImage);
+              if (inline) {
+                contentsInput = [
+                  {
+                    inlineData: {
+                      mimeType: inline.mimeType,
+                      data: inline.bytes,
                     },
-                  }),
-                  new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error("Image generation timeout after 60s")), 60000)
-                  )
-                ]);
+                  },
+                  { text: `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}` },
+                ];
+              }
+            }
 
-                const candidates = (genRes as any)?.candidates || [];
-                for (const cand of candidates) {
-                  const parts = cand?.content?.parts || [];
-                  for (const part of parts) {
-                    if (part.inlineData?.data) {
-                      imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${tryModel}`);
-                      break;
-                    }
-                    if (part.inline_data?.data) {
-                      imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
-                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${tryModel}`);
-                      break;
-                    }
-                    if (part.image?.imageBytes) {
-                      imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
-                      console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${tryModel}`);
-                      break;
-                    }
-                  }
-                  if (imageUrl) break;
+            const genRes = await Promise.race([
+              ai.models.generateContent({
+                model: modelName,
+                contents: contentsInput,
+                config: {
+                  responseModalities: modalities,
+                  imageConfig: {
+                    aspectRatio: targetImageAspect,
+                  },
+                },
+              }),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Image generation timeout after 40s")), 40000)
+              )
+            ]);
+
+            const candidates = (genRes as any)?.candidates || [];
+            for (const cand of candidates) {
+              const parts = cand?.content?.parts || [];
+              for (const part of parts) {
+                if (part.inlineData?.data) {
+                  imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${modelName}`);
+                  break;
                 }
-
-                if (!imageUrl) {
-                  const finishReason = (candidates as any)[0]?.finishReason || "unknown";
-                  console.warn(`[Visualizer] ${tryModel} responded WITHOUT image data (finishReason: ${finishReason}). Moving to next strategy...`);
+                if (part.inline_data?.data) {
+                  imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
+                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${modelName}`);
+                  break;
                 }
-              } catch (e: any) {
-                console.warn(`[Visualizer] generateContent on ${tryModel} (${modalities.join(",")}) failed (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}):`, e?.message || e);
-                const msg = (e?.message || "").toLowerCase();
-                const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("unavailable");
-
-                if (isRateLimit && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
-                  // Exponential backoff (8s → 16s → 24s → 30s cap) per Google 429 guidance.
-                  // The wait does NOT consume a generation attempt, so a rate-limit storm
-                  // cannot silently eat the whole attempt budget.
-                  rateLimitWaits++;
-                  const waitMs = Math.min(8000 * rateLimitWaits, 30000);
-                  onProgress?.(`[Visualizer] API rate limit hit. Backing off ${waitMs / 1000}s before retry (wait ${rateLimitWaits}/${MAX_RATE_LIMIT_WAITS})...`);
-                  await new Promise(r => setTimeout(r, waitMs));
-                  totalAttempts--;
-                  comboAttempts--;
+                if (part.image?.imageBytes) {
+                  imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
+                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${modelName}`);
+                  break;
                 }
               }
+              if (imageUrl) break;
+            }
+
+            if (!imageUrl) {
+              const finishReason = (candidates as any)[0]?.finishReason || "unknown";
+              console.warn(`[Visualizer] ${modelName} responded without image data (${finishReason}). Retrying...`);
+            }
+          } catch (e: any) {
+            console.warn(`[Visualizer] generateContent on ${modelName} (${modalities.join(",")}) failed (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}):`, e?.message || e);
+            const msg = (e?.message || "").toLowerCase();
+            const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("unavailable");
+
+            if (isRateLimit && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
+              rateLimitWaits++;
+              const waitMs = Math.min(2000 * rateLimitWaits, 6000);
+              onProgress?.(`[Visualizer] Rate limit buffer: waiting ${waitMs / 1000}s before retry...`);
+              await new Promise(r => setTimeout(r, waitMs));
+              totalAttempts--;
             }
           }
         }
@@ -586,7 +568,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               aspect_ratio: targetImageAspect,
             }),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Image interactions.create timeout after 60s")), 60000)
+              setTimeout(() => reject(new Error("Image interactions.create timeout after 35s")), 35000)
             )
           ]);
 
