@@ -223,23 +223,6 @@ export default function PinterestPinEditor({
                 accentColor="red"
                 mediaType={isVideo ? "video" : "image"}
               />
-            ) : renderError ? (
-              <div className="text-center p-4 space-y-2.5">
-                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
-                <div className="space-y-0.5">
-                  <p className="text-xs font-bold text-red-400">Generation failed</p>
-                  <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleGeneratePin}
-                  disabled={!prompt.trim()}
-                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
-                </Button>
-              </div>
             ) : displayImageUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 {isVideo ? (
@@ -256,7 +239,6 @@ export default function PinterestPinEditor({
                     className="w-full h-full object-cover rounded-xl"
                   />
                 )}
-
                 {/* EDIT/DELETE ACTIONS */}
                 <div className="absolute top-3 right-3 flex items-center gap-1.5 z-20">
                   <button
@@ -276,6 +258,23 @@ export default function PinterestPinEditor({
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
+              </div>
+            ) : renderError ? (
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGeneratePin}
+                  disabled={!prompt.trim()}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
               </div>
             ) : (
               <div className="p-3 text-center space-y-2 w-full">

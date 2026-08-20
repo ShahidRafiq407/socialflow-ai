@@ -268,6 +268,23 @@ export default function InstagramCarouselEditor({
                 accentColor="pink"
                 mediaType="carousel"
               />
+            ) : activeSlide.imageUrl ? (
+              <div className="relative w-full h-full rounded-xl overflow-hidden">
+                <ContentMediaRenderer
+                  url={activeSlide.imageUrl}
+                  isVertical={false}
+                  showRemoveButton={false}
+                  showDownloadButton={false}
+                  alt={`Slide ${currentIdx + 1}`}
+                />
+                {/* OVERLAY BADGE */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
+                  <span className="bg-slate-900/90 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
+                    Slide {currentIdx + 1} of {effectiveSlides.length}
+                  </span>
+                  <p className="text-white text-xs font-bold line-clamp-1">{activeSlide.title}</p>
+                </div>
+              </div>
             ) : renderError ? (
               <div className="text-center p-4 space-y-2.5">
                 <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
@@ -296,23 +313,6 @@ export default function InstagramCarouselEditor({
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
-              </div>
-            ) : activeSlide.imageUrl ? (
-              <div className="relative w-full h-full rounded-xl overflow-hidden">
-                <ContentMediaRenderer
-                  url={activeSlide.imageUrl}
-                  isVertical={false}
-                  showRemoveButton={false}
-                  showDownloadButton={false}
-                  alt={`Slide ${currentIdx + 1}`}
-                />
-                {/* OVERLAY BADGE */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
-                  <span className="bg-slate-900/90 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
-                    Slide {currentIdx + 1} of {effectiveSlides.length}
-                  </span>
-                  <p className="text-white text-xs font-bold line-clamp-1">{activeSlide.title}</p>
-                </div>
               </div>
             ) : (
               <div className="text-center p-4 space-y-2.5">

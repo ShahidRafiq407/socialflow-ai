@@ -198,6 +198,14 @@ export default function StandardSocialEditor({
                 accentColor={selectedMediaType === "video" ? "pink" : "indigo"}
                 mediaType={selectedMediaType === "video" ? "video" : "image"}
               />
+            ) : displayImageUrl ? (
+              <ContentMediaRenderer
+                url={displayImageUrl}
+                isVertical={isVertical}
+                onRemove={onRemoveMedia}
+                showDownloadButton={false}
+                alt={`${capability.format} preview`}
+              />
             ) : renderError && selectedMediaType === "image" ? (
               <div className="text-center p-4 space-y-2.5">
                 <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
@@ -231,14 +239,6 @@ export default function StandardSocialEditor({
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
               </div>
-            ) : displayImageUrl ? (
-              <ContentMediaRenderer
-                url={displayImageUrl}
-                isVertical={isVertical}
-                onRemove={onRemoveMedia}
-                showDownloadButton={false}
-                alt={`${capability.format} preview`}
-              />
             ) : (
               <div className="text-center p-4 space-y-2.5">
                 {selectedMediaType === "video" ? (

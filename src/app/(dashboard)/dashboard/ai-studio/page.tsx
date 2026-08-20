@@ -1942,6 +1942,7 @@ export default function AIStudioPage() {
 
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image ready!" }));
+        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
 
         // ── CROSS-PLATFORM SAME-FORMAT MEDIA SYNC (SAVES CREDITS) ──
         const currentFamily = getFormatFamily(targetPlatform, targetFormat);
@@ -1953,6 +1954,7 @@ export default function AIStudioPage() {
             name: `${targetPlatform}-${targetFormat}.png`,
           },
         };
+        const syncClearErrors: Record<string, null> = { [targetFormatKey]: null };
 
         selectedPlatforms.forEach((pId) => {
           const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
@@ -1968,10 +1970,12 @@ export default function AIStudioPage() {
                 type: "image",
                 name: `${pId}-${otherFmt}.png`,
               };
+              syncClearErrors[`${pId}-${otherFmt}`] = null;
             }
           });
         });
 
+        setRenderErrorDict(prev => ({ ...prev, ...syncClearErrors }));
         setRenderedImageUrlsDict(prev => ({ ...prev, ...syncMediaUpdates }));
         setCustomMediaDict(prev => ({
           ...prev,
@@ -2033,6 +2037,7 @@ export default function AIStudioPage() {
           if (data.success && data.asset?.url) {
             newRendered[slideKey] = data.asset.url;
             setRenderedImageUrlsDict({ ...newRendered });
+            setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
           }
         } catch (err) {
           console.error(`Failed to generate slide ${i + 1}:`, err);
@@ -2041,6 +2046,7 @@ export default function AIStudioPage() {
 
       setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
       setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "All slides generated!" }));
+      setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
     } finally {
       setRenderingAllSlidesKeys(prev => {
         const next = { ...prev };

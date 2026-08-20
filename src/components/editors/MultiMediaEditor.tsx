@@ -293,6 +293,14 @@ export default function MultiMediaEditor({
                 accentColor="indigo"
                 mediaType="image"
               />
+            ) : activeMedia.url ? (
+              <ContentMediaRenderer
+                url={activeMedia.url}
+                mediaType={activeMedia.type}
+                isVertical={false}
+                showRemoveButton={false}
+                alt={slotLabel(activeMediaIndex)}
+              />
             ) : renderError ? (
               <div className="text-center p-4 space-y-2.5">
                 <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
@@ -310,14 +318,6 @@ export default function MultiMediaEditor({
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
               </div>
-            ) : activeMedia.url ? (
-              <ContentMediaRenderer
-                url={activeMedia.url}
-                mediaType={activeMedia.type}
-                isVertical={false}
-                showRemoveButton={false}
-                alt={slotLabel(activeMediaIndex)}
-              />
             ) : (
               <div className="text-center p-4 space-y-2">
                 <ImageIcon className="h-8 w-8 text-slate-400 mx-auto opacity-50" />
