@@ -6,11 +6,26 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     const accessToken = account.accessToken;
     
     if (!personUrn || !accessToken) {
-      return { success: false, error: 'Missing LinkedIn account credentials', platform: 'LINKEDIN' };
+      return {
+        success: false,
+        error: 'Missing LinkedIn account credentials. Please reconnect LinkedIn in Integrations.',
+        platform: 'LINKEDIN',
+      };
     }
 
     const { content, imageUrl } = post;
-    const caption = [content, Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '']
+    const hashtagList: string[] = Array.isArray(post.hashtags)
+      ? post.hashtags.map((h: string) => (h.startsWith('#') ? h : `#${h}`))
+      : typeof post.hashtags === 'string'
+      ? post.hashtags.split(/\s+/).filter(Boolean).map((h: string) => (h.startsWith('#') ? h : `#${h}`))
+      : [];
+
+    const hashtagString = hashtagList.join(' ');
+    const fullCaption = [
+      post.settings?.contentTitle ? `${post.settings.contentTitle}\n` : '',
+      content,
+      hashtagString,
+    ]
       .filter(Boolean)
       .join('\n\n')
       .trim();
@@ -18,13 +33,13 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     let specificContent: any = {
       'com.linkedin.ugc.ShareContent': {
         shareCommentary: {
-          text: caption || '',
+          text: fullCaption || content || '',
         },
         shareMediaCategory: 'NONE',
       },
     };
 
-    // If an image is attached, perform the 3-step LinkedIn Image Upload
+    // If an image is attached, perform the 3-step LinkedIn Image Upload with Alt Text
     if (imageUrl) {
       try {
         // Step 1: Register upload with LinkedIn
@@ -77,17 +92,29 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
             });
 
             if (uploadRes.ok || uploadRes.status === 201) {
-              // Step 3: Attach uploaded asset URN to post
+              const imageAltText =
+                post.settings?.altText ||
+                post.settings?.contentDescription ||
+                post.imagePrompt ||
+                content?.slice(0, 200) ||
+                'SMB Robotics Visual';
+
+              const imageTitle =
+                post.settings?.contentTitle ||
+                post.campaignTopic ||
+                'SMB Robotics Post';
+
+              // Step 3: Attach uploaded asset URN, Alt Text & Title to post
               specificContent['com.linkedin.ugc.ShareContent'].shareMediaCategory = 'IMAGE';
               specificContent['com.linkedin.ugc.ShareContent'].media = [
                 {
                   status: 'READY',
                   description: {
-                    text: caption.slice(0, 200),
+                    text: imageAltText.slice(0, 400),
                   },
                   media: assetUrn,
                   title: {
-                    text: post.settings?.contentTitle || 'Image',
+                    text: imageTitle.slice(0, 200),
                   },
                 },
               ];
@@ -130,7 +157,7 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     if (!response.ok || data.error) {
       return {
         success: false,
-        error: data.message || `Failed to publish to LinkedIn (${response.status})`,
+        error: data.message || data.error?.message || `Failed to publish to LinkedIn (${response.status})`,
         platform: 'LINKEDIN',
       };
     }

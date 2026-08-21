@@ -82,41 +82,54 @@ export async function schedulePost(postId: string, scheduledFor: Date) {
 }
 
 export async function publishNow(postId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error('Unauthorized');
+  try {
+    const { userId } = await auth();
+    if (!userId) return { success: false, error: 'Unauthorized. Please sign in to publish posts.' };
 
-  const post = await prisma.post.findUnique({
-    where: { id: postId },
-    include: { workspace: true },
-  });
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: { workspace: true },
+    });
 
-  if (!post) throw new Error('Post not found');
+    if (!post) return { success: false, error: 'Post not found in database.' };
 
-  // Map post.platform (e.g. "Instagram Feed", "Facebook Reel") to SocialAccount enum (e.g. "INSTAGRAM")
-  const platformEnumMap: Record<string, string> = {
-    instagram: 'INSTAGRAM',
-    facebook: 'FACEBOOK',
-    linkedin: 'LINKEDIN',
-    x: 'X',
-    youtube: 'YOUTUBE',
-    tiktok: 'TIKTOK',
-    pinterest: 'PINTEREST',
-  };
-  const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
-  const platformEnum = platformEnumMap[basePlatform];
+    // Map post.platform (e.g. "Instagram Feed", "Facebook Reel") to SocialAccount enum (e.g. "INSTAGRAM")
+    const platformEnumMap: Record<string, string> = {
+      instagram: 'INSTAGRAM',
+      facebook: 'FACEBOOK',
+      linkedin: 'LINKEDIN',
+      x: 'X',
+      youtube: 'YOUTUBE',
+      tiktok: 'TIKTOK',
+      pinterest: 'PINTEREST',
+    };
+    const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
+    const platformEnum = platformEnumMap[basePlatform];
 
-  if (!platformEnum) throw new Error(`Unknown platform: ${post.platform}`);
+    if (!platformEnum) return { success: false, error: `Unknown platform: ${post.platform}` };
 
-  const account = await prisma.socialAccount.findFirst({
-    where: {
-      workspaceId: post.workspaceId,
-      platform: platformEnum as any,
-    },
-  });
+    const account = await prisma.socialAccount.findFirst({
+      where: {
+        workspaceId: post.workspaceId,
+        platform: platformEnum as any,
+      },
+    });
 
-  if (!account) throw new Error(`Social account not connected for: ${post.platform}`);
+    if (!account) {
+      return {
+        success: false,
+        error: `Social account not connected for ${post.platform}. Please connect it on the Integrations page.`,
+      };
+    }
 
-  return await publishToPlatform(post, account);
+    return await publishToPlatform(post, account);
+  } catch (err: any) {
+    console.error('[publishNow Action Error]:', err);
+    return {
+      success: false,
+      error: err.message || 'Server error occurred while preparing post for dispatch.',
+    };
+  }
 }
 
 export async function publishToPlatform(post: any, account: any) {

@@ -139,15 +139,18 @@ STRICT PRO WRITER DIRECTIVES:
    - STRICT BANS: NO "In today's fast-paced world", NO "Unleash/Unlock", NO "Dive deep", NO "Game changer", NO excessive em dashes, NO robotic emoji spam.
    - Include a single, strong call to action (CTA) and relevant hashtags.
 
-2. MEDIA GENERATION PROMPT (${isVideoFormat ? "CRITICAL: VIDEO PROMPT REQUIRED" : "IMAGE PROMPT"}):
+2. MEDIA GENERATION PROMPT (${isVideoFormat ? "CRITICAL: VIDEO PROMPT REQUIRED" : "IMAGE PROMPT"} - MAXIMUM RELEVANCE 100/100):
    ${
      isVideoFormat
-       ? `- The prompt MUST be for a REAL VIDEO generation (NEVER an image prompt).
+       ? `- The prompt MUST be for a REAL VIDEO generation directly visualizing the core subject of the caption.
    - Framing: ${capability.defaultAspectRatio} vertical social media video.
-   - Describe: subject, scene environment, dynamic physical action, camera movement (e.g. tracking shot, close-up to wide reveal), lighting, visual style, pacing, and visual hook in the first 1-2 seconds.
+   - Describe: the exact subject/technology mentioned in the caption, specific scene environment, dynamic physical action, cinematic camera movement (e.g. tracking shot, close-up to wide reveal), volumetric lighting, visual style, pacing, and visual hook in the first 1-2 seconds.
    - Duration-aware storytelling (approx ${duration || 5} seconds).
    - NO text in the prompt itself.`
-       : `- Describe a high-end, vivid visual image composition matching ${capability.defaultAspectRatio} aspect ratio, lighting, color grading, photorealism style.`
+       : `- MUST be an ultra-relevant, detailed visual composition directly visualizing the exact premise, subject, and story of the caption.
+   - For robotics/tech/engineering: Describe specific robotic hardware, sensor arrays, autonomous actuators, high-tech lab or real-world industrial environments, cinematic lighting, 8K micro-textures, and depth of field.
+   - Aspect ratio: ${capability.defaultAspectRatio}.
+   - Zero generic fluff. Every detail in the prompt must directly reinforce the post's core message.`
    }
 
 3. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), rich Pin Description, SEO Keywords/Tagged Topics, and Alt Text.
@@ -162,13 +165,13 @@ STRICT PRO WRITER DIRECTIVES:
      - "step": 1, 2, 3, etc.
      - "title": Punchy, bold headline (e.g. "The 2026 Robotics Shift", "Why Physical AI Changes Scaling", "Key Architecture Blueprint")
      - "body": Rich, informative, educational teaching takeaway text (2-3 sentences packed with value, metrics, or actionable advice).
-     - "visualPrompt": Clean aesthetic background description with modern negative space tailored for typography overlay, high-tech engineering or brand context.
+     - "visualPrompt": Clean aesthetic background description with modern negative space tailored for typography overlay, directly reflecting this specific slide's concept.
 
 5. HASHTAGS (STRICT):
-   - Each entry MUST be a real hashtag starting with "#" (e.g. "#DigitalMarketing").
+   - Each entry MUST be a real hashtag starting with "#" (e.g. "#Robotics", "#PhysicalAI", "#TechInnovation").
    - PascalCase, NO spaces, NO commas, NO sentences, NO explanation text.
-   - 3 to ${capability.hashtagLimit || 10} hashtags, highly relevant to the caption and ${capability.platform}.
-   - Example of CORRECT: ["#DigitalMarketing", "#SocialMediaGrowth"]
+   - 3 to ${capability.hashtagLimit || 8} hashtags, highly relevant to the caption and ${capability.platform}.
+   - Example of CORRECT: ["#Robotics", "#PhysicalAI", "#Automation", "#MachineLearning"]
    - Example of WRONG (NEVER do this): ["digital marketing strategy", "social media growth"]
 
 Return ONLY raw JSON with this EXACT structure:
