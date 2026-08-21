@@ -13,16 +13,37 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     let accessToken = account.accessToken;
     
     if (!igUserId || !accessToken) {
-      return { success: false, error: 'Missing Instagram account credentials. Please connect your Instagram Business account in Integrations.', platform: 'INSTAGRAM' };
+      return {
+        success: false,
+        error: 'Missing Instagram account credentials. Please connect your Instagram Business account in Integrations.',
+        platform: 'INSTAGRAM',
+      };
     }
 
-    // If the saved account ID is a Meta personal user ID rather than an IG Business ID, attempt to resolve it
-    if (!igUserId.startsWith('17841') && !igUserId.match(/^\d{15,20}$/)) {
+    // Step 0: Ensure we have a valid Instagram Business Account ID (not a Facebook Page ID)
+    // Query Meta to check if igUserId is a Page ID that has an instagram_business_account
+    try {
+      const inspectRes = await fetch(
+        `https://graph.facebook.com/v19.0/${igUserId}?fields=id,username,instagram_business_account,access_token&access_token=${accessToken}`
+      );
+      if (inspectRes.ok) {
+        const inspectData = await inspectRes.json();
+        if (inspectData.instagram_business_account?.id) {
+          igUserId = inspectData.instagram_business_account.id;
+          if (inspectData.access_token) accessToken = inspectData.access_token;
+        }
+      }
+    } catch {}
+
+    // Fallback: If still not an IG business account (or if inspect failed), scan user's connected pages
+    if (!igUserId.startsWith('17841')) {
       try {
-        const pagesRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`);
+        const pagesRes = await fetch(
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${accessToken}`
+        );
         if (pagesRes.ok) {
           const pagesData = await pagesRes.json();
-          const igPage = pagesData.data?.find((p: any) => p.instagram_business_account);
+          const igPage = pagesData.data?.find((p: any) => p.instagram_business_account?.id);
           if (igPage?.instagram_business_account?.id) {
             igUserId = igPage.instagram_business_account.id;
             if (igPage.access_token) accessToken = igPage.access_token;
@@ -34,7 +55,11 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     const { content, imageUrl } = post;
     
     if (!imageUrl) {
-      return { success: false, error: 'Instagram posts require an image or video asset', platform: 'INSTAGRAM' };
+      return {
+        success: false,
+        error: 'Instagram posts require an image or video asset',
+        platform: 'INSTAGRAM',
+      };
     }
 
     // Resolve public HTTPS image URL for Meta's container crawler
@@ -69,20 +94,28 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       body: JSON.stringify(containerBody),
     });
 
-    const containerData = await containerResponse.json();
+    const containerData = await containerResponse.json().catch(() => ({}));
 
     if (!containerResponse.ok || containerData.error) {
+      const rawError = containerData.error?.message || `Failed to create Instagram media container (${containerResponse.status})`;
+      if (rawError.includes('does not exist') || rawError.includes('Unsupported post request')) {
+        return {
+          success: false,
+          error: `Instagram Business account not found on your linked Facebook Page. Please ensure your Instagram is a Professional/Business account and connected to your Facebook Page in Meta Business Suite (Settings → Linked Accounts).`,
+          platform: 'INSTAGRAM',
+        };
+      }
       return {
         success: false,
-        error: containerData.error?.message || `Failed to create Instagram media container (${containerResponse.status})`,
-        platform: 'INSTAGRAM'
+        error: rawError,
+        platform: 'INSTAGRAM',
       };
     }
 
     const creationId = containerData.id;
 
     // Wait for Instagram to process the container
-    await new Promise(resolve => setTimeout(resolve, isVideo ? 5000 : 3000));
+    await new Promise((resolve) => setTimeout(resolve, isVideo ? 6000 : 3500));
 
     // Step 2: Publish Container
     const publishUrl = `https://graph.facebook.com/v19.0/${igUserId}/media_publish`;
@@ -97,13 +130,13 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       body: JSON.stringify(publishBody),
     });
 
-    const publishData = await publishResponse.json();
+    const publishData = await publishResponse.json().catch(() => ({}));
 
     if (!publishResponse.ok || publishData.error) {
       return {
         success: false,
         error: publishData.error?.message || `Failed to publish Instagram post (${publishResponse.status})`,
-        platform: 'INSTAGRAM'
+        platform: 'INSTAGRAM',
       };
     }
 
@@ -112,7 +145,9 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
 
     // Step 3: Fetch real post permalink
     try {
-      const mediaRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}?fields=permalink,shortcode&access_token=${accessToken}`);
+      const mediaRes = await fetch(
+        `https://graph.facebook.com/v19.0/${mediaId}?fields=permalink,shortcode&access_token=${accessToken}`
+      );
       if (mediaRes.ok) {
         const mediaInfo = await mediaRes.json();
         if (mediaInfo.permalink) {
@@ -143,7 +178,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       success: true,
       platformPostId: mediaId,
       liveUrl,
-      platform: 'INSTAGRAM'
+      platform: 'INSTAGRAM',
     };
   } catch (error: any) {
     return { success: false, error: error.message || 'Unknown error publishing to Instagram', platform: 'INSTAGRAM' };

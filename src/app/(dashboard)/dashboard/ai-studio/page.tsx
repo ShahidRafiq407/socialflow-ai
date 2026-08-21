@@ -2483,13 +2483,43 @@ export default function AIStudioPage() {
     return { mediaUrls, primaryMediaUrl };
   };
 
-  // All generated campaign posts that actually have content (caption or media).
-  // Handles the duplicate keys stored by handleMultiAgentPayload (raw/lowercase/TitleCase).
-  const collectCampaignPosts = () => {
+  // All generated campaign posts that actually have content (caption or media),
+  // filtered strictly by selectedPlatforms and selectedContentTypes.
+  const collectCampaignPosts = (onlyActive: boolean = false) => {
     const entries: { platform: string; format: string; data: GeneratedFormat }[] = [];
-    for (const [plt, formats] of Object.entries(generatedContents)) {
-      for (const [fmt, data] of Object.entries(formats)) {
-        if (fmt !== fmt.toLowerCase() && formats[fmt.toLowerCase()] === data) continue; // TitleCase alias
+
+    if (onlyActive) {
+      const data = generatedContents[activePlatformTab]?.[currentFormatName];
+      if (data) {
+        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(activePlatformTab, currentFormatName, data);
+        const hasMedia = mediaUrls.length > 0 || Boolean(primaryMediaUrl);
+        if ((data.caption || "").trim() || hasMedia) {
+          entries.push({ platform: activePlatformTab, format: currentFormatName, data });
+        }
+      }
+      return entries;
+    }
+
+    // Filter strictly by the platforms user has selected (or currently viewing)
+    const targetPlatforms =
+      selectedPlatforms && selectedPlatforms.length > 0
+        ? selectedPlatforms
+        : [activePlatformTab];
+
+    for (const plt of targetPlatforms) {
+      const formats = generatedContents[plt];
+      if (!formats) continue;
+
+      const allowedFormats =
+        selectedContentTypes[plt] && selectedContentTypes[plt].length > 0
+          ? selectedContentTypes[plt]
+          : plt === activePlatformTab
+          ? [currentFormatName]
+          : Object.keys(formats).filter((fmt) => fmt === fmt.toLowerCase());
+
+      for (const fmt of allowedFormats) {
+        const data = formats[fmt] || formats[fmt.toLowerCase()];
+        if (!data) continue;
         const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(plt, fmt, data);
         const hasMedia = mediaUrls.length > 0 || Boolean(primaryMediaUrl);
         if ((data.caption || "").trim() || hasMedia) {
@@ -2497,6 +2527,13 @@ export default function AIStudioPage() {
         }
       }
     }
+
+    // Fallback if still empty: collect current active format
+    if (entries.length === 0 && generatedContents[activePlatformTab]?.[currentFormatName]) {
+      const data = generatedContents[activePlatformTab][currentFormatName];
+      entries.push({ platform: activePlatformTab, format: currentFormatName, data });
+    }
+
     return entries;
   };
 

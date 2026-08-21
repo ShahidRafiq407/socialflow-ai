@@ -13,18 +13,29 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     let targetAccessToken = account.accessToken;
     
     if (!targetPageId || !targetAccessToken) {
-      return { success: false, error: 'Missing Facebook account credentials. Please reconnect your Facebook Page in Integrations.', platform: 'FACEBOOK' };
+      return {
+        success: false,
+        error: 'Missing Facebook account credentials. Please reconnect your Facebook Page in Integrations.',
+        platform: 'FACEBOOK',
+      };
     }
 
-    // If the saved account is a personal user ID rather than a page, attempt to resolve the user's primary Facebook Page
+    // Attempt to resolve the user's primary Facebook Page and Page Access Token
     try {
-      const accountsRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${targetAccessToken}`);
+      const accountsRes = await fetch(
+        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,category&access_token=${targetAccessToken}`
+      );
       if (accountsRes.ok) {
         const accountsData = await accountsRes.json();
-        const firstPage = accountsData?.data?.[0];
-        if (firstPage?.id && firstPage?.access_token) {
-          targetPageId = firstPage.id;
-          targetAccessToken = firstPage.access_token;
+        const pagesList = Array.isArray(accountsData?.data) ? accountsData.data : [];
+        if (pagesList.length > 0) {
+          const matchedPage =
+            pagesList.find((p: any) => p.id === targetPageId || p.name === account.pageName) ||
+            pagesList[0];
+          if (matchedPage?.id && matchedPage?.access_token) {
+            targetPageId = matchedPage.id;
+            targetAccessToken = matchedPage.access_token;
+          }
         }
       }
     } catch {
@@ -99,8 +110,15 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok || data.error) {
-      const errorMsg = data.error?.message || `Facebook API error (HTTP ${response.status})`;
-      return { success: false, error: errorMsg, platform: 'FACEBOOK' };
+      const rawError = data.error?.message || `Facebook API error (HTTP ${response.status})`;
+      if (rawError.includes('publish_actions') || rawError.includes('permission')) {
+        return {
+          success: false,
+          error: `Meta requires a Facebook Page with admin/manage permissions. Please reconnect your Facebook account in Integrations so the app can obtain your Page Token.`,
+          platform: 'FACEBOOK',
+        };
+      }
+      return { success: false, error: rawError, platform: 'FACEBOOK' };
     }
 
     const rawPostId = data.post_id || data.id;

@@ -5,14 +5,10 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
     const accessToken = account.accessToken;
     
     if (!accessToken) {
-      return { success: false, error: 'Missing X/Twitter account credentials', platform: 'X' };
+      return { success: false, error: 'Missing X/Twitter account credentials. Please connect X in Integrations.', platform: 'X' };
     }
 
     const { content, imageUrl } = post;
-    
-    // NOTE: In a real scenario with X API v2, if you have an image URL, 
-    // you first need to download it and upload via Twitter API v1.1 media/upload to get a media_id
-    // Here we provide a simplified version that posts text, or you would need OAuth 1.0a / OAuth 2.0 user context.
     
     const url = 'https://api.twitter.com/2/tweets';
     const body: any = {
@@ -20,8 +16,6 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
     };
 
     // Settings tab → real X API v2 params:
-    // - reply_setting: who can reply to this post
-    // - possibly_sensitive: sensitive-content flag
     const settings = post.settings || {};
     if (settings.xReplySetting === 'following' || settings.xReplySetting === 'mentioned') {
       body.reply_setting = settings.xReplySetting;
@@ -30,27 +24,32 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
       body.possibly_sensitive = true;
     }
 
-    // If we had a media_id from v1.1 media/upload:
-    // if (mediaId) {
-    //   body.media = { media_ids: [mediaId] };
-    // }
-
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`, // Assuming OAuth 2.0 Bearer token
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
 
-    const tweetId = data.data?.id;
+    if (!response.ok || !data?.data?.id) {
+      const errorDetail =
+        data?.detail ||
+        data?.title ||
+        data?.error ||
+        data?.errors?.[0]?.message ||
+        `X API error (HTTP ${response.status}): Failed to post tweet. Check X developer permissions (tweet.write) or tier limits.`;
+      return { success: false, error: errorDetail, platform: 'X' };
+    }
+
+    const tweetId = data.data.id;
     return {
       success: true,
       platformPostId: tweetId,
-      liveUrl: tweetId ? `https://x.com/i/status/${tweetId}` : 'https://x.com/',
+      liveUrl: `https://x.com/i/status/${tweetId}`,
       platform: 'X'
     };
   } catch (error: any) {
