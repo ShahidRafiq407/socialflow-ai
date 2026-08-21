@@ -13,25 +13,25 @@ interface GenerationProgressIndicatorProps {
 }
 
 const AGENT_STAGES_VIDEO = [
-  { agent: "Visualizer Agent", action: "Analyzing prompt scene dynamics, subject action & camera motion...", icon: Film },
-  { agent: "Video Synthesis Engine", action: "Synthesizing vertical 9:16 high-fps motion frames...", icon: Cpu },
-  { agent: "Lighting & Colorist", action: "Balancing cinematic lighting, volumetric depth & color grade...", icon: Sparkles },
+  { agent: "Visualizer Agent", action: "Analyzing prompt scene dynamics & motion...", icon: Film },
+  { agent: "Video Synthesis Engine", action: "Synthesizing high-fps motion frames...", icon: Cpu },
+  { agent: "Lighting & Colorist", action: "Balancing cinematic volumetric lighting...", icon: Sparkles },
   { agent: "CEO Auditor Agent", action: "Inspecting frame consistency & stream integrity...", icon: ShieldCheck },
   { agent: "Media Pipeline", action: "Finalizing and packaging video asset...", icon: Layers },
 ];
 
 const AGENT_STAGES_IMAGE = [
-  { agent: "Visualizer Agent", action: "Analyzing scene composition, focal depth & brand DNA...", icon: ImageIcon },
-  { agent: "Image Synthesis Engine", action: "Rendering photorealistic lighting, textures & high-res layers...", icon: Cpu },
-  { agent: "Colorist & Enhancer", action: "Applying HDR color balance & aesthetic tone mapping...", icon: Sparkles },
-  { agent: "CEO Auditor Agent", action: "Validating format resolution & aspect ratio compliance...", icon: ShieldCheck },
+  { agent: "Visualizer Agent", action: "Analyzing scene composition & focal depth...", icon: ImageIcon },
+  { agent: "Image Synthesis Engine", action: "Rendering photorealistic textures & lighting...", icon: Cpu },
+  { agent: "Colorist & Enhancer", action: "Applying HDR color balance & tone mapping...", icon: Sparkles },
+  { agent: "CEO Auditor Agent", action: "Validating resolution & aspect ratio...", icon: ShieldCheck },
 ];
 
 const AGENT_STAGES_CAROUSEL = [
-  { agent: "Carousel Planner", action: "Structuring educational infographic narrative & step hierarchy...", icon: Layers },
-  { agent: "Visualizer Agent", action: "Synthesizing visual canvases with clean composition space...", icon: ImageIcon },
-  { agent: "Content Designer", action: "Formatting typography badges, key insights & takeaways...", icon: Sparkles },
-  { agent: "CEO Auditor Agent", action: "Auditing multi-slide storyboard consistency & packaging...", icon: ShieldCheck },
+  { agent: "Carousel Planner", action: "Structuring infographic narrative...", icon: Layers },
+  { agent: "Visualizer Agent", action: "Synthesizing visual canvases...", icon: ImageIcon },
+  { agent: "Content Designer", action: "Formatting typography & insights...", icon: Sparkles },
+  { agent: "CEO Auditor Agent", action: "Auditing multi-slide storyboard consistency...", icon: ShieldCheck },
 ];
 
 export default function GenerationProgressIndicator({
@@ -70,7 +70,7 @@ export default function GenerationProgressIndicator({
   const hasRealNumericProgress = typeof progress === "number" && progress > 0 && progress <= 100;
   const clampedProgress = Math.min(Math.max(Math.round(progress), 0), 100);
 
-  const radius = 38;
+  const radius = isVertical ? 34 : 24;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = hasRealNumericProgress
     ? circumference - (clampedProgress / 100) * circumference
@@ -110,7 +110,11 @@ export default function GenerationProgressIndicator({
   const currentTheme = colorMap[accentColor] || colorMap.indigo;
 
   return (
-    <div className="relative flex flex-col items-center justify-center p-6 text-center space-y-4 w-full h-full bg-slate-950/95 text-white rounded-2xl shadow-2xl backdrop-blur-md border border-slate-800/80 z-20 overflow-hidden select-none">
+    <div
+      className={`relative flex flex-col items-center justify-center text-center w-full h-full bg-slate-950/95 text-white rounded-2xl shadow-2xl backdrop-blur-md border border-slate-800/80 z-20 overflow-hidden select-none ${
+        isVertical ? "p-5 sm:p-6 space-y-3.5" : "p-3 sm:p-4 space-y-2"
+      }`}
+    >
       {/* BACKGROUND AMBIENT GLOW */}
       <div
         className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-48 rounded-full blur-3xl opacity-20 pointer-events-none"
@@ -118,35 +122,37 @@ export default function GenerationProgressIndicator({
       />
 
       {/* SVG CIRCULAR LOADER */}
-      <div className="relative flex items-center justify-center">
+      <div className="relative flex items-center justify-center shrink-0">
         <svg
-          className={`w-24 h-24 transform -rotate-90 ${!hasRealNumericProgress ? "animate-spin [animation-duration:2.2s]" : ""}`}
-          viewBox="0 0 96 96"
+          className={`transform -rotate-90 ${isVertical ? "w-20 h-20" : "w-14 h-14"} ${
+            !hasRealNumericProgress ? "animate-spin [animation-duration:2.2s]" : ""
+          }`}
+          viewBox={isVertical ? "0 0 84 84" : "0 0 60 60"}
         >
           {/* Background circle track */}
           <circle
-            cx="48"
-            cy="48"
+            cx={isVertical ? "42" : "30"}
+            cy={isVertical ? "42" : "30"}
             r={radius}
             stroke="currentColor"
-            strokeWidth="5"
+            strokeWidth={isVertical ? "4.5" : "3.5"}
             className="text-slate-800/90"
             fill="transparent"
           />
           {/* Active stroke */}
           <circle
-            cx="48"
-            cy="48"
+            cx={isVertical ? "42" : "30"}
+            cy={isVertical ? "42" : "30"}
             r={radius}
             stroke={currentTheme.stroke}
-            strokeWidth="5"
+            strokeWidth={isVertical ? "4.5" : "3.5"}
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             strokeLinecap="round"
             fill="transparent"
             className="transition-all duration-500 ease-out"
             style={{
-              filter: `drop-shadow(0 0 10px ${currentTheme.glow})`,
+              filter: `drop-shadow(0 0 8px ${currentTheme.glow})`,
             }}
           />
         </svg>
@@ -154,35 +160,45 @@ export default function GenerationProgressIndicator({
         {/* Center Indicator (Real Percentage or Animated AI Icon) */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           {hasRealNumericProgress ? (
-            <span className="text-xl font-black text-white tracking-tight font-mono drop-shadow-md">
+            <span
+              className={`font-black text-white tracking-tight font-mono drop-shadow-md ${
+                isVertical ? "text-lg" : "text-sm"
+              }`}
+            >
               {clampedProgress}%
             </span>
           ) : (
-            <Sparkles className="h-6 w-6 text-white animate-pulse" />
+            <Sparkles className={`${isVertical ? "h-5 w-5" : "h-4 w-4"} text-white animate-pulse`} />
           )}
         </div>
       </div>
 
       {/* ACTIVE AGENT BADGE */}
       <div
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${currentTheme.badgeBg} shadow-xs transition-opacity duration-300`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold border ${currentTheme.badgeBg} shadow-xs transition-opacity duration-300 ${
+          isVertical ? "text-[11px]" : "text-[10px]"
+        }`}
       >
         <ActiveIcon className="h-3 w-3 animate-pulse" />
         <span>{activeStage.agent}</span>
       </div>
 
       {/* STAGE & STATUS TEXT */}
-      <div className="space-y-1 max-w-[260px]">
-        <p className="text-xs font-black text-white tracking-wider uppercase drop-shadow-sm">
+      <div className={`space-y-0.5 max-w-[280px] ${isVertical ? "" : "max-h-[36px] overflow-hidden"}`}>
+        <p className="text-[11px] sm:text-xs font-black text-white tracking-wider uppercase drop-shadow-sm truncate">
           {title}
         </p>
-        <p className="text-xs text-slate-200 font-medium leading-relaxed min-h-[36px] transition-all duration-300 drop-shadow-sm">
+        <p className="text-[10px] sm:text-[11px] text-slate-300 font-medium leading-tight line-clamp-1 drop-shadow-sm">
           {currentActionText}
         </p>
       </div>
 
-      {/* PROGRESS BAR: Left-to-right sweep (starts from 0% left edge, never from middle) */}
-      <div className="w-full max-w-[210px] bg-slate-800/90 h-2 rounded-full overflow-hidden p-[1px] shadow-inner relative">
+      {/* PROGRESS BAR: Left-to-right sweep */}
+      <div
+        className={`w-full bg-slate-800/90 rounded-full overflow-hidden p-[1px] shadow-inner relative ${
+          isVertical ? "max-w-[200px] h-2" : "max-w-[160px] h-1.5"
+        }`}
+      >
         {hasRealNumericProgress ? (
           <div
             className={`h-full rounded-full bg-gradient-to-r ${currentTheme.barGrad} transition-all duration-500 ease-out shadow-sm`}
