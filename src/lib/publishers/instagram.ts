@@ -21,32 +21,70 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     }
 
     // Step 0: Ensure we have a valid Instagram Business Account ID (not a Facebook Page ID)
-    // Query Meta to check if igUserId is a Page ID that has an instagram_business_account
+    // 0A: Check if igUserId is a Page ID that has an instagram_business_account or connected_instagram_account
     try {
       const inspectRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igUserId}?fields=id,username,instagram_business_account,access_token&access_token=${accessToken}`
+        `https://graph.facebook.com/v19.0/${igUserId}?fields=id,username,instagram_business_account,connected_instagram_account,access_token&access_token=${accessToken}`
       );
       if (inspectRes.ok) {
         const inspectData = await inspectRes.json();
-        if (inspectData.instagram_business_account?.id) {
-          igUserId = inspectData.instagram_business_account.id;
+        const foundIg = inspectData.instagram_business_account?.id || inspectData.connected_instagram_account?.id;
+        if (foundIg) {
+          igUserId = foundIg;
           if (inspectData.access_token) accessToken = inspectData.access_token;
         }
       }
     } catch {}
 
-    // Fallback: If still not an IG business account (or if inspect failed), scan user's connected pages
+    // 0B: If still not an IG business account (or if inspect failed), scan user's connected Facebook pages
     if (!igUserId.startsWith('17841')) {
       try {
         const pagesRes = await fetch(
-          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${accessToken}`
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}&access_token=${accessToken}`
         );
         if (pagesRes.ok) {
           const pagesData = await pagesRes.json();
-          const igPage = pagesData.data?.find((p: any) => p.instagram_business_account?.id);
-          if (igPage?.instagram_business_account?.id) {
-            igUserId = igPage.instagram_business_account.id;
-            if (igPage.access_token) accessToken = igPage.access_token;
+          for (const p of pagesData?.data || []) {
+            const igAcc = p.instagram_business_account?.id || p.connected_instagram_account?.id;
+            if (igAcc) {
+              igUserId = igAcc;
+              if (p.access_token) accessToken = p.access_token;
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // 0C: If still not found, scan Meta Business Portfolios (SMB Robotics portfolio)
+    if (!igUserId.startsWith('17841')) {
+      try {
+        const bizRes = await fetch(
+          `https://graph.facebook.com/v19.0/me/businesses?fields=id,name,instagram_accounts{id,username},owned_instagram_accounts{id,username}&access_token=${accessToken}`
+        );
+        if (bizRes.ok) {
+          const bizData = await bizRes.json();
+          for (const biz of bizData?.data || []) {
+            const igList = biz.instagram_accounts?.data || biz.owned_instagram_accounts?.data || [];
+            if (igList.length > 0) {
+              igUserId = igList[0].id;
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // 0D: Direct fallback for SMB Robotics Business Portfolio (ID: 1772056396948184 from Meta Business Suite)
+    if (!igUserId.startsWith('17841')) {
+      try {
+        const directBizRes = await fetch(
+          `https://graph.facebook.com/v19.0/1772056396948184/instagram_accounts?fields=id,username,name&access_token=${accessToken}`
+        );
+        if (directBizRes.ok) {
+          const directBizData = await directBizRes.json();
+          if (directBizData?.data?.[0]?.id) {
+            igUserId = directBizData.data[0].id;
           }
         }
       } catch {}
@@ -101,7 +139,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       if (rawError.includes('does not exist') || rawError.includes('Unsupported post request')) {
         return {
           success: false,
-          error: `Instagram Business account not found on your linked Facebook Page. Please ensure your Instagram is a Professional/Business account and connected to your Facebook Page in Meta Business Suite (Settings → Linked Accounts).`,
+          error: `Instagram Business account ID (${igUserId}) could not be accessed. Please reconnect Instagram in Integrations to refresh the token with full Business Portfolio permissions.`,
           platform: 'INSTAGRAM',
         };
       }

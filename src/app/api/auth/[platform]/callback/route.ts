@@ -207,7 +207,7 @@ export async function GET(
         // Fetch User's Managed Facebook Pages and linked Instagram Business accounts
         try {
           const pagesRes = await fetch(
-            `https://graph.facebook.com/me/accounts?fields=id,name,access_token,category,picture,instagram_business_account{id,username,name,profile_picture_url}&access_token=${accessToken}`
+            `https://graph.facebook.com/me/accounts?fields=id,name,access_token,category,picture,instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username,name,profile_picture_url}&access_token=${accessToken}`
           );
           const pagesData = await pagesRes.json();
           const pagesList = Array.isArray(pagesData.data) ? pagesData.data : [];
@@ -222,17 +222,37 @@ export async function GET(
               finalAccessToken = primaryPage.access_token;
             }
           } else if (platform === "instagram") {
-            const igPage = pagesList.find((p: any) => p.instagram_business_account);
-            if (igPage?.instagram_business_account?.id) {
-              accountId = igPage.instagram_business_account.id;
-              handle = igPage.instagram_business_account.username
-                ? `@${igPage.instagram_business_account.username}`
-                : handle;
-              pageName = igPage.instagram_business_account.name || pageName;
-              avatarUrl = igPage.instagram_business_account.profile_picture_url || avatarUrl;
+            const igPage = pagesList.find((p: any) => p.instagram_business_account || p.connected_instagram_account);
+            const igAccount = igPage?.instagram_business_account || igPage?.connected_instagram_account;
+            if (igAccount?.id) {
+              accountId = igAccount.id;
+              handle = igAccount.username ? `@${igAccount.username}` : handle;
+              pageName = igAccount.name || pageName;
+              avatarUrl = igAccount.profile_picture_url || avatarUrl;
               if (igPage.access_token) {
                 finalAccessToken = igPage.access_token;
               }
+            } else {
+              // If not attached directly to page, query Meta Business Portfolios
+              try {
+                const bizRes = await fetch(
+                  `https://graph.facebook.com/me/businesses?fields=id,name,instagram_accounts{id,username,name,profile_picture_url},owned_instagram_accounts{id,username,name,profile_picture_url}&access_token=${accessToken}`
+                );
+                if (bizRes.ok) {
+                  const bizData = await bizRes.json();
+                  for (const biz of bizData?.data || []) {
+                    const bizIgs = biz.instagram_accounts?.data || biz.owned_instagram_accounts?.data || [];
+                    if (bizIgs.length > 0) {
+                      const firstIg = bizIgs[0];
+                      accountId = firstIg.id;
+                      handle = firstIg.username ? `@${firstIg.username}` : handle;
+                      pageName = firstIg.name || pageName;
+                      avatarUrl = firstIg.profile_picture_url || avatarUrl;
+                      break;
+                    }
+                  }
+                }
+              } catch {}
             }
           }
         } catch (pageErr) {

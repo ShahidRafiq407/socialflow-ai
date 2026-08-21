@@ -58,7 +58,7 @@ export function getOAuthConfig(platform: string): OAuthPlatformConfig | null {
       displayName: "Instagram",
       authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
       tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
-      scopes: "public_profile,email,instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement",
+      scopes: "public_profile,email,instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_posts,business_management",
       clientId: process.env.FACEBOOK_CLIENT_ID || "",
       clientSecret: process.env.FACEBOOK_CLIENT_SECRET || "",
       tokenAuthMethod: "body",
