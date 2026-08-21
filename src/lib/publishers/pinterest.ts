@@ -114,7 +114,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     }
 
     // Step 3: Create Pin via Pinterest API v5
-    const pinRes = await fetch('https://api.pinterest.com/v5/pins', {
+    let pinRes = await fetch('https://api.pinterest.com/v5/pins', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -123,12 +123,38 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
       body: JSON.stringify(pinPayload),
     });
 
-    const pinData = await pinRes.json().catch(() => ({}));
+    let pinData = await pinRes.json().catch(() => ({}));
+
+    // If Pinterest App is in Trial mode and rejects production endpoint, attempt sandbox fallback
+    if (!pinRes.ok && (pinData.message?.includes('Trial access') || pinData.message?.includes('API Sandbox'))) {
+      try {
+        const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(pinPayload),
+        });
+        if (sandboxRes.ok) {
+          pinRes = sandboxRes;
+          pinData = await sandboxRes.json().catch(() => ({}));
+        }
+      } catch {}
+    }
 
     if (!pinRes.ok || pinData.code || pinData.error) {
+      const rawMsg = pinData.message || pinData.error || `Pinterest API error (${pinRes.status})`;
+      if (rawMsg.includes('Trial access') || rawMsg.includes('api-sandbox')) {
+        return {
+          success: false,
+          error: `Your Pinterest Developer App is in "Trial Access" mode. Go to developers.pinterest.com → Apps → Your App → Click "Apply for Standard Access" (Free & Instant approval) to publish live pins.`,
+          platform: 'PINTEREST',
+        };
+      }
       return {
         success: false,
-        error: pinData.message || pinData.error || `Pinterest API error (${pinRes.status})`,
+        error: rawMsg,
         platform: 'PINTEREST',
       };
     }

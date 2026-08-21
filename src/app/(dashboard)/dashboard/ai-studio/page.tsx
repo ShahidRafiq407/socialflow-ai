@@ -1117,6 +1117,54 @@ export default function AIStudioPage() {
     }));
   };
 
+  // Pinterest Board management states & handlers
+  const [pinterestBoards, setPinterestBoards] = useState<{ id: string; name: string }[]>([]);
+  const [isFetchingBoards, setIsFetchingBoards] = useState(false);
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const [newBoardName, setNewBoardName] = useState("");
+  const [boardCreationMsg, setBoardCreationMsg] = useState("");
+
+  const loadPinterestBoards = async () => {
+    setIsFetchingBoards(true);
+    try {
+      const res = await fetch("/api/pinterest/boards");
+      const data = await res.json();
+      if (data.boards) {
+        setPinterestBoards(data.boards);
+      }
+    } catch {}
+    finally {
+      setIsFetchingBoards(false);
+    }
+  };
+
+  const handleCreatePinterestBoard = async () => {
+    if (!newBoardName.trim()) return;
+    setIsCreatingBoard(true);
+    setBoardCreationMsg("");
+    try {
+      const res = await fetch("/api/pinterest/boards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newBoardName.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.board?.id) {
+        setPinterestBoards((prev) => [data.board, ...prev]);
+        updatePublishSetting("pinterestBoard", data.board.id);
+        setNewBoardName("");
+        setBoardCreationMsg("✓ Board created and selected!");
+        setTimeout(() => setBoardCreationMsg(""), 3000);
+      } else {
+        setBoardCreationMsg(data.error || "Failed to create board");
+      }
+    } catch (e: any) {
+      setBoardCreationMsg(e.message || "Error creating board");
+    } finally {
+      setIsCreatingBoard(false);
+    }
+  };
+
   // ============================================================================
   // REAL MULTI-AGENT PLATFORM COPY GENERATOR (PARALLEL & TAB-ISOLATED)
   // ============================================================================
@@ -3734,11 +3782,81 @@ export default function AIStudioPage() {
                           </div>
                         )}
 
-                        {/* PINTEREST — manual export workflow; real fields live in the editor */}
+                        {/* PINTEREST SETTINGS & BOARD CREATOR */}
                         {activePlatformTab === "pinterest" && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                            Pins use the manual export workflow — set the board, destination link, tagged topics and alt text directly in the Pin fields of the editor. They are saved with the post.
-                          </p>
+                          <div className="space-y-3">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                  Select Pinterest Board
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={loadPinterestBoards}
+                                  disabled={isFetchingBoards}
+                                  className="text-[10px] text-primary hover:underline font-semibold"
+                                >
+                                  {isFetchingBoards ? "Loading..." : "↻ Refresh Boards"}
+                                </button>
+                              </div>
+                              <select
+                                value={currentPublishSettings.pinterestBoard || ""}
+                                onChange={(e) => updatePublishSetting("pinterestBoard", e.target.value)}
+                                className="w-full h-8 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
+                              >
+                                <option value="">Auto-Detect Board</option>
+                                {pinterestBoards.map((b) => (
+                                  <option key={b.id} value={b.id}>
+                                    {b.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* INLINE CREATE BOARD */}
+                            <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-2.5 bg-slate-50/50 dark:bg-slate-800/30 space-y-1.5">
+                              <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider block">
+                                + Create New Board
+                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  value={newBoardName}
+                                  onChange={(e) => setNewBoardName(e.target.value)}
+                                  placeholder="e.g. SMB Robotics, AI Tools..."
+                                  className="flex-1 h-7 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-slate-800 dark:text-slate-200"
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={handleCreatePinterestBoard}
+                                  disabled={isCreatingBoard || !newBoardName.trim()}
+                                  className="h-7 px-2.5 text-[11px] font-bold bg-primary text-white"
+                                >
+                                  {isCreatingBoard ? "Creating..." : "Create"}
+                                </Button>
+                              </div>
+                              {boardCreationMsg && (
+                                <p className={`text-[10px] ${boardCreationMsg.startsWith("✓") ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-rose-500"}`}>
+                                  {boardCreationMsg}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* DESTINATION LINK */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                Destination Link (Website URL)
+                              </label>
+                              <input
+                                type="url"
+                                value={currentPublishSettings.destinationUrl || currentPublishSettings.pinterestLink || ""}
+                                onChange={(e) => updatePublishSetting("destinationUrl", e.target.value)}
+                                placeholder="https://smbrobotic.com"
+                                className="w-full h-7 text-xs rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 text-slate-800 dark:text-slate-200"
+                              />
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
