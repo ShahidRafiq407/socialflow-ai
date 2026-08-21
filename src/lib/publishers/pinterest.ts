@@ -41,7 +41,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
         }
       } catch {}
 
-      // If still no board, auto-create a default board
+      // If still no board, try auto-creating a default board
       if (!boardId) {
         try {
           const createBoardRes = await fetch('https://api.pinterest.com/v5/boards', {
@@ -67,7 +67,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     if (!boardId) {
       return {
         success: false,
-        error: 'No Pinterest board found. Please create a board on Pinterest first.',
+        error: 'No Pinterest board found. Please create at least 1 board (e.g. "SMB Robotics") on Pinterest.com, or reconnect Pinterest in Integrations.',
         platform: 'PINTEREST',
       };
     }
