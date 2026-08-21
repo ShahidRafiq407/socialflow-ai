@@ -1,5 +1,20 @@
 import { PublishResult } from './index';
 
+function getAppBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return 'https://socialflow-ai-akel.vercel.app';
+}
+
+// Pinterest's ingestion fetches image_url over public HTTPS — relative paths
+// must be converted to an absolute app URL.
+function toAbsoluteUrl(url: string): string {
+  if (!url) return url;
+  if (/^(https?:|data:)/i.test(url)) return url;
+  return `${getAppBaseUrl()}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
 export async function publishToPinterest(post: any, account: any): Promise<PublishResult> {
   try {
     const accessToken = account.accessToken;
@@ -88,7 +103,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     } else {
       media_source = {
         source_type: 'image_url',
-        url: imageUrl,
+        url: toAbsoluteUrl(imageUrl),
       };
     }
 

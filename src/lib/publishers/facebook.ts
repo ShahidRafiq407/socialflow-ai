@@ -1,10 +1,30 @@
 import { PublishResult } from './index';
 
+// Graph API v23.0 (released May 2025, supported until Oct 2027).
+// v19.0 was deprecated and removed on May 21, 2026 — every call to it now fails.
+const GRAPH_VERSION = 'v23.0';
+
 function getAppBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return 'https://socialflow-ai-akel.vercel.app';
+}
+
+function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
+  if (!url) return url;
+  if (url.startsWith('data:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
+  if (url.startsWith('/')) return `${getAppBaseUrl()}${url}`;
+  return url;
+}
+
+function collectMediaUrls(post: any): string[] {
+  const history = post.mediaHistory as any;
+  if (history?.mediaUrls && Array.isArray(history.mediaUrls) && history.mediaUrls.length > 0) {
+    return history.mediaUrls.filter(Boolean).map((u: string) => String(u));
+  }
+  if (post.imageUrl) return [post.imageUrl];
+  return [];
 }
 
 export async function publishToFacebook(post: any, account: any): Promise<PublishResult> {
@@ -23,7 +43,7 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     // Attempt to resolve the user's primary Facebook Page and Page Access Token
     try {
       const accountsRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,category&access_token=${targetAccessToken}`
+        `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token,category&access_token=${targetAccessToken}`
       );
       if (accountsRes.ok) {
         const accountsData = await accountsRes.json();
@@ -42,17 +62,70 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       // Continue with saved credentials
     }
 
-    const { content, imageUrl } = post;
+    const { content } = post;
+    const mediaUrls = collectMediaUrls(post);
     const caption = [content, Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '']
       .filter(Boolean)
       .join('\n\n')
       .trim();
 
+    const isVideo = post.mediaType === 'video' || (mediaUrls[0] || '').endsWith('.mp4') || (mediaUrls[0] || '').includes('video');
+    const isMultiPhoto = mediaUrls.length > 1 && !isVideo;
+
     let response: Response;
 
-    if (imageUrl) {
+    if (isVideo) {
+      // Page video / Reel — Graph uploads via public file_url
+      const videoUrl = toPublicMediaUrl(mediaUrls[0], post.id);
+      response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/videos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: targetAccessToken,
+          file_url: videoUrl,
+          description: caption || undefined,
+          title: post.settings?.contentTitle || undefined,
+        }),
+      });
+    } else if (isMultiPhoto) {
+      // Multiple photos: upload each as an unpublished photo, then publish one
+      // feed post that attaches all of them.
+      const attachedMedia: string[] = [];
+      for (let i = 0; i < Math.min(mediaUrls.length, 10); i++) {
+        const photoUrl = toPublicMediaUrl(mediaUrls[i], post.id, i);
+        const photoRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: targetAccessToken,
+            url: photoUrl,
+            published: false,
+          }),
+        });
+        const photoData = await photoRes.json().catch(() => ({}));
+        if (!photoRes.ok || !photoData.id) {
+          return {
+            success: false,
+            error: photoData.error?.message || `Failed to upload photo ${i + 1} (HTTP ${photoRes.status})`,
+            platform: 'FACEBOOK',
+          };
+        }
+        attachedMedia.push(photoData.id);
+      }
+
+      response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/feed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: targetAccessToken,
+          message: caption || undefined,
+          attached_media: attachedMedia.map((id) => ({ media_fbid: id })),
+        }),
+      });
+    } else if (mediaUrls[0]) {
+      const imageUrl = mediaUrls[0];
       if (imageUrl.startsWith('data:')) {
-        // Option A: Direct Multipart Binary Upload to Facebook Photos API
+        // Direct Multipart Binary Upload to Facebook Photos API
         const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
         if (match) {
           const mimeType = match[1] || 'image/png';
@@ -66,26 +139,23 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
             formData.append('caption', caption);
           }
 
-          response = await fetch(`https://graph.facebook.com/v19.0/${targetPageId}/photos`, {
+          response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
             method: 'POST',
             body: formData,
           });
         } else {
-          // Option B: Public Media Proxy URL fallback
-          const publicMediaUrl = `${getAppBaseUrl()}/api/media/${post.id}`;
-          response = await fetch(`https://graph.facebook.com/v19.0/${targetPageId}/photos`, {
+          response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               access_token: targetAccessToken,
-              url: publicMediaUrl,
+              url: toPublicMediaUrl(imageUrl, post.id),
               caption: caption || undefined,
             }),
           });
         }
       } else {
-        // Standard public URL
-        response = await fetch(`https://graph.facebook.com/v19.0/${targetPageId}/photos`, {
+        response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -97,7 +167,7 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       }
     } else {
       // Text-only feed post
-      response = await fetch(`https://graph.facebook.com/v19.0/${targetPageId}/feed`, {
+      response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/feed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,7 +192,9 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     }
 
     const rawPostId = data.post_id || data.id;
-    const liveUrl = `https://www.facebook.com/${rawPostId}`;
+    const liveUrl = isVideo
+      ? `https://www.facebook.com/${targetPageId}/videos/${rawPostId}`
+      : `https://www.facebook.com/${rawPostId}`;
 
     return {
       success: true,

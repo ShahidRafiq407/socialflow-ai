@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { Header } from "@/components/dashboard/Header";
+import { dispatchDueScheduledPosts } from "@/actions/publish";
 
 export function DashboardShell({
   children,
@@ -16,6 +17,24 @@ export function DashboardShell({
 }) {
   const pathname = usePathname();
   const isOnboarding = pathname === "/onboarding";
+
+  // Due-post dispatcher: keeps SCHEDULED posts publishing at their exact time
+  // even though the Vercel cron only sweeps once a day. Fire-and-forget —
+  // atomic SCHEDULED→PUBLISHING claims prevent double publishing.
+  useEffect(() => {
+    if (isOnboarding) return;
+    const dispatch = () => {
+      dispatchDueScheduledPosts().catch(() => {});
+    };
+    dispatch();
+    const onFocus = () => dispatch();
+    window.addEventListener("focus", onFocus);
+    const interval = setInterval(dispatch, 60_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(interval);
+    };
+  }, [isOnboarding]);
 
   if (isOnboarding) {
     return (

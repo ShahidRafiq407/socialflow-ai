@@ -1,10 +1,33 @@
 import { PublishResult } from './index';
 
+// Graph API v23.0 (released May 2025, supported until Oct 2027).
+// v19.0 was deprecated and removed on May 21, 2026 — every call to it now fails.
+const GRAPH_VERSION = 'v23.0';
+const IG_CAPTION_LIMIT = 2200;
+
 function getAppBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return 'https://socialflow-ai-akel.vercel.app';
+}
+
+// Meta's crawler fetches media over public HTTPS. base64 data URIs and relative
+// paths are rewritten to our public streaming endpoint (/api/media/[postId]).
+function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
+  if (!url) return url;
+  if (url.startsWith('data:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
+  if (url.startsWith('/')) return `${getAppBaseUrl()}${url}`;
+  return url;
+}
+
+function collectMediaUrls(post: any): string[] {
+  const history = post.mediaHistory as any;
+  if (history?.mediaUrls && Array.isArray(history.mediaUrls) && history.mediaUrls.length > 0) {
+    return history.mediaUrls.filter(Boolean).map((u: string) => String(u));
+  }
+  if (post.imageUrl) return [post.imageUrl];
+  return [];
 }
 
 export async function publishToInstagram(post: any, account: any): Promise<PublishResult> {
@@ -24,7 +47,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     // 0A: Check if igUserId is a Page ID that has an instagram_business_account or connected_instagram_account
     try {
       const inspectRes = await fetch(
-        `https://graph.facebook.com/v19.0/${igUserId}?fields=id,username,instagram_business_account,connected_instagram_account,access_token&access_token=${accessToken}`
+        `https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}?fields=id,username,instagram_business_account,connected_instagram_account,access_token&access_token=${accessToken}`
       );
       if (inspectRes.ok) {
         const inspectData = await inspectRes.json();
@@ -40,7 +63,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     if (!igUserId.startsWith('17841')) {
       try {
         const pagesRes = await fetch(
-          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}&access_token=${accessToken}`
+          `https://graph.facebook.com/${GRAPH_VERSION}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}&access_token=${accessToken}`
         );
         if (pagesRes.ok) {
           const pagesData = await pagesRes.json();
@@ -60,7 +83,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     if (!igUserId.startsWith('17841')) {
       try {
         const bizRes = await fetch(
-          `https://graph.facebook.com/v19.0/me/businesses?fields=id,name,instagram_accounts{id,username},owned_instagram_accounts{id,username}&access_token=${accessToken}`
+          `https://graph.facebook.com/${GRAPH_VERSION}/me/businesses?fields=id,name,instagram_accounts{id,username},owned_instagram_accounts{id,username}&access_token=${accessToken}`
         );
         if (bizRes.ok) {
           const bizData = await bizRes.json();
@@ -79,7 +102,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     if (!igUserId.startsWith('17841')) {
       try {
         const directBizRes = await fetch(
-          `https://graph.facebook.com/v19.0/1772056396948184/instagram_accounts?fields=id,username,name&access_token=${accessToken}`
+          `https://graph.facebook.com/${GRAPH_VERSION}/1772056396948184/instagram_accounts?fields=id,username,name&access_token=${accessToken}`
         );
         if (directBizRes.ok) {
           const directBizData = await directBizRes.json();
@@ -90,9 +113,10 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       } catch {}
     }
 
-    const { content, imageUrl } = post;
-    
-    if (!imageUrl) {
+    const { content } = post;
+    const mediaUrls = collectMediaUrls(post);
+
+    if (mediaUrls.length === 0) {
       return {
         success: false,
         error: 'Instagram posts require an image or video asset',
@@ -100,72 +124,124 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       };
     }
 
-    // Resolve public HTTPS image URL for Meta's container crawler
-    let targetImageUrl = imageUrl;
-    if (imageUrl.startsWith('data:')) {
-      targetImageUrl = `${getAppBaseUrl()}/api/media/${post.id}`;
-    }
-
     const caption = [content, Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '']
       .filter(Boolean)
       .join('\n\n')
-      .trim();
+      .trim()
+      .slice(0, IG_CAPTION_LIMIT);
 
-    // Step 1: Create Container
-    const containerUrl = `https://graph.facebook.com/v19.0/${igUserId}/media`;
+    const format = String(post.format || 'Feed').toLowerCase();
+    const isStory = format === 'story';
+    const isCarousel = format === 'carousel' || post.mediaType === 'carousel';
+    const isVideo = post.mediaType === 'video' || mediaUrls[0].endsWith('.mp4') || mediaUrls[0].includes('video');
+
+    // Stories publish as STORIES media and can't carry a caption — IG auto-hides
+    // the caption on story posts anyway.
     const containerBody: Record<string, any> = {
-      image_url: targetImageUrl,
-      caption: caption || '',
+      caption: isStory ? '' : caption,
       access_token: accessToken,
     };
 
-    const isVideo = post.mediaType === 'video' || targetImageUrl.endsWith('.mp4') || targetImageUrl.includes('video');
-    if (isVideo) {
-      containerBody.media_type = 'REELS';
-      containerBody.video_url = targetImageUrl;
-      delete containerBody.image_url;
-    }
+    if (isStory) {
+      containerBody.media_type = 'STORIES';
+      containerBody.image_url = toPublicMediaUrl(mediaUrls[0], post.id);
+    } else if (isCarousel && mediaUrls.length > 1 && !isVideo) {
+      // Multi-image carousel: one container per image (is_carousel_item) then a
+      // CAROUSEL container linking the children.
+      const childIds: string[] = [];
+      for (let i = 0; i < Math.min(mediaUrls.length, 10); i++) {
+        const childRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}/media`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: toPublicMediaUrl(mediaUrls[i], post.id, i),
+            is_carousel_item: true,
+            access_token: accessToken,
+          }),
+        });
+        const childData = await childRes.json().catch(() => ({}));
+        if (!childRes.ok || !childData.id) {
+          return {
+            success: false,
+            error: childData.error?.message || `Failed to create carousel item ${i + 1} (HTTP ${childRes.status})`,
+            platform: 'INSTAGRAM',
+          };
+        }
+        childIds.push(childData.id);
+      }
 
-    const containerResponse = await fetch(containerUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(containerBody),
-    });
+      // Allow IG time to process the child containers before linking them
+      await new Promise((resolve) => setTimeout(resolve, 2500));
 
-    const containerData = await containerResponse.json().catch(() => ({}));
-
-    if (!containerResponse.ok || containerData.error) {
-      const rawError = containerData.error?.message || `Failed to create Instagram media container (${containerResponse.status})`;
-      if (rawError.includes('does not exist') || rawError.includes('Unsupported post request')) {
+      const carouselRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          media_type: 'CAROUSEL',
+          children: childIds,
+          caption,
+          access_token: accessToken,
+        }),
+      });
+      const carouselData = await carouselRes.json().catch(() => ({}));
+      if (!carouselRes.ok || !carouselData.id) {
         return {
           success: false,
-          error: `Instagram Business account ID (${igUserId}) could not be accessed. Please reconnect Instagram in Integrations to refresh the token with full Business Portfolio permissions.`,
+          error: carouselData.error?.message || `Failed to create carousel container (HTTP ${carouselRes.status})`,
           platform: 'INSTAGRAM',
         };
       }
-      return {
-        success: false,
-        error: rawError,
-        platform: 'INSTAGRAM',
-      };
+      containerBody.creation_id = carouselData.id;
+      containerBody.media_type = 'CAROUSEL';
+      delete containerBody.caption;
+    } else if (isVideo) {
+      containerBody.media_type = 'REELS';
+      containerBody.video_url = toPublicMediaUrl(mediaUrls[0], post.id);
+    } else {
+      containerBody.image_url = toPublicMediaUrl(mediaUrls[0], post.id);
     }
 
-    const creationId = containerData.id;
+    // Single container flow (Feed / Story / Reel): create then publish.
+    // Carousel flow skips creation because we already created the container above.
+    if (!containerBody.creation_id) {
+      const containerResponse = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(containerBody),
+      });
+
+      const containerData = await containerResponse.json().catch(() => ({}));
+
+      if (!containerResponse.ok || containerData.error) {
+        const rawError = containerData.error?.message || `Failed to create Instagram media container (${containerResponse.status})`;
+        if (rawError.includes('does not exist') || rawError.includes('Unsupported post request')) {
+          return {
+            success: false,
+            error: `Instagram Business account ID (${igUserId}) could not be accessed. Please reconnect Instagram in Integrations to refresh the token with full Business Portfolio permissions.`,
+            platform: 'INSTAGRAM',
+          };
+        }
+        return {
+          success: false,
+          error: rawError,
+          platform: 'INSTAGRAM',
+        };
+      }
+
+      containerBody.creation_id = containerData.id;
+    }
 
     // Wait for Instagram to process the container
     await new Promise((resolve) => setTimeout(resolve, isVideo ? 6000 : 3500));
 
-    // Step 2: Publish Container
-    const publishUrl = `https://graph.facebook.com/v19.0/${igUserId}/media_publish`;
-    const publishBody = {
-      creation_id: creationId,
-      access_token: accessToken,
-    };
-
-    const publishResponse = await fetch(publishUrl, {
+    // Publish the container
+    const publishResponse = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}/media_publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(publishBody),
+      body: JSON.stringify({
+        creation_id: containerBody.creation_id,
+        access_token: accessToken,
+      }),
     });
 
     const publishData = await publishResponse.json().catch(() => ({}));
@@ -181,10 +257,10 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     const mediaId = publishData.id;
     let liveUrl = `https://www.instagram.com/`;
 
-    // Step 3: Fetch real post permalink
+    // Fetch real post permalink
     try {
       const mediaRes = await fetch(
-        `https://graph.facebook.com/v19.0/${mediaId}?fields=permalink,shortcode&access_token=${accessToken}`
+        `https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}?fields=permalink,shortcode&access_token=${accessToken}`
       );
       if (mediaRes.ok) {
         const mediaInfo = await mediaRes.json();
@@ -203,7 +279,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
         const params = new URLSearchParams({ access_token: accessToken });
         if (settings.igHideLikeViews === true) params.set('hide_like_and_view_counts', 'true');
         if (settings.igDisableComments === true) params.set('comment_disabled', 'true');
-        await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+        await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
           method: 'POST',
           body: params,
         });

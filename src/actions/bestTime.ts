@@ -32,7 +32,7 @@ export interface BestTimeAnalysis {
  *   2. Fresh Gemini analysis for uncached platforms (25s hard timeout)
  *   3. Built-in industry-standard windows as final fallback
  */
-export async function analyzeBestTimes(platforms: string[]): Promise<BestTimeAnalysis> {
+export async function analyzeBestTimes(platforms: string[], timeZone?: string): Promise<BestTimeAnalysis> {
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
@@ -44,6 +44,13 @@ export async function analyzeBestTimes(platforms: string[]): Promise<BestTimeAna
   const industry = workspace?.industry || "Technology & Automation";
   const audience =
     workspace?.brandDNA?.targetAudience || "General business decision makers";
+
+  // Never trust the LLM to guess the user's timezone — the client passes the
+  // browser's IANA zone so the AI picks windows for the right clock.
+  const userTimeZone =
+    timeZone && typeof timeZone === "string" && timeZone.trim().length > 0
+      ? timeZone.trim()
+      : "UTC";
 
   const uniquePlatforms = Array.from(new Set(platforms.map((p) => p.toLowerCase())));
   const times: Record<string, PlatformTimeEntry> = {};
@@ -69,10 +76,11 @@ Determine the BEST posting windows for maximum organic reach on each platform.
 INDUSTRY: ${industry}
 TARGET AUDIENCE: ${audience}
 PLATFORMS: ${missing.join(", ")}
+USER TIMEZONE: ${userTimeZone}
 
 Base your answer on real audience-behavior patterns for this specific industry and
 audience (work schedules, commute times, browsing habits, timezone spread of typical
-buyers in this niche). Return times in the user's LOCAL timezone.
+buyers in this niche). Return times in the USER TIMEZONE (${userTimeZone}) exactly.
 
 Return strictly JSON:
 {

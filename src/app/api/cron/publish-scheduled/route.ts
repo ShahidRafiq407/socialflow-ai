@@ -62,11 +62,16 @@ export async function GET(request: Request) {
     const results = [];
 
     for (const post of scheduledPosts) {
-      // Update to PUBLISHING (guards against double-publish if a lock-less run overlaps)
-      await prisma.post.update({
-        where: { id: post.id },
+      // Atomic claim (SCHEDULED → PUBLISHING) guards against double-publish if a
+      // lock-less run or the in-app dispatcher overlaps this cron execution.
+      const claim = await prisma.post.updateMany({
+        where: { id: post.id, status: 'SCHEDULED' },
         data: { status: 'PUBLISHING' },
       });
+      if (claim.count === 0) {
+        await removeFromScheduleQueue(post.id);
+        continue;
+      }
 
       try {
         // Map post.platform (e.g. "Instagram", "Instagram reel") to SocialAccount enum (e.g. "INSTAGRAM")

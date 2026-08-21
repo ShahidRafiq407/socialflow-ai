@@ -2432,6 +2432,11 @@ export default function AIStudioPage() {
           visualPrompts: currentVisualPrompts,
         },
       });
+      if (!res?.id) {
+        setPublishResult({ success: false, message: (res as any)?.error || "Failed to save draft on server." });
+        setTimeout(() => setPublishResult(null), 3500);
+        return;
+      }
       post.id = res.id;
       store.addPost(post);
       setStatusModalData({
@@ -2604,7 +2609,8 @@ export default function AIStudioPage() {
     setIsAnalyzingTimes(true);
     try {
       const uniquePlatforms = Array.from(new Set(posts.map((p) => p.platform)));
-      const analysis = await analyzeBestTimes(uniquePlatforms);
+      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const analysis = await analyzeBestTimes(uniquePlatforms, userTimeZone);
       const plan = posts.map(({ platform, format }) => {
         const entry =
           analysis.times[platform.toLowerCase()] ||
@@ -2678,6 +2684,17 @@ export default function AIStudioPage() {
             visualPrompts: data.visualPrompts || [],
           },
         });
+        if (!draftRes?.id) {
+          modalItems.push({
+            platform,
+            format,
+            status: "FAILED",
+            error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
+            title: data.caption?.slice(0, 60),
+            thumbnailUrl: mediaUrl,
+          });
+          continue;
+        }
         await apiSchedulePost(draftRes.id, bestAt);
         modalItems.push({
           platform,
@@ -2737,6 +2754,17 @@ export default function AIStudioPage() {
               visualPrompts: data.visualPrompts || [],
             },
           });
+          if (!draftRes?.id) {
+            modalItems.push({
+              platform,
+              format,
+              status: "FAILED",
+              error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            });
+            continue;
+          }
           const pubRes: any = await apiPublishNow(draftRes.id);
           if (pubRes?.success) {
             modalItems.push({
@@ -2850,6 +2878,9 @@ export default function AIStudioPage() {
           mediaType: post.mediaType,
           source: post.source,
         });
+        if (!draftRes?.id) {
+          throw new Error((draftRes as any)?.error || "Server failed to save the manual post draft.");
+        }
         post.id = draftRes.id;
         
         if (status === "scheduled" && manualPost.scheduledAt) {
@@ -4223,6 +4254,12 @@ export default function AIStudioPage() {
               The AI Scheduler analyzed audience activity for every selected platform. Each post is
               queued at its platform&apos;s peak engagement window and publishes automatically:
             </p>
+            <div className="flex items-center gap-1.5 mb-3 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50">
+              <Clock className="h-3.5 w-3.5 text-indigo-500" />
+              <p className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
+                All times below are in your local timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone || "browser local"})
+              </p>
+            </div>
             {isAnalyzingTimes && schedulePlan.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 space-y-3">
                 <Loader2 className="h-7 w-7 animate-spin text-indigo-500" />
