@@ -2528,13 +2528,19 @@ export default function AIStudioPage() {
       }
     }
 
-    // Fallback if still empty: collect current active format
-    if (entries.length === 0 && generatedContents[activePlatformTab]?.[currentFormatName]) {
-      const data = generatedContents[activePlatformTab][currentFormatName];
-      entries.push({ platform: activePlatformTab, format: currentFormatName, data });
+    // Deduplicate by platform-format (e.g. prevent "Feed" and "feed" from publishing twice)
+    const seenKeys = new Set<string>();
+    const deduplicatedEntries: { platform: string; format: string; data: GeneratedFormat }[] = [];
+
+    for (const entry of entries) {
+      const dedupeKey = `${entry.platform.toLowerCase()}-${entry.format.toLowerCase()}`;
+      if (!seenKeys.has(dedupeKey)) {
+        seenKeys.add(dedupeKey);
+        deduplicatedEntries.push(entry);
+      }
     }
 
-    return entries;
+    return deduplicatedEntries;
   };
 
   const openScheduleModal = async () => {
