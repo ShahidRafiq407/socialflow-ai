@@ -5,6 +5,7 @@ import Link from "next/link";
 import { create } from "zustand";
 import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
+import { saveAllMediaToIndexedDB, loadAllMediaFromIndexedDB, removeMediaFromIndexedDB } from "@/lib/indexedDbMedia";
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
@@ -309,13 +310,25 @@ const getMediaType = (format: string): "video" | "image" | "carousel" => {
 
 const getFormatFamily = (platform: string, format: string): "vertical_video" | "story" | "carousel" | "single_image" => {
   const norm = (format || "").toLowerCase().trim();
-  if (norm.includes("reel") || norm.includes("short") || norm === "video" || norm === "short video") {
+  if (
+    norm.includes("reel") ||
+    norm.includes("short") ||
+    norm === "video" ||
+    norm === "short video" ||
+    norm === "video pin" ||
+    norm.includes("video pin")
+  ) {
     return "vertical_video";
   }
   if (norm.includes("story")) {
     return "story";
   }
-  if (norm.includes("carousel") || norm.includes("idea_pin") || norm.includes("document")) {
+  if (
+    norm.includes("carousel") ||
+    norm.includes("idea pin") ||
+    norm.includes("idea_pin") ||
+    norm.includes("document")
+  ) {
     return "carousel";
   }
   return "single_image";
@@ -1609,6 +1622,15 @@ export default function AIStudioPage() {
 
   // clearedMediaKeys is now in the persisted session store
 
+  // Restore custom media from IndexedDB on refresh
+  useEffect(() => {
+    loadAllMediaFromIndexedDB().then((savedMedia) => {
+      if (savedMedia && Object.keys(savedMedia).length > 0) {
+        setCustomMediaDict((prev) => ({ ...savedMedia, ...prev }));
+      }
+    });
+  }, []);
+
   const handleApplyCustomMedia = (url: string, type: "image" | "video", slideIdx = activeSlideIdx) => {
     const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
     const targetKey = `${activePlatformTab}-${currentFormatName}-${slideIdx}`;
@@ -1640,6 +1662,9 @@ export default function AIStudioPage() {
       Object.keys(syncCustomUpdates).forEach((k) => delete next[k]);
       return next;
     });
+
+    // Persist to IndexedDB so full page reload (F5) never loses custom video/image assets
+    saveAllMediaToIndexedDB(syncCustomUpdates);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3458,6 +3483,7 @@ export default function AIStudioPage() {
                   displayImageUrls={displayImageUrls}
                   onRemoveMedia={() => {
                     setClearedMediaKeys((prev) => ({ ...prev, [currentMediaKey]: true }));
+                    removeMediaFromIndexedDB(currentMediaKey);
                     setCustomMediaDict((prev) => {
                       const next = { ...prev };
                       delete next[currentMediaKey];
