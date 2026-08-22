@@ -174,25 +174,35 @@ export async function GET(
         const profileRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        const profileData = await profileRes.json();
+        const profileData = await profileRes.json().catch(() => ({}));
         accountId = profileData.id || "youtube-user";
         handle = profileData.name || profileData.email || "YouTube User";
         pageName = profileData.name || null;
         avatarUrl = profileData.picture || null;
 
-        // Try to get channel name and avatar
+        // Try to get primary YouTube channel name, real channel ID (UC...), handle, and avatar
         try {
           const channelRes = await fetch(
-            "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+            "https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails&mine=true",
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
-          const channelData = await channelRes.json();
-          if (channelData.items?.[0]) {
-            pageName = channelData.items[0].snippet?.title || pageName;
-            handle = channelData.items[0].snippet?.customUrl || handle;
-            avatarUrl = channelData.items[0].snippet?.thumbnails?.high?.url || channelData.items[0].snippet?.thumbnails?.default?.url || avatarUrl;
+          const channelData = await channelRes.json().catch(() => ({}));
+          if (channelData.items && channelData.items.length > 0) {
+            const primaryChannel = channelData.items[0];
+            accountId = primaryChannel.id || accountId; // Real YouTube Channel ID (e.g. UC...)
+            pageName = primaryChannel.snippet?.title || pageName;
+            handle = primaryChannel.snippet?.customUrl
+              ? (primaryChannel.snippet.customUrl.startsWith('@') ? primaryChannel.snippet.customUrl : `@${primaryChannel.snippet.customUrl}`)
+              : (primaryChannel.snippet?.title || handle);
+            avatarUrl =
+              primaryChannel.snippet?.thumbnails?.high?.url ||
+              primaryChannel.snippet?.thumbnails?.medium?.url ||
+              primaryChannel.snippet?.thumbnails?.default?.url ||
+              avatarUrl;
           }
-        } catch {}
+        } catch (ytErr) {
+          console.warn("Could not fetch YouTube channel in OAuth callback:", ytErr);
+        }
       } else if (platform === "facebook" || platform === "instagram") {
         // Meta Graph API
         const profileRes = await fetch(

@@ -1609,24 +1609,50 @@ export default function AIStudioPage() {
 
   // clearedMediaKeys is now in the persisted session store
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleApplyCustomMedia = (url: string, type: "image" | "video", slideIdx = activeSlideIdx) => {
+    const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
+    const targetKey = `${activePlatformTab}-${currentFormatName}-${slideIdx}`;
+    
+    const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name?: string }> = {
+      [targetKey]: { url, type },
+    };
+    const syncClearUpdates: Record<string, boolean> = {
+      [targetKey]: false,
+    };
+
+    selectedPlatforms.forEach((pId) => {
+      const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
+        ? selectedContentTypes[pId]
+        : (getPlatformDef(pId)?.contentTypes || []);
+      availableFormats.forEach((otherFmt) => {
+        if (getFormatFamily(pId, otherFmt) === currentFamily) {
+          const otherKey = `${pId}-${otherFmt}-${slideIdx}`;
+          syncCustomUpdates[otherKey] = { url, type };
+          syncClearUpdates[otherKey] = false;
+        }
+      });
+    });
+
+    setClearedMediaKeys((prev) => ({ ...prev, ...syncClearUpdates }));
+    setCustomMediaDict((prev) => ({ ...prev, ...syncCustomUpdates }));
+    setRenderedImageUrlsDict((prev) => {
+      const next = { ...prev };
+      Object.keys(syncCustomUpdates).forEach((k) => delete next[k]);
+      return next;
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setClearedMediaKeys(prev => ({ ...prev, [currentMediaKey]: false }));
-      setCustomMediaDict(prev => {
-        // revoke previous blob url if any
-        const old = prev[currentMediaKey];
-        if (old?.url.startsWith("blob:")) {
-          try { URL.revokeObjectURL(old.url); } catch {}
+      const isVid = file.type.startsWith("video");
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
         }
-        return { ...prev, [currentMediaKey]: { url, type: file.type.startsWith("video") ? "video" : "image" } };
-      });
-      setRenderedImageUrlsDict(prev => {
-        const next = { ...prev };
-        delete next[currentMediaKey];
-        return next;
-      });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -4639,11 +4665,14 @@ export default function AIStudioPage() {
                   onChange={e => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const url = URL.createObjectURL(file);
-                      setCustomMediaDict(prev => ({
-                        ...prev,
-                        [currentMediaKey]: { url, type: file.type.startsWith("video") ? "video" : "image" }
-                      }));
+                      const isVid = file.type.startsWith("video");
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === "string") {
+                          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
+                        }
+                      };
+                      reader.readAsDataURL(file);
                       setActiveMediaModal(null);
                     }
                   }}
@@ -4669,10 +4698,7 @@ export default function AIStudioPage() {
         allowedType={currentMediaType === "video" ? "video" : currentMediaType === "image" ? "image" : undefined}
         onClose={() => setActiveMediaModal(null)}
         onSelect={(item) => {
-          setCustomMediaDict(prev => ({
-            ...prev,
-            [currentMediaKey]: { url: item.url, type: item.type }
-          }));
+          handleApplyCustomMedia(item.url, item.type);
           setActiveMediaModal(null);
         }}
       />
@@ -4726,11 +4752,14 @@ export default function AIStudioPage() {
                   onChange={e => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const url = URL.createObjectURL(file);
-                      setCustomMediaDict(prev => ({
-                        ...prev,
-                        [currentMediaKey]: { url, type: file.type.startsWith("video") ? "video" : "image" }
-                      }));
+                      const isVid = file.type.startsWith("video");
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === "string") {
+                          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
+                        }
+                      };
+                      reader.readAsDataURL(file);
                       setActiveMediaModal(null);
                     }
                   }}

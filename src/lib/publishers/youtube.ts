@@ -26,20 +26,25 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
     if (!videoUrl) {
       return { success: false, error: 'YouTube uploads require a video', platform: 'YOUTUBE' };
     }
-    if (videoUrl.startsWith('data:')) {
-      return {
-        success: false,
-        error: 'YouTube needs a public video URL — data: URLs cannot be uploaded',
-        platform: 'YOUTUBE',
-      };
-    }
 
-    // Download the video bytes (resumable upload requires the payload server-side)
-    const videoRes = await fetch(videoUrl);
-    if (!videoRes.ok) {
-      return { success: false, error: `Could not download the video for upload (HTTP ${videoRes.status})`, platform: 'YOUTUBE' };
+    let videoBuffer: Buffer;
+    if (videoUrl.startsWith('data:')) {
+      const match = videoUrl.match(/^data:([^;]+);base64,(.*)$/);
+      const base64Data = match ? match[2] : videoUrl;
+      videoBuffer = Buffer.from(base64Data, 'base64');
+    } else {
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
+      const fullVideoUrl = videoUrl.startsWith('/') ? `${appUrl}${videoUrl}` : videoUrl;
+      const videoRes = await fetch(fullVideoUrl);
+      if (!videoRes.ok) {
+        return {
+          success: false,
+          error: `Could not download the video for upload (HTTP ${videoRes.status})`,
+          platform: 'YOUTUBE',
+        };
+      }
+      videoBuffer = Buffer.from(await videoRes.arrayBuffer());
     }
-    const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
 
     const settings = post.settings || {};
     const title = String(

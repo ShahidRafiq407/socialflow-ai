@@ -119,38 +119,8 @@ export async function POST(req: Request) {
             const savedPostIds: string[] = [];
             const campaignPayload = resultState.generatedContent || { platforms: {} };
 
-            if (campaignPayload.platforms) {
-              for (const [platformId, formats] of Object.entries(
-                campaignPayload.platforms as Record<string, Record<string, any>>
-              )) {
-                for (const [formatName, content] of Object.entries(formats)) {
-                  const imageUrl: string | null = content.imageUrl || null;
-                  const imagePrompt: string | null = content.visualPrompt || content.imagePrompt || null;
-                  const caption = content.caption || "";
-                  // Real hashtag sanitization — "#digital marketing strategy" (spaces) or bare
-                  // sentences never reach the saved post; each topic becomes a valid #PascalCase tag.
-                  const hashtags = normalizeHashtags(content.hashtags).join(" ");
-                  const fullContent = hashtags ? `${caption}\n\n${hashtags}` : caption;
-                  const platformDisplayName = platformId.charAt(0).toUpperCase() + platformId.slice(1);
-
-                  try {
-                    const post = await prisma.post.create({
-                      data: {
-                        workspaceId: workspace.id,
-                        platform: `${platformDisplayName} ${formatName}`,
-                        content: fullContent,
-                        imageUrl: imageUrl,
-                        imagePrompt: imagePrompt,
-                        status: "PENDING_APPROVAL",
-                      },
-                    });
-                    savedPostIds.push(post.id);
-                  } catch (dbErr) {
-                    console.error("Failed to save post to Prisma:", dbErr);
-                  }
-                }
-              }
-            }
+            // Do NOT auto-save posts to Content Library on generation.
+            // Posts are saved only when the user explicitly clicks "Save Draft" or "Publish / Schedule" in AI Studio.
 
             // Final SSE event
             sendSSE({

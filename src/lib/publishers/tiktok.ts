@@ -16,6 +16,20 @@ import { PublishResult } from './index';
  * until the app passes audit — the requested privacy_level is sent and TikTok
  * enforces its own policy.
  */
+function getAppBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return 'https://socialflow-ai-akel.vercel.app';
+}
+
+function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
+  if (!url) return url;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
+  if (url.startsWith('/')) return `${getAppBaseUrl()}${url}`;
+  return url;
+}
+
 export async function publishToTikTok(post: any, account: any): Promise<PublishResult> {
   try {
     const accessToken = account.accessToken;
@@ -24,17 +38,12 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       return { success: false, error: 'Missing TikTok account credentials', platform: 'TIKTOK' };
     }
 
-    const videoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
-    if (!videoUrl) {
+    const rawVideoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
+    if (!rawVideoUrl) {
       return { success: false, error: 'TikTok posts require a video', platform: 'TIKTOK' };
     }
-    if (videoUrl.startsWith('data:')) {
-      return {
-        success: false,
-        error: 'TikTok needs a public video URL to pull from — data: URLs cannot be published',
-        platform: 'TIKTOK',
-      };
-    }
+
+    const publicVideoUrl = toPublicMediaUrl(rawVideoUrl, post.id);
 
     const settings = post.settings || {};
     const privacyMap: Record<string, string> = {
@@ -67,7 +76,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
         },
         source_info: {
           source: 'PULL_FROM_URL',
-          video_url: videoUrl,
+          video_url: publicVideoUrl,
         },
       }),
     });

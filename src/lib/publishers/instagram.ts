@@ -16,7 +16,7 @@ function getAppBaseUrl(): string {
 // paths are rewritten to our public streaming endpoint (/api/media/[postId]).
 function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   if (!url) return url;
-  if (url.startsWith('data:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
   if (url.startsWith('/')) return `${getAppBaseUrl()}${url}`;
   return url;
 }
