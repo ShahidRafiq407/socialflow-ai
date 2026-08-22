@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMediaRenderer";
 
 interface StandardSocialEditorProps {
@@ -35,6 +36,11 @@ interface StandardSocialEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
+  isUploadingMedia?: boolean;
+  uploadProgress?: number;
+  uploadFileName?: string;
+  uploadTransferredMB?: string;
+  uploadTotalMB?: string;
   onRenderAI: (options?: {
     mediaType?: "image" | "video";
     duration?: number;
@@ -83,6 +89,11 @@ export default function StandardSocialEditor({
   onRemoveMedia,
   onOpenUpload,
   onOpenStock,
+  isUploadingMedia = false,
+  uploadProgress = 0,
+  uploadFileName,
+  uploadTransferredMB,
+  uploadTotalMB,
   onRenderAI,
   isRenderingMedia,
   onGenerateCopyAI,
@@ -114,41 +125,76 @@ export default function StandardSocialEditor({
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
+  const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
+
+  // Video synthesis settings when video mode is active inside standard editor
+  const [videoAspectRatio, setVideoAspectRatio] = useState<string>("auto");
+  const [videoTask, setVideoTask] = useState<string>("auto");
+
+  // Advanced synthesis panel toggle
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
 
   // For formats supporting both Image and Video (such as Instagram Story)
   const supportsBothMedia = capability.supportsAIVideo && capability.supportsAIImage;
-  const [selectedMediaType, setSelectedMediaType] = useState<"image" | "video">(
-    capability.mediaType === "video" ? "video" : "image"
-  );
   const [videoDuration, setVideoDuration] = useState(durationSec || 5);
-  // Video task mode for video generated through this editor (e.g. Instagram Story video)
   const [storyVideoTask, setStoryVideoTask] = useState<string>("auto");
   const [storyVideoAspectRatio, setStoryVideoAspectRatio] = useState<string>("auto");
-  const [attachedSourceImage, setAttachedSourceImage] = useState<string | null>(null);
 
   const handleDurationSelect = (sec: number) => {
     setVideoDuration(sec);
     if (onDurationChange) onDurationChange(sec);
   };
 
+  // Track user-selected media type for dual-capability formats (e.g. Story / Feed can be image OR video)
+  const [selectedMediaType, setSelectedMediaType] = useState<"image" | "video">(() => {
+    if (capability.supportsAIVideo && !capability.supportsAIImage) return "video";
+    if (displayImageUrl && isMediaVideo(displayImageUrl)) return "video";
+    return "image";
+  });
+
+  const handleDownloadImage = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!displayImageUrl) return;
+    try {
+      const filename = `${capability.platform}_${capability.format}_${Date.now()}.png`;
+      if (displayImageUrl.startsWith("data:")) {
+        const a = document.createElement("a");
+        a.href = displayImageUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      const response = await fetch(displayImageUrl);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      window.open(displayImageUrl, "_blank");
+    }
+  };
+
   const handleTriggerGenerate = () => {
-    const isVid = supportsBothMedia ? selectedMediaType === "video" : capability.mediaType === "video";
-    const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
-    const safeAspectRatio =
-      imageAspectRatio !== "auto" && supportedRatios.includes(imageAspectRatio as any)
-        ? imageAspectRatio
-        : capability.defaultAspectRatio;
-    if (isVid) {
+    if (selectedMediaType === "video") {
+      const safeVideoAspect = videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio;
       onRenderAI({
         mediaType: "video",
-        duration: videoDuration,
+        duration: durationSec,
         prompt,
-        aspectRatio: storyVideoAspectRatio !== "auto" ? storyVideoAspectRatio : capability.defaultAspectRatio,
-        videoTask: storyVideoTask,
+        aspectRatio: safeVideoAspect,
+        videoTask,
         sourceImage: attachedSourceImage,
-        sourceVideo: storyVideoTask === "edit" ? displayImageUrl : null,
+        sourceVideo: videoTask === "edit" ? displayImageUrl : null,
       });
     } else {
+      const safeAspectRatio = imageAspectRatio !== "auto" ? imageAspectRatio : capability.defaultAspectRatio;
       onRenderAI({
         mediaType: "image",
         prompt,
@@ -187,9 +233,18 @@ export default function StandardSocialEditor({
                 : isFourFive
                 ? "w-full aspect-[4/5] max-w-[240px]"
                 : "w-full aspect-[16/9] max-w-[340px]"
-            }`}
+            } ${isRenderingMedia || isUploadingMedia ? "min-h-[280px]" : ""}`}
           >
-            {isRenderingMedia ? (
+            {isUploadingMedia ? (
+              <UploadProgressIndicator
+                progress={uploadProgress}
+                fileName={uploadFileName}
+                isVertical={isVertical}
+                mediaType={selectedMediaType === "video" ? "video" : "image"}
+                transferredMB={uploadTransferredMB}
+                totalMB={uploadTotalMB}
+              />
+            ) : isRenderingMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
                 stage={generationStage}

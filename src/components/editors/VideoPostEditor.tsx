@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import CharacterCounter from "@/components/CharacterCounter";
 
@@ -43,6 +44,11 @@ interface VideoPostEditorProps {
   onRemoveVideo: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
+  isUploadingMedia?: boolean;
+  uploadProgress?: number;
+  uploadFileName?: string;
+  uploadTransferredMB?: string;
+  uploadTotalMB?: string;
   onRenderAIVideo: (options?: {
     mediaType?: "image" | "video";
     duration?: number;
@@ -89,6 +95,11 @@ export default function VideoPostEditor({
   onRemoveVideo,
   onOpenUpload,
   onOpenStock,
+  isUploadingMedia = false,
+  uploadProgress = 0,
+  uploadFileName,
+  uploadTransferredMB,
+  uploadTotalMB,
   onRenderAIVideo,
   isRenderingVideo,
   onGenerateCopyAI,
@@ -159,9 +170,18 @@ export default function VideoPostEditor({
           <div
             className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
               isVertical ? "w-full max-w-[200px] aspect-[9/16]" : "w-full aspect-[16/9] max-w-[340px]"
-            } ${isRenderingVideo ? "min-h-[280px]" : ""}`}
+            } ${isRenderingVideo || isUploadingMedia ? "min-h-[280px]" : ""}`}
           >
-            {isRenderingVideo ? (
+            {isUploadingMedia ? (
+              <UploadProgressIndicator
+                progress={uploadProgress}
+                fileName={uploadFileName}
+                isVertical={isVertical}
+                mediaType="video"
+                transferredMB={uploadTransferredMB}
+                totalMB={uploadTotalMB}
+              />
+            ) : isRenderingVideo ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
                 stage={generationStage}

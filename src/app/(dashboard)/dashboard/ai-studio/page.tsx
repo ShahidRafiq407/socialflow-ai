@@ -603,6 +603,13 @@ export default function AIStudioPage() {
   const [selectedAiVideoModel, setSelectedAiVideoModel] = useState<string>("template");
   const [videoPromptText, setVideoPromptText] = useState<string>("");
   const [aiGeneratingCaption, setAiGeneratingCaption] = useState<boolean>(false);
+  const [uploadProgressDict, setUploadProgressDict] = useState<Record<string, {
+    isUploading: boolean;
+    progress: number;
+    fileName: string;
+    transferredMB?: string;
+    totalMB?: string;
+  }>>({});
 
   // Specialized AI Video Model Controls
   const [heygenAvatar, setHeygenAvatar] = useState<string>("sarah");
@@ -1671,43 +1678,101 @@ export default function AIStudioPage() {
     const file = e.target.files?.[0];
     if (file) {
       const isVid = file.type.startsWith("video");
-      
-      setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: true }));
-      
-      // Try to upload to server first so we don't crash Next.js with a massive 36MB base64 payload
+      const uploadKey = currentFormatKey;
+      const totalMB = (file.size / (1024 * 1024)).toFixed(1);
+
+      // Initialize upload state
+      setUploadProgressDict((prev) => ({
+        ...prev,
+        [uploadKey]: {
+          isUploading: true,
+          progress: 0,
+          fileName: file.name,
+          transferredMB: "0.0",
+          totalMB,
+        },
+      }));
+
       const formData = new FormData();
-      formData.append('file', file);
-      
-      try {
-        const res = await fetch('/api/uploads', {
-          method: 'POST',
-          body: formData,
-        });
-        
-        const data = await res.json();
-        
-        if (res.ok && data.url) {
-          // Success! We have a clean public URL (e.g. from Supabase)
-          handleApplyCustomMedia(data.url, isVid ? "video" : "image");
-          setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
-          return;
-        } else {
-          console.warn("Server upload failed, falling back to local base64 preview:", data.error);
-        }
-      } catch (err) {
-        console.error("Upload error:", err);
-      }
-      
-      // Fallback: local Data URL (Warning: will crash Server Action if > 4MB)
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
-          setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
+      formData.append("file", file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/uploads");
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+          const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+          setUploadProgressDict((prev) => ({
+            ...prev,
+            [uploadKey]: {
+              isUploading: true,
+              progress: percent,
+              fileName: file.name,
+              transferredMB: transferred,
+              totalMB,
+            },
+          }));
         }
       };
-      reader.onerror = () => setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
-      reader.readAsDataURL(file);
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.url) {
+              setUploadProgressDict((prev) => ({
+                ...prev,
+                [uploadKey]: {
+                  isUploading: true,
+                  progress: 100,
+                  fileName: file.name,
+                  transferredMB: totalMB,
+                  totalMB,
+                },
+              }));
+              handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+            } else {
+              handleLocalBase64Fallback();
+            }
+          } catch (e) {
+            handleLocalBase64Fallback();
+          }
+        } else {
+          handleLocalBase64Fallback();
+        }
+        // Clear upload state after slight delay for visual satisfaction
+        setTimeout(() => {
+          setUploadProgressDict((prev) => {
+            const next = { ...prev };
+            delete next[uploadKey];
+            return next;
+          });
+        }, 400);
+      };
+
+      xhr.onerror = () => {
+        handleLocalBase64Fallback();
+        setUploadProgressDict((prev) => {
+          const next = { ...prev };
+          delete next[uploadKey];
+          return next;
+        });
+      };
+
+      const handleLocalBase64Fallback = () => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+
+      xhr.send(formData);
+      // Reset input value so re-selecting same file fires onChange
+      e.target.value = "";
     }
   };
 
@@ -3527,6 +3592,11 @@ export default function AIStudioPage() {
                   }}
                   onOpenUpload={() => fileInputRef.current?.click()}
                   onOpenStock={() => setActiveMediaModal("stock")}
+                  isUploadingMedia={Boolean(uploadProgressDict[currentFormatKey]?.isUploading)}
+                  uploadProgress={uploadProgressDict[currentFormatKey]?.progress || 0}
+                  uploadFileName={uploadProgressDict[currentFormatKey]?.fileName}
+                  uploadTransferredMB={uploadProgressDict[currentFormatKey]?.transferredMB}
+                  uploadTotalMB={uploadProgressDict[currentFormatKey]?.totalMB}
                   onRenderAI={(opts) => handleRenderMedia(opts)}
                   isRenderingMedia={Boolean(renderingMediaKeys[currentFormatKey])}
                   slides={(() => {

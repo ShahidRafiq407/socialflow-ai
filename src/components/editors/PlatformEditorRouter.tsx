@@ -40,6 +40,11 @@ export interface PlatformEditorRouterProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
+  isUploadingMedia?: boolean;
+  uploadProgress?: number;
+  uploadFileName?: string;
+  uploadTransferredMB?: string;
+  uploadTotalMB?: string;
   onRenderAI: (options?: {
     mediaType?: "image" | "video";
     duration?: number;
@@ -367,6 +372,11 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onRemoveVideo={props.onRemoveMedia}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
+        isUploadingMedia={props.isUploadingMedia}
+        uploadProgress={props.uploadProgress}
+        uploadFileName={props.uploadFileName}
+        uploadTransferredMB={props.uploadTransferredMB}
+        uploadTotalMB={props.uploadTotalMB}
         onRenderAIVideo={props.onRenderAI}
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
@@ -405,6 +415,11 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       onRemoveMedia={props.onRemoveMedia}
       onOpenUpload={props.onOpenUpload}
       onOpenStock={props.onOpenStock}
+      isUploadingMedia={props.isUploadingMedia}
+      uploadProgress={props.uploadProgress}
+      uploadFileName={props.uploadFileName}
+      uploadTransferredMB={props.uploadTransferredMB}
+      uploadTotalMB={props.uploadTotalMB}
       onRenderAI={props.onRenderAI}
       isRenderingMedia={props.isRenderingMedia}
       onGenerateCopyAI={props.onGenerateCopyAI}
