@@ -8,7 +8,8 @@
 - **Framework:** Next.js 16 (App Router, Turbopack, Server Actions)
 - **Database & Auth:** Prisma 7 + PostgreSQL / Neon, Clerk Auth (`@clerk/nextjs`)
 - **AI Models:** Google Cloud Model Garden (`gemini-3-pro-image` exclusively for image synthesis, Vertex AI / Gemini 2.5 Flash for copy & multi-agent pipeline)
-- **State & Sync:** Zustand (`useContentStudioStore`), LocalStorage persistence, Base64 Data URL conversion for PC/Stock uploads with automatic same-format family sync across selected platforms (e.g. Instagram Reel <-> Facebook Reel <-> TikTok Video <-> YouTube Shorts).
+- **State & Sync:** Zustand (`useAIStudioSessionStore`), LocalStorage + Native browser **IndexedDB** (`socialflow_media_db` in `src/lib/indexedDbMedia.ts`) to persist large PC/Stock video and image uploads across browser page reloads (F5) without 5MB quota restrictions.
+- **Format Families:** `vertical_video` format family includes: `Instagram Reel`, `Facebook Reel`, `TikTok Video`, `YouTube Shorts`, and `Pinterest Video Pin` for seamless 1-click cross-platform media synchronization.
 - **Drafts Lifecycle:** AI Generation no longer auto-creates records in Content Library; posts are strictly saved to Content Library only when the user clicks "Save Draft" or dispatches "Publish / Schedule".
 - **Media Pipeline:** Public HTTPS streaming `/api/media/[id]` (converts base64/blob to binary stream with caching for external crawler ingestion by Meta/Pinterest/LinkedIn/TikTok/YouTube)
 
