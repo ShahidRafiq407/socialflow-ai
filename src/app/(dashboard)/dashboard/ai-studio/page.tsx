@@ -2680,57 +2680,69 @@ export default function AIStudioPage() {
       return;
     }
     setPublishLoading(true);
-    const modalItems: PublishItemResult[] = [];
     try {
-      for (const { platform, format, data } of posts) {
-        // Use the exact time the AI plan showed in the modal (fallback: static best time)
-        const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
-        const bestAt = planned ? planned.time : getNextBestTime(platform);
-        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
-        const mediaUrl = primaryMediaUrl;
-        const draftRes = await apiSaveDraft({
-          platform,
-          content: data.caption || "",
-          imageUrl: mediaUrl,
-          format,
-          hashtags: normalizeHashtags(data.hashtags),
-          settings: {
-            ...(publishSettingsDict[`${platform}-${format}`] || {}),
-            // Carry the editor's native title/description fields into the publish payload
-            contentTitle: titleDict[`${platform}-${format}`] || undefined,
-            contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
-          },
-          mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
-          source: "ai_campaign",
-          campaignTopic,
-          campaignHook,
-          mediaHistory: {
-            mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
-            overlayTexts: data.overlayText || [],
-            visualPrompts: data.visualPrompts || [],
-          },
-        });
-        if (!draftRes?.id) {
-          modalItems.push({
-            platform,
-            format,
-            status: "FAILED",
-            error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
-            title: data.caption?.slice(0, 60),
-            thumbnailUrl: mediaUrl,
-          });
-          continue;
-        }
-        await apiSchedulePost(draftRes.id, bestAt);
-        modalItems.push({
-          platform,
-          format,
-          status: "SCHEDULED",
-          scheduledFor: bestAt,
-          title: data.caption?.slice(0, 60),
-          thumbnailUrl: mediaUrl,
-        });
-      }
+      const modalItems: PublishItemResult[] = await Promise.all(
+        posts.map(async ({ platform, format, data }) => {
+          const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
+          const bestAt = planned ? planned.time : getNextBestTime(platform);
+          const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+          const mediaUrl = primaryMediaUrl;
+          try {
+            const draftRes = await apiSaveDraft({
+              platform,
+              content: data.caption || "",
+              imageUrl: mediaUrl,
+              format,
+              hashtags: normalizeHashtags(data.hashtags),
+              settings: {
+                ...(publishSettingsDict[`${platform}-${format}`] || {}),
+                contentTitle: titleDict[`${platform}-${format}`] || undefined,
+                contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+              },
+              mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
+              source: "ai_campaign",
+              campaignTopic,
+              campaignHook,
+              mediaHistory: {
+                mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
+                overlayTexts: data.overlayText || [],
+                visualPrompts: data.visualPrompts || [],
+              },
+            });
+
+            if (!draftRes?.id) {
+              return {
+                platform,
+                format,
+                status: "FAILED" as const,
+                error: (draftRes as any)?.error || "Server failed to save the draft before scheduling.",
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            }
+
+            await apiSchedulePost(draftRes.id, bestAt);
+            return {
+              platform,
+              format,
+              status: "SCHEDULED" as const,
+              scheduledFor: bestAt,
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            };
+          } catch (err: any) {
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: err.message || "Failed to schedule post.",
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            };
+          }
+        })
+      );
+
       setPublishModal({ type: null });
       setStatusModalData({
         isOpen: true,
@@ -2753,76 +2765,79 @@ export default function AIStudioPage() {
       return;
     }
     setPublishLoading(true);
-    const modalItems: PublishItemResult[] = [];
     try {
-      for (const { platform, format, data } of posts) {
-        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
-        const mediaUrl = primaryMediaUrl;
-        try {
-          const draftRes = await apiSaveDraft({
-            platform,
-            content: data.caption || "",
-            imageUrl: mediaUrl,
-            format,
-            hashtags: normalizeHashtags(data.hashtags),
-            settings: {
-              ...(publishSettingsDict[`${platform}-${format}`] || {}),
-              contentTitle: titleDict[`${platform}-${format}`] || undefined,
-              contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
-            },
-            mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
-            source: "ai_campaign",
-            campaignTopic,
-            campaignHook,
-            mediaHistory: {
-              mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
-              overlayTexts: data.overlayText || [],
-              visualPrompts: data.visualPrompts || [],
-            },
-          });
-          if (!draftRes?.id) {
-            modalItems.push({
+      const modalItems: PublishItemResult[] = await Promise.all(
+        posts.map(async ({ platform, format, data }) => {
+          const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+          const mediaUrl = primaryMediaUrl;
+          try {
+            const draftRes = await apiSaveDraft({
+              platform,
+              content: data.caption || "",
+              imageUrl: mediaUrl,
+              format,
+              hashtags: normalizeHashtags(data.hashtags),
+              settings: {
+                ...(publishSettingsDict[`${platform}-${format}`] || {}),
+                contentTitle: titleDict[`${platform}-${format}`] || undefined,
+                contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+              },
+              mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
+              source: "ai_campaign",
+              campaignTopic,
+              campaignHook,
+              mediaHistory: {
+                mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
+                overlayTexts: data.overlayText || [],
+                visualPrompts: data.visualPrompts || [],
+              },
+            });
+
+            if (!draftRes?.id) {
+              return {
+                platform,
+                format,
+                status: "FAILED" as const,
+                error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            }
+
+            const pubRes: any = await apiPublishNow(draftRes.id);
+            if (pubRes?.success) {
+              return {
+                platform,
+                format,
+                status: "PUBLISHED" as const,
+                liveUrl: pubRes.liveUrl || `https://${platform.toLowerCase()}.com`,
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            } else {
+              return {
+                platform,
+                format,
+                status: "FAILED" as const,
+                error: pubRes?.error || "Publishing was rejected by social platform API.",
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            }
+          } catch (e: any) {
+            console.error(`Publish failed for ${platform}:`, e);
+            return {
               platform,
               format,
-              status: "FAILED",
-              error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
+              status: "FAILED" as const,
+              error: e.message || "Failed to dispatch post.",
               title: data.caption?.slice(0, 60),
               thumbnailUrl: mediaUrl,
-            });
-            continue;
+            };
           }
-          const pubRes: any = await apiPublishNow(draftRes.id);
-          if (pubRes?.success) {
-            modalItems.push({
-              platform,
-              format,
-              status: "PUBLISHED",
-              liveUrl: pubRes.liveUrl || `https://${platform.toLowerCase()}.com`,
-              title: data.caption?.slice(0, 60),
-              thumbnailUrl: mediaUrl,
-            });
-          } else {
-            modalItems.push({
-              platform,
-              format,
-              status: "FAILED",
-              error: pubRes?.error || "Publishing was rejected by social platform API.",
-              title: data.caption?.slice(0, 60),
-              thumbnailUrl: mediaUrl,
-            });
-          }
-        } catch (e: any) {
-          console.error(`Publish failed for ${platform}:`, e);
-          modalItems.push({
-            platform,
-            format,
-            status: "FAILED",
-            error: e.message || "Failed to dispatch post.",
-            title: data.caption?.slice(0, 60),
-            thumbnailUrl: mediaUrl,
-          });
-        }
-      }
+        })
+      );
+
       setPublishModal({ type: null });
       setStatusModalData({
         isOpen: true,
