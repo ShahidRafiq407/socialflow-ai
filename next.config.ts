@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   // the opaque "Server Components render" digest error in production.
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      bodySizeLimit: "50mb",
     },
   },
 };

@@ -1671,12 +1671,42 @@ export default function AIStudioPage() {
     const file = e.target.files?.[0];
     if (file) {
       const isVid = file.type.startsWith("video");
+      
+      setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: true }));
+      
+      // Try to upload to server first so we don't crash Next.js with a massive 36MB base64 payload
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      try {
+        const res = await fetch('/api/uploads', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok && data.url) {
+          // Success! We have a clean public URL (e.g. from Supabase)
+          handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+          setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
+          return;
+        } else {
+          console.warn("Server upload failed, falling back to local base64 preview:", data.error);
+        }
+      } catch (err) {
+        console.error("Upload error:", err);
+      }
+      
+      // Fallback: local Data URL (Warning: will crash Server Action if > 4MB)
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === "string") {
           handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
+          setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
         }
       };
+      reader.onerror = () => setRenderingMediaKeys((prev) => ({ ...prev, [currentFormatKey]: false }));
       reader.readAsDataURL(file);
     }
   };
