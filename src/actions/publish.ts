@@ -1,5 +1,7 @@
 "use server";
 
+export const maxDuration = 60;
+
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
 import { publishToPlatformProvider } from '@/lib/publishers';
