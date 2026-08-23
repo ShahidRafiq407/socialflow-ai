@@ -1,8 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 
-export const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-export const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || '';
+export const SUPABASE_URL = (
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  ''
+).replace(/\/+$/, '');
+
+export const SUPABASE_SERVICE_KEY =
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
@@ -18,18 +28,45 @@ export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, c
   const cleanName = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
   const storagePath = `${timestamp}-${cleanName}`;
   
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucketName}/${storagePath}`, {
+  const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucketName}/${storagePath}`;
+  const response = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      'apikey': SUPABASE_SERVICE_KEY,
       'Content-Type': contentType,
     },
     body: file as any,
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to upload file to Supabase: ${error}`);
+    const errorText = await response.text();
+    // If bucket does not exist, attempt to create it automatically
+    if (response.status === 404 || errorText.includes('Bucket not found')) {
+      try {
+        await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'apikey': SUPABASE_SERVICE_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
+        });
+        // Retry upload once
+        const retryRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'apikey': SUPABASE_SERVICE_KEY,
+            'Content-Type': contentType,
+          },
+          body: file as any,
+        });
+        if (retryRes.ok) return storagePath;
+      } catch {}
+    }
+    throw new Error(`Failed to upload file to Supabase: ${errorText}`);
   }
 
   return storagePath;
