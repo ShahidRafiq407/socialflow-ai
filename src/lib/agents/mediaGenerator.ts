@@ -186,14 +186,11 @@ async function generateRealVideo(options: {
           const mime = directVideo.mime_type || directVideo.mimeType || "video/mp4";
           const base64Data = `data:${mime};base64,${directVideo.data}`;
           
-          // If Supabase storage is configured, upload to storage for permanent CDN streaming
-          if (isSupabaseConfigured()) {
-            try {
-              const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
-              if (uploadedUrl) return uploadedUrl;
-            } catch (storageErr) {
-              console.warn("[Visualizer] Supabase video upload failed, returning data URI:", storageErr);
-            }
+          try {
+            const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
+            if (uploadedUrl) return uploadedUrl;
+          } catch (storageErr) {
+            console.warn("[Visualizer] Video storage upload failed, returning data URI:", storageErr);
           }
           return base64Data;
         }
@@ -365,11 +362,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     }
 
     let finalVideoUrl = videoUrl;
-    if (videoUrl.startsWith("data:") && isSupabaseConfigured()) {
-      onProgress?.(`[Visualizer] Persisting video asset to Supabase Storage CDN...`);
-      const supabaseUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4");
-      if (supabaseUrl) {
-        finalVideoUrl = supabaseUrl;
+    if (videoUrl.startsWith("data:")) {
+      onProgress?.(`[Visualizer] Persisting video asset to Storage CDN...`);
+      const storageUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4");
+      if (storageUrl) {
+        finalVideoUrl = storageUrl;
       }
     }
 
@@ -587,10 +584,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       }
 
       let finalImageUrl = imageUrl;
-      if (imageUrl.startsWith("data:") && isSupabaseConfigured()) {
-        const supabaseUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png");
-        if (supabaseUrl) {
-          finalImageUrl = supabaseUrl;
+      if (imageUrl.startsWith("data:")) {
+        const storageUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png");
+        if (storageUrl) {
+          finalImageUrl = storageUrl;
         }
       }
 
