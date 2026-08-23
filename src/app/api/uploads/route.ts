@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
     const contentType = file.type || 'application/octet-stream';
     const filename = file.name || 'uploaded_asset';
 
-    const saved = await saveMediaBuffer(arrayBuffer, filename, contentType);
+    const workspace = await prisma.workspace.findFirst({ where: { userId } });
+    const saved = await saveMediaBuffer(arrayBuffer, filename, contentType, workspace?.id);
 
-    // Record asset in workspace if available
-    try {
-      const workspace = await prisma.workspace.findFirst({ where: { userId } });
-      if (workspace) {
+    // If saved.url is already a public URL or local path, ensure MediaAsset is indexed
+    if (workspace && !saved.url.includes('/api/media/asset/')) {
+      try {
         await prisma.mediaAsset.create({
           data: {
             url: saved.url,
@@ -36,9 +36,9 @@ export async function POST(req: NextRequest) {
             workspaceId: workspace.id,
           },
         });
+      } catch (dbErr) {
+        console.warn('[Uploads] Could not record media asset in DB:', dbErr);
       }
-    } catch (dbErr) {
-      console.warn('[Uploads] Could not record media asset in DB:', dbErr);
     }
 
     return NextResponse.json({ url: saved.url, filename: saved.filename }, { status: 200 });

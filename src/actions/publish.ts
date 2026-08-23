@@ -4,7 +4,7 @@
 
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
-import { publishToPlatformProvider } from '@/lib/publishers';
+import { publishToPlatformProvider, normalizePlatformToEnum } from '@/lib/publishers';
 import { scheduleEnqueue, removeFromScheduleQueue } from '@/lib/redis';
 
 import { uploadBase64ToStorage } from '@/lib/supabase';
@@ -146,19 +146,7 @@ export async function publishNow(postId: string) {
 
     if (!post) return { success: false, error: 'Post not found in database.' };
 
-    // Map post.platform (e.g. "Instagram Feed", "Facebook Reel") to SocialAccount enum (e.g. "INSTAGRAM")
-    const platformEnumMap: Record<string, string> = {
-      instagram: 'INSTAGRAM',
-      facebook: 'FACEBOOK',
-      linkedin: 'LINKEDIN',
-      x: 'X',
-      youtube: 'YOUTUBE',
-      tiktok: 'TIKTOK',
-      pinterest: 'PINTEREST',
-    };
-    const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
-    const platformEnum = platformEnumMap[basePlatform];
-
+    const platformEnum = normalizePlatformToEnum(post.platform);
     if (!platformEnum) return { success: false, error: `Unknown platform: ${post.platform}` };
 
     const account = await prisma.socialAccount.findFirst({
@@ -308,16 +296,6 @@ export async function dispatchDueScheduledPosts() {
       take: 10,
     });
 
-    const platformEnumMap: Record<string, string> = {
-      instagram: 'INSTAGRAM',
-      facebook: 'FACEBOOK',
-      linkedin: 'LINKEDIN',
-      x: 'X',
-      youtube: 'YOUTUBE',
-      tiktok: 'TIKTOK',
-      pinterest: 'PINTEREST',
-    };
-
     let dispatched = 0;
     for (const post of due) {
       // Atomic claim — skips posts already grabbed by the cron or another tab
@@ -328,8 +306,7 @@ export async function dispatchDueScheduledPosts() {
       if (claim.count === 0) continue;
 
       try {
-        const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
-        const platformEnum = platformEnumMap[basePlatform];
+        const platformEnum = normalizePlatformToEnum(post.platform);
         if (!platformEnum) throw new Error(`Unknown platform: ${post.platform}`);
 
         const account = await prisma.socialAccount.findFirst({

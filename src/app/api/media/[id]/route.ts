@@ -50,6 +50,7 @@ export async function GET(
     const slideIdx = parseInt(searchParams.get('idx') || '0', 10);
 
     let targetMediaUrl: string | null = null;
+    const cleanId = id.replace(/^asset-/, '');
 
     // 1. Try finding Post
     const post = await prisma.post.findUnique({
@@ -63,11 +64,17 @@ export async function GET(
       if (history?.mediaUrls && Array.isArray(history.mediaUrls) && history.mediaUrls[slideIdx]) {
         targetMediaUrl = history.mediaUrls[slideIdx];
       }
-    } else {
-      // 2. Try finding MediaAsset directly
+    }
+
+    // 2. If targetMediaUrl points to an internal asset or post not found, check MediaAsset table
+    if (!targetMediaUrl || targetMediaUrl.includes('/api/media/')) {
+      const assetId = targetMediaUrl
+        ? targetMediaUrl.split('/api/media/asset/')[1] || targetMediaUrl.split('/api/media/')[1] || cleanId
+        : cleanId;
+
       const asset = await prisma.mediaAsset.findUnique({
-        where: { id },
-        select: { url: true },
+        where: { id: assetId },
+        select: { url: true, contentType: true },
       });
       if (asset) {
         targetMediaUrl = asset.url;

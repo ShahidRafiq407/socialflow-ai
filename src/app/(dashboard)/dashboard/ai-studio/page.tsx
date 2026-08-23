@@ -2561,15 +2561,42 @@ export default function AIStudioPage() {
     };
   };
 
+  const ensureCleanMediaUrl = async (rawUrl: string): Promise<string> => {
+    if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
+    if (!rawUrl.startsWith("data:") && !rawUrl.startsWith("blob:")) return rawUrl;
+
+    try {
+      const res = await fetch(rawUrl);
+      const blob = await res.blob();
+      const isVid = blob.type.startsWith("video") || rawUrl.startsWith("data:video");
+      const filename = `media_${Date.now()}.${isVid ? "mp4" : "png"}`;
+      const file = new File([blob], filename, { type: blob.type || (isVid ? "video/mp4" : "image/png") });
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadRes = await fetch("/api/uploads", { method: "POST", body: formData });
+      if (uploadRes.ok) {
+        const uploadJson = await uploadRes.json();
+        if (uploadJson.url) {
+          return uploadJson.url;
+        }
+      }
+    } catch (err) {
+      console.warn("[Media Cleaner] Failed to convert local base64/blob to asset:", err);
+    }
+    return rawUrl;
+  };
+
   const saveAsDraft = async () => {
     const post = buildCurrentPost("draft");
     if (!post) return;
     setPublishLoading(true);
     try {
+      const cleanMediaUrls = await Promise.all((post.mediaUrls || []).map((u) => ensureCleanMediaUrl(u)));
       const res = await apiSaveDraft({
         platform: post.platform,
         content: post.caption,
-        imageUrl: post.mediaUrls[0] || "",
+        imageUrl: cleanMediaUrls[0] || "",
         format: post.format,
         hashtags: post.hashtags,
         mediaType: post.mediaType,
@@ -2577,7 +2604,7 @@ export default function AIStudioPage() {
         campaignTopic,
         campaignHook,
         mediaHistory: {
-          mediaUrls: post.mediaUrls,
+          mediaUrls: cleanMediaUrls,
           overlayTexts: post.overlayTexts,
           visualPrompts: currentVisualPrompts,
         },
@@ -2810,7 +2837,10 @@ export default function AIStudioPage() {
           const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
           const bestAt = planned ? planned.time : getNextBestTime(platform);
           const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
-          const mediaUrl = primaryMediaUrl;
+          const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
+          const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
+          const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
+          const mediaUrl = cleanPrimaryUrl;
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -2828,7 +2858,7 @@ export default function AIStudioPage() {
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
+                mediaUrls: cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },
@@ -2893,7 +2923,10 @@ export default function AIStudioPage() {
       const modalItems: PublishItemResult[] = await Promise.all(
         posts.map(async ({ platform, format, data }) => {
           const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
-          const mediaUrl = primaryMediaUrl;
+          const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
+          const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
+          const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
+          const mediaUrl = cleanPrimaryUrl;
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -2911,7 +2944,7 @@ export default function AIStudioPage() {
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: data.videoUrl ? [data.videoUrl] : mediaUrls,
+                mediaUrls: cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },

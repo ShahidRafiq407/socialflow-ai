@@ -901,12 +901,8 @@ INSTRUCTIONS:
       if (!post) return { error: `Post not found: ${args.id}` };
       if (!post.content && !post.imageUrl) return { error: "Post has no content or media to publish" };
 
-      const platformEnumMap: Record<string, string> = {
-        instagram: "INSTAGRAM", facebook: "FACEBOOK", linkedin: "LINKEDIN",
-        x: "X", youtube: "YOUTUBE", tiktok: "TIKTOK", pinterest: "PINTEREST",
-      };
-      const basePlatform = post.platform.split(/[\s\-_]+/)[0].toLowerCase();
-      const platformEnum = platformEnumMap[basePlatform];
+      const { normalizePlatformToEnum } = await import("@/lib/publishers");
+      const platformEnum = normalizePlatformToEnum(post.platform);
       if (!platformEnum) return { error: `Unknown platform: ${post.platform}` };
 
       const account = await prisma.socialAccount.findFirst({

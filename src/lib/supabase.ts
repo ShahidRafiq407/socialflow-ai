@@ -60,12 +60,13 @@ export async function deleteFile(storagePath: string): Promise<void> {
  * Saves a binary media buffer using the best available storage backend:
  * 1. Supabase Storage (if configured)
  * 2. Local public/uploads/ directory (on local disk or Node server)
- * 3. Base64 fallback if storage write fails
+ * 3. PostgreSQL MediaAsset record (on Vercel Serverless read-only filesystem)
  */
 export async function saveMediaBuffer(
   buffer: Buffer | ArrayBuffer,
   originalFilename: string,
-  contentType: string = 'image/png'
+  contentType: string = 'image/png',
+  workspaceId?: string
 ): Promise<{ url: string; filename: string }> {
   const timestamp = Date.now();
   const cleanName = (originalFilename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -78,11 +79,11 @@ export async function saveMediaBuffer(
       const storagePath = await uploadFile(rawBuffer, filename, contentType);
       return { url: getPublicUrl(storagePath), filename: storagePath };
     } catch (err) {
-      console.warn('[Storage] Supabase upload failed, falling back to local disk storage:', err);
+      console.warn('[Storage] Supabase upload failed, falling back to local/DB storage:', err);
     }
   }
 
-  // 2. Local public/uploads fallback
+  // 2. Local public/uploads fallback (for local development)
   try {
     const uploadDir = path.join(process.cwd(), 'public', 'uploads');
     if (!fs.existsSync(uploadDir)) {
@@ -92,10 +93,38 @@ export async function saveMediaBuffer(
     await fs.promises.writeFile(filePath, rawBuffer);
     return { url: `/uploads/${filename}`, filename };
   } catch (localErr) {
-    console.warn('[Storage] Local disk file save fallback to data URI:', localErr);
-    const base64 = rawBuffer.toString('base64');
-    return { url: `data:${contentType};base64,${base64}`, filename };
+    console.warn('[Storage] Local disk file save not available (Serverless environment), persisting to DB MediaAsset:', localErr);
   }
+
+  // 3. PostgreSQL MediaAsset storage fallback (Vercel Serverless)
+  try {
+    const prisma = (await import('@/lib/db')).default;
+    let targetWorkspaceId = workspaceId;
+    if (!targetWorkspaceId) {
+      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
+      targetWorkspaceId = firstWs?.id;
+    }
+
+    if (targetWorkspaceId) {
+      const base64Data = `data:${contentType};base64,${rawBuffer.toString('base64')}`;
+      const asset = await prisma.mediaAsset.create({
+        data: {
+          url: base64Data,
+          filename,
+          contentType,
+          size: rawBuffer.length,
+          workspaceId: targetWorkspaceId,
+        },
+      });
+      return { url: `/api/media/asset/${asset.id}`, filename };
+    }
+  } catch (dbErr) {
+    console.error('[Storage] Database asset fallback failed:', dbErr);
+  }
+
+  // Emergency fallback
+  const base64 = rawBuffer.toString('base64');
+  return { url: `data:${contentType};base64,${base64}`, filename };
 }
 
 /**
@@ -104,7 +133,8 @@ export async function saveMediaBuffer(
 export async function uploadBase64ToStorage(
   base64OrDataUrl: string,
   filename: string,
-  contentType: string = 'image/png'
+  contentType: string = 'image/png',
+  workspaceId?: string
 ): Promise<string | null> {
   if (!base64OrDataUrl) {
     return null;
@@ -123,7 +153,7 @@ export async function uploadBase64ToStorage(
     }
 
     const buffer = Buffer.from(cleanBase64, 'base64');
-    const saved = await saveMediaBuffer(buffer, filename, resolvedContentType);
+    const saved = await saveMediaBuffer(buffer, filename, resolvedContentType, workspaceId);
     return saved.url;
   } catch (err) {
     console.warn('[Storage] Failed to save generated asset:', err);

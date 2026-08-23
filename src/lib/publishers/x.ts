@@ -35,6 +35,27 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
       if (!match) return null;
       mimeType = match[1];
       buffer = Buffer.from(match[2], 'base64');
+    } else if (imageUrl.includes('/api/media/')) {
+      const assetId = imageUrl.split('/api/media/asset/')[1] || imageUrl.split('/api/media/')[1];
+      const prisma = (await import('@/lib/db')).default;
+      const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId.replace(/^asset-/, '') } });
+      if (asset && asset.url) {
+        if (asset.url.startsWith('data:')) {
+          const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
+          mimeType = match ? match[1] : (asset.contentType || 'image/png');
+          buffer = Buffer.from(match ? match[2] : asset.url, 'base64');
+        } else {
+          const imgRes = await fetch(asset.url);
+          buffer = Buffer.from(await imgRes.arrayBuffer());
+          mimeType = imgRes.headers.get('content-type') || asset.contentType || 'image/png';
+        }
+      } else {
+        const fullUrl = imageUrl.startsWith('http') ? imageUrl : `https://socialflow-ai-akel.vercel.app${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+        const imgRes = await fetch(fullUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (!imgRes.ok) return null;
+        mimeType = imgRes.headers.get('content-type') || 'image/png';
+        buffer = Buffer.from(await imgRes.arrayBuffer());
+      }
     } else if (imageUrl.startsWith('/uploads/') || imageUrl.startsWith('uploads/')) {
       const fs = await import('fs');
       const path = await import('path');

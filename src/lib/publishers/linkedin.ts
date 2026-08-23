@@ -113,6 +113,25 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           const match = rawUrl.match(/^data:([^;]+);base64,(.*)$/);
           mimeType = match ? match[1] : 'image/png';
           buffer = Buffer.from(match ? match[2] : rawUrl, 'base64');
+        } else if (rawUrl.includes('/api/media/')) {
+          const assetId = rawUrl.split('/api/media/asset/')[1] || rawUrl.split('/api/media/')[1];
+          const prisma = (await import('@/lib/db')).default;
+          const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId.replace(/^asset-/, '') } });
+          if (asset && asset.url) {
+            if (asset.url.startsWith('data:')) {
+              const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
+              mimeType = match ? match[1] : (asset.contentType || 'image/png');
+              buffer = Buffer.from(match ? match[2] : asset.url, 'base64');
+            } else {
+              const imgRes = await fetch(asset.url);
+              buffer = Buffer.from(await imgRes.arrayBuffer());
+              mimeType = imgRes.headers.get('content-type') || asset.contentType || 'image/png';
+            }
+          } else {
+            const imgRes = await fetch(absoluteImageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            buffer = Buffer.from(await imgRes.arrayBuffer());
+            mimeType = imgRes.headers.get('content-type') || 'image/png';
+          }
         } else if (rawUrl.startsWith('/uploads/') || rawUrl.startsWith('uploads/')) {
           const fs = await import('fs');
           const path = await import('path');

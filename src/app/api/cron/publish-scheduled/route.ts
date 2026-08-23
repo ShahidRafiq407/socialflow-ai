@@ -74,18 +74,8 @@ export async function GET(request: Request) {
       }
 
       try {
-        // Map post.platform (e.g. "Instagram", "Instagram reel") to SocialAccount enum (e.g. "INSTAGRAM")
-        const platformEnumMap: Record<string, string> = {
-          instagram: 'INSTAGRAM',
-          facebook: 'FACEBOOK',
-          linkedin: 'LINKEDIN',
-          x: 'X',
-          youtube: 'YOUTUBE',
-          tiktok: 'TIKTOK',
-          pinterest: 'PINTEREST',
-        };
-        const basePlatform = post.platform.split(/[\s-_]+/)[0].toLowerCase();
-        const platformEnum = platformEnumMap[basePlatform];
+        const { normalizePlatformToEnum } = await import('@/lib/publishers');
+        const platformEnum = normalizePlatformToEnum(post.platform);
 
         if (!platformEnum) {
           throw new Error(`Unknown platform: ${post.platform}`);

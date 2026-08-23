@@ -142,7 +142,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
     const format = String(post.format || 'Feed').toLowerCase();
     const isStory = format === 'story';
     const isCarousel = format === 'carousel' || post.mediaType === 'carousel';
-    const isVideo = post.mediaType === 'video' || mediaUrls[0].endsWith('.mp4') || mediaUrls[0].includes('video');
+    const isVideo = post.mediaType === 'video' || format.includes('reel') || format.includes('video') || (mediaUrls[0] || '').endsWith('.mp4') || (mediaUrls[0] || '').includes('video');
 
     // Stories publish as STORIES media and can't carry a caption — IG auto-hides
     // the caption on story posts anyway.

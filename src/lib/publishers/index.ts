@@ -16,6 +16,19 @@ import { publishToYouTube } from './youtube';
 import { publishToTikTok } from './tiktok';
 import { publishToPinterest } from './pinterest';
 
+export function normalizePlatformToEnum(plat: string): 'FACEBOOK' | 'INSTAGRAM' | 'LINKEDIN' | 'X' | 'YOUTUBE' | 'TIKTOK' | 'PINTEREST' | null {
+  if (!plat) return null;
+  const p = String(plat).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (p.includes('instagram') || p.includes('igreel') || p.includes('igstory') || p.includes('igpost')) return 'INSTAGRAM';
+  if (p.includes('facebook') || p.includes('fbreel') || p.includes('fbpost') || p.includes('fbpage')) return 'FACEBOOK';
+  if (p.includes('tiktok')) return 'TIKTOK';
+  if (p.includes('youtube') || p.includes('ytshort') || p.includes('ytvideo')) return 'YOUTUBE';
+  if (p.includes('linkedin')) return 'LINKEDIN';
+  if (p.includes('pinterest') || p.includes('pin')) return 'PINTEREST';
+  if (p.includes('twitter') || p === 'x' || p.startsWith('xtweet') || p.startsWith('xpost')) return 'X';
+  return null;
+}
+
 export async function publishToPlatformProvider(post: any, account: any): Promise<PublishResult> {
   const platform = account.platform;
 

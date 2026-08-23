@@ -78,7 +78,8 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       .join('\n\n')
       .trim();
 
-    const isVideo = post.mediaType === 'video' || (mediaUrls[0] || '').endsWith('.mp4') || (mediaUrls[0] || '').includes('video');
+    const format = String(post.format || '').toLowerCase();
+    const isVideo = post.mediaType === 'video' || format.includes('reel') || format.includes('video') || (mediaUrls[0] || '').endsWith('.mp4') || (mediaUrls[0] || '').includes('video');
     const isMultiPhoto = mediaUrls.length > 1 && !isVideo;
 
     let response: Response;
