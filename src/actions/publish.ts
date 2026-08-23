@@ -7,6 +7,8 @@ import { auth } from '@clerk/nextjs/server';
 import { publishToPlatformProvider } from '@/lib/publishers';
 import { scheduleEnqueue, removeFromScheduleQueue } from '@/lib/redis';
 
+import { uploadBase64ToStorage } from '@/lib/supabase';
+
 export async function saveDraft(postData: any): Promise<any> {
   try {
     const { userId } = await auth();
@@ -20,15 +22,37 @@ export async function saveDraft(postData: any): Promise<any> {
       workspaceId = workspace.id;
     }
 
+    // If imageUrl is a raw base64 data string, persist it to storage first to keep database and actions light
+    if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
+      const persistedUrl = await uploadBase64ToStorage(imageUrl, `draft-${platform}-${Date.now()}.png`);
+      if (persistedUrl) {
+        imageUrl = persistedUrl;
+      }
+    }
+
+    // Also sanitize mediaHistory if it contains base64 URLs
+    if (mediaHistory && Array.isArray(mediaHistory.mediaUrls)) {
+      const sanitizedUrls = await Promise.all(
+        mediaHistory.mediaUrls.map(async (u: string, idx: number) => {
+          if (u && typeof u === 'string' && u.startsWith('data:')) {
+            const pUrl = await uploadBase64ToStorage(u, `draft-${platform}-${idx}-${Date.now()}.png`);
+            return pUrl || u;
+          }
+          return u;
+        })
+      );
+      mediaHistory.mediaUrls = sanitizedUrls;
+    }
+
     const data: any = {
       workspaceId,
       platform,
-      content,
-      imageUrl,
-      imagePrompt,
-      format,
+      content: content || '',
+      imageUrl: imageUrl || null,
+      imagePrompt: imagePrompt || null,
+      format: format || 'Feed',
       hashtags: hashtags || [],
-      mediaType,
+      mediaType: mediaType || 'image',
       mediaSource,
       source,
       campaignTopic,
@@ -45,22 +69,33 @@ export async function saveDraft(postData: any): Promise<any> {
     if (agentLogs !== undefined) {
       data.agentLogs = agentLogs;
     }
-    // Platform-native publishing settings (visibility, reply settings, engagement
-    // toggles) — applied by the real platform publishers at publish time.
     if (settings !== undefined) {
       data.settings = settings;
     }
 
-  if (id) {
-      return await prisma.post.update({
+    let saved: any;
+    if (id) {
+      saved = await prisma.post.update({
         where: { id },
         data,
       });
     } else {
-      return await prisma.post.create({
+      saved = await prisma.post.create({
         data,
       });
     }
+
+    return {
+      success: true,
+      id: saved.id,
+      post: {
+        id: saved.id,
+        platform: saved.platform,
+        format: saved.format,
+        status: saved.status,
+        imageUrl: saved.imageUrl,
+      },
+    };
   } catch (err: any) {
     console.error('[saveDraft Action Error]:', err);
     return {
@@ -161,46 +196,66 @@ export async function publishToPlatform(post: any, account: any) {
     const result = await publishToPlatformProvider(post, account);
 
     if (result.success) {
-      const updated = await prisma.post.update({
+      const now = new Date();
+      await prisma.post.update({
         where: { id: post.id },
         data: {
           status: 'PUBLISHED',
-          publishedAt: new Date(),
+          publishedAt: now,
           source: result.liveUrl || result.platformPostId || 'published',
         },
       });
       return {
         success: true,
-        post: updated,
+        post: {
+          id: post.id,
+          status: 'PUBLISHED',
+          platform: post.platform,
+          publishedAt: now,
+          publishError: null,
+        },
         liveUrl: result.liveUrl,
         platformPostId: result.platformPostId,
       };
     } else {
-      const updated = await prisma.post.update({
+      const errMsg = result.error || 'Failed to publish to platform';
+      await prisma.post.update({
         where: { id: post.id },
         data: {
           status: 'FAILED',
-          publishError: result.error || 'Failed to publish to platform',
+          publishError: errMsg,
         },
       });
       return {
         success: false,
-        post: updated,
-        error: result.error || 'Failed to publish to platform',
+        post: {
+          id: post.id,
+          status: 'FAILED',
+          platform: post.platform,
+          publishedAt: null,
+          publishError: errMsg,
+        },
+        error: errMsg,
       };
     }
   } catch (error: any) {
     const errorMsg = error.message || 'Unknown error during publishing';
-    const updated = await prisma.post.update({
+    await prisma.post.update({
       where: { id: post.id },
       data: {
         status: 'FAILED',
         publishError: errorMsg,
       },
-    });
+    }).catch(() => {});
     return {
       success: false,
-      post: updated,
+      post: {
+        id: post.id,
+        status: 'FAILED',
+        platform: post.platform,
+        publishedAt: null,
+        publishError: errorMsg,
+      },
       error: errorMsg,
     };
   }

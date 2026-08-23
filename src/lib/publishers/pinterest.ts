@@ -1,16 +1,21 @@
 import { PublishResult } from './index';
 
 function getAppBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') && !process.env.NEXT_PUBLIC_APP_URL.includes('127.0.0.1')) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  }
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return 'https://socialflow-ai-akel.vercel.app';
 }
 
-// Pinterest's ingestion fetches image_url over public HTTPS — relative paths
-// must be converted to an absolute app URL.
-function toAbsoluteUrl(url: string): string {
+// Pinterest's ingestion fetches image_url over public HTTPS — relative paths,
+// local uploads, and hotlink-protected stock media are routed to /api/media/[postId].
+function toAbsoluteUrl(url: string, postId?: string): string {
   if (!url) return url;
+  if (url.includes('pixabay.com') || url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+    if (postId) return `${getAppBaseUrl()}/api/media/${postId}?idx=0`;
+  }
   if (/^(https?:|data:)/i.test(url)) return url;
   return `${getAppBaseUrl()}${url.startsWith('/') ? '' : '/'}${url}`;
 }
@@ -103,7 +108,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     } else {
       media_source = {
         source_type: 'image_url',
-        url: toAbsoluteUrl(imageUrl),
+        url: toAbsoluteUrl(imageUrl, post.id),
       };
     }
 

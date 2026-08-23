@@ -113,8 +113,30 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           const match = rawUrl.match(/^data:([^;]+);base64,(.*)$/);
           mimeType = match ? match[1] : 'image/png';
           buffer = Buffer.from(match ? match[2] : rawUrl, 'base64');
+        } else if (rawUrl.startsWith('/uploads/') || rawUrl.startsWith('uploads/')) {
+          const fs = await import('fs');
+          const path = await import('path');
+          const cleanPath = rawUrl.startsWith('/') ? rawUrl.slice(1) : rawUrl;
+          const diskPath = path.join(process.cwd(), 'public', cleanPath);
+          if (fs.existsSync(diskPath)) {
+            buffer = await fs.promises.readFile(diskPath);
+            mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+          } else {
+            const imgRes = await fetch(absoluteImageUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            });
+            if (!imgRes.ok) throw new Error(`Failed to download media for LinkedIn upload (${imgRes.status}).`);
+            buffer = Buffer.from(await imgRes.arrayBuffer());
+            mimeType = imgRes.headers.get('content-type') || 'image/png';
+          }
         } else {
-          const imgRes = await fetch(absoluteImageUrl);
+          const imgRes = await fetch(absoluteImageUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'image/*,video/*,*/*',
+              'Referer': absoluteImageUrl.includes('pixabay.com') ? 'https://pixabay.com/' : '',
+            },
+          });
           if (!imgRes.ok) {
             throw new Error(`Failed to download media for LinkedIn upload (${imgRes.status}).`);
           }

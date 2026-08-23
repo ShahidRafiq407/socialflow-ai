@@ -32,10 +32,32 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
       const match = videoUrl.match(/^data:([^;]+);base64,(.*)$/);
       const base64Data = match ? match[2] : videoUrl;
       videoBuffer = Buffer.from(base64Data, 'base64');
+    } else if (videoUrl.startsWith('/uploads/') || videoUrl.startsWith('uploads/')) {
+      const fs = await import('fs');
+      const path = await import('path');
+      const cleanPath = videoUrl.startsWith('/') ? videoUrl.slice(1) : videoUrl;
+      const diskPath = path.join(process.cwd(), 'public', cleanPath);
+      if (fs.existsSync(diskPath)) {
+        videoBuffer = await fs.promises.readFile(diskPath);
+      } else {
+        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
+        const fullVideoUrl = `${appUrl}/${cleanPath}`;
+        const videoRes = await fetch(fullVideoUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        if (!videoRes.ok) throw new Error(`Could not download the video for upload (HTTP ${videoRes.status})`);
+        videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+      }
     } else {
       const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
       const fullVideoUrl = videoUrl.startsWith('/') ? `${appUrl}${videoUrl}` : videoUrl;
-      const videoRes = await fetch(fullVideoUrl);
+      const videoRes = await fetch(fullVideoUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'video/*,*/*',
+          'Referer': fullVideoUrl.includes('pixabay.com') ? 'https://pixabay.com/' : '',
+        },
+      });
       if (!videoRes.ok) {
         return {
           success: false,

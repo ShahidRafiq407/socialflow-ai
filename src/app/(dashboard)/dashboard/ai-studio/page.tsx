@@ -1674,103 +1674,107 @@ export default function AIStudioPage() {
     saveAllMediaToIndexedDB(syncCustomUpdates);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const isVid = file.type.startsWith("video");
-      const uploadKey = currentFormatKey;
-      const totalMB = (file.size / (1024 * 1024)).toFixed(1);
+  const uploadSingleFile = (file: File) => {
+    const isVid = file.type.startsWith("video");
+    const uploadKey = currentFormatKey;
+    const totalMB = (file.size / (1024 * 1024)).toFixed(1);
 
-      // Initialize upload state
-      setUploadProgressDict((prev) => ({
-        ...prev,
-        [uploadKey]: {
-          isUploading: true,
-          progress: 0,
-          fileName: file.name,
-          transferredMB: "0.0",
-          totalMB,
-        },
-      }));
+    // Initialize upload state
+    setUploadProgressDict((prev) => ({
+      ...prev,
+      [uploadKey]: {
+        isUploading: true,
+        progress: 0,
+        fileName: file.name,
+        transferredMB: "0.0",
+        totalMB,
+      },
+    }));
 
-      const formData = new FormData();
-      formData.append("file", file);
+    const formData = new FormData();
+    formData.append("file", file);
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/uploads");
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/uploads");
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
-          const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
-          setUploadProgressDict((prev) => ({
-            ...prev,
-            [uploadKey]: {
-              isUploading: true,
-              progress: percent,
-              fileName: file.name,
-              transferredMB: transferred,
-              totalMB,
-            },
-          }));
-        }
-      };
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+        const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+        setUploadProgressDict((prev) => ({
+          ...prev,
+          [uploadKey]: {
+            isUploading: true,
+            progress: percent,
+            fileName: file.name,
+            transferredMB: transferred,
+            totalMB,
+          },
+        }));
+      }
+    };
 
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (data.url) {
-              setUploadProgressDict((prev) => ({
-                ...prev,
-                [uploadKey]: {
-                  isUploading: true,
-                  progress: 100,
-                  fileName: file.name,
-                  transferredMB: totalMB,
-                  totalMB,
-                },
-              }));
-              handleApplyCustomMedia(data.url, isVid ? "video" : "image");
-            } else {
-              handleLocalBase64Fallback();
-            }
-          } catch (e) {
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.url) {
+            setUploadProgressDict((prev) => ({
+              ...prev,
+              [uploadKey]: {
+                isUploading: true,
+                progress: 100,
+                fileName: file.name,
+                transferredMB: totalMB,
+                totalMB,
+              },
+            }));
+            handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+          } else {
             handleLocalBase64Fallback();
           }
-        } else {
+        } catch (e) {
           handleLocalBase64Fallback();
         }
-        // Clear upload state after slight delay for visual satisfaction
-        setTimeout(() => {
-          setUploadProgressDict((prev) => {
-            const next = { ...prev };
-            delete next[uploadKey];
-            return next;
-          });
-        }, 400);
-      };
-
-      xhr.onerror = () => {
+      } else {
         handleLocalBase64Fallback();
+      }
+      // Clear upload state after slight delay for visual satisfaction
+      setTimeout(() => {
         setUploadProgressDict((prev) => {
           const next = { ...prev };
           delete next[uploadKey];
           return next;
         });
-      };
+      }, 400);
+    };
 
-      const handleLocalBase64Fallback = () => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === "string") {
-            handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
-          }
-        };
-        reader.readAsDataURL(file);
-      };
+    xhr.onerror = () => {
+      handleLocalBase64Fallback();
+      setUploadProgressDict((prev) => {
+        const next = { ...prev };
+        delete next[uploadKey];
+        return next;
+      });
+    };
 
-      xhr.send(formData);
+    const handleLocalBase64Fallback = () => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+
+    xhr.send(formData);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadSingleFile(file);
       // Reset input value so re-selecting same file fires onChange
       e.target.value = "";
     }
@@ -2988,10 +2992,19 @@ export default function AIStudioPage() {
   const handleManualFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (manualMedia?.url.startsWith("blob:")) {
-        try { URL.revokeObjectURL(manualMedia.url); } catch {}
-      }
-      setManualMedia({ url: URL.createObjectURL(file), type: file.type.startsWith("video") ? "video" : "image" });
+      const isVid = file.type.startsWith("video");
+      const formData = new FormData();
+      formData.append("file", file);
+      fetch("/api/uploads", { method: "POST", body: formData })
+        .then(res => res.json())
+        .then(data => {
+          if (data.url) {
+            setManualMedia({ url: data.url, type: isVid ? "video" : "image" });
+          }
+        })
+        .catch(() => {
+          setManualMedia({ url: URL.createObjectURL(file), type: isVid ? "video" : "image" });
+        });
     }
   };
 
@@ -4893,15 +4906,9 @@ export default function AIStudioPage() {
                   onChange={e => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      const isVid = file.type.startsWith("video");
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        if (typeof reader.result === "string") {
-                          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
-                        }
-                      };
-                      reader.readAsDataURL(file);
+                      uploadSingleFile(file);
                       setActiveMediaModal(null);
+                      e.target.value = "";
                     }
                   }}
                 />

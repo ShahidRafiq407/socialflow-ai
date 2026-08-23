@@ -35,8 +35,31 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
       if (!match) return null;
       mimeType = match[1];
       buffer = Buffer.from(match[2], 'base64');
+    } else if (imageUrl.startsWith('/uploads/') || imageUrl.startsWith('uploads/')) {
+      const fs = await import('fs');
+      const path = await import('path');
+      const cleanPath = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
+      const diskPath = path.join(process.cwd(), 'public', cleanPath);
+      if (fs.existsSync(diskPath)) {
+        buffer = await fs.promises.readFile(diskPath);
+        mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      } else {
+        const fullUrl = imageUrl.startsWith('http') ? imageUrl : `https://socialflow-ai-akel.vercel.app${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+        const imgRes = await fetch(fullUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        if (!imgRes.ok) return null;
+        mimeType = imgRes.headers.get('content-type') || 'image/png';
+        buffer = Buffer.from(await imgRes.arrayBuffer());
+      }
     } else {
-      const imgRes = await fetch(imageUrl);
+      const imgRes = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/*,video/*,*/*',
+          'Referer': imageUrl.includes('pixabay.com') ? 'https://pixabay.com/' : '',
+        },
+      });
       if (!imgRes.ok) return null;
       mimeType = imgRes.headers.get('content-type') || 'image/png';
       buffer = Buffer.from(await imgRes.arrayBuffer());

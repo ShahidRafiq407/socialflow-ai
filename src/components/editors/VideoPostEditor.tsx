@@ -441,9 +441,18 @@ export default function VideoPostEditor({
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = () => setAttachedSourceImage(reader.result as string);
-                          reader.readAsDataURL(file);
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          fetch("/api/uploads", { method: "POST", body: formData })
+                            .then(res => res.json())
+                            .then(data => {
+                              if (data.url) setAttachedSourceImage(data.url);
+                            })
+                            .catch(() => {
+                              const reader = new FileReader();
+                              reader.onload = () => setAttachedSourceImage(reader.result as string);
+                              reader.readAsDataURL(file);
+                            });
                         }
                       }}
                     />

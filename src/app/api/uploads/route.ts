@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { uploadFile, getPublicUrl } from '@/lib/supabase';
+import { saveMediaBuffer } from '@/lib/supabase';
+import prisma from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,12 +19,29 @@ export async function POST(req: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     const contentType = file.type || 'application/octet-stream';
-    const filename = file.name;
+    const filename = file.name || 'uploaded_asset';
 
-    const path = await uploadFile(arrayBuffer, filename, contentType);
-    const url = getPublicUrl(path);
+    const saved = await saveMediaBuffer(arrayBuffer, filename, contentType);
 
-    return NextResponse.json({ url, filename: path }, { status: 200 });
+    // Record asset in workspace if available
+    try {
+      const workspace = await prisma.workspace.findFirst({ where: { userId } });
+      if (workspace) {
+        await prisma.mediaAsset.create({
+          data: {
+            url: saved.url,
+            filename: saved.filename,
+            contentType,
+            size: file.size,
+            workspaceId: workspace.id,
+          },
+        });
+      }
+    } catch (dbErr) {
+      console.warn('[Uploads] Could not record media asset in DB:', dbErr);
+    }
+
+    return NextResponse.json({ url: saved.url, filename: saved.filename }, { status: 200 });
   } catch (error: any) {
     console.error('Upload error:', error);
     return NextResponse.json({ error: error.message || 'Failed to upload file' }, { status: 500 });

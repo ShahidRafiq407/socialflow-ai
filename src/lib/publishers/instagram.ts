@@ -6,18 +6,27 @@ const GRAPH_VERSION = 'v23.0';
 const IG_CAPTION_LIMIT = 2200;
 
 function getAppBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') && !process.env.NEXT_PUBLIC_APP_URL.includes('127.0.0.1')) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  }
   if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return 'https://socialflow-ai-akel.vercel.app';
 }
 
-// Meta's crawler fetches media over public HTTPS. base64 data URIs and relative
-// paths are rewritten to our public streaming endpoint (/api/media/[postId]).
+// Meta's crawler fetches media over public HTTPS. base64 data URIs, relative
+// paths, and hotlink-protected stock CDNs (Pixabay) are rewritten to our public streaming endpoint (/api/media/[postId]).
 function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   if (!url) return url;
-  if (url.startsWith('data:') || url.startsWith('blob:')) return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
-  if (url.startsWith('/')) return `${getAppBaseUrl()}${url}`;
+  if (
+    url.startsWith('data:') ||
+    url.startsWith('blob:') ||
+    url.startsWith('/') ||
+    url.includes('pixabay.com') ||
+    !url.startsWith('https://')
+  ) {
+    return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
+  }
   return url;
 }
 

@@ -1,6 +1,6 @@
 # SocialFlow AI — Engineering Handoff & Platform Status
 
-**Updated:** 2026-08-21 | **Author/Brand:** SMB Robotics | **Production:** `https://socialflow-ai-akel.vercel.app` | **Repo:** `https://github.com/ShahidRafiq407/socialflow-ai`
+**Updated:** 2026-08-23 | **Author/Brand:** SMB Robotics | **Production:** `https://socialflow-ai-akel.vercel.app` | **Repo:** `https://github.com/ShahidRafiq407/socialflow-ai`
 
 ---
 
@@ -11,7 +11,7 @@
 - **State & Sync:** Zustand (`useAIStudioSessionStore`), LocalStorage + Native browser **IndexedDB** (`socialflow_media_db` in `src/lib/indexedDbMedia.ts`) to persist large PC/Stock video and image uploads across browser page reloads (F5) without 5MB quota restrictions.
 - **Format Families:** `vertical_video` format family includes: `Instagram Reel`, `Facebook Reel`, `TikTok Video`, `YouTube Shorts`, and `Pinterest Video Pin` for seamless 1-click cross-platform media synchronization.
 - **Drafts Lifecycle:** AI Generation no longer auto-creates records in Content Library; posts are strictly saved to Content Library only when the user clicks "Save Draft" or dispatches "Publish / Schedule".
-- **Media Pipeline:** Public HTTPS streaming `/api/media/[id]` (converts base64/blob to binary stream with caching for external crawler ingestion by Meta/Pinterest/LinkedIn/TikTok/YouTube)
+- **Media Pipeline:** Multi-tier storage in `src/lib/supabase.ts` + `/api/uploads` (Supabase Storage with automatic fallback to `/public/uploads/` and `MediaAsset` records), with public streaming and anti-hotlink proxy in `/api/media/[id]` for external crawler ingestion by Meta/Pinterest/LinkedIn/TikTok/YouTube without 403 Forbidden blocks.
 
 ---
 
@@ -33,12 +33,13 @@
 
 ### A. AI Studio Media Resolution (`src/app/(dashboard)/dashboard/ai-studio/page.tsx`)
 - **`resolvePostMediaUrls(platform, format, data)`**: Pulls rendered AI images from `renderedImageUrlsDict`, custom uploads from `customMediaDict`, multi-slides `0..9`, and same-family cross-platform sync. Prevents empty media URLs from being dispatched.
+- **`uploadSingleFile(file)`**: Dedicated client-side upload pipeline sending files to `/api/uploads` with live byte transfer progress; returns clean `/uploads/...` URLs to avoid 50MB Base64 Server Action payload bloat.
 - **`collectCampaignPosts(onlyActive?: boolean)`**: Strictly filters posts by `selectedPlatforms` and `selectedContentTypes`. Uses case-normalized key deduplication (`seenKeys.has(platform-format)`) to prevent duplicate post dispatches (e.g. `Feed` vs `feed`).
 - **`PublishStatusModal.tsx`**: Renders live platform feedback with direct permalinks (`[View Live Post ↗]`), scheduled timestamps, or exact platform error messages with deep connection links.
 
 ### B. Safe Server Actions (`src/actions/publish.ts`)
 - `publishNow(postId)` and `saveDraft(postData)` wrap all database and publisher calls in try/catch and return structured `{ success: boolean, error?: string, post?: Post, liveUrl?: string }`.
-- Prevents Next.js opaque *"An error occurred in the Server Components render"* crashes in production builds.
+- Sanitized return DTOs prevent Next.js *"An unexpected response was received from the server"* serialization digest crashes.
 
 ### C. Visualizer & Prompt Quality (`src/app/api/ai-studio/route.ts` & `src/lib/agents/mediaGenerator.ts`)
 - System prompt elevated for 95–100/100 relevance: deeply parses caption subject, hardware, robotics actuators, sensory dynamics, and photorealistic 8K compositions.
