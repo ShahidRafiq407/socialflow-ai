@@ -4,6 +4,8 @@ import path from 'path';
 export const SUPABASE_URL = (
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_PROJECT_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL ||
   ''
 ).replace(/\/+$/, '');
 
@@ -12,6 +14,8 @@ export const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_KEY ||
+  process.env.SUPABASE_SECRET_KEY ||
   '';
 
 export function isSupabaseConfigured(): boolean {
@@ -35,6 +39,7 @@ export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, c
       'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
       'apikey': SUPABASE_SERVICE_KEY,
       'Content-Type': contentType,
+      'x-upsert': 'true',
     },
     body: file as any,
   });
