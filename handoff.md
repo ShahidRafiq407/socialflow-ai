@@ -54,3 +54,8 @@
    - App owner submitted/is submitting a 30s video demo on `developers.pinterest.com/apps/{appId}/upgrade` to transition from Trial (owner-only pins) to Standard (global public pins).
 3. **Facebook Publishing:**
    - Ensure user has reconnected Facebook so `finalAccessToken` holds the **Page Access Token** for the "SMB Robotics" Facebook Page instead of personal user token.
+
+## 5. Ongoing Bug (Upload Hanging)
+- **Issue:** Local PC video uploads (chunked uploads) are still failing. The progress bar gets stuck at 0% or hangs silently.
+- **Attempts so far:** Migrated FormData parsing to JSON base64 payloads to bypass Vercel limits. Added defensive completion signal checks (data?.url, status === 'completed') to prevent silent loop termination.
+- **Current Status:** Not fixed yet. The frontend upload loop might still be hanging on the first chunk or failing silently. Further investigation is needed into the /api/uploads/chunk network responses and Vercel limits.

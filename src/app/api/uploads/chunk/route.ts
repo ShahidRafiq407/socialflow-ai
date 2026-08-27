@@ -4,6 +4,7 @@ import { saveMediaBuffer } from '@/lib/supabase';
 import prisma from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,13 +46,14 @@ export async function POST(req: NextRequest) {
 
     // Check if this is the final chunk
     if (chunkIndex === totalChunks - 1) {
-      // Fetch all chunks for this uploadId
+      console.time(`[chunk-upload:${uploadId}] fetch-all-chunks`);
       const allChunks = await prisma.mediaAsset.findMany({
         where: {
           workspaceId: workspace.id,
           filename: { startsWith: `__chunk__${uploadId}__` },
         },
       });
+      console.timeEnd(`[chunk-upload:${uploadId}] fetch-all-chunks`);
 
       if (allChunks.length < totalChunks) {
         return NextResponse.json({
@@ -68,12 +70,16 @@ export async function POST(req: NextRequest) {
         return idxA - idxB;
       });
 
+      console.time(`[chunk-upload:${uploadId}] decode-concat`);
       // Combine buffers
       const buffers = allChunks.map((c) => Buffer.from(c.url, 'base64'));
       const combinedBuffer = Buffer.concat(buffers);
+      console.timeEnd(`[chunk-upload:${uploadId}] decode-concat`);
 
+      console.time(`[chunk-upload:${uploadId}] storage-upload`);
       // Save full file to Supabase / Storage
       const saved = await saveMediaBuffer(combinedBuffer, filename, contentType, workspace.id);
+      console.timeEnd(`[chunk-upload:${uploadId}] storage-upload`);
 
       // Clean up temporary chunk records in background
       prisma.mediaAsset.deleteMany({
