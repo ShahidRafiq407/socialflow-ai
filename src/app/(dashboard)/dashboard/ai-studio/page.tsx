@@ -2137,6 +2137,20 @@ export default function AIStudioPage() {
 
           setRenderedImageUrlsDict(prev => ({ ...prev, ...syncMediaUpdates }));
           setCustomMediaDict(prev => ({ ...prev, ...syncCustomUpdates }));
+          setGeneratedContents(prev => {
+            const platformFmts = prev[targetPlatform] || {};
+            const currentFmt = platformFmts[targetFormat] || {};
+            return {
+              ...prev,
+              [targetPlatform]: {
+                ...platformFmts,
+                [targetFormat]: {
+                  ...currentFmt,
+                  videoUrl: data.asset.url,
+                },
+              },
+            };
+          });
           setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "completed" }));
         } else {
           setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
@@ -2234,6 +2248,20 @@ export default function AIStudioPage() {
           ...prev,
           ...syncCustomUpdates,
         }));
+        setGeneratedContents(prev => {
+          const platformFmts = prev[targetPlatform] || {};
+          const currentFmt = platformFmts[targetFormat] || {};
+          return {
+            ...prev,
+            [targetPlatform]: {
+              ...platformFmts,
+              [targetFormat]: {
+                ...currentFmt,
+                imageUrl: data.asset.url,
+              },
+            },
+          };
+        });
       } else {
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
@@ -2943,9 +2971,8 @@ export default function AIStudioPage() {
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
-          const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
           const mediaUrl = cleanPrimaryUrl;
-          let computedMediaType = resolvedMediaType || mediaType || (data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
+          let computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -2963,7 +2990,7 @@ export default function AIStudioPage() {
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: computedMediaType === "video" && cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
+                mediaUrls: cleanMediaUrls.length > 0 ? cleanMediaUrls : (cleanPrimaryUrl ? [cleanPrimaryUrl] : []),
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },
@@ -3030,9 +3057,8 @@ export default function AIStudioPage() {
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
-          const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
           const mediaUrl = cleanPrimaryUrl;
-          let computedMediaType = resolvedMediaType || mediaType || (data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
+          let computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -3050,7 +3076,7 @@ export default function AIStudioPage() {
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: computedMediaType === "video" && cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
+                mediaUrls: cleanMediaUrls.length > 0 ? cleanMediaUrls : (cleanPrimaryUrl ? [cleanPrimaryUrl] : []),
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },
