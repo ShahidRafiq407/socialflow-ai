@@ -36,7 +36,6 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
 
     const hashtagString = hashtagList.join(' ');
     const fullCaption = [
-      post.settings?.contentTitle ? `${post.settings.contentTitle}\n` : '',
       content,
       hashtagString,
     ]

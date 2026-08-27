@@ -497,7 +497,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportedAspectRatios: ["9:16", "16:9", "1:1"],
     maxMedia: 1,
     minMedia: 1,
-    supportsTitle: true,
+    supportsTitle: false,
     supportsDescription: false,
     supportsCaption: true,
     supportsFirstComment: true,
