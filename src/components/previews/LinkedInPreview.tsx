@@ -55,7 +55,7 @@ export default function LinkedInPreview({
   };
 
   const isVideoFormat = currentFormatName === "Video" || currentFormatName === "Short Video" || displayMediaIsVideo;
-  const isVerticalVideo = currentFormatName === "Short Video" && isVertical;
+  const isVerticalVideo = isVideoFormat && isVertical !== false;
   const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
   const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
   const isMediaVideo = displayMediaIsVideo || isVideoFormat || isVideoUrl(currentSlideMedia);

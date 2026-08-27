@@ -30,7 +30,7 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
     "multi-image": { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },
     multi_image: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },
     document: { mediaType: "image", aspectRatio: "1:1", description: "LinkedIn Document / PDF Carousel" },
-    video: { mediaType: "video", aspectRatio: "16:9", description: "LinkedIn Native Video" },
+    video: { mediaType: "video", aspectRatio: "9:16", description: "LinkedIn Reel / Video" },
     article: { mediaType: "text_only", aspectRatio: "1.91:1", description: "LinkedIn Longform Article" },
   },
   youtube: {
