@@ -295,7 +295,7 @@ const MOCK_PRODUCTS = [
 // ============================================================================
 
 const getAspectRatio = (format: string): "9:16" | "1:1" | "4:5" | "16:9" | "2:3" => {
-  if (["Reel", "Shorts", "Video", "Story", "Short Video", "Idea Pin"].includes(format)) return "9:16";
+  if (["Reel", "Shorts", "Video", "Story", "Short Video", "Idea Pin", "Video Pin"].includes(format)) return "9:16";
   if (["Feed"].includes(format)) return "1:1";
   if (["Carousel"].includes(format)) return "4:5";
   if (["Pin"].includes(format)) return "2:3";
@@ -303,7 +303,7 @@ const getAspectRatio = (format: string): "9:16" | "1:1" | "4:5" | "16:9" | "2:3"
 };
 
 const getMediaType = (format: string): "video" | "image" | "carousel" => {
-  if (["Reel", "Shorts", "Video", "Short Video"].includes(format)) return "video";
+  if (["Reel", "Shorts", "Video", "Short Video", "Video Pin"].includes(format)) return "video";
   if (["Carousel", "Thread", "Idea Pin"].includes(format)) return "carousel";
   return "image";
 };
@@ -3118,19 +3118,23 @@ export default function AIStudioPage() {
       if (file.size > 3 * 1024 * 1024) {
         setPublishResult({ success: true, message: `Uploading ${file.name}...` });
         try {
-          const chunkSize = 2 * 1024 * 1024;
+          const chunkSize = 2 * 1024 * 1024; // 2MB slices
           const totalChunks = Math.ceil(file.size / chunkSize);
           const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          let finalUrl: string | null = null;
+  
           for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, file.size);
             const chunkBlob = file.slice(start, end);
+  
             const base64Chunk = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
               reader.onload = () => resolve((reader.result as string).split(',')[1]);
               reader.onerror = reject;
               reader.readAsDataURL(chunkBlob);
             });
+  
             const res = await fetch("/api/uploads/chunk", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -3141,18 +3145,33 @@ export default function AIStudioPage() {
                 filename: file.name,
                 contentType: file.type || (isVid ? "video/mp4" : "application/octet-stream"),
                 chunkData: base64Chunk
-              })
+              }),
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  
+            if (!res.ok) {
+              const errBody = await res.text().catch(() => "");
+              throw new Error(`Chunk ${i + 1}/${totalChunks} failed: HTTP ${res.status} ${errBody}`);
+            }
+  
             const data = await res.json();
-            if (data.status === "completed" && data.url) {
-              setManualMedia({ url: data.url, type: isVid ? "video" : "image" });
-              setPublishResult(null);
-              return;
+            
+            // Accept any shape that carries a final URL, not just an exact "completed" string
+            if (data?.url && (data.status === "completed" || data.done === true || data.finished === true || i === totalChunks - 1)) {
+              finalUrl = data.url;
+              break;
             }
           }
-        } catch (err: any) {
-          setPublishResult({ success: false, message: `Upload failed: ${err.message}` });
+
+          if (finalUrl) {
+            setManualMedia({ url: finalUrl, type: isVid ? "video" : "image" });
+            setPublishResult(null);
+            return;
+          }
+
+          throw new Error("Upload finished but server never returned a final media URL.");
+        } catch (chunkErr: any) {
+          console.error("[Upload] Chunk upload error:", chunkErr);
+          setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
           setTimeout(() => setPublishResult(null), 4000);
           return;
         }
