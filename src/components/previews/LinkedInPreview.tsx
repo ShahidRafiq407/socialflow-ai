@@ -44,18 +44,21 @@ export default function LinkedInPreview({
     return (
       lowerUrl.endsWith('.mp4') ||
       lowerUrl.endsWith('.webm') ||
-      lowerUrl.includes('.mp4?') ||
+      lowerUrl.endsWith('.mov') ||
+      lowerUrl.includes('.mp4') ||
+      lowerUrl.includes('.webm') ||
       lowerUrl.includes('pixabay.com/video/') ||
-      lowerUrl.startsWith('data:video/')
+      lowerUrl.startsWith('data:video/') ||
+      lowerUrl.startsWith('blob:') ||
+      lowerUrl.includes('video-')
     );
   };
 
-  // Vertical video phone frame for 9:16 video (LinkedIn Video with 9:16 selected
-  // or Short Video). Landscape 16:9 videos render in the standard feed card.
-  const isVideoFormat = currentFormatName === "Video" || currentFormatName === "Short Video";
-  const isVerticalVideo = isVideoFormat && isVertical;
+  const isVideoFormat = currentFormatName === "Video" || currentFormatName === "Short Video" || displayMediaIsVideo;
+  const isVerticalVideo = currentFormatName === "Short Video" && isVertical;
   const totalSlides = displayImageUrls.length > 0 ? displayImageUrls.length : 1;
   const currentSlideMedia = (displayImageUrls && displayImageUrls[activeSlideIdx]) || displayImageUrl;
+  const isMediaVideo = displayMediaIsVideo || isVideoFormat || isVideoUrl(currentSlideMedia);
 
   if (isVerticalVideo) {
     return (
@@ -71,7 +74,7 @@ export default function LinkedInPreview({
           <span className="bg-[#0A66C2] text-[10px] font-semibold px-2 py-0.5 rounded text-white">Video</span>
         </div>
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          {currentSlideMedia && (displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
+          {currentSlideMedia && isMediaVideo ? (
             <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full bg-slate-950 flex flex-col items-center justify-center text-slate-500 text-xs gap-1 p-4 text-center">
@@ -135,11 +138,11 @@ export default function LinkedInPreview({
       </div>
 
       {currentSlideMedia && (
-        <div className="relative w-full max-h-[320px] bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group">
-          {(displayMediaIsVideo || isVideoUrl(currentSlideMedia)) ? (
-            <video src={currentSlideMedia} autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
+        <div className={`relative w-full ${isMediaVideo ? 'aspect-video' : 'max-h-[320px]'} bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden group`}>
+          {isMediaVideo ? (
+            <video src={currentSlideMedia} controls autoPlay loop muted playsInline preload="auto" className="w-full h-full object-cover" />
           ) : (
-            <img src={currentSlideMedia} alt={`LinkedIn Slide ${activeSlideIdx + 1}`} className="w-full h-full object-cover" />
+            <img src={currentSlideMedia} alt={currentFormatName === "Document" || currentFormatName === "Carousel" ? `LinkedIn Slide ${activeSlideIdx + 1}` : "LinkedIn Post Media"} className="w-full h-full object-cover" />
           )}
 
           {/* STEP OVERLAY (ONLY for Document/Carousel) */}

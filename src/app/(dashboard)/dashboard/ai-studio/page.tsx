@@ -2561,7 +2561,13 @@ export default function AIStudioPage() {
   })();
   // Explicit media type for previews — URL extensions can lie (Supabase URLs),
   // so trust the stored type from the generation/upload pipeline.
-  const displayMediaIsVideo = customMediaDict[currentMediaKey]?.type === "video" || isVideoUrl(displayImageUrl);
+  const displayMediaIsVideo =
+    currentMediaType === "video" ||
+    Boolean(currentGenerated?.videoUrl) ||
+    customMediaDict[currentMediaKey]?.type === "video" ||
+    currentFormatName === "Video" ||
+    currentFormatName === "Short Video" ||
+    isVideoUrl(displayImageUrl);
   const isSquare = currentFormatName === "Feed";
   const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
 

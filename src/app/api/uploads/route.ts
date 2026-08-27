@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { saveMediaBuffer, createSignedUploadUrl } from '@/lib/supabase';
+import { saveMediaBuffer, createSignedUploadUrl, indexMediaAsset } from '@/lib/supabase';
 import prisma from '@/lib/db';
 
 export async function GET(req: NextRequest) {
@@ -68,21 +68,9 @@ export async function POST(req: NextRequest) {
 
         const saved = await saveMediaBuffer(arrayBuffer, filename, contentType, workspace?.id);
 
-        // Index in MediaAsset if not already
+        // Index in MediaAsset if not already an asset URL
         if (workspace && !saved.url.includes('/api/media/asset/')) {
-          try {
-            await prisma.mediaAsset.create({
-              data: {
-                url: saved.url,
-                filename: saved.filename,
-                contentType,
-                size: arrayBuffer.byteLength,
-                workspaceId: workspace.id,
-              },
-            });
-          } catch (dbErr) {
-            // Ignore duplicate errors
-          }
+          await indexMediaAsset(saved.url, saved.filename, contentType, arrayBuffer.byteLength, workspace.id);
         }
 
         return NextResponse.json({ url: saved.url, filename: saved.filename }, { status: 200 });

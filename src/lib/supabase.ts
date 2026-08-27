@@ -156,6 +156,43 @@ export function getPublicUrl(storagePath: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/${bucketName}/${storagePath}`;
 }
 
+/**
+ * Creates a MediaAsset DB record for a persisted media URL so the media is
+ * indexed and resolvable via /api/media/asset/[id] even if the raw URL is a
+ * relative path or a data URI. Returns the asset id (or null on failure).
+ */
+export async function indexMediaAsset(
+  url: string,
+  filename: string,
+  contentType: string,
+  size: number,
+  workspaceId?: string
+): Promise<string | null> {
+  try {
+    const prisma = (await import('@/lib/db')).default;
+    let targetWorkspaceId = workspaceId;
+    if (!targetWorkspaceId) {
+      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
+      targetWorkspaceId = firstWs?.id;
+    }
+    if (!targetWorkspaceId) return null;
+
+    const asset = await prisma.mediaAsset.create({
+      data: {
+        url,
+        filename,
+        contentType,
+        size,
+        workspaceId: targetWorkspaceId,
+      },
+    });
+    return asset.id;
+  } catch (err) {
+    console.warn('[Storage] Could not index media asset in DB:', err);
+    return null;
+  }
+}
+
 export async function deleteFile(storagePath: string): Promise<void> {
   if (!isSupabaseConfigured()) return;
   const bucketName = 'uploads';
@@ -200,17 +237,23 @@ export async function saveMediaBuffer(
     }
   }
 
-  // 2. Local public/uploads fallback (for local development)
-  try {
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+  // 2. Local public/uploads fallback — ONLY for local development.
+  //    On Vercel the filesystem is read-only/ephemeral, so a `/uploads/...` URL
+  //    would be dead by the time the social platform crawler fetches it. We must
+  //    never return a `/uploads/...` URL in production.
+  const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+  if (!isProduction) {
+    try {
+      const uploadDir = path.join(process.cwd(), 'public', 'uploads');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      const filePath = path.join(uploadDir, filename);
+      await fs.promises.writeFile(filePath, rawBuffer);
+      return { url: `/uploads/${filename}`, filename };
+    } catch (localErr) {
+      console.warn('[Storage] Local disk file save not available, persisting to DB MediaAsset:', localErr);
     }
-    const filePath = path.join(uploadDir, filename);
-    await fs.promises.writeFile(filePath, rawBuffer);
-    return { url: `/uploads/${filename}`, filename };
-  } catch (localErr) {
-    console.warn('[Storage] Local disk file save not available (Serverless environment), persisting to DB MediaAsset:', localErr);
   }
 
   // 3. PostgreSQL MediaAsset storage fallback (Vercel Serverless)

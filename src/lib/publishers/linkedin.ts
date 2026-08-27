@@ -67,12 +67,36 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
       ? [imageUrl]
       : [];
 
+    // Check if post or attached media is a video
+    const isVideo =
+      post.mediaType === 'video' ||
+      post.contentType === 'video' ||
+      post.format === 'Video' ||
+      post.format === 'video' ||
+      post.format === 'Short Video' ||
+      Boolean(post.videoUrl) ||
+      attachedUrls.some((u: string) => {
+        const lower = (u || '').toLowerCase();
+        return (
+          lower.endsWith('.mp4') ||
+          lower.endsWith('.webm') ||
+          lower.endsWith('.mov') ||
+          lower.includes('.mp4') ||
+          lower.startsWith('data:video/') ||
+          lower.includes('video-')
+        );
+      });
+
     const uploadedMedia: { status: string; description: { text: string }; media: string; title: { text: string } }[] = [];
 
-    for (let i = 0; i < Math.min(attachedUrls.length, 9); i++) {
+    for (let i = 0; i < Math.min(attachedUrls.length, isVideo ? 1 : 9); i++) {
       const rawUrl = attachedUrls[i];
       try {
         const absoluteImageUrl = resolveAbsoluteMediaUrl(rawUrl);
+        const recipe = isVideo
+          ? 'urn:li:digitalmediaRecipe:feedshare-video'
+          : 'urn:li:digitalmediaRecipe:feedshare-image';
+
         // Step 1: Register upload with LinkedIn
         const regRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
           method: 'POST',
@@ -83,7 +107,7 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           },
           body: JSON.stringify({
             registerUploadRequest: {
-              recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+              recipes: [recipe],
               owner: `urn:li:person:${personUrn}`,
               supportedUploadMechanism: ['SYNCHRONOUS_UPLOAD'],
             },
@@ -107,11 +131,11 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
 
         // Step 2: Extract binary bytes and PUT to LinkedIn uploadUrl
         let buffer: Buffer;
-        let mimeType = 'image/png';
+        let mimeType = isVideo ? 'video/mp4' : 'image/png';
 
         if (rawUrl.startsWith('data:')) {
           const match = rawUrl.match(/^data:([^;]+);base64,(.*)$/);
-          mimeType = match ? match[1] : 'image/png';
+          mimeType = match ? match[1] : (isVideo ? 'video/mp4' : 'image/png');
           buffer = Buffer.from(match ? match[2] : rawUrl, 'base64');
         } else if (rawUrl.includes('/api/media/')) {
           const assetId = rawUrl.split('/api/media/asset/')[1] || rawUrl.split('/api/media/')[1];
@@ -120,17 +144,17 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           if (asset && asset.url) {
             if (asset.url.startsWith('data:')) {
               const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
-              mimeType = match ? match[1] : (asset.contentType || 'image/png');
+              mimeType = match ? match[1] : (asset.contentType || (isVideo ? 'video/mp4' : 'image/png'));
               buffer = Buffer.from(match ? match[2] : asset.url, 'base64');
             } else {
               const imgRes = await fetch(asset.url);
               buffer = Buffer.from(await imgRes.arrayBuffer());
-              mimeType = imgRes.headers.get('content-type') || asset.contentType || 'image/png';
+              mimeType = imgRes.headers.get('content-type') || asset.contentType || (isVideo ? 'video/mp4' : 'image/png');
             }
           } else {
             const imgRes = await fetch(absoluteImageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
             buffer = Buffer.from(await imgRes.arrayBuffer());
-            mimeType = imgRes.headers.get('content-type') || 'image/png';
+            mimeType = imgRes.headers.get('content-type') || (isVideo ? 'video/mp4' : 'image/png');
           }
         } else if (rawUrl.startsWith('/uploads/') || rawUrl.startsWith('uploads/')) {
           const fs = await import('fs');
@@ -139,14 +163,17 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           const diskPath = path.join(process.cwd(), 'public', cleanPath);
           if (fs.existsSync(diskPath)) {
             buffer = await fs.promises.readFile(diskPath);
-            mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+            if (diskPath.endsWith('.mp4')) mimeType = 'video/mp4';
+            else if (diskPath.endsWith('.webm')) mimeType = 'video/webm';
+            else if (diskPath.endsWith('.mov')) mimeType = 'video/quicktime';
+            else mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
           } else {
             const imgRes = await fetch(absoluteImageUrl, {
               headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
             });
             if (!imgRes.ok) throw new Error(`Failed to download media for LinkedIn upload (${imgRes.status}).`);
             buffer = Buffer.from(await imgRes.arrayBuffer());
-            mimeType = imgRes.headers.get('content-type') || 'image/png';
+            mimeType = imgRes.headers.get('content-type') || (isVideo ? 'video/mp4' : 'image/png');
           }
         } else {
           const imgRes = await fetch(absoluteImageUrl, {
@@ -160,7 +187,7 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
             throw new Error(`Failed to download media for LinkedIn upload (${imgRes.status}).`);
           }
           buffer = Buffer.from(await imgRes.arrayBuffer());
-          mimeType = imgRes.headers.get('content-type') || 'image/png';
+          mimeType = imgRes.headers.get('content-type') || (isVideo ? 'video/mp4' : 'image/png');
         }
 
         const uploadRes = await fetch(uploadUrl, {
@@ -202,12 +229,12 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           },
         });
       } catch (uploadErr) {
-        console.warn(`[LinkedIn Publisher] Image ${i + 1} upload failed, skipping:`, uploadErr);
+        console.warn(`[LinkedIn Publisher] Media ${i + 1} upload failed, skipping:`, uploadErr);
       }
     }
 
     if (uploadedMedia.length > 0) {
-      specificContent['com.linkedin.ugc.ShareContent'].shareMediaCategory = 'IMAGE';
+      specificContent['com.linkedin.ugc.ShareContent'].shareMediaCategory = isVideo ? 'VIDEO' : 'IMAGE';
       specificContent['com.linkedin.ugc.ShareContent'].media = uploadedMedia;
     }
 

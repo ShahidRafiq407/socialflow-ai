@@ -169,7 +169,7 @@ export default function VideoPostEditor({
           {/* VIDEO PREVIEW FRAME — shape follows the SELECTED aspect ratio */}
           <div
             className={`relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-950 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-md mx-auto ${
-              isVertical ? "w-full max-w-[200px] aspect-[9/16]" : "w-full aspect-[16/9] max-w-[340px]"
+              isVertical ? "w-full max-w-[240px] aspect-[9/16]" : "w-full aspect-[16/9]"
             } ${isRenderingVideo || isUploadingMedia ? "min-h-[280px]" : ""}`}
           >
             {isUploadingMedia ? (
