@@ -724,10 +724,21 @@ CRITICAL RULES:
 
 Return ONLY the enhanced prompt string without extra commentary or quotes.`;
 
-      const res = await llm.invoke([new HumanMessage(enhancePrompt)], { modelName: MODELS.CONTENT_CREATOR });
-      const enhanced = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");
+      let enhanced = "";
+      try {
+        const res = await llm.invoke([new HumanMessage(enhancePrompt)], { modelName: MODELS.CONTENT_CREATOR });
+        enhanced = (res.content?.toString() || "").trim().replace(/^["']|["']$/g, "");
+      } catch (err) {
+        console.warn("[AI Studio] Enhance prompt primary LLM failed, using resilient fallback:", err);
+        const base = (prompt || topic || "Modern business automation").trim();
+        enhanced = isVideoFormat
+          ? `Cinematic high-definition ${capability.defaultAspectRatio} video of ${base}, smooth dynamic camera movement, 8k resolution, photorealistic studio lighting, deep depth of field, high-end commercial color grading.`
+          : `Hyper-realistic studio photograph of ${base}, 8k resolution, elegant volumetric lighting, ultra-sharp focus, professional commercial aesthetics, authentic textures.`;
+      }
 
-      await cacheSet(enhanceCacheKey, enhanced, 86400);
+      if (enhanced) {
+        await cacheSet(enhanceCacheKey, enhanced, 86400).catch(() => {});
+      }
 
       return NextResponse.json({ success: true, enhancedPrompt: enhanced });
     }

@@ -1362,10 +1362,14 @@ export default function AIStudioPage() {
       : (displayPrompts[activeSlideIdx] || singleImagePrompt || "");
 
     setEnhancingPromptKeys(prev => ({ ...prev, [targetKey]: true }));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "enhance-prompt",
           prompt: targetPrompt,
@@ -1374,6 +1378,7 @@ export default function AIStudioPage() {
           topic: campaignTopic,
         }),
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (data.success && data.enhancedPrompt) {
         // Keep the user's FIRST original prompt recoverable — enhancement never
@@ -1383,10 +1388,14 @@ export default function AIStudioPage() {
           [targetKey]: prev[targetKey] !== undefined ? prev[targetKey] : targetPrompt,
         }));
         setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.enhancedPrompt }));
+      } else if (data.error) {
+        console.warn("Failed to enhance prompt:", data.error);
       }
-    } catch (e) {
+    } catch (e: any) {
+      clearTimeout(timeoutId);
       console.error("Enhance prompt error:", e);
     } finally {
+      clearTimeout(timeoutId);
       setEnhancingPromptKeys(prev => {
         const next = { ...prev };
         delete next[targetKey];
