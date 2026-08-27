@@ -13,7 +13,12 @@ function getAppBaseUrl(): string {
 // local uploads, and hotlink-protected stock media are routed to /api/media/[postId].
 function toAbsoluteUrl(url: string, postId?: string): string {
   if (!url) return url;
-  if (url.includes('pixabay.com') || url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+  // Already a fully-qualified public URL (Supabase CDN, external CDN, etc.) — use as-is
+  if (url.startsWith('https://')) return url;
+  // Our internal asset streaming endpoint — prepend app base URL
+  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
+  // Local uploads or relative paths — proxy through our media endpoint
+  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
     if (postId) return `${getAppBaseUrl()}/api/media/${postId}?idx=0`;
   }
   if (/^(https?:|data:)/i.test(url)) return url;

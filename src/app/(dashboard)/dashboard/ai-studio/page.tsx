@@ -1691,55 +1691,92 @@ export default function AIStudioPage() {
       },
     }));
 
-    const formData = new FormData();
-    formData.append("file", file);
+    const doUpload = (isRetry = false) => {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/uploads");
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/uploads");
 
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
-        const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
-        setUploadProgressDict((prev) => ({
-          ...prev,
-          [uploadKey]: {
-            isUploading: true,
-            progress: percent,
-            fileName: file.name,
-            transferredMB: transferred,
-            totalMB,
-          },
-        }));
-      }
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+          const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+          setUploadProgressDict((prev) => ({
+            ...prev,
+            [uploadKey]: {
+              isUploading: true,
+              progress: percent,
+              fileName: file.name,
+              transferredMB: transferred,
+              totalMB,
+            },
+          }));
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.url) {
+              setUploadProgressDict((prev) => ({
+                ...prev,
+                [uploadKey]: {
+                  isUploading: true,
+                  progress: 100,
+                  fileName: file.name,
+                  transferredMB: totalMB,
+                  totalMB,
+                },
+              }));
+              handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+              clearUpload();
+              return;
+            }
+          } catch {}
+        }
+
+        // Upload failed — retry once before falling back
+        if (!isRetry) {
+          console.warn("[Upload] First attempt failed, retrying...");
+          doUpload(true);
+          return;
+        }
+
+        // Final fallback: only for small images (< 2MB), never for videos
+        if (!isVid && file.size < 2 * 1024 * 1024) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              handleApplyCustomMedia(reader.result, "image");
+            }
+          };
+          reader.readAsDataURL(file);
+        } else {
+          console.error("[Upload] Server upload failed for large file. Cannot use base64 fallback.");
+          setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check your connection and try again.` });
+          setTimeout(() => setPublishResult(null), 4000);
+        }
+        clearUpload();
+      };
+
+      xhr.onerror = () => {
+        if (!isRetry) {
+          console.warn("[Upload] Network error, retrying...");
+          doUpload(true);
+          return;
+        }
+        console.error("[Upload] Upload failed after retry.");
+        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check your connection.` });
+        setTimeout(() => setPublishResult(null), 4000);
+        clearUpload();
+      };
+
+      xhr.send(formData);
     };
 
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const data = JSON.parse(xhr.responseText);
-          if (data.url) {
-            setUploadProgressDict((prev) => ({
-              ...prev,
-              [uploadKey]: {
-                isUploading: true,
-                progress: 100,
-                fileName: file.name,
-                transferredMB: totalMB,
-                totalMB,
-              },
-            }));
-            handleApplyCustomMedia(data.url, isVid ? "video" : "image");
-          } else {
-            handleLocalBase64Fallback();
-          }
-        } catch (e) {
-          handleLocalBase64Fallback();
-        }
-      } else {
-        handleLocalBase64Fallback();
-      }
-      // Clear upload state after slight delay for visual satisfaction
+    const clearUpload = () => {
       setTimeout(() => {
         setUploadProgressDict((prev) => {
           const next = { ...prev };
@@ -1749,26 +1786,7 @@ export default function AIStudioPage() {
       }, 400);
     };
 
-    xhr.onerror = () => {
-      handleLocalBase64Fallback();
-      setUploadProgressDict((prev) => {
-        const next = { ...prev };
-        delete next[uploadKey];
-        return next;
-      });
-    };
-
-    const handleLocalBase64Fallback = () => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          handleApplyCustomMedia(reader.result, isVid ? "video" : "image");
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-
-    xhr.send(formData);
+    doUpload();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2563,6 +2581,13 @@ export default function AIStudioPage() {
 
   const ensureCleanMediaUrl = async (rawUrl: string): Promise<string> => {
     if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
+
+    // Already a clean URL — pass through immediately
+    if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) return rawUrl;
+    if (rawUrl.startsWith("/api/media/")) return rawUrl;
+    if (rawUrl.startsWith("/uploads/")) return rawUrl;
+
+    // Only data: and blob: need conversion
     if (!rawUrl.startsWith("data:") && !rawUrl.startsWith("blob:")) return rawUrl;
 
     try {
@@ -4884,9 +4909,24 @@ export default function AIStudioPage() {
         isOpen={activeMediaModal === "stock"}
         allowedType={currentMediaType === "video" ? "video" : currentMediaType === "image" ? "image" : undefined}
         onClose={() => setActiveMediaModal(null)}
-        onSelect={(item) => {
-          handleApplyCustomMedia(item.url, item.type);
+        onSelect={async (item) => {
           setActiveMediaModal(null);
+          // Upload stock media URL to our server first for a permanent CDN URL
+          // This avoids storing expiring Pixabay/Pexels CDN links that fail at publish time
+          try {
+            const res = await fetch(`/api/uploads?url=${encodeURIComponent(item.url)}`, { method: "POST" });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.url) {
+                handleApplyCustomMedia(data.url, item.type);
+                return;
+              }
+            }
+          } catch (err) {
+            console.warn("[StockMedia] Server-side persist failed, using original URL:", err);
+          }
+          // Fallback: use original stock URL directly
+          handleApplyCustomMedia(item.url, item.type);
         }}
       />
 

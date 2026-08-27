@@ -15,12 +15,16 @@ function getAppBaseUrl(): string {
 
 function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   if (!url) return url;
+  // Already a fully-qualified public URL (Supabase CDN, external CDN, etc.) — use as-is
+  if (url.startsWith('https://')) return url;
+  // Our internal asset streaming endpoint — prepend app base URL
+  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
+  // Any other relative path or problematic URL — proxy through our media endpoint
   if (
     url.startsWith('data:') ||
     url.startsWith('blob:') ||
     url.startsWith('/') ||
-    url.includes('pixabay.com') ||
-    !url.startsWith('https://')
+    !url.startsWith('http')
   ) {
     return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
   }
