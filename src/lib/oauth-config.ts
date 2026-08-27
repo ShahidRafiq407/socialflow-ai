@@ -23,10 +23,18 @@ export interface OAuthPlatformConfig {
   profileUrl?: string;
 }
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+export function getBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes("localhost") && !process.env.NEXT_PUBLIC_APP_URL.includes("127.0.0.1")) {
+    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "https://socialflow-ai-akel.vercel.app";
+}
 
-export function getCallbackUrl(platform: string): string {
-  return `${BASE_URL}/api/auth/${platform}/callback`;
+export function getCallbackUrl(platform: string, origin?: string): string {
+  const base = origin || getBaseUrl();
+  return `${base.replace(/\/$/, "")}/api/auth/${platform}/callback`;
 }
 
 export function getOAuthConfig(platform: string): OAuthPlatformConfig | null {

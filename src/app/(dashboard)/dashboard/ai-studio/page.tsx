@@ -1753,6 +1753,16 @@ export default function AIStudioPage() {
             xhr.send(file); 
           });
 
+          // Verify the object actually exists before trusting the public URL.
+          // A successful PUT to a malformed signed URL would otherwise leave a
+          // dead publicUrl that fails at publish time.
+          if (signData.publicUrl) {
+            const headRes = await fetch(signData.publicUrl, { method: "HEAD" });
+            if (!headRes.ok) {
+              throw new Error("Upload verification failed — object not reachable after upload.");
+            }
+          }
+
           updateProgress(100, totalMB);
           handleApplyCustomMedia(signData.publicUrl, isVid ? "video" : "image");
           clearUpload();
@@ -3179,6 +3189,14 @@ export default function AIStudioPage() {
             xhr.onerror = () => reject(new Error("Network error during direct upload"));
             xhr.send(file);
           });
+
+          // Verify the object actually exists before trusting the public URL.
+          if (signData.publicUrl) {
+            const headRes = await fetch(signData.publicUrl, { method: "HEAD" });
+            if (!headRes.ok) {
+              throw new Error("Upload verification failed — object not reachable after upload.");
+            }
+          }
 
           setManualMedia({ url: signData.publicUrl, type: isVid ? "video" : "image" });
           setPublishResult(null);

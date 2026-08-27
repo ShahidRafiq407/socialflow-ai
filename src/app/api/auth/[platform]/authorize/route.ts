@@ -48,7 +48,9 @@ export async function GET(
 
     // Generate CSRF state token
     const state = generateState();
-    const callbackUrl = getCallbackUrl(platform);
+    const reqOrigin = new URL(req.url).origin;
+    const isLocal = reqOrigin.includes("localhost") || reqOrigin.includes("127.0.0.1");
+    const callbackUrl = getCallbackUrl(platform, isLocal ? reqOrigin : undefined);
 
     // Store state in cookie for validation in callback
     const cookieStore = await cookies();
