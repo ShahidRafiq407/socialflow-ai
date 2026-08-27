@@ -43,106 +43,182 @@ function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   return url;
 }
 
+async function refreshTikTokAccessToken(account: any): Promise<string | null> {
+  try {
+    const clientKey = process.env.TIKTOK_CLIENT_KEY || "";
+    const clientSecret = process.env.TIKTOK_CLIENT_SECRET || "";
+    const refreshToken = account.refreshToken;
+
+    if (!clientKey || !clientSecret || !refreshToken) {
+      return null;
+    }
+
+    const bodyParams = new URLSearchParams({
+      client_key: clientKey,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    });
+
+    const res = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: bodyParams.toString(),
+    });
+
+    if (!res.ok) {
+      console.warn(`[TikTok Publisher] Token refresh HTTP failed: ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const tokenInfo = data?.data || data;
+    if (tokenInfo?.access_token) {
+      const prisma = (await import("@/lib/db")).default;
+      await prisma.socialAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: tokenInfo.access_token,
+          refreshToken: tokenInfo.refresh_token || refreshToken,
+          tokenExpiresAt: new Date(Date.now() + (tokenInfo.expires_in || 86400) * 1000),
+        },
+      });
+      return tokenInfo.access_token;
+    }
+  } catch (err) {
+    console.warn("[TikTok Publisher] Error refreshing TikTok access token:", err);
+  }
+  return null;
+}
+
 export async function publishToTikTok(post: any, account: any): Promise<PublishResult> {
   try {
-    const accessToken = account.accessToken;
+    let accessToken = account.accessToken;
 
     if (!accessToken) {
-      return { success: false, error: 'Missing TikTok account credentials', platform: 'TIKTOK' };
+      return { success: false, error: "Missing TikTok account credentials", platform: "TIKTOK" };
+    }
+
+    // Auto-refresh token if expired or close to expiry (within 5 minutes)
+    if (account.refreshToken && account.tokenExpiresAt && new Date(account.tokenExpiresAt).getTime() < Date.now() + 300000) {
+      const refreshedToken = await refreshTikTokAccessToken(account);
+      if (refreshedToken) accessToken = refreshedToken;
     }
 
     const rawVideoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
     if (!rawVideoUrl) {
-      return { success: false, error: 'TikTok posts require a video', platform: 'TIKTOK' };
+      return { success: false, error: "TikTok posts require a video", platform: "TIKTOK" };
     }
 
     const publicVideoUrl = toPublicMediaUrl(rawVideoUrl, post.id);
 
     const settings = post.settings || {};
     const privacyMap: Record<string, string> = {
-      everyone: 'PUBLIC_TO_EVERYONE',
-      friends: 'MUTUAL_FOLLOW_FRIENDS',
-      private: 'SELF_ONLY',
+      everyone: "PUBLIC_TO_EVERYONE",
+      friends: "MUTUAL_FOLLOW_FRIENDS",
+      private: "SELF_ONLY",
     };
 
     // TikTok title = caption + hashtags, hard limit 2200 chars (API rejects beyond that)
     const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];
-    const title = [post.content || '', hashtags.join(' ')]
+    const title = [post.content || "", hashtags.join(" ")]
       .filter(Boolean)
-      .join(' ')
+      .join(" ")
       .slice(0, 2200)
       .trim();
 
-    const response = await fetch('https://open.tiktokapis.com/v2/post/publish/video/init/', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-      },
-      body: JSON.stringify({
-        post_info: {
-          title,
-          privacy_level: privacyMap[settings.tiktokPrivacy] || 'PUBLIC_TO_EVERYONE',
-          disable_comment: settings.tiktokDisableComments === true,
-          disable_duet: settings.tiktokDisableDuet === true,
-          disable_stitch: settings.tiktokDisableStitch === true,
+    const makePublishCall = async (token: string) => {
+      return await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=UTF-8",
         },
-        source_info: {
-          source: 'PULL_FROM_URL',
-          video_url: publicVideoUrl,
-        },
-      }),
-    });
+        body: JSON.stringify({
+          post_info: {
+            title,
+            privacy_level: privacyMap[settings.tiktokPrivacy] || "PUBLIC_TO_EVERYONE",
+            disable_comment: settings.tiktokDisableComments === true,
+            disable_duet: settings.tiktokDisableDuet === true,
+            disable_stitch: settings.tiktokDisableStitch === true,
+          },
+          source_info: {
+            source: "PULL_FROM_URL",
+            video_url: publicVideoUrl,
+          },
+        }),
+      });
+    };
 
-    const data = await response.json().catch(() => ({}));
+    let response = await makePublishCall(accessToken);
+    let data = await response.json().catch(() => ({}));
+
+    // If token invalid, try to refresh once and retry
+    if (data?.error?.code === "access_token_invalid" || data?.error?.message?.includes("access token is invalid")) {
+      const refreshedToken = await refreshTikTokAccessToken(account);
+      if (refreshedToken) {
+        accessToken = refreshedToken;
+        response = await makePublishCall(accessToken);
+        data = await response.json().catch(() => ({}));
+      }
+    }
 
     // TikTok returns { data: { publish_id }, error: { code, message } } —
     // HTTP 200 with error.code !== 'ok' is still a failure.
     const apiError = data?.error;
-    if (!response.ok || (apiError && apiError.code && apiError.code !== 'ok')) {
-      const code = String(apiError?.code || '');
-      const message = String(apiError?.message || '');
+    if (!response.ok || (apiError && apiError.code && apiError.code !== "ok")) {
+      const code = String(apiError?.code || "");
+      const message = String(apiError?.message || "");
+
+      if (code === "access_token_invalid" || message.toLowerCase().includes("access token")) {
+        return {
+          success: false,
+          error:
+            "TikTok access token has expired or is invalid. Please disconnect and reconnect your TikTok account from the Integrations page to authorize posting permissions.",
+          platform: "TIKTOK",
+        };
+      }
 
       // Unaudited apps may only Direct Post as SELF_ONLY — turn the cryptic API
       // error into actionable guidance instead of a raw code.
       if (
-        code.includes('privacy_level') ||
-        message.toLowerCase().includes('audit') ||
-        message.toLowerCase().includes('permission')
+        code.includes("privacy_level") ||
+        message.toLowerCase().includes("audit") ||
+        message.toLowerCase().includes("permission")
       ) {
         return {
           success: false,
           error:
-            'Your TikTok app is not verified yet, so posts can only be private. Set "Who Can View" to "Only Me" to publish now, or complete the Content Posting API verification (app audit) in the TikTok developer console to enable public posting.',
-          platform: 'TIKTOK',
+            'Your TikTok app is in developer mode, so posts can only be private. Set "Who Can View" to "Only Me" to publish now, or complete the Content Posting API verification (app audit) in the TikTok developer console to enable public posting.',
+          platform: "TIKTOK",
         };
       }
-      if (code === 'scope_not_authorized' || code.includes('scope')) {
+      if (code === "scope_not_authorized" || code.includes("scope")) {
         return {
           success: false,
           error:
-            'TikTok account token is missing the video.publish permission. Reconnect your TikTok account from the Integrations page.',
-          platform: 'TIKTOK',
+            "TikTok account token is missing the video.publish permission. Reconnect your TikTok account from the Integrations page.",
+          platform: "TIKTOK",
         };
       }
 
       return {
         success: false,
         error: apiError?.message || apiError?.code || `TikTok publish failed (HTTP ${response.status})`,
-        platform: 'TIKTOK',
+        platform: "TIKTOK",
       };
     }
 
     return {
       success: true,
       platformPostId: data?.data?.publish_id,
-      platform: 'TIKTOK',
+      platform: "TIKTOK",
     };
   } catch (error: any) {
     return {
       success: false,
-      error: error.message || 'Unknown error publishing to TikTok',
-      platform: 'TIKTOK',
+      error: error.message || "Unknown error publishing to TikTok",
+      platform: "TIKTOK",
     };
   }
 }

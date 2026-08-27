@@ -246,8 +246,40 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       containerBody.creation_id = containerData.id;
     }
 
-    // Wait for Instagram to process the container
-    await new Promise((resolve) => setTimeout(resolve, isVideo ? 6000 : 3500));
+    // Wait for Instagram to process the container — poll until status is FINISHED for videos
+    if (isVideo && containerBody.creation_id) {
+      let isReady = false;
+      const maxRetries = 15; // Poll up to 45 seconds
+      for (let i = 0; i < maxRetries; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const statusRes = await fetch(
+            `https://graph.facebook.com/${GRAPH_VERSION}/${containerBody.creation_id}?fields=status_code,status&access_token=${accessToken}`
+          );
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.status_code === 'FINISHED') {
+              isReady = true;
+              break;
+            } else if (statusData.status_code === 'ERROR') {
+              return {
+                success: false,
+                error: statusData.status || 'Instagram could not process this video asset. Please ensure the video format is supported.',
+                platform: 'INSTAGRAM',
+              };
+            }
+          }
+        } catch (pollErr) {
+          console.warn('[Instagram Publisher] Container poll check warning:', pollErr);
+        }
+      }
+      if (!isReady) {
+        // Final safety wait if status is still in progress
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+    }
 
     // Publish the container
     const publishResponse = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${igUserId}/media_publish`, {

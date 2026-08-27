@@ -81,7 +81,15 @@ function formatSignedUploadUrl(rawUrl: string): string {
   if (!rawUrl) return '';
   if (rawUrl.startsWith('http')) return rawUrl;
   const cleanPath = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+
+  // Supabase's /object/upload/sign endpoint returns a relative path like
+  //   /object/upload/sign/uploads/123-file.png?token=...
+  // which must be prefixed with the bare SUPABASE_URL (NOT /storage/v1).
+  // Only paths that already include /storage/v1/ should be joined as-is.
   if (cleanPath.startsWith('/storage/v1/')) {
+    return `${SUPABASE_URL}${cleanPath}`;
+  }
+  if (cleanPath.startsWith('/object/')) {
     return `${SUPABASE_URL}${cleanPath}`;
   }
   return `${SUPABASE_URL}/storage/v1${cleanPath}`;
