@@ -1722,10 +1722,11 @@ export default function AIStudioPage() {
         if (signData.signedUrl && signData.publicUrl) {
           const xhr = new XMLHttpRequest();
           xhr.open("PUT", signData.signedUrl);
-          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.setRequestHeader("Content-Type", file.type || (isVid ? "video/mp4" : "application/octet-stream"));
+          xhr.setRequestHeader("x-upsert", "true");
 
           xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
+            if (event.lengthComputable && event.total > 0) {
               const percent = Math.min(Math.round((event.loaded / event.total) * 100), 100);
               const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
               updateProgress(percent, transferred);
@@ -1738,11 +1739,13 @@ export default function AIStudioPage() {
               handleApplyCustomMedia(signData.publicUrl, isVid ? "video" : "image");
               clearUpload();
             } else {
+              console.warn("[Upload] Direct upload status:", xhr.status);
               fallbackServerUpload();
             }
           };
 
           xhr.onerror = () => {
+            console.warn("[Upload] Direct upload network error");
             fallbackServerUpload();
           };
 

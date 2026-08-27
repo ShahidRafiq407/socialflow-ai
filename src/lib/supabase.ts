@@ -77,6 +77,16 @@ export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, c
   return storagePath;
 }
 
+function formatSignedUploadUrl(rawUrl: string): string {
+  if (!rawUrl) return '';
+  if (rawUrl.startsWith('http')) return rawUrl;
+  const cleanPath = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+  if (cleanPath.startsWith('/storage/v1/')) {
+    return `${SUPABASE_URL}${cleanPath}`;
+  }
+  return `${SUPABASE_URL}/storage/v1${cleanPath}`;
+}
+
 export async function createSignedUploadUrl(filename: string): Promise<{ signedUrl: string; publicUrl: string; storagePath: string } | null> {
   if (!isSupabaseConfigured()) return null;
   const bucketName = 'uploads';
@@ -99,7 +109,7 @@ export async function createSignedUploadUrl(filename: string): Promise<{ signedU
       const data = await res.json();
       const relativeSignedUrl = data.url || data.signedUrl || data.signedURL;
       if (relativeSignedUrl) {
-        const fullSignedUrl = relativeSignedUrl.startsWith('http') ? relativeSignedUrl : `${SUPABASE_URL}${relativeSignedUrl}`;
+        const fullSignedUrl = formatSignedUploadUrl(relativeSignedUrl);
         const publicUrl = getPublicUrl(storagePath);
         return { signedUrl: fullSignedUrl, publicUrl, storagePath };
       }
@@ -129,7 +139,7 @@ export async function createSignedUploadUrl(filename: string): Promise<{ signedU
         const retryData = await retryRes.json();
         const relativeSignedUrl = retryData.url || retryData.signedUrl || retryData.signedURL;
         if (relativeSignedUrl) {
-          const fullSignedUrl = relativeSignedUrl.startsWith('http') ? relativeSignedUrl : `${SUPABASE_URL}${relativeSignedUrl}`;
+          const fullSignedUrl = formatSignedUploadUrl(relativeSignedUrl);
           const publicUrl = getPublicUrl(storagePath);
           return { signedUrl: fullSignedUrl, publicUrl, storagePath };
         }
