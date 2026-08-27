@@ -18,12 +18,9 @@ function getAppBaseUrl(): string {
 // paths, and hotlink-protected stock CDNs (Pixabay) are rewritten to our public streaming endpoint (/api/media/[postId]).
 function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   if (!url) return url;
-  // Already a fully-qualified public URL (Supabase CDN, external CDN, etc.) — use as-is
-  if (url.startsWith('https://')) return url;
-  // Our internal asset streaming endpoint — prepend app base URL
-  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
-  // Any other relative path or problematic URL — proxy through our media endpoint
+  // If it's a known hotlink-protected CDN (like Pixabay) or a blob/data URI, proxy it through our media endpoint
   if (
+    url.includes('pixabay.com') ||
     url.startsWith('data:') ||
     url.startsWith('blob:') ||
     url.startsWith('/') ||
@@ -31,6 +28,11 @@ function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
   ) {
     return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
   }
+  // Our internal asset streaming endpoint — prepend app base URL
+  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
+  // Otherwise, it's a fully-qualified public URL (Supabase CDN, etc.) — use as-is
+  if (url.startsWith('https://') || url.startsWith('http://')) return url;
+  
   return url;
 }
 

@@ -2737,29 +2737,40 @@ export default function AIStudioPage() {
   const resolvePostMediaUrls = (platform: string, format: string, data: GeneratedFormat) => {
     const isMulti = format === "Carousel" || format === "Idea Pin" || format === "Document" || format === "Thread";
     const mediaUrls: string[] = [];
+    let detectedType = "";
 
     if (isMulti) {
       for (let i = 0; i < 10; i++) {
         const slideKey = `${platform}-${format}-${i}`;
         if (clearedMediaKeys[slideKey]) continue;
+        const custom = customMediaDict[slideKey];
         const url =
-          customMediaDict[slideKey]?.url ||
+          custom?.url ||
           renderedImageUrlsDict[slideKey] ||
           (data.imageUrls && data.imageUrls[i]) ||
           "";
-        if (url) mediaUrls.push(url);
+        if (url) {
+          mediaUrls.push(url);
+          if (!detectedType) {
+            detectedType = custom?.type || (url.includes('.mp4') ? 'video' : 'image');
+          }
+        }
       }
     } else {
       const primaryKey = `${platform}-${format}-0`;
       if (!clearedMediaKeys[primaryKey]) {
+        const custom = customMediaDict[primaryKey];
         const primaryUrl =
-          customMediaDict[primaryKey]?.url ||
+          custom?.url ||
           renderedImageUrlsDict[primaryKey] ||
           data.videoUrl ||
           data.imageUrl ||
           (data.imageUrls || [])[0] ||
           "";
-        if (primaryUrl) mediaUrls.push(primaryUrl);
+        if (primaryUrl) {
+          mediaUrls.push(primaryUrl);
+          detectedType = custom?.type || (data.videoUrl ? 'video' : 'image');
+        }
       }
     }
 
@@ -2771,6 +2782,7 @@ export default function AIStudioPage() {
           const [p, f] = key.split("-");
           if (p === platform || getFormatFamily(p, f) === family) {
             mediaUrls.push(renderedUrl);
+            detectedType = 'image';
             break;
           }
         }
@@ -2779,6 +2791,7 @@ export default function AIStudioPage() {
         for (const [key, cust] of Object.entries(customMediaDict)) {
           if (cust?.url && !clearedMediaKeys[key]) {
             mediaUrls.push(cust.url);
+            detectedType = cust.type || 'image';
             break;
           }
         }
@@ -2786,21 +2799,21 @@ export default function AIStudioPage() {
     }
 
     const primaryMediaUrl = mediaUrls[0] || "";
-    return { mediaUrls, primaryMediaUrl };
+    return { mediaUrls, primaryMediaUrl, mediaType: detectedType };
   };
 
   // All generated campaign posts that actually have content (caption or media),
   // filtered strictly by selectedPlatforms and selectedContentTypes.
   const collectCampaignPosts = (onlyActive: boolean = false) => {
-    const entries: { platform: string; format: string; data: GeneratedFormat }[] = [];
+    const entries: { platform: string; format: string; data: GeneratedFormat; resolvedMediaType?: string }[] = [];
 
     if (onlyActive) {
       const data = generatedContents[activePlatformTab]?.[currentFormatName];
       if (data) {
-        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(activePlatformTab, currentFormatName, data);
+        const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(activePlatformTab, currentFormatName, data);
         const hasMedia = mediaUrls.length > 0 || Boolean(primaryMediaUrl);
         if ((data.caption || "").trim() || hasMedia) {
-          entries.push({ platform: activePlatformTab, format: currentFormatName, data });
+          entries.push({ platform: activePlatformTab, format: currentFormatName, data, resolvedMediaType: mediaType });
         }
       }
       return entries;
@@ -2826,17 +2839,17 @@ export default function AIStudioPage() {
       for (const fmt of allowedFormats) {
         const data = formats[fmt] || formats[fmt.toLowerCase()];
         if (!data) continue;
-        const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(plt, fmt, data);
+        const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(plt, fmt, data);
         const hasMedia = mediaUrls.length > 0 || Boolean(primaryMediaUrl);
         if ((data.caption || "").trim() || hasMedia) {
-          entries.push({ platform: plt, format: fmt, data });
+          entries.push({ platform: plt, format: fmt, data, resolvedMediaType: mediaType });
         }
       }
     }
 
     // Deduplicate by platform-format (e.g. prevent "Feed" and "feed" from publishing twice)
     const seenKeys = new Set<string>();
-    const deduplicatedEntries: { platform: string; format: string; data: GeneratedFormat }[] = [];
+    const deduplicatedEntries: { platform: string; format: string; data: GeneratedFormat; resolvedMediaType?: string }[] = [];
 
     for (const entry of entries) {
       const dedupeKey = `${entry.platform.toLowerCase()}-${entry.format.toLowerCase()}`;
@@ -2909,14 +2922,15 @@ export default function AIStudioPage() {
     setPublishLoading(true);
     try {
       const modalItems: PublishItemResult[] = await Promise.all(
-        posts.map(async ({ platform, format, data }) => {
+        posts.map(async ({ platform, format, data, resolvedMediaType }) => {
           const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
           const bestAt = planned ? planned.time : getNextBestTime(platform);
-          const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+          const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
           const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
           const mediaUrl = cleanPrimaryUrl;
+          let computedMediaType = resolvedMediaType || mediaType || (data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -2929,12 +2943,12 @@ export default function AIStudioPage() {
                 contentTitle: titleDict[`${platform}-${format}`] || undefined,
                 contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
               },
-              mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
+              mediaType: computedMediaType,
               source: "ai_campaign",
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
+                mediaUrls: computedMediaType === "video" && cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },
@@ -2997,12 +3011,13 @@ export default function AIStudioPage() {
     setPublishLoading(true);
     try {
       const modalItems: PublishItemResult[] = await Promise.all(
-        posts.map(async ({ platform, format, data }) => {
-          const { mediaUrls, primaryMediaUrl } = resolvePostMediaUrls(platform, format, data);
+        posts.map(async ({ platform, format, data, resolvedMediaType }) => {
+          const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
           const cleanVideoUrl = data.videoUrl ? await ensureCleanMediaUrl(data.videoUrl) : undefined;
           const mediaUrl = cleanPrimaryUrl;
+          let computedMediaType = resolvedMediaType || mediaType || (data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
           try {
             const draftRes = await apiSaveDraft({
               platform,
@@ -3015,12 +3030,12 @@ export default function AIStudioPage() {
                 contentTitle: titleDict[`${platform}-${format}`] || undefined,
                 contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
               },
-              mediaType: data.videoUrl ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none",
+              mediaType: computedMediaType,
               source: "ai_campaign",
               campaignTopic,
               campaignHook,
               mediaHistory: {
-                mediaUrls: cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
+                mediaUrls: computedMediaType === "video" && cleanVideoUrl ? [cleanVideoUrl] : cleanMediaUrls,
                 overlayTexts: data.overlayText || [],
                 visualPrompts: data.visualPrompts || [],
               },

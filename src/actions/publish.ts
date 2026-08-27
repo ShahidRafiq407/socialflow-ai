@@ -181,7 +181,15 @@ export async function publishToPlatform(post: any, account: any) {
   });
 
   try {
-    const result = await publishToPlatformProvider(post, account);
+    const result = await Promise.race([
+      publishToPlatformProvider(post, account),
+      new Promise<any>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Social platform crawler took too long to download the media (Timeout). Ensure your media URL is publicly accessible and not blocked by hotlink protection.")),
+          50000
+        )
+      ),
+    ]);
 
     if (result.success) {
       const now = new Date();
