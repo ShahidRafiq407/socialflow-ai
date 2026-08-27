@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { saveMediaBuffer } from '@/lib/supabase';
+import { saveMediaBuffer, createSignedUploadUrl } from '@/lib/supabase';
 import prisma from '@/lib/db';
+
+export async function GET(req: NextRequest) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const filename = searchParams.get('filename') || 'media_asset';
+
+    const signed = await createSignedUploadUrl(filename);
+    if (signed) {
+      return NextResponse.json(signed, { status: 200 });
+    }
+
+    return NextResponse.json({ error: 'Direct signed upload not available' }, { status: 404 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Failed to create upload ticket' }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {

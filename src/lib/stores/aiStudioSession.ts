@@ -165,32 +165,83 @@ const DEFAULT_CONTENT_TYPES: Record<string, string[]> = {
 // ============================================================================
 // SERIALIZATION HELPERS
 // ============================================================================
-
 /**
- * Filter out blob: URLs from customMediaDict before serializing,
- * and cap rendered images to prevent sessionStorage overflow (~5MB limit).
+ * Filter out blob: and data: URLs from all media fields before serializing,
+ * and cap entries to prevent sessionStorage overflow (~5MB limit).
+ *
+ * data: URLs (base64-encoded images/videos) can be 1-40MB each. Even ONE
+ * leftover data: URL in generatedContents or renderedImageUrlsDict will
+ * overflow sessionStorage, silently dropping the ENTIRE session state —
+ * making captions and media disappear on refresh or tab switch.
  */
 function sanitizeForStorage(state: any): any {
   const sanitized = { ...state };
 
-  // Remove blob URLs — they break on refresh
+  // Helper: returns true if URL is too large for sessionStorage
+  const isBloatedUrl = (url: unknown): boolean => {
+    if (typeof url !== "string") return false;
+    return url.startsWith("blob:") || (url.startsWith("data:") && url.length > 500);
+  };
+
+  // 1. Strip data:/blob: from generatedContents imageUrl/videoUrl/imageUrls
+  if (sanitized.generatedContents) {
+    const cleanedContents: Record<string, Record<string, any>> = {};
+    for (const [platform, formats] of Object.entries(sanitized.generatedContents)) {
+      cleanedContents[platform] = {};
+      for (const [format, data] of Object.entries(formats as Record<string, any>)) {
+        const cleanData = { ...data };
+        if (isBloatedUrl(cleanData.imageUrl)) cleanData.imageUrl = "";
+        if (isBloatedUrl(cleanData.videoUrl)) cleanData.videoUrl = "";
+        if (Array.isArray(cleanData.imageUrls)) {
+          cleanData.imageUrls = cleanData.imageUrls.map((u: string) => isBloatedUrl(u) ? "" : u);
+        }
+        cleanedContents[platform][format] = cleanData;
+      }
+    }
+    sanitized.generatedContents = cleanedContents;
+  }
+
+  // 2. Remove blob/data URLs from customMediaDict
   if (sanitized.customMediaDict) {
     const cleaned: Record<string, any> = {};
     for (const [key, val] of Object.entries(sanitized.customMediaDict)) {
       const media = val as { url: string; type: string };
-      if (media?.url && !media.url.startsWith("blob:")) {
+      if (media?.url && !isBloatedUrl(media.url)) {
         cleaned[key] = media;
       }
     }
     sanitized.customMediaDict = cleaned;
   }
 
-  // Cap rendered images to most recent 30 entries to avoid sessionStorage overflow
+  // 3. Remove data/blob from renderedImageUrlsDict
   if (sanitized.renderedImageUrlsDict) {
-    const entries = Object.entries(sanitized.renderedImageUrlsDict);
-    if (entries.length > 30) {
-      sanitized.renderedImageUrlsDict = Object.fromEntries(entries.slice(-30));
+    const cleaned: Record<string, string> = {};
+    for (const [key, url] of Object.entries(sanitized.renderedImageUrlsDict)) {
+      if (!isBloatedUrl(url)) {
+        cleaned[key] = url as string;
+      }
     }
+    // Cap to 30 most recent entries
+    const entries = Object.entries(cleaned);
+    sanitized.renderedImageUrlsDict = entries.length > 30
+      ? Object.fromEntries(entries.slice(-30))
+      : cleaned;
+  }
+
+  // 4. Strip bloated URLs from mediaItemsDict
+  if (sanitized.mediaItemsDict) {
+    const cleaned: Record<string, any[]> = {};
+    for (const [key, items] of Object.entries(sanitized.mediaItemsDict)) {
+      if (Array.isArray(items)) {
+        cleaned[key] = (items as any[]).map((item) => {
+          if (item?.url && isBloatedUrl(item.url)) {
+            return { ...item, url: "" };
+          }
+          return item;
+        });
+      }
+    }
+    sanitized.mediaItemsDict = cleaned;
   }
 
   return sanitized;

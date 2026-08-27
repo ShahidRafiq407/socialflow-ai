@@ -1649,10 +1649,10 @@ export default function AIStudioPage() {
       [targetKey]: false,
     };
 
-    selectedPlatforms.forEach((pId) => {
-      const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
-        ? selectedContentTypes[pId]
-        : (getPlatformDef(pId)?.contentTypes || []);
+    // Sync across ALL platforms for matching format family so tab switching never loses media
+    PLATFORMS.forEach((platformDef) => {
+      const pId = platformDef.id;
+      const availableFormats = platformDef.contentTypes || [];
       availableFormats.forEach((otherFmt) => {
         if (getFormatFamily(pId, otherFmt) === currentFamily) {
           const otherKey = `${pId}-${otherFmt}-${slideIdx}`;
@@ -1674,7 +1674,7 @@ export default function AIStudioPage() {
     saveAllMediaToIndexedDB(syncCustomUpdates);
   };
 
-  const uploadSingleFile = (file: File) => {
+  const uploadSingleFile = async (file: File) => {
     const isVid = file.type.startsWith("video");
     const uploadKey = currentFormatKey;
     const totalMB = (file.size / (1024 * 1024)).toFixed(1);
@@ -1691,89 +1691,17 @@ export default function AIStudioPage() {
       },
     }));
 
-    const doUpload = (isRetry = false) => {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/uploads");
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
-          const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
-          setUploadProgressDict((prev) => ({
-            ...prev,
-            [uploadKey]: {
-              isUploading: true,
-              progress: percent,
-              fileName: file.name,
-              transferredMB: transferred,
-              totalMB,
-            },
-          }));
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            if (data.url) {
-              setUploadProgressDict((prev) => ({
-                ...prev,
-                [uploadKey]: {
-                  isUploading: true,
-                  progress: 100,
-                  fileName: file.name,
-                  transferredMB: totalMB,
-                  totalMB,
-                },
-              }));
-              handleApplyCustomMedia(data.url, isVid ? "video" : "image");
-              clearUpload();
-              return;
-            }
-          } catch {}
-        }
-
-        // Upload failed — retry once before falling back
-        if (!isRetry) {
-          console.warn("[Upload] First attempt failed, retrying...");
-          doUpload(true);
-          return;
-        }
-
-        // Final fallback: only for small images (< 2MB), never for videos
-        if (!isVid && file.size < 2 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (typeof reader.result === "string") {
-              handleApplyCustomMedia(reader.result, "image");
-            }
-          };
-          reader.readAsDataURL(file);
-        } else {
-          console.error("[Upload] Server upload failed for large file. Cannot use base64 fallback.");
-          setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check your connection and try again.` });
-          setTimeout(() => setPublishResult(null), 4000);
-        }
-        clearUpload();
-      };
-
-      xhr.onerror = () => {
-        if (!isRetry) {
-          console.warn("[Upload] Network error, retrying...");
-          doUpload(true);
-          return;
-        }
-        console.error("[Upload] Upload failed after retry.");
-        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check your connection.` });
-        setTimeout(() => setPublishResult(null), 4000);
-        clearUpload();
-      };
-
-      xhr.send(formData);
+    const updateProgress = (percent: number, transferredMB: string) => {
+      setUploadProgressDict((prev) => ({
+        ...prev,
+        [uploadKey]: {
+          isUploading: true,
+          progress: percent,
+          fileName: file.name,
+          transferredMB,
+          totalMB,
+        },
+      }));
     };
 
     const clearUpload = () => {
@@ -1786,7 +1714,107 @@ export default function AIStudioPage() {
       }, 400);
     };
 
-    doUpload();
+    // 1. Direct High-Speed Supabase Upload (bypasses Vercel 4.5MB limit, full upload bandwidth)
+    try {
+      const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
+      if (signRes.ok) {
+        const signData = await signRes.json();
+        if (signData.signedUrl && signData.publicUrl) {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", signData.signedUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.min(Math.round((event.loaded / event.total) * 100), 100);
+              const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+              updateProgress(percent, transferred);
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              updateProgress(100, totalMB);
+              handleApplyCustomMedia(signData.publicUrl, isVid ? "video" : "image");
+              clearUpload();
+            } else {
+              fallbackServerUpload();
+            }
+          };
+
+          xhr.onerror = () => {
+            fallbackServerUpload();
+          };
+
+          xhr.send(file);
+          return;
+        }
+      }
+    } catch (signErr) {
+      console.warn("[Upload] Direct upload ticket failed, falling back to server:", signErr);
+    }
+
+    // 2. Fallback: Standard Server Upload
+    function fallbackServerUpload() {
+      if (file.size > 4.5 * 1024 * 1024) {
+        console.error("[Upload] Direct upload failed and file exceeds serverless 4.5MB limit.");
+        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Direct storage not responding.` });
+        setTimeout(() => setPublishResult(null), 4000);
+        clearUpload();
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/uploads");
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+          const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+          updateProgress(percent, transferred);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.url) {
+              updateProgress(100, totalMB);
+              handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+              clearUpload();
+              return;
+            }
+          } catch {}
+        }
+
+        // Final fallback: small images only
+        if (!isVid && file.size < 2 * 1024 * 1024) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") {
+              handleApplyCustomMedia(reader.result, "image");
+            }
+          };
+          reader.readAsDataURL(file);
+        } else {
+          setPublishResult({ success: false, message: `Upload failed for ${file.name}.` });
+          setTimeout(() => setPublishResult(null), 4000);
+        }
+        clearUpload();
+      };
+
+      xhr.onerror = () => {
+        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check connection.` });
+        setTimeout(() => setPublishResult(null), 4000);
+        clearUpload();
+      };
+
+      xhr.send(formData);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2314,8 +2342,43 @@ export default function AIStudioPage() {
     renderedImageUrlsDict,
   ]);
 
+  // Cross-tab fallback: if no media is explicitly attached to this specific platform/format tab,
+  // inherit from any uploaded or generated media in the same format family (video/image)
+  const fallbackMediaUrl = useMemo(() => {
+    if (clearedMediaKeys[currentMediaKey]) return null;
+    const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
+
+    // 1. Check custom uploads for matching family
+    for (const [key, item] of Object.entries(customMediaDict)) {
+      if (item?.url && !clearedMediaKeys[key]) {
+        const [p, f] = key.split("-");
+        if (getFormatFamily(p, f) === currentFamily) return item.url;
+      }
+    }
+
+    // 2. Check rendered images for matching family
+    for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
+      if (url && !clearedMediaKeys[key]) {
+        const [p, f] = key.split("-");
+        if (getFormatFamily(p, f) === currentFamily) return url;
+      }
+    }
+
+    // 3. Any available custom media
+    for (const [key, item] of Object.entries(customMediaDict)) {
+      if (item?.url && !clearedMediaKeys[key]) return item.url;
+    }
+
+    // 4. Any rendered image
+    for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
+      if (url && !clearedMediaKeys[key]) return url;
+    }
+
+    return null;
+  }, [activePlatformTab, currentFormatName, currentMediaKey, clearedMediaKeys, customMediaDict, renderedImageUrlsDict]);
+
   const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
-  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? (displayImageUrls[activeSlideIdx] || null) : (aiMediaUrl || null));
+  const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? (displayImageUrls[activeSlideIdx] || null) : (aiMediaUrl || fallbackMediaUrl || null));
   const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : (rawDisplayUrl || null);
 
   const currentHtmlSlide = null;

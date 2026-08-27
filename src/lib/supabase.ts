@@ -77,6 +77,70 @@ export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, c
   return storagePath;
 }
 
+export async function createSignedUploadUrl(filename: string): Promise<{ signedUrl: string; publicUrl: string; storagePath: string } | null> {
+  if (!isSupabaseConfigured()) return null;
+  const bucketName = 'uploads';
+  const timestamp = Date.now();
+  const cleanName = (filename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
+  const storagePath = `${timestamp}-${cleanName}`;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const relativeSignedUrl = data.url || data.signedUrl || data.signedURL;
+      if (relativeSignedUrl) {
+        const fullSignedUrl = relativeSignedUrl.startsWith('http') ? relativeSignedUrl : `${SUPABASE_URL}${relativeSignedUrl}`;
+        const publicUrl = getPublicUrl(storagePath);
+        return { signedUrl: fullSignedUrl, publicUrl, storagePath };
+      }
+    }
+
+    // Auto-create bucket if missing
+    if (res.status === 404) {
+      await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
+      });
+      const retryRes = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      if (retryRes.ok) {
+        const retryData = await retryRes.json();
+        const relativeSignedUrl = retryData.url || retryData.signedUrl || retryData.signedURL;
+        if (relativeSignedUrl) {
+          const fullSignedUrl = relativeSignedUrl.startsWith('http') ? relativeSignedUrl : `${SUPABASE_URL}${relativeSignedUrl}`;
+          const publicUrl = getPublicUrl(storagePath);
+          return { signedUrl: fullSignedUrl, publicUrl, storagePath };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Supabase] createSignedUploadUrl error:', err);
+  }
+  return null;
+}
+
 export function getPublicUrl(storagePath: string): string {
   const bucketName = 'uploads';
   return `${SUPABASE_URL}/storage/v1/object/public/${bucketName}/${storagePath}`;
@@ -97,6 +161,7 @@ export async function deleteFile(storagePath: string): Promise<void> {
     throw new Error(`Failed to delete file from Supabase: ${error}`);
   }
 }
+
 
 /**
  * Saves a binary media buffer using the best available storage backend:

@@ -25,6 +25,8 @@ function openDB(): Promise<IDBDatabase | null> {
 
 export async function saveMediaToIndexedDB(key: string, url: string, type: "image" | "video"): Promise<void> {
   try {
+    // Don't persist blob: or large data: URLs — they break on refresh
+    if (url.startsWith("blob:") || (url.startsWith("data:") && url.length > 500)) return;
     const db = await openDB();
     if (!db) return;
     const tx = db.transaction(STORE_NAME, "readwrite");
@@ -42,7 +44,8 @@ export async function saveAllMediaToIndexedDB(mediaDict: Record<string, { url: s
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     for (const [key, item] of Object.entries(mediaDict)) {
-      if (item?.url) {
+      // Only persist clean URLs — blob: and large data: URLs break on refresh
+      if (item?.url && !item.url.startsWith("blob:") && !(item.url.startsWith("data:") && item.url.length > 500)) {
         store.put({ key, url: item.url, type: item.type, updatedAt: Date.now() });
       }
     }
