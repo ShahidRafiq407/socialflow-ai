@@ -1714,62 +1714,49 @@ export default function AIStudioPage() {
       }, 400);
     };
 
-    // 1. Chunked Upload for large files (> 3MB, e.g. videos) to bypass Vercel 4.5MB limit safely
-    if (file.size > 3 * 1024 * 1024) {
-      try {
-        const chunkSize = 2 * 1024 * 1024; // 2MB slices
-        const totalChunks = Math.ceil(file.size / chunkSize);
-        const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // 1. Direct Multipart/Signed URL Upload for large files (> 3MB) to bypass Vercel limits safely
+      if (file.size > 3 * 1024 * 1024) {
+        try {
+          const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
+          if (!signRes.ok) throw new Error("Could not get signed upload URL from backend");
+          
+          const signData = await signRes.json();
+          if (!signData.signedUrl) throw new Error("Backend did not return a signedUrl");
 
-        for (let i = 0; i < totalChunks; i++) {
-          const start = i * chunkSize;
-          const end = Math.min(start + chunkSize, file.size);
-          const chunkBlob = file.slice(start, end);
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", signData.signedUrl);
+            xhr.setRequestHeader("Content-Type", file.type || (isVid ? "video/mp4" : "application/octet-stream"));
+            
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable && event.total > 0) {
+                const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+                const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
+                updateProgress(percent, transferred);
+              }
+            };
 
-          const base64Chunk = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(chunkBlob);
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) resolve();
+              else reject(new Error(`Direct upload failed: HTTP ${xhr.status}`));
+            };
+            xhr.onerror = () => reject(new Error("Network error during direct upload"));
+            xhr.send(file); 
           });
 
-          const res = await fetch("/api/uploads/chunk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              uploadId,
-              chunkIndex: i,
-              totalChunks,
-              filename: file.name,
-              contentType: file.type || (isVid ? "video/mp4" : "application/octet-stream"),
-              chunkData: base64Chunk
-            }),
-          });
-
-          if (!res.ok) {
-            throw new Error(`Chunk upload failed with HTTP ${res.status}`);
-          }
-
-          const data = await res.json();
-          const percent = Math.min(Math.round(((i + 1) / totalChunks) * 100), i === totalChunks - 1 ? 100 : 99);
-          const transferred = (end / (1024 * 1024)).toFixed(1);
-          updateProgress(percent, transferred);
-
-          if (data.status === "completed" && data.url) {
-            updateProgress(100, totalMB);
-            handleApplyCustomMedia(data.url, isVid ? "video" : "image");
-            clearUpload();
-            return;
-          }
+          updateProgress(100, totalMB);
+          handleApplyCustomMedia(signData.publicUrl, isVid ? "video" : "image");
+          clearUpload();
+          return;
+          
+        } catch (chunkErr: any) {
+          console.error("[Upload] Direct upload error:", chunkErr);
+          setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
+          setTimeout(() => setPublishResult(null), 4000);
+          clearUpload();
+          return;
         }
-      } catch (chunkErr: any) {
-        console.error("[Upload] Chunk upload error:", chunkErr);
-        setPublishResult({ success: false, message: `Upload failed for ${file.name}: ${chunkErr.message || "Network error"}` });
-        setTimeout(() => setPublishResult(null), 4000);
-        clearUpload();
-        return;
       }
-    }
 
     // 2. Standard Single Upload for small files (<= 3MB)
     try {
@@ -3118,59 +3105,31 @@ export default function AIStudioPage() {
       if (file.size > 3 * 1024 * 1024) {
         setPublishResult({ success: true, message: `Uploading ${file.name}...` });
         try {
-          const chunkSize = 2 * 1024 * 1024; // 2MB slices
-          const totalChunks = Math.ceil(file.size / chunkSize);
-          const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          let finalUrl: string | null = null;
-  
-          for (let i = 0; i < totalChunks; i++) {
-            const start = i * chunkSize;
-            const end = Math.min(start + chunkSize, file.size);
-            const chunkBlob = file.slice(start, end);
-  
-            const base64Chunk = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve((reader.result as string).split(',')[1]);
-              reader.onerror = reject;
-              reader.readAsDataURL(chunkBlob);
-            });
-  
-            const res = await fetch("/api/uploads/chunk", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                uploadId,
-                chunkIndex: i,
-                totalChunks,
-                filename: file.name,
-                contentType: file.type || (isVid ? "video/mp4" : "application/octet-stream"),
-                chunkData: base64Chunk
-              }),
-            });
-  
-            if (!res.ok) {
-              const errBody = await res.text().catch(() => "");
-              throw new Error(`Chunk ${i + 1}/${totalChunks} failed: HTTP ${res.status} ${errBody}`);
-            }
-  
-            const data = await res.json();
+          const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
+          if (!signRes.ok) throw new Error("Could not get signed upload URL from backend");
+          
+          const signData = await signRes.json();
+          if (!signData.signedUrl) throw new Error("Backend did not return a signedUrl");
+
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", signData.signedUrl);
+            xhr.setRequestHeader("Content-Type", file.type || (isVid ? "video/mp4" : "application/octet-stream"));
             
-            // Accept any shape that carries a final URL, not just an exact "completed" string
-            if (data?.url && (data.status === "completed" || data.done === true || data.finished === true || i === totalChunks - 1)) {
-              finalUrl = data.url;
-              break;
-            }
-          }
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) resolve();
+              else reject(new Error(`Direct upload failed: HTTP ${xhr.status}`));
+            };
+            xhr.onerror = () => reject(new Error("Network error during direct upload"));
+            xhr.send(file);
+          });
 
-          if (finalUrl) {
-            setManualMedia({ url: finalUrl, type: isVid ? "video" : "image" });
-            setPublishResult(null);
-            return;
-          }
-
-          throw new Error("Upload finished but server never returned a final media URL.");
+          setManualMedia({ url: signData.publicUrl, type: isVid ? "video" : "image" });
+          setPublishResult(null);
+          return;
+          
         } catch (chunkErr: any) {
-          console.error("[Upload] Chunk upload error:", chunkErr);
+          console.error("[Upload] Direct upload error:", chunkErr);
           setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
           setTimeout(() => setPublishResult(null), 4000);
           return;
@@ -5487,3 +5446,5 @@ export default function AIStudioPage() {
     </div>
   );
 }
+
+
