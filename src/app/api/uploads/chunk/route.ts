@@ -17,21 +17,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
     }
 
-    const formData = await req.formData();
-    const uploadId = formData.get('uploadId') as string;
-    const chunkIndex = parseInt(formData.get('chunkIndex') as string, 10);
-    const totalChunks = parseInt(formData.get('totalChunks') as string, 10);
-    const filename = (formData.get('filename') as string) || 'upload.mp4';
-    const contentType = (formData.get('contentType') as string) || 'application/octet-stream';
-    const chunk = formData.get('chunk') as File | null;
+    const body = await req.json();
+    const uploadId = body.uploadId;
+    const chunkIndex = parseInt(body.chunkIndex, 10);
+    const totalChunks = parseInt(body.totalChunks, 10);
+    const filename = body.filename || 'upload.mp4';
+    const contentType = body.contentType || 'application/octet-stream';
+    const base64Data = body.chunkData;
 
-    if (!uploadId || isNaN(chunkIndex) || isNaN(totalChunks) || !chunk) {
+    if (!uploadId || isNaN(chunkIndex) || isNaN(totalChunks) || !base64Data) {
       return NextResponse.json({ error: 'Invalid chunk parameters' }, { status: 400 });
     }
 
-    const arrayBuffer = await chunk.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64Data = buffer.toString('base64');
+    const buffer = Buffer.from(base64Data, 'base64');
 
     // Save temporary chunk in MediaAsset
     const chunkFilename = `__chunk__${uploadId}__${chunkIndex}__of__${totalChunks}`;
