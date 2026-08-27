@@ -72,8 +72,7 @@ export async function GET(
     // EXCHANGE CODE FOR ACCESS TOKEN
     // =========================================================================
     const reqOrigin = new URL(req.url).origin;
-    const isLocal = reqOrigin.includes("localhost") || reqOrigin.includes("127.0.0.1");
-    const callbackUrl = getCallbackUrl(platform, isLocal ? reqOrigin : undefined);
+    const callbackUrl = `${reqOrigin}/api/auth/${platform}/callback`;
     const tokenBody: Record<string, string> = {
       grant_type: "authorization_code",
       code,
