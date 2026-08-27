@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Search,
   Film,
+  RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -108,32 +109,70 @@ export default function MultiAgentStreamModal({
   const [elapsedTime, setElapsedTime] = useState(0);
   const [completedPayload, setCompletedPayload] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [failedAgentId, setFailedAgentId] = useState<string | null>(null);
 
+  const agentOutputsRef = useRef<Record<string, any>>({});
   const runIdRef = useRef<string>(`run_${Date.now()}`);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<any>(null);
 
-  const startStream = useCallback(async () => {
+  const startStream = useCallback(async (retryOptions?: { resumeFromAgent?: string }) => {
     setIsCompleted(false);
     setErrorMessage(null);
     setCompletedPayload(null);
-    setElapsedTime(0);
-    setTrendSources([]);
-    setSearchQuery("");
-    setAgentOutputs({});
-    setAgentActivities({
-      brand_analyst: [{ label: "Querying workspace database for Brand DNA...", status: "running" }],
-    });
-    setUserHasManuallySelected(false);
-    setSelectedAgentId("brand_analyst");
-    setAgentStatuses({
-      brand_analyst: "running",
-      trend_researcher: "waiting",
-      competitor_analyst: "waiting",
-      content_creator: "waiting",
-      visualizer: "waiting",
-      ceo_auditor: "waiting",
-    });
+
+    const isRetry = Boolean(retryOptions?.resumeFromAgent);
+    const targetResumeAgent = retryOptions?.resumeFromAgent;
+
+    if (!isRetry) {
+      setElapsedTime(0);
+      setTrendSources([]);
+      setSearchQuery("");
+      setAgentOutputs({});
+      agentOutputsRef.current = {};
+      setFailedAgentId(null);
+      setAgentActivities({
+        brand_analyst: [{ label: "Querying workspace database for Brand DNA...", status: "running" }],
+      });
+      setUserHasManuallySelected(false);
+      setSelectedAgentId("brand_analyst");
+      setAgentStatuses({
+        brand_analyst: "running",
+        trend_researcher: "waiting",
+        competitor_analyst: "waiting",
+        content_creator: "waiting",
+        visualizer: "waiting",
+        ceo_auditor: "waiting",
+      });
+    } else if (targetResumeAgent) {
+      setFailedAgentId(null);
+      setSelectedAgentId(targetResumeAgent);
+      
+      // Keep prior agents marked as completed, target as running, subsequent as waiting
+      setAgentStatuses((prev) => {
+        const next: Record<string, AgentStatus> = { ...prev };
+        let foundTarget = false;
+        for (const agent of AGENT_SEQUENCE) {
+          if (agent.id === targetResumeAgent) {
+            next[agent.id] = "running";
+            foundTarget = true;
+          } else if (foundTarget) {
+            next[agent.id] = "waiting";
+          } else {
+            next[agent.id] = "completed";
+          }
+        }
+        return next;
+      });
+
+      setAgentActivities((prev) => ({
+        ...prev,
+        [targetResumeAgent]: [
+          ...(prev[targetResumeAgent] || []).filter(a => a.status === "completed"),
+          { label: `Retrying ${AGENT_SEQUENCE.find(a => a.id === targetResumeAgent)?.name || targetResumeAgent}...`, status: "running" }
+        ],
+      }));
+    }
 
     const runId = `run_${Date.now()}`;
     runIdRef.current = runId;
@@ -146,6 +185,14 @@ export default function MultiAgentStreamModal({
       setElapsedTime((prev) => prev + 1);
     }, 1000);
 
+    const resumeState = isRetry && targetResumeAgent ? {
+      brandData: agentOutputsRef.current?.brand_analyst,
+      trendResearch: agentOutputsRef.current?.trend_researcher,
+      competitorAnalysis: agentOutputsRef.current?.competitor_analyst,
+      generatedContent: agentOutputsRef.current?.content_creator,
+      generatedAssets: agentOutputsRef.current?.visualizer?.generatedAssets || [],
+    } : undefined;
+
     try {
       const res = await fetch("/api/ai-studio-v2", {
         method: "POST",
@@ -155,6 +202,8 @@ export default function MultiAgentStreamModal({
           platforms,
           contentTypes,
           runId,
+          resumeState,
+          resumeFromAgent: targetResumeAgent,
         }),
         signal: abortController.signal,
       });
@@ -231,6 +280,7 @@ export default function MultiAgentStreamModal({
       }
     } else if (type === "output_ready") {
       if (data) {
+        agentOutputsRef.current[agentId] = data;
         setAgentOutputs((prev) => ({ ...prev, [agentId]: data }));
       }
     } else if (type === "agent_completed") {
@@ -241,6 +291,7 @@ export default function MultiAgentStreamModal({
       }));
     } else if (type === "agent_error") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "error" }));
+      setFailedAgentId(agentId);
       if (data?.message) setErrorMessage(data.message);
     } else if (type === "workflow_completed") {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -267,6 +318,11 @@ export default function MultiAgentStreamModal({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isOpen, startStream]);
+
+  const handleRetry = (agentId?: string) => {
+    const targetAgent = agentId || failedAgentId || selectedAgentId || "visualizer";
+    startStream({ resumeFromAgent: targetAgent });
+  };
 
   const handleCancelCampaign = async () => {
     if (abortControllerRef.current) {
@@ -731,8 +787,18 @@ export default function MultiAgentStreamModal({
                     )}
 
                     {errorMessage && (
-                      <div className="p-3 bg-[#EF4444]/10 border border-[#EF4444]/20 rounded-lg text-xs text-[#EF4444]">
-                        {errorMessage}
+                      <div className="p-3 bg-[#EF4444]/10 border border-[#EF4444]/25 rounded-xl text-xs text-[#EF4444] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-red-950/20">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-red-400">{errorMessage}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => handleRetry(failedAgentId || selectedAgentId)}
+                          className="bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 transition-all font-medium"
+                        >
+                          <RotateCw className="w-3.5 h-3.5" />
+                          Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -741,7 +807,18 @@ export default function MultiAgentStreamModal({
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-end bg-[#0B0D10] shrink-0">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-between bg-[#0B0D10] shrink-0">
+              <div>
+                {errorMessage && (
+                  <Button
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 font-medium shadow-md shadow-indigo-950/30"
+                    onClick={() => handleRetry(failedAgentId || selectedAgentId)}
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    Retry from {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
+                  </Button>
+                )}
+              </div>
               <Button
                 variant="outline"
                 className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors shrink-0"

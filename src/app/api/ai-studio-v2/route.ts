@@ -18,6 +18,8 @@ const GenerateCampaignSchema = z.object({
   platforms: z.array(z.string()).optional(),
   contentTypes: z.record(z.array(z.string())).optional(),
   topic: z.string().optional(),
+  resumeState: z.any().optional(),
+  resumeFromAgent: z.string().optional(),
 });
 
 // Registry to track active run abort controllers for user cancellation
@@ -109,6 +111,8 @@ export async function POST(req: Request) {
                 topic,
                 signal: abortController.signal,
                 workspaceData: workspace,
+                resumeState: body.resumeState,
+                resumeFromAgent: body.resumeFromAgent,
               },
               (event) => {
                 sendSSE(event);

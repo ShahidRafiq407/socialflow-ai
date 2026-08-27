@@ -65,7 +65,14 @@ export interface MediaAssetOutput {
 }
 
 function validateAssetUrl(url: string, type: "image" | "video") {
-  if (!url || (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("data:"))) {
+  if (
+    !url ||
+    (!url.startsWith("http://") &&
+      !url.startsWith("https://") &&
+      !url.startsWith("data:") &&
+      !url.startsWith("/") &&
+      !url.startsWith("blob:"))
+  ) {
     throw new VisualizerError(
       "VISUALIZER_VALIDATION_FAILED",
       `Rendered ${type} asset allocation failed string target formatting.`

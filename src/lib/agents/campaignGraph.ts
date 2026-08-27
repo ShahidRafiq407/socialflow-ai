@@ -36,6 +36,8 @@ export interface CampaignGraphInput {
   topic?: string;
   signal?: AbortSignal;
   workspaceData?: any;
+  resumeState?: Partial<CampaignState>;
+  resumeFromAgent?: string;
 }
 
 export interface GroundingSource {
@@ -117,7 +119,11 @@ export async function runCampaignGraph(
     platforms,
     contentTypes,
     topic,
-    generatedAssets: [],
+    brandData: input.resumeState?.brandData,
+    trendResearch: input.resumeState?.trendResearch,
+    competitorAnalysis: input.resumeState?.competitorAnalysis,
+    generatedContent: input.resumeState?.generatedContent,
+    generatedAssets: input.resumeState?.generatedAssets || [],
     errors: [],
   };
 
@@ -131,41 +137,10 @@ export async function runCampaignGraph(
   // 1. BRAND ANALYST (Database query)
   // =========================================================================
   checkCancelled();
-  const brandStartTime = Date.now();
-  onEvent({ type: "agent_started", agentId: "brand_analyst" });
-  onEvent({
-    type: "agent_action",
-    agentId: "brand_analyst",
-    data: { label: "Loading brand DNA...", detail: "Querying workspace database" },
-  });
+  const shouldRunBrand = !state.brandData || input.resumeFromAgent === "brand_analyst";
 
-  try {
-    let workspace = input.workspaceData;
-    if (!workspace) {
-      workspace = await prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        include: { brandDNA: true, competitors: true },
-      });
-    }
-
-    const hasCustomDNA = Boolean(
-      workspace?.brandDNA &&
-      (workspace.brandDNA.tone || workspace.brandDNA.missionVision || workspace.brandDNA.targetAudience)
-    );
-
-    state.brandData = {
-      name: workspace?.name || "Brand",
-      industry: workspace?.industry || "Technology & Automation",
-      website: workspace?.website || "",
-      tone: workspace?.brandDNA?.tone || "Professional, Authoritative, Conversational",
-      missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
-      targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
-      writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
-      hasCustomDNA,
-    };
-
-    const brandElapsed = Date.now() - brandStartTime;
-    console.log(`[Brand Analyst] Completed in ${brandElapsed}ms`);
+  if (!shouldRunBrand && state.brandData) {
+    onEvent({ type: "agent_started", agentId: "brand_analyst" });
     onEvent({
       type: "agent_action",
       agentId: "brand_analyst",
@@ -174,140 +149,225 @@ export async function runCampaignGraph(
     onEvent({
       type: "output_ready",
       agentId: "brand_analyst",
-      data: { ...state.brandData, elapsedMs: brandElapsed },
+      data: state.brandData,
     });
     onEvent({ type: "agent_completed", agentId: "brand_analyst" });
-  } catch (err: any) {
-    console.error("Brand Analyst error:", err);
+  } else {
+    const brandStartTime = Date.now();
+    onEvent({ type: "agent_started", agentId: "brand_analyst" });
     onEvent({
-      type: "agent_error",
+      type: "agent_action",
       agentId: "brand_analyst",
-      data: { message: err.message || "Failed to load brand DNA" },
+      data: { label: "Loading brand DNA...", detail: "Querying workspace database" },
     });
-    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+
+    try {
+      let workspace = input.workspaceData;
+      if (!workspace) {
+        workspace = await prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          include: { brandDNA: true, competitors: true },
+        });
+      }
+
+      const hasCustomDNA = Boolean(
+        workspace?.brandDNA &&
+        (workspace.brandDNA.tone || workspace.brandDNA.missionVision || workspace.brandDNA.targetAudience)
+      );
+
+      state.brandData = {
+        name: workspace?.name || "Brand",
+        industry: workspace?.industry || "Technology & Automation",
+        website: workspace?.website || "",
+        tone: workspace?.brandDNA?.tone || "Professional, Authoritative, Conversational",
+        missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
+        targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
+        writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+        hasCustomDNA,
+      };
+
+      const brandElapsed = Date.now() - brandStartTime;
+      console.log(`[Brand Analyst] Completed in ${brandElapsed}ms`);
+      onEvent({
+        type: "agent_action",
+        agentId: "brand_analyst",
+        data: { label: `Loaded Brand: ${state.brandData.name} (${state.brandData.industry})` },
+      });
+      onEvent({
+        type: "output_ready",
+        agentId: "brand_analyst",
+        data: { ...state.brandData, elapsedMs: brandElapsed },
+      });
+      onEvent({ type: "agent_completed", agentId: "brand_analyst" });
+    } catch (err: any) {
+      console.error("Brand Analyst error:", err);
+      onEvent({
+        type: "agent_error",
+        agentId: "brand_analyst",
+        data: { message: err.message || "Failed to load brand DNA" },
+      });
+      throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+    }
   }
 
   // =========================================================================
   // 2. TREND RESEARCHER (Gemini 3.6 Flash + Google Search Grounding)
   // =========================================================================
   checkCancelled();
-  onEvent({ type: "agent_started", agentId: "trend_researcher" });
-  onEvent({
-    type: "agent_action",
-    agentId: "trend_researcher",
-    data: { label: "Searching Google for live viral trends...", detail: `Querying trends for ${state.brandData.industry}` },
-  });
+  const shouldRunTrend =
+    !state.trendResearch ||
+    input.resumeFromAgent === "brand_analyst" ||
+    input.resumeFromAgent === "trend_researcher";
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const searchQuery = `Latest business news, emerging market trends, and content opportunities for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) ${currentYear}`;
-  onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery, searchDate: currentDateStr } });
-
-  try {
-    const trendPrompt = `You are a professional Trend Researcher. Current search date: ${currentDateStr} (Year: ${currentYear}).
-Search for real news, industry updates, emerging market conversations, and competitor moves for ${state.brandData.industry}.
-Extract the top 3 actionable insights or news items. Return them as a clear bulleted list.
-Analyze query: ${searchQuery}`;
-
-    const groundingRes = await vertexProvider.generateWithGrounding(trendPrompt, {
-      modelName: MODELS.TREND_RESEARCHER,
-      temperature: 0.3,
-    });
-
-    let sources: GroundingSource[] = groundingRes.sources;
-    if (!sources || sources.length === 0) {
-      sources = [
-        {
-          title: "Google Search Grounding Index",
-          url: `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
-          snippet: `Live search insights regarding ${state.brandData.industry}.`,
-        },
-      ];
+  if (!shouldRunTrend && state.trendResearch) {
+    onEvent({ type: "agent_started", agentId: "trend_researcher" });
+    if (state.trendResearch.sources && state.trendResearch.sources.length > 0) {
+      onEvent({
+        type: "source_found",
+        agentId: "trend_researcher",
+        data: { count: state.trendResearch.sources.length, sources: state.trendResearch.sources },
+      });
     }
-
-    const rawText = groundingRes.text || "";
-    // Simple parse of bullet points from LLM output
-    const extractedFindings = rawText.split('\n')
-      .filter(line => line.trim().startsWith('-') || line.trim().startsWith('*') || /^\d+\./.test(line))
-      .map(line => line.replace(/^[-*\d.]+\s*/, '').trim())
-      .filter(line => line.length > 10)
-      .slice(0, 4);
-
-    state.trendResearch = {
-      searchQueries: groundingRes.searchQueries.length > 0 ? groundingRes.searchQueries : [searchQuery],
-      sources,
-      findings: extractedFindings.length > 0 ? extractedFindings : [
-        "Short-form video hooks with problem-first narrative perform 3x better",
-        "Authentic storytelling outperforms polished corporate speak",
-        "Interactive CTAs drive 40% higher conversion rates",
-      ],
-      rawText,
-    };
-
-    onEvent({
-      type: "source_found",
-      agentId: "trend_researcher",
-      data: { count: sources.length, sources },
-    });
     onEvent({
       type: "output_ready",
       agentId: "trend_researcher",
       data: state.trendResearch,
     });
     onEvent({ type: "agent_completed", agentId: "trend_researcher" });
-  } catch (err: any) {
-    console.error("Trend Researcher error:", err);
+  } else {
+    onEvent({ type: "agent_started", agentId: "trend_researcher" });
     onEvent({
-      type: "agent_error",
+      type: "agent_action",
       agentId: "trend_researcher",
-      data: { message: err.message || "Trend research failed" },
+      data: { label: "Searching Google for live viral trends...", detail: `Querying trends for ${state.brandData.industry}` },
     });
-    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const searchQuery = `Latest business news, emerging market trends, and content opportunities for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) ${currentYear}`;
+    onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery, searchDate: currentDateStr } });
+
+    try {
+      const trendPrompt = `You are a professional Trend Researcher. Current search date: ${currentDateStr} (Year: ${currentYear}).
+Search for real news, industry updates, emerging market conversations, and competitor moves for ${state.brandData.industry}.
+Extract the top 3 actionable insights or news items. Return them as a clear bulleted list.
+Analyze query: ${searchQuery}`;
+
+      const groundingRes = await vertexProvider.generateWithGrounding(trendPrompt, {
+        modelName: MODELS.TREND_RESEARCHER,
+        temperature: 0.3,
+      });
+
+      let sources: GroundingSource[] = groundingRes.sources;
+      if (!sources || sources.length === 0) {
+        sources = [
+          {
+            title: "Google Search Grounding Index",
+            url: `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
+            snippet: `Live search insights regarding ${state.brandData.industry}.`,
+          },
+        ];
+      }
+
+      const rawText = groundingRes.text || "";
+      // Simple parse of bullet points from LLM output
+      const extractedFindings = rawText.split('\n')
+        .filter(line => line.trim().startsWith('-') || line.trim().startsWith('*') || /^\d+\./.test(line))
+        .map(line => line.replace(/^[-*\d.]+\s*/, '').trim())
+        .filter(line => line.length > 10)
+        .slice(0, 4);
+
+      state.trendResearch = {
+        searchQueries: groundingRes.searchQueries.length > 0 ? groundingRes.searchQueries : [searchQuery],
+        sources,
+        findings: extractedFindings.length > 0 ? extractedFindings : [
+          "Short-form video hooks with problem-first narrative perform 3x better",
+          "Authentic storytelling outperforms polished corporate speak",
+          "Interactive CTAs drive 40% higher conversion rates",
+        ],
+        rawText,
+      };
+
+      onEvent({
+        type: "source_found",
+        agentId: "trend_researcher",
+        data: { count: sources.length, sources },
+      });
+      onEvent({
+        type: "output_ready",
+        agentId: "trend_researcher",
+        data: state.trendResearch,
+      });
+      onEvent({ type: "agent_completed", agentId: "trend_researcher" });
+    } catch (err: any) {
+      console.error("Trend Researcher error:", err);
+      onEvent({
+        type: "agent_error",
+        agentId: "trend_researcher",
+        data: { message: err.message || "Trend research failed" },
+      });
+      throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+    }
   }
 
   // =========================================================================
   // 3. COMPETITOR ANALYST (Google Search Grounding + Market Gap Intelligence)
   // =========================================================================
   checkCancelled();
-  onEvent({ type: "agent_started", agentId: "competitor_analyst" });
-  onEvent({
-    type: "agent_action",
-    agentId: "competitor_analyst",
-    data: { label: "Scanning competitor landscape...", detail: `Identifying market leaders in ${state.brandData.industry}` },
-  });
+  const shouldRunComp =
+    !state.competitorAnalysis ||
+    input.resumeFromAgent === "brand_analyst" ||
+    input.resumeFromAgent === "trend_researcher" ||
+    input.resumeFromAgent === "competitor_analyst";
 
-  const compSearchQuery = `Top competitors, market leaders, viral social media posts, winning hooks, and engagement angles for ${state.brandData.industry} 2026`;
-  onEvent({ type: "web_search", agentId: "competitor_analyst", data: { query: compSearchQuery } });
-
-  try {
-    let compGroundingText = "";
-    let compSources: GroundingSource[] = [];
-    try {
-      const compGroundingRes = await vertexProvider.generateWithGrounding(compSearchQuery, {
-        modelName: MODELS.COMPETITOR_ANALYST,
-        temperature: 0.3,
-      });
-      compGroundingText = compGroundingRes.text || "";
-      compSources = compGroundingRes.sources || [];
-    } catch (e) {
-      console.warn("Competitor grounding fallback:", e);
-    }
-
-    if (compSources.length > 0) {
-      onEvent({
-        type: "source_found",
-        agentId: "competitor_analyst",
-        data: { count: compSources.length, sources: compSources },
-      });
-    }
-
-    const dbCompetitors = await prisma.competitor.findMany({
-      where: { workspaceId },
-      take: 5,
+  if (!shouldRunComp && state.competitorAnalysis) {
+    onEvent({ type: "agent_started", agentId: "competitor_analyst" });
+    onEvent({
+      type: "output_ready",
+      agentId: "competitor_analyst",
+      data: state.competitorAnalysis,
+    });
+    onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
+  } else {
+    onEvent({ type: "agent_started", agentId: "competitor_analyst" });
+    onEvent({
+      type: "agent_action",
+      agentId: "competitor_analyst",
+      data: { label: "Scanning competitor landscape...", detail: `Identifying market leaders in ${state.brandData.industry}` },
     });
 
-    const compPrompt = `You are an elite competitive intelligence strategist.
+    const compSearchQuery = `Top competitors, market leaders, viral social media posts, winning hooks, and engagement angles for ${state.brandData.industry} 2026`;
+    onEvent({ type: "web_search", agentId: "competitor_analyst", data: { query: compSearchQuery } });
+
+    try {
+      let compGroundingText = "";
+      let compSources: GroundingSource[] = [];
+      try {
+        const compGroundingRes = await vertexProvider.generateWithGrounding(compSearchQuery, {
+          modelName: MODELS.COMPETITOR_ANALYST,
+          temperature: 0.3,
+        });
+        compGroundingText = compGroundingRes.text || "";
+        compSources = compGroundingRes.sources || [];
+      } catch (e) {
+        console.warn("Competitor grounding fallback:", e);
+      }
+
+      if (compSources.length > 0) {
+        onEvent({
+          type: "source_found",
+          agentId: "competitor_analyst",
+          data: { count: compSources.length, sources: compSources },
+        });
+      }
+
+      const dbCompetitors = await prisma.competitor.findMany({
+        where: { workspaceId },
+        take: 5,
+      });
+
+      const compPrompt = `You are an elite competitive intelligence strategist.
 Analyze real top competitors in the ${state.brandData.industry} industry targeting ${state.brandData.targetAudience}.
 
 KNOWN DATABASE COMPETITORS:
@@ -341,84 +401,100 @@ Return strictly JSON with format:
   "differentiation": ["Exact differentiation strategy 1", "Exact differentiation strategy 2"]
 }`;
 
-    const compRes = await vertexProvider.generateJSON(
-      [{ role: "user", content: compPrompt }],
-      { modelName: MODELS.COMPETITOR_ANALYST, temperature: 0.2 }
-    );
+      const compRes = await vertexProvider.generateJSON(
+        [{ role: "user", content: compPrompt }],
+        { modelName: MODELS.COMPETITOR_ANALYST, temperature: 0.2 }
+      );
 
-    const topComps = Array.isArray(compRes.topCompetitors) && compRes.topCompetitors.length > 0
-      ? compRes.topCompetitors
-      : ["Industry Market Leaders", "Category Competitors"];
+      const topComps = Array.isArray(compRes.topCompetitors) && compRes.topCompetitors.length > 0
+        ? compRes.topCompetitors
+        : ["Industry Market Leaders", "Category Competitors"];
 
-    state.competitorAnalysis = {
-      positioning: compRes.positioning || `Competitors in ${state.brandData.industry} rely on generic feature lists and static infographics.`,
-      contentPatterns: compRes.contentPatterns || ["Feature-heavy product demos", "Generic motivational quotes", "Standard testimonials"],
-      hooks: compRes.hooks || ["3 Mistakes you're making", "How to automate your workflow"],
-      offers: compRes.offers || ["Free trial", "Book a demo"],
-      weaknesses: compRes.weaknesses || ["Lack of conversational human touch", "No real-world problem-solving proof"],
-      differentiation: compRes.differentiation || [
-        "Focus on high-value business outcomes over tech jargon",
-        "Use conversational problem-first hook narrative",
-      ],
-    };
+      state.competitorAnalysis = {
+        positioning: compRes.positioning || `Competitors in ${state.brandData.industry} rely on generic feature lists and static infographics.`,
+        contentPatterns: compRes.contentPatterns || ["Feature-heavy product demos", "Generic motivational quotes", "Standard testimonials"],
+        hooks: compRes.hooks || ["3 Mistakes you're making", "How to automate your workflow"],
+        offers: compRes.offers || ["Free trial", "Book a demo"],
+        weaknesses: compRes.weaknesses || ["Lack of conversational human touch", "No real-world problem-solving proof"],
+        differentiation: compRes.differentiation || [
+          "Focus on high-value business outcomes over tech jargon",
+          "Use conversational problem-first hook narrative",
+        ],
+      };
 
-    onEvent({
-      type: "agent_action",
-      agentId: "competitor_analyst",
-      data: { label: `Analyzed competitors: ${topComps.slice(0, 3).join(", ")}` },
-    });
-    onEvent({
-      type: "agent_action",
-      agentId: "competitor_analyst",
-      data: { label: `Identified winning angle: ${compRes.winningAngle || state.competitorAnalysis.differentiation[0]}` },
-    });
+      onEvent({
+        type: "agent_action",
+        agentId: "competitor_analyst",
+        data: { label: `Analyzed competitors: ${topComps.slice(0, 3).join(", ")}` },
+      });
+      onEvent({
+        type: "agent_action",
+        agentId: "competitor_analyst",
+        data: { label: `Identified winning angle: ${compRes.winningAngle || state.competitorAnalysis.differentiation[0]}` },
+      });
 
-    onEvent({
-      type: "output_ready",
-      agentId: "competitor_analyst",
-      data: {
-        ...state.competitorAnalysis,
-        topCompetitors: topComps,
-        winningAngle: compRes.winningAngle || state.competitorAnalysis.differentiation[0],
-      },
-    });
-    onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
-  } catch (err: any) {
-    console.error("Competitor Analyst error:", err);
-    onEvent({
-      type: "agent_error",
-      agentId: "competitor_analyst",
-      data: { message: err.message || "Competitor analysis failed" },
-    });
-    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+      onEvent({
+        type: "output_ready",
+        agentId: "competitor_analyst",
+        data: {
+          ...state.competitorAnalysis,
+          topCompetitors: topComps,
+          winningAngle: compRes.winningAngle || state.competitorAnalysis.differentiation[0],
+        },
+      });
+      onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
+    } catch (err: any) {
+      console.error("Competitor Analyst error:", err);
+      onEvent({
+        type: "agent_error",
+        agentId: "competitor_analyst",
+        data: { message: err.message || "Competitor analysis failed" },
+      });
+      throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
+    }
   }
 
   // =========================================================================
   // 4. CONTENT CREATOR (Platform-Native Algorithms + High User Intent)
   // =========================================================================
   checkCancelled();
+  const shouldRunContent =
+    !state.generatedContent ||
+    input.resumeFromAgent === "brand_analyst" ||
+    input.resumeFromAgent === "trend_researcher" ||
+    input.resumeFromAgent === "competitor_analyst" ||
+    input.resumeFromAgent === "content_creator";
 
-  onEvent({ type: "agent_started", agentId: "content_creator" });
-  onEvent({
-    type: "agent_thought",
-    agentId: "content_creator",
-    data: "Synthesizing audience psychology, curiosity gaps, user intent, and platform-specific algorithms...",
-  });
-  onEvent({
-    type: "agent_action",
-    agentId: "content_creator",
-    data: { label: "Structuring platform-native copy & visual prompts...", detail: `Targeting: ${platforms.join(", ")}` },
-  });
+  if (!shouldRunContent && state.generatedContent) {
+    onEvent({ type: "agent_started", agentId: "content_creator" });
+    onEvent({
+      type: "output_ready",
+      agentId: "content_creator",
+      data: state.generatedContent,
+    });
+    onEvent({ type: "agent_completed", agentId: "content_creator" });
+  } else {
+    onEvent({ type: "agent_started", agentId: "content_creator" });
+    onEvent({
+      type: "agent_thought",
+      agentId: "content_creator",
+      data: "Synthesizing audience psychology, curiosity gaps, user intent, and platform-specific algorithms...",
+    });
+    onEvent({
+      type: "agent_action",
+      agentId: "content_creator",
+      data: { label: "Structuring platform-native copy & visual prompts...", detail: `Targeting: ${platforms.join(", ")}` },
+    });
 
-  const requestedFormatsList: string[] = [];
-  for (const [plt, fmts] of Object.entries(contentTypes)) {
-    for (const fmt of fmts) {
-      const spec = getPlatformFormatSpec(plt, fmt);
-      requestedFormatsList.push(`${plt} - ${fmt} (Requires ${spec.mediaType.toUpperCase()}, Aspect Ratio ${spec.aspectRatio})`);
+    const requestedFormatsList: string[] = [];
+    for (const [plt, fmts] of Object.entries(contentTypes)) {
+      for (const fmt of fmts) {
+        const spec = getPlatformFormatSpec(plt, fmt);
+        requestedFormatsList.push(`${plt} - ${fmt} (Requires ${spec.mediaType.toUpperCase()}, Aspect Ratio ${spec.aspectRatio})`);
+      }
     }
-  }
 
-  const contentPrompt = `You are an elite creative copywriter and social media growth architect.
+    const contentPrompt = `You are an elite creative copywriter and social media growth architect.
 Your job is to write viral, high-converting, human-sounding campaign content for ${state.brandData.name}.
 
 BRAND CONTEXT:
@@ -484,85 +560,86 @@ Return strictly JSON format:
   }
 }`;
 
-  try {
-    const contentRes = await vertexProvider.generateJSON(
-      [{ role: "user", content: contentPrompt }],
-      { modelName: MODELS.CONTENT_CREATOR, temperature: 0.7 }
-    );
+    try {
+      const contentRes = await vertexProvider.generateJSON(
+        [{ role: "user", content: contentPrompt }],
+        { modelName: MODELS.CONTENT_CREATOR, temperature: 0.7 }
+      );
 
-    const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
+      const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
 
-    for (const plt of platforms) {
-      const normPlt = plt.toLowerCase();
-      structuredPlatforms[normPlt] = structuredPlatforms[normPlt] || {};
-      const reqFmts = contentTypes[plt] || contentTypes[normPlt] || ["feed"];
+      for (const plt of platforms) {
+        const normPlt = plt.toLowerCase();
+        structuredPlatforms[normPlt] = structuredPlatforms[normPlt] || {};
+        const reqFmts = contentTypes[plt] || contentTypes[normPlt] || ["feed"];
 
-      for (const fmt of reqFmts) {
-        const normFmt = fmt.toLowerCase();
-        const reqSpec = resolveVisualRequirements(plt, fmt);
+        for (const fmt of reqFmts) {
+          const normFmt = fmt.toLowerCase();
+          const reqSpec = resolveVisualRequirements(plt, fmt);
 
-        const rawItem = contentRes.platforms?.[plt]?.[fmt] || contentRes.platforms?.[normPlt]?.[normFmt] || {};
-        const caption = rawItem.caption || `Discover how ${state.brandData.name} drives exponential growth in ${state.brandData.industry} with next-generation automation.`;
-        const wordCount = caption.split(/\s+/).filter(Boolean).length;
-        const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
-        const hook = rawItem.hook || "Stop scrolling: here's how to scale faster.";
+          const rawItem = contentRes.platforms?.[plt]?.[fmt] || contentRes.platforms?.[normPlt]?.[normFmt] || {};
+          const caption = rawItem.caption || `Discover how ${state.brandData.name} drives exponential growth in ${state.brandData.industry} with next-generation automation.`;
+          const wordCount = caption.split(/\s+/).filter(Boolean).length;
+          const readingTimeSeconds = Math.max(5, Math.ceil((wordCount / 200) * 60));
+          const hook = rawItem.hook || "Stop scrolling: here's how to scale faster.";
 
-        const visualPromptsArray = Array.isArray(rawItem.visualPrompts) && rawItem.visualPrompts.length > 0
-          ? rawItem.visualPrompts
-          : [rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`];
+          const visualPromptsArray = Array.isArray(rawItem.visualPrompts) && rawItem.visualPrompts.length > 0
+            ? rawItem.visualPrompts
+            : [rawItem.visualPrompt || `High-definition visual composition for ${state.brandData.name} - ${topic}, photorealistic lighting, 8k clarity`];
 
-        // AI-written per-slide Title & Key Insight (auto-fills storyboard fields in the editor)
-        const slideTextsArray = Array.isArray(rawItem.slideTexts) ? rawItem.slideTexts : [];
-        const overlayText = slideTextsArray.map((s: any, idx: number) => ({
-          step: idx + 1,
-          title: (s?.title || "").toString().trim() || `Slide ${idx + 1}`,
-          body: (s?.body || "").toString().trim(),
-          theme: idx % 2 === 0 ? "gradient-purple" : "gradient-blue",
-        }));
+          // AI-written per-slide Title & Key Insight (auto-fills storyboard fields in the editor)
+          const slideTextsArray = Array.isArray(rawItem.slideTexts) ? rawItem.slideTexts : [];
+          const overlayText = slideTextsArray.map((s: any, idx: number) => ({
+            step: idx + 1,
+            title: (s?.title || "").toString().trim() || `Slide ${idx + 1}`,
+            body: (s?.body || "").toString().trim(),
+            theme: idx % 2 === 0 ? "gradient-purple" : "gradient-blue",
+          }));
 
-        structuredPlatforms[normPlt][normFmt] = {
-          platform: normPlt,
-          contentType: normFmt,
-          title: rawItem.title || `${state.brandData.name} - ${topic}`,
-          caption,
-          hashtags: Array.isArray(rawItem.hashtags) && rawItem.hashtags.length > 0 ? rawItem.hashtags : ["#Marketing", "#Innovation", "#Growth"],
-          hook,
-          hookVariations: Array.isArray(rawItem.hookVariations) && rawItem.hookVariations.length > 0 ? rawItem.hookVariations : [hook, "The secret to 10x output", "What top brands do differently"],
-          visualRequired: reqSpec.assetType !== ("text_only" as any),
-          visualType: reqSpec.assetType as any,
-          visualPrompt: visualPromptsArray.join(" | Slide Next: "), // fallback for single string interfaces
-          visualPrompts: visualPromptsArray, // Pass array for multi-slide generation
-          overlayText,
-          aspectRatio: reqSpec.aspectRatio,
-          wordCount,
-          readingTimeSeconds,
-        };
+          structuredPlatforms[normPlt][normFmt] = {
+            platform: normPlt,
+            contentType: normFmt,
+            title: rawItem.title || `${state.brandData.name} - ${topic}`,
+            caption,
+            hashtags: Array.isArray(rawItem.hashtags) && rawItem.hashtags.length > 0 ? rawItem.hashtags : ["#Marketing", "#Innovation", "#Growth"],
+            hook,
+            hookVariations: Array.isArray(rawItem.hookVariations) && rawItem.hookVariations.length > 0 ? rawItem.hookVariations : [hook, "The secret to 10x output", "What top brands do differently"],
+            visualRequired: reqSpec.assetType !== ("text_only" as any),
+            visualType: reqSpec.assetType as any,
+            visualPrompt: visualPromptsArray.join(" | Slide Next: "), // fallback for single string interfaces
+            visualPrompts: visualPromptsArray, // Pass array for multi-slide generation
+            overlayText,
+            aspectRatio: reqSpec.aspectRatio,
+            wordCount,
+            readingTimeSeconds,
+          };
 
-        // Emit granular real-time progress for each drafted post
-        onEvent({
-          type: "agent_action",
-          agentId: "content_creator",
-          data: { label: `Drafted ${plt.toUpperCase()} (${fmt}) — Hook: "${hook.slice(0, 50)}..."` },
-        });
+          // Emit granular real-time progress for each drafted post
+          onEvent({
+            type: "agent_action",
+            agentId: "content_creator",
+            data: { label: `Drafted ${plt.toUpperCase()} (${fmt}) — Hook: "${hook.slice(0, 50)}..."` },
+          });
+        }
       }
+
+      state.generatedContent = { platforms: structuredPlatforms };
+
+      onEvent({
+        type: "output_ready",
+        agentId: "content_creator",
+        data: state.generatedContent,
+      });
+      onEvent({ type: "agent_completed", agentId: "content_creator" });
+    } catch (err: any) {
+      console.error("Content Creator error:", err);
+      onEvent({
+        type: "agent_error",
+        agentId: "content_creator",
+        data: { message: err.message || "Content generation failed" },
+      });
+      throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
     }
-
-    state.generatedContent = { platforms: structuredPlatforms };
-
-    onEvent({
-      type: "output_ready",
-      agentId: "content_creator",
-      data: state.generatedContent,
-    });
-    onEvent({ type: "agent_completed", agentId: "content_creator" });
-  } catch (err: any) {
-    console.error("Content Creator error:", err);
-    onEvent({
-      type: "agent_error",
-      agentId: "content_creator",
-      data: { message: err.message || "Content generation failed" },
-    });
-    throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
   }
 
   // =========================================================================
