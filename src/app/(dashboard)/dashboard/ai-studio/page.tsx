@@ -1714,59 +1714,58 @@ export default function AIStudioPage() {
       }, 400);
     };
 
-    // 1. Direct High-Speed Supabase Upload (bypasses Vercel 4.5MB limit, full upload bandwidth)
-    try {
-      const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
-      if (signRes.ok) {
-        const signData = await signRes.json();
-        if (signData.signedUrl && signData.publicUrl) {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", signData.signedUrl);
-          xhr.setRequestHeader("Content-Type", file.type || (isVid ? "video/mp4" : "application/octet-stream"));
-          xhr.setRequestHeader("x-upsert", "true");
+    // 1. Chunked Upload for large files (> 3MB, e.g. videos) to bypass Vercel 4.5MB limit safely
+    if (file.size > 3 * 1024 * 1024) {
+      try {
+        const chunkSize = 2 * 1024 * 1024; // 2MB slices
+        const totalChunks = Math.ceil(file.size / chunkSize);
+        const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable && event.total > 0) {
-              const percent = Math.min(Math.round((event.loaded / event.total) * 100), 100);
-              const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
-              updateProgress(percent, transferred);
-            }
-          };
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunkBlob = file.slice(start, end);
 
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              updateProgress(100, totalMB);
-              handleApplyCustomMedia(signData.publicUrl, isVid ? "video" : "image");
-              clearUpload();
-            } else {
-              console.warn("[Upload] Direct upload status:", xhr.status);
-              fallbackServerUpload();
-            }
-          };
+          const formData = new FormData();
+          formData.append("uploadId", uploadId);
+          formData.append("chunkIndex", i.toString());
+          formData.append("totalChunks", totalChunks.toString());
+          formData.append("filename", file.name);
+          formData.append("contentType", file.type || (isVid ? "video/mp4" : "application/octet-stream"));
+          formData.append("chunk", chunkBlob, file.name);
 
-          xhr.onerror = () => {
-            console.warn("[Upload] Direct upload network error");
-            fallbackServerUpload();
-          };
+          const res = await fetch("/api/uploads/chunk", {
+            method: "POST",
+            body: formData,
+          });
 
-          xhr.send(file);
-          return;
+          if (!res.ok) {
+            throw new Error(`Chunk upload failed with HTTP ${res.status}`);
+          }
+
+          const data = await res.json();
+          const percent = Math.min(Math.round(((i + 1) / totalChunks) * 100), i === totalChunks - 1 ? 100 : 99);
+          const transferred = (end / (1024 * 1024)).toFixed(1);
+          updateProgress(percent, transferred);
+
+          if (data.status === "completed" && data.url) {
+            updateProgress(100, totalMB);
+            handleApplyCustomMedia(data.url, isVid ? "video" : "image");
+            clearUpload();
+            return;
+          }
         }
-      }
-    } catch (signErr) {
-      console.warn("[Upload] Direct upload ticket failed, falling back to server:", signErr);
-    }
-
-    // 2. Fallback: Standard Server Upload
-    function fallbackServerUpload() {
-      if (file.size > 4.5 * 1024 * 1024) {
-        console.error("[Upload] Direct upload failed and file exceeds serverless 4.5MB limit.");
-        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Direct storage not responding.` });
+      } catch (chunkErr: any) {
+        console.error("[Upload] Chunk upload error:", chunkErr);
+        setPublishResult({ success: false, message: `Upload failed for ${file.name}: ${chunkErr.message || "Network error"}` });
         setTimeout(() => setPublishResult(null), 4000);
         clearUpload();
         return;
       }
+    }
 
+    // 2. Standard Single Upload for small files (<= 3MB)
+    try {
       const formData = new FormData();
       formData.append("file", file);
 
@@ -1774,8 +1773,8 @@ export default function AIStudioPage() {
       xhr.open("POST", "/api/uploads");
 
       xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 99);
+        if (event.lengthComputable && event.total > 0) {
+          const percent = Math.min(Math.round((event.loaded / event.total) * 100), 100);
           const transferred = (event.loaded / (1024 * 1024)).toFixed(1);
           updateProgress(percent, transferred);
         }
@@ -1793,30 +1792,22 @@ export default function AIStudioPage() {
             }
           } catch {}
         }
-
-        // Final fallback: small images only
-        if (!isVid && file.size < 2 * 1024 * 1024) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (typeof reader.result === "string") {
-              handleApplyCustomMedia(reader.result, "image");
-            }
-          };
-          reader.readAsDataURL(file);
-        } else {
-          setPublishResult({ success: false, message: `Upload failed for ${file.name}.` });
-          setTimeout(() => setPublishResult(null), 4000);
-        }
+        setPublishResult({ success: false, message: `Upload failed for ${file.name}.` });
+        setTimeout(() => setPublishResult(null), 4000);
         clearUpload();
       };
 
       xhr.onerror = () => {
-        setPublishResult({ success: false, message: `Upload failed for ${file.name}. Please check connection.` });
+        setPublishResult({ success: false, message: `Network error while uploading ${file.name}.` });
         setTimeout(() => setPublishResult(null), 4000);
         clearUpload();
       };
 
       xhr.send(formData);
+    } catch (err: any) {
+      setPublishResult({ success: false, message: `Upload failed: ${err.message}` });
+      setTimeout(() => setPublishResult(null), 4000);
+      clearUpload();
     }
   };
 
