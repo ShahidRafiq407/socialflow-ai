@@ -264,7 +264,20 @@ export async function saveMediaBuffer(
     }
   }
 
-  // 3. PostgreSQL MediaAsset storage fallback (Vercel Serverless)
+  // 3. PostgreSQL MediaAsset storage fallback (Vercel Serverless).
+  //    Storing large binaries (especially video) as base64 in a Postgres `text`
+  //    column is wasteful and slow — base64 inflates size ~33% and multi-MB blobs
+  //    degrade DB performance. We only allow this fallback for SMALL files
+  //    (<= 5MB, i.e. images). Larger files must go through Supabase; if that
+  //    failed, we surface a clear error instead of silently bloating the DB.
+  const MAX_DB_FALLBACK_BYTES = 5 * 1024 * 1024; // 5MB
+  if (rawBuffer.length > MAX_DB_FALLBACK_BYTES) {
+    throw new Error(
+      `Media file (${(rawBuffer.length / (1024 * 1024)).toFixed(1)}MB) is too large to store without Supabase. ` +
+      'Please ensure Supabase storage is configured and reachable.'
+    );
+  }
+
   try {
     const prisma = (await import('@/lib/db')).default;
     let targetWorkspaceId = workspaceId;
@@ -290,7 +303,7 @@ export async function saveMediaBuffer(
     console.error('[Storage] Database asset fallback failed:', dbErr);
   }
 
-  // Emergency fallback
+  // Emergency fallback (small files only — large files already threw above)
   const base64 = rawBuffer.toString('base64');
   return { url: `data:${contentType};base64,${base64}`, filename };
 }

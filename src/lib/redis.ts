@@ -88,7 +88,12 @@ export async function dequeueDueScheduleJobs(nowMs: number, limit = 100): Promis
   try {
     const client = getRedisInstance();
     if (!client) return [];
-    const members = await client.zrangebyscore(SCHEDULE_QUEUE_KEY, 0, nowMs, { limit: { offset: 0, count: limit } });
+    // Upstash exposes score-range queries via zrange with byScore: true.
+    const members = await client.zrange(SCHEDULE_QUEUE_KEY, 0, nowMs, {
+      byScore: true,
+      offset: 0,
+      count: limit,
+    });
     return members as string[];
   } catch {
     return [];
