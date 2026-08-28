@@ -94,12 +94,65 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     if (isStory) {
       if (isVideo) {
         const videoUrl = toPublicMediaUrl(mediaUrls[0], post.id);
+
+        // Fetch video to get buffer and file_size
+        const vidRes = await fetch(videoUrl);
+        const vidBuffer = Buffer.from(await vidRes.arrayBuffer());
+        const fileSize = vidBuffer.length;
+
+        // 1. START Phase
+        const startRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/video_stories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: targetAccessToken,
+            upload_phase: 'start',
+            file_size: fileSize,
+          }),
+        });
+        
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok || !startData.video_id) {
+          return {
+            success: false,
+            error: startData.error?.message || 'Failed to start Facebook Video Story upload',
+            platform: 'FACEBOOK',
+          };
+        }
+
+        const videoId = startData.video_id;
+        const uploadUrl = startData.upload_url || `https://rupload.facebook.com/video-upload/${GRAPH_VERSION}/${videoId}`;
+
+        // 2. TRANSFER Phase
+        const transferRes = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `OAuth ${targetAccessToken}`,
+            'offset': '0',
+            'file_offset': '0',
+            'Content-Length': fileSize.toString(),
+            'Content-Type': 'application/octet-stream'
+          },
+          body: vidBuffer,
+        });
+
+        const transferData = await transferRes.json().catch(() => ({}));
+        if (!transferRes.ok) {
+          return {
+            success: false,
+            error: transferData.error?.message || 'Failed to transfer Facebook Video Story',
+            platform: 'FACEBOOK',
+          };
+        }
+
+        // 3. FINISH Phase
         response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/video_stories`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             access_token: targetAccessToken,
-            video_url: videoUrl,
+            upload_phase: 'finish',
+            video_id: videoId,
           }),
         });
       } else {
