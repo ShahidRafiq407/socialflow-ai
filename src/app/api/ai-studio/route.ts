@@ -134,6 +134,7 @@ PLATFORM REQUIREMENTS:
 
 STRICT PRO WRITER DIRECTIVES:
 1. CAPTION:
+   - STRICT LENGTH LIMIT: The caption MUST NOT EXCEED ${capability.captionLimit || 2200} characters under any circumstances! Count your characters before returning!
    - First sentence MUST be a high-converting pattern interrupt or curiosity hook (curiosity gap, problem/solution, contrarian, or surprising fact).
    - Vary sentence lengths for conversational, human rhythm.
    - STRICT BANS: NO "In today's fast-paced world", NO "Unleash/Unlock", NO "Dive deep", NO "Game changer", NO excessive em dashes, NO robotic emoji spam.

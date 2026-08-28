@@ -159,7 +159,11 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
 
     if (isStory) {
       containerBody.media_type = 'STORIES';
-      containerBody.image_url = toPublicMediaUrl(mediaUrls[0], post.id);
+      if (isVideo) {
+        containerBody.video_url = toPublicMediaUrl(mediaUrls[0], post.id);
+      } else {
+        containerBody.image_url = toPublicMediaUrl(mediaUrls[0], post.id);
+      }
     } else if (isCarousel && mediaUrls.length > 1 && !isVideo) {
       // Multi-image carousel: one container per image (is_carousel_item) then a
       // CAROUSEL container linking the children.

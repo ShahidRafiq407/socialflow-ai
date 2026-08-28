@@ -86,7 +86,7 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
       buffer = Buffer.from(await imgRes.arrayBuffer());
     }
 
-    const apiBase = 'https://api.x.com/2/media/upload';
+    const apiBase = 'https://upload.twitter.com/1.1/media/upload.json';
 
     // INIT
     const initForm = new FormData();
@@ -100,7 +100,7 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
       body: initForm,
     });
     const initData = await initRes.json().catch(() => ({}));
-    const mediaId = initData?.data?.id;
+    const mediaId = initData?.media_id_string || initData?.media_id;
     if (!initRes.ok || !mediaId) return null;
 
     // APPEND (single chunk — images are well under the 5MB chunk cap)

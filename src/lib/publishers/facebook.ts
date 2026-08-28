@@ -85,12 +85,35 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       .trim();
 
     const format = String(post.format || '').toLowerCase();
+    const isStory = format.includes('story');
     const isVideo = post.mediaType === 'video' || format.includes('reel') || format.includes('video') || (mediaUrls[0] || '').endsWith('.mp4') || (mediaUrls[0] || '').includes('video');
-    const isMultiPhoto = mediaUrls.length > 1 && !isVideo;
+    const isMultiPhoto = mediaUrls.length > 1 && !isVideo && !isStory;
 
     let response: Response;
 
-    if (isVideo) {
+    if (isStory) {
+      if (isVideo) {
+        const videoUrl = toPublicMediaUrl(mediaUrls[0], post.id);
+        response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/video_stories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: targetAccessToken,
+            video_url: videoUrl,
+          }),
+        });
+      } else {
+        const photoUrl = toPublicMediaUrl(mediaUrls[0], post.id);
+        response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photo_stories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: targetAccessToken,
+            url: photoUrl,
+          }),
+        });
+      }
+    } else if (isVideo) {
       // Page video / Reel — Graph uploads via public file_url
       const videoUrl = toPublicMediaUrl(mediaUrls[0], post.id);
       response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/videos`, {

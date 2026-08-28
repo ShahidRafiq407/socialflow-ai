@@ -2957,11 +2957,27 @@ export default function AIStudioPage() {
     return deduplicatedEntries;
   };
 
+  const validatePostsLimits = (posts: ReturnType<typeof collectCampaignPosts>) => {
+    for (const post of posts) {
+      const cap = getPlatformCapability(post.platform, post.format);
+      if (cap.captionLimit && post.data.caption && post.data.caption.length > cap.captionLimit) {
+        return `Caption for ${cap.platform} ${cap.label} exceeds the ${cap.captionLimit} character limit. Please shorten it before publishing.`;
+      }
+    }
+    return null;
+  };
+
   const openScheduleModal = async () => {
     const posts = collectCampaignPosts();
     if (posts.length === 0) {
       setPublishResult({ success: false, message: "Nothing to schedule — generate or write content first." });
       setTimeout(() => setPublishResult(null), 3000);
+      return;
+    }
+    const limitError = validatePostsLimits(posts);
+    if (limitError) {
+      setPublishResult({ success: false, message: limitError });
+      setTimeout(() => setPublishResult(null), 4000);
       return;
     }
     // Open immediately, then run the AI best-time analysis (Redis-cached per industry)
@@ -3100,6 +3116,12 @@ export default function AIStudioPage() {
     if (posts.length === 0) {
       setPublishResult({ success: false, message: "Nothing to publish — generate or write content first." });
       setTimeout(() => setPublishResult(null), 3000);
+      return;
+    }
+    const limitError = validatePostsLimits(posts);
+    if (limitError) {
+      setPublishResult({ success: false, message: limitError });
+      setTimeout(() => setPublishResult(null), 4000);
       return;
     }
     setPublishLoading(true);

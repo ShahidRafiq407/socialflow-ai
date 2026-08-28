@@ -256,6 +256,7 @@ export default function StandardSocialEditor({
             ) : displayImageUrl ? (
               <ContentMediaRenderer
                 url={displayImageUrl}
+                mediaType={selectedMediaType === "video" ? "video" : "image"}
                 isVertical={isVertical}
                 onRemove={onRemoveMedia}
                 showDownloadButton={false}
