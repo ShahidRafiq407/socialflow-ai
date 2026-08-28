@@ -5066,8 +5066,9 @@ export default function AIStudioPage() {
         onClose={() => setActiveMediaModal(null)}
         onSelect={async (item) => {
           setActiveMediaModal(null);
-          // Upload stock media URL to our server first for a permanent CDN URL
-          // This avoids storing expiring Pixabay/Pexels CDN links that fail at publish time
+          // Upload stock media URL to our server first for a permanent CDN URL.
+          // Pixabay/Pexels CDN links are hotlink-protected and expire, so they
+          // MUST be persisted to our own storage before being used at publish time.
           try {
             const res = await fetch(`/api/uploads?url=${encodeURIComponent(item.url)}`, { method: "POST" });
             if (res.ok) {
@@ -5077,11 +5078,24 @@ export default function AIStudioPage() {
                 return;
               }
             }
+            // Server returned an error — surface it instead of silently using a
+            // hotlink-protected URL that will fail when the social platform fetches it.
+            const errData = await res.json().catch(() => null);
+            setPublishResult({
+              success: false,
+              message: errData?.error || `Could not import stock media (HTTP ${res.status}). Please try again.`,
+            });
+            setTimeout(() => setPublishResult(null), 4000);
+            return;
           } catch (err) {
-            console.warn("[StockMedia] Server-side persist failed, using original URL:", err);
+            console.error("[StockMedia] Server-side persist failed:", err);
+            setPublishResult({
+              success: false,
+              message: "Could not import stock media. Please try again.",
+            });
+            setTimeout(() => setPublishResult(null), 4000);
+            return;
           }
-          // Fallback: use original stock URL directly
-          handleApplyCustomMedia(item.url, item.type);
         }}
       />
 

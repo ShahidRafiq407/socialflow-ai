@@ -114,6 +114,13 @@ export async function GET(
 
     const tokenData = await tokenRes.json();
 
+    // Detailed logging for TikTok token exchange debugging
+    if (platform === "tiktok") {
+      console.log("[TikTok OAuth] Token exchange HTTP status:", tokenRes.status);
+      console.log("[TikTok OAuth] Token response body:", JSON.stringify(tokenData, null, 2));
+      console.log("[TikTok OAuth] Callback URL sent:", callbackUrl);
+    }
+
     if (!tokenRes.ok || tokenData.error) {
       console.error(`Token exchange failed for ${platform}:`, tokenData);
       dashboardUrl.searchParams.set(
@@ -129,7 +136,8 @@ export async function GET(
     let finalAccessToken = accessToken;
 
     if (!accessToken) {
-      dashboardUrl.searchParams.set("error", `No access token received from ${config.displayName}.`);
+      console.error(`[${platform} OAuth] No access_token in response:`, JSON.stringify(tokenData));
+      dashboardUrl.searchParams.set("error", `No access token received from ${config.displayName}. Please try reconnecting.`);
       return NextResponse.redirect(dashboardUrl);
     }
 
@@ -144,12 +152,23 @@ export async function GET(
     try {
       if (platform === "tiktok") {
         const profileRes = await fetch(
-          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url,username",
+          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,display_name,avatar_url,username",
           { headers: { Authorization: `Bearer ${accessToken}` } }
         );
         const profileData = await profileRes.json();
+        console.log("[TikTok OAuth] Profile fetch HTTP status:", profileRes.status);
+        console.log("[TikTok OAuth] Profile response:", JSON.stringify(profileData, null, 2));
+
         const userData = profileData.data?.user;
-        accountId = userData?.open_id || tokenData.data?.open_id || "tiktok-user";
+        const openId = userData?.open_id || tokenData.data?.open_id;
+
+        if (!openId) {
+          console.error("[TikTok OAuth] No open_id received — token may be invalid or user did not authorize.");
+          dashboardUrl.searchParams.set("error", "TikTok authorization failed: could not retrieve your account. Please try connecting again.");
+          return NextResponse.redirect(dashboardUrl);
+        }
+
+        accountId = openId;
         handle = userData?.username ? `@${userData.username}` : userData?.display_name || "TikTok User";
         pageName = userData?.display_name || null;
         avatarUrl = userData?.avatar_url || null;
@@ -280,7 +299,12 @@ export async function GET(
         avatarUrl = profileData.picture || null;
       }
     } catch (profileError) {
-      console.warn(`Profile fetch failed for ${platform}, proceeding with token only:`, profileError);
+      console.error(`Profile fetch failed for ${platform}:`, profileError);
+      // For TikTok, if profile fetch completely crashes, do NOT save a dummy account
+      if (platform === "tiktok") {
+        dashboardUrl.searchParams.set("error", "TikTok authorization failed: could not verify your account. Please try connecting again.");
+        return NextResponse.redirect(dashboardUrl);
+      }
       accountId = `${platform}-${Date.now()}`;
       handle = `${config.displayName} User`;
     }
