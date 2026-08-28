@@ -165,6 +165,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
 
     // Step 2: Prepare Media Source
     let media_source: any;
+    let isSandboxMedia = false;
 
     if (isVideo) {
       try {
@@ -176,7 +177,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
         };
       } catch (err: any) {
-        if (err.message?.includes('Trial access') || err.message?.includes('401') || err.message?.includes('403')) {
+        if (err.message?.includes('Trial access') || err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('Trial')) {
            // Fallback to sandbox upload
            const mediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), sandboxToken, true);
            media_source = {
@@ -184,6 +185,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
              media_id: mediaId,
              ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
            };
+           isSandboxMedia = true;
         } else {
            throw err;
         }
@@ -290,6 +292,13 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
         // 3. Post pin to sandbox using the sandbox board ID
         if (sandboxBoardId) {
           pinPayload.board_id = sandboxBoardId;
+          
+          if (isVideo && !isSandboxMedia) {
+             const sandboxMediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), sandboxToken, true);
+             pinPayload.media_source.media_id = sandboxMediaId;
+             isSandboxMedia = true;
+          }
+
           const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
             method: 'POST',
             headers: {
