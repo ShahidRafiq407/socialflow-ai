@@ -173,7 +173,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
         media_source = {
           source_type: 'video_id',
           media_id: mediaId,
-          ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_url: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1000&auto=format&fit=crop' })
+          ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
         };
       } catch (err: any) {
         if (err.message?.includes('Trial access') || err.message?.includes('401') || err.message?.includes('403')) {
@@ -182,7 +182,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
            media_source = {
              source_type: 'video_id',
              media_id: mediaId,
-             ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_url: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1000&auto=format&fit=crop' })
+             ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
            };
         } else {
            throw err;
