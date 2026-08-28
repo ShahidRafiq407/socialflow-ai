@@ -25,6 +25,64 @@ function toAbsoluteUrl(url: string, postId?: string): string {
   return `${getAppBaseUrl()}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
+async function uploadVideoToPinterest(videoUrl: string, accessToken: string, isSandbox: boolean = false): Promise<string> {
+  const baseUrl = isSandbox ? 'https://api-sandbox.pinterest.com/v5' : 'https://api.pinterest.com/v5';
+  
+  // 1. Register media upload
+  const registerRes = await fetch(`${baseUrl}/media`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ media_type: 'video' }),
+  });
+  
+  if (!registerRes.ok) {
+    const errText = await registerRes.text().catch(() => '');
+    throw new Error(`Failed to register video upload: ${errText}`);
+  }
+  const registerData = await registerRes.json();
+  const mediaId = registerData.media_id;
+  const uploadUrl = registerData.upload_url;
+  const uploadParams = registerData.upload_parameters;
+
+  // 2. Fetch video buffer
+  const videoRes = await fetch(videoUrl);
+  if (!videoRes.ok) throw new Error(`Failed to fetch video from ${videoUrl}`);
+  const videoBuffer = await videoRes.arrayBuffer();
+
+  // 3. Upload to S3
+  const formData = new FormData();
+  for (const key of Object.keys(uploadParams)) {
+    formData.append(key, uploadParams[key]);
+  }
+  formData.append('file', new Blob([videoBuffer], { type: 'video/mp4' }));
+
+  const s3Res = await fetch(uploadUrl, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!s3Res.ok) {
+    const errText = await s3Res.text().catch(() => '');
+    throw new Error(`S3 video upload failed: ${s3Res.status} ${errText}`);
+  }
+
+  // 4. Poll status
+  for (let i = 0; i < 15; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    const statusRes = await fetch(`${baseUrl}/media/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      if (statusData.status === 'succeeded') return mediaId;
+      if (statusData.status === 'failed') throw new Error('Pinterest video processing failed');
+    }
+  }
+  throw new Error('Pinterest video processing timed out');
+}
+
 export async function publishToPinterest(post: any, account: any): Promise<PublishResult> {
   try {
     const accessToken = account.accessToken;
@@ -37,16 +95,20 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
       };
     }
 
-    const { content, imageUrl } = post;
+    const { content, imageUrl, format, platformFormat } = post;
     const settings = post.settings || {};
 
     if (!imageUrl) {
       return {
         success: false,
-        error: 'Pinterest Pins require an image asset',
+        error: 'Pinterest Pins require a media asset',
         platform: 'PINTEREST',
       };
     }
+
+    const isVideo = String(format || platformFormat || '').toLowerCase().includes('video') || 
+                    imageUrl.toLowerCase().includes('.mp4') || 
+                    imageUrl.toLowerCase().includes('.mov');
 
     // Step 1: Resolve Board ID
     let boardId = settings.pinterestBoard || account.boardId;
@@ -58,6 +120,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
             Authorization: `Bearer ${accessToken}`,
           },
         });
+
         if (boardsRes.ok) {
           const boardsData = await boardsRes.json();
           if (boardsData.items && boardsData.items.length > 0) {
@@ -97,10 +160,35 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
       };
     }
 
+    // Determine Sandbox Token (used later if production fails, or used now if we explicitly want to test)
+    const sandboxToken = process.env.PINTEREST_SANDBOX_TOKEN || accessToken;
+
     // Step 2: Prepare Media Source
     let media_source: any;
 
-    if (imageUrl.startsWith('data:')) {
+    if (isVideo) {
+      try {
+        // Try production upload first
+        const mediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), accessToken, false);
+        media_source = {
+          source_type: 'video_id',
+          cover_image_url: post.thumbnailUrl ? toAbsoluteUrl(post.thumbnailUrl, post.id) : undefined,
+          media_id: mediaId,
+        };
+      } catch (err: any) {
+        if (err.message?.includes('Trial access') || err.message?.includes('401') || err.message?.includes('403')) {
+           // Fallback to sandbox upload
+           const mediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), sandboxToken, true);
+           media_source = {
+             source_type: 'video_id',
+             cover_image_url: post.thumbnailUrl ? toAbsoluteUrl(post.thumbnailUrl, post.id) : undefined,
+             media_id: mediaId,
+           };
+        } else {
+           throw err;
+        }
+      }
+    } else if (imageUrl.startsWith('data:')) {
       const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
       const contentType = match ? match[1] : 'image/png';
       const base64Data = match ? match[2] : imageUrl;
@@ -160,11 +248,10 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     )) {
       try {
         let sandboxBoardId = null;
-        const sandboxToken = process.env.PINTEREST_SANDBOX_TOKEN || accessToken;
         
         // 1. Try to get a sandbox board
         const sandboxBoardsRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
-          headers: { Authorization: `Bearer ${sandboxToken}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
         
         if (sandboxBoardsRes.ok) {
@@ -182,7 +269,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           const createSBoardRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${sandboxToken}`,
+              Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -206,7 +293,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${sandboxToken}`,
+              Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(pinPayload),
