@@ -189,18 +189,28 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       });
     };
 
-    let response = await makePublishCall(accessToken, "SELF_ONLY");
+    // Step 1: Try PUBLIC_TO_EVERYONE first
+    let usedPrivacy = targetPrivacy;
+    let response = await makePublishCall(accessToken, usedPrivacy);
     let data = await response.json().catch(() => ({}));
+    console.log("[TikTok Publisher] Init response HTTP:", response.status, "Privacy:", usedPrivacy, "Body:", JSON.stringify(data));
 
-    // Full debug logging
-    console.log("[TikTok Publisher] Init response HTTP:", response.status, "Body:", JSON.stringify(data));
+    // If failed due to guidelines/privacy/audit → fallback to SELF_ONLY
+    const initErr = String(data?.error?.message || "") + String(data?.error?.code || "");
+    if (usedPrivacy !== "SELF_ONLY" && (initErr.includes("guidelines") || initErr.includes("privacy") || initErr.includes("audit") || initErr.includes("unaudited"))) {
+      console.log("[TikTok Publisher] PUBLIC rejected, retrying with SELF_ONLY");
+      usedPrivacy = "SELF_ONLY";
+      response = await makePublishCall(accessToken, usedPrivacy);
+      data = await response.json().catch(() => ({}));
+      console.log("[TikTok Publisher] SELF_ONLY retry HTTP:", response.status, "Body:", JSON.stringify(data));
+    }
 
     // If token invalid, try to refresh once and retry
     if (data?.error?.code === "access_token_invalid" || data?.error?.message?.includes("access token is invalid")) {
       const refreshedToken = await refreshTikTokAccessToken(account);
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await makePublishCall(accessToken, "SELF_ONLY");
+        response = await makePublishCall(accessToken, usedPrivacy);
         data = await response.json().catch(() => ({}));
         console.log("[TikTok Publisher] Retry after refresh HTTP:", response.status, "Body:", JSON.stringify(data));
       }
