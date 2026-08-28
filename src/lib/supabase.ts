@@ -297,7 +297,8 @@ export async function saveMediaBuffer(
           workspaceId: targetWorkspaceId,
         },
       });
-      return { url: `/api/media/asset/${asset.id}`, filename };
+      const ext = contentType.includes('video') ? '.mp4' : '.png';
+      return { url: `/api/media/asset/${asset.id}${ext}`, filename };
     }
   } catch (dbErr) {
     console.error('[Storage] Database asset fallback failed:', dbErr);
@@ -341,3 +342,5 @@ export async function uploadBase64ToStorage(
     return null;
   }
 }
+
+

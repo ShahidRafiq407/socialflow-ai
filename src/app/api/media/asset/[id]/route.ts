@@ -33,7 +33,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
+    const { id: rawId } = await params;
+    const id = rawId.replace(/\.[^/.]+$/, '');
     if (!id) {
       return new NextResponse('Asset ID missing', { status: 400 });
     }
@@ -99,3 +100,4 @@ export async function GET(
     return new NextResponse('Internal server error', { status: 500 });
   }
 }
+

@@ -396,13 +396,15 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   const assetCount = mediaType === "multi_image" ? 3 : 1;
 
-  const validAspectRatios = ["1:1", "4:5", "9:16", "16:9", "2:3", "3:2", "4:3", "3:4"];
-  // The image API only accepts these ratios; platform ratios outside the list map to the
-  // closest supported one instead of silently degrading to a 1:1 square
-  // (e.g. LinkedIn 1.91:1 link-preview landscape → 16:9).
+  const validAspectRatios = ["1:1", "9:16", "16:9", "3:4", "4:3"];
+  // The image API only accepts these 5 ratios. Platform ratios outside this list 
+  // MUST map to the closest supported one instead of throwing 400 errors.
   const aspectFallbackMap: Record<string, string> = {
     "1.91:1": "16:9",
     "21:9": "16:9",
+    "4:5": "3:4",    // Instagram Feed portrait fallback
+    "2:3": "9:16",   // Pinterest standard fallback
+    "3:2": "16:9",   // Landscape fallback
   };
   const targetImageAspect = aspectRatio
     ? (validAspectRatios.includes(aspectRatio)
