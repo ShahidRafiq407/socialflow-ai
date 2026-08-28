@@ -2929,7 +2929,7 @@ export default function AIStudioPage() {
           ? selectedContentTypes[plt]
           : plt === activePlatformTab
           ? [currentFormatName]
-          : Object.keys(formats).filter((fmt) => fmt === fmt.toLowerCase());
+          : Object.keys(formats);
 
       for (const fmt of allowedFormats) {
         const data = formats[fmt] || formats[fmt.toLowerCase()];
