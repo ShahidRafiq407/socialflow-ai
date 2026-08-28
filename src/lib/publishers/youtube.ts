@@ -14,12 +14,61 @@ import { PublishResult } from './index';
  *   contentTitle        → snippet.title (carried from the editor's Video Title field)
  *   contentDescription  → snippet.description (editor description)
  */
+/**
+ * Refresh a YouTube (Google) access token using the stored refresh_token.
+ */
+async function refreshYouTubeAccessToken(account: any): Promise<string | null> {
+  try {
+    const clientId = process.env.YOUTUBE_CLIENT_ID || "";
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || "";
+    const refreshToken = account.refreshToken;
+
+    if (!refreshToken || !clientId || !clientSecret) return null;
+
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+    });
+
+    const data = await res.json();
+    if (data.access_token) {
+      // Persist the new token to DB
+      const prisma = (await import("@/lib/db")).default;
+      await prisma.socialAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: data.access_token,
+          tokenExpiresAt: new Date(Date.now() + (data.expires_in || 3600) * 1000),
+        },
+      });
+      console.log("[YouTube Publisher] Token refreshed successfully");
+      return data.access_token;
+    }
+    console.warn("[YouTube Publisher] Token refresh response:", JSON.stringify(data));
+  } catch (err) {
+    console.warn("[YouTube Publisher] Error refreshing token:", err);
+  }
+  return null;
+}
+
 export async function publishToYouTube(post: any, account: any): Promise<PublishResult> {
   try {
-    const accessToken = account.accessToken;
+    let accessToken = account.accessToken;
 
     if (!accessToken) {
       return { success: false, error: 'Missing YouTube account credentials', platform: 'YOUTUBE' };
+    }
+
+    // Auto-refresh token if expired or close to expiry (within 5 minutes)
+    if (account.refreshToken && account.tokenExpiresAt && new Date(account.tokenExpiresAt).getTime() < Date.now() + 300000) {
+      const refreshed = await refreshYouTubeAccessToken(account);
+      if (refreshed) accessToken = refreshed;
     }
 
     const videoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
@@ -122,16 +171,44 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
       }
     );
 
-    if (!initRes.ok) {
-      const err = await initRes.json().catch(() => null);
+    // If 401, try refreshing token and retry once
+    let finalInitRes = initRes;
+    if (initRes.status === 401 && account.refreshToken) {
+      const refreshed = await refreshYouTubeAccessToken(account);
+      if (refreshed) {
+        accessToken = refreshed;
+        finalInitRes = await fetch(
+          'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json; charset=UTF-8',
+              'X-Upload-Content-Length': String(videoBuffer.length),
+              'X-Upload-Content-Type': 'video/mp4',
+            },
+            body: JSON.stringify({
+              snippet: { title, description, tags, categoryId: '22' },
+              status: {
+                privacyStatus,
+                selfDeclaredMadeForKids: settings.youtubeMadeForKids === true,
+              },
+            }),
+          }
+        );
+      }
+    }
+
+    if (!finalInitRes.ok) {
+      const err = await finalInitRes.json().catch(() => null);
       return {
         success: false,
-        error: err?.error?.message || `Failed to start YouTube upload (HTTP ${initRes.status})`,
+        error: err?.error?.message || `Failed to start YouTube upload (HTTP ${finalInitRes.status})`,
         platform: 'YOUTUBE',
       };
     }
 
-    const uploadUrl = initRes.headers.get('location');
+    const uploadUrl = finalInitRes.headers.get('location');
     if (!uploadUrl) {
       return { success: false, error: 'YouTube did not return an upload session URL', platform: 'YOUTUBE' };
     }
