@@ -110,7 +110,20 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       return { success: false, error: "TikTok posts require a video", platform: "TIKTOK" };
     }
 
-    const publicVideoUrl = toPublicMediaUrl(rawVideoUrl, post.id);
+    let videoBuffer: ArrayBuffer;
+    if (rawVideoUrl.startsWith("data:")) {
+      const base64Data = rawVideoUrl.split(",")[1] || "";
+      const buf = Buffer.from(base64Data, "base64");
+      videoBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    } else {
+      const publicVideoUrl = toPublicMediaUrl(rawVideoUrl, post.id);
+      const videoRes = await fetch(publicVideoUrl);
+      if (!videoRes.ok) {
+        return { success: false, error: `Could not retrieve video asset for upload (HTTP ${videoRes.status})`, platform: "TIKTOK" };
+      }
+      videoBuffer = await videoRes.arrayBuffer();
+    }
+    const videoSize = videoBuffer.byteLength;
 
     const settings = post.settings || {};
     const privacyMap: Record<string, string> = {
@@ -143,8 +156,10 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
             disable_stitch: settings.tiktokDisableStitch === true,
           },
           source_info: {
-            source: "PULL_FROM_URL",
-            video_url: publicVideoUrl,
+            source: "FILE_UPLOAD",
+            video_size: videoSize,
+            chunk_size: videoSize,
+            total_chunk_count: 1,
           },
         }),
       });
@@ -163,8 +178,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       }
     }
 
-    // TikTok returns { data: { publish_id }, error: { code, message } } —
-    // HTTP 200 with error.code !== 'ok' is still a failure.
+    // TikTok returns { data: { publish_id, upload_url }, error: { code, message } }
     const apiError = data?.error;
     if (!response.ok || (apiError && apiError.code && apiError.code !== "ok")) {
       const code = String(apiError?.code || "");
@@ -205,6 +219,35 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       return {
         success: false,
         error: apiError?.message || apiError?.code || `TikTok publish failed (HTTP ${response.status})`,
+        platform: "TIKTOK",
+      };
+    }
+
+    const uploadUrl = data?.data?.upload_url;
+    if (!uploadUrl) {
+      return {
+        success: false,
+        error: "TikTok did not return a valid upload URL for the video.",
+        platform: "TIKTOK",
+      };
+    }
+
+    // Step 2: Upload video binary to TikTok's upload_url
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
+        "Content-Length": String(videoSize),
+      },
+      body: videoBuffer,
+    });
+
+    if (!uploadRes.ok && uploadRes.status !== 201 && uploadRes.status !== 204) {
+      const uploadErrText = await uploadRes.text().catch(() => "");
+      return {
+        success: false,
+        error: `Failed to upload video data to TikTok (HTTP ${uploadRes.status})${uploadErrText ? `: ${uploadErrText.slice(0, 120)}` : ""}`,
         platform: "TIKTOK",
       };
     }
