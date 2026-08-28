@@ -207,7 +207,6 @@ export default function VideoPreviewPlayer({
         muted={isMuted}
         loop={loop}
         playsInline
-        crossOrigin="anonymous"
         preload="auto"
         className="w-full h-full object-cover"
       />

@@ -90,7 +90,7 @@ export async function GET(
 
     // 3. External URL (Supabase CDN or remote)
     if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-      return NextResponse.redirect(targetUrl);
+      return NextResponse.redirect(targetUrl, { status: 302 });
     }
 
     return new NextResponse('Media not found', { status: 404 });
