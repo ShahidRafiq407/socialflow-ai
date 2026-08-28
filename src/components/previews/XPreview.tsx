@@ -101,7 +101,7 @@ export default function XPreview({
   threadPosts = [],
 }: XPreviewProps) {
   const nameText = isConnected ? userName : "X User";
-  const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : @\) : "@your_x_handle";
+  const handleText = isConnected ? (userHandle.startsWith("@") ? userHandle : `@${userHandle}`) : "@your_x_handle";
 
   const isThread = currentFormatName === "Thread";
   
@@ -121,7 +121,7 @@ export default function XPreview({
     const urls = post.mediaUrls || (post.mediaUrl ? [post.mediaUrl] : []);
     
     return (
-      <div className="flex gap-3 relative pt-2" key={x-post-\}>
+      <div className="flex gap-3 relative pt-2" key={`x-post-${idx}`}>
         {withConnector && (
           <div className="absolute left-[19px] top-0 bottom-0 w-[2px] bg-slate-200 dark:bg-slate-800 z-10" />
         )}
@@ -169,7 +169,7 @@ export default function XPreview({
         </div>
       ) : (
         posts.map((post, idx) => (
-          <div key={x-thread-post-\} className="relative">
+          <div key={`x-thread-post-${idx}`} className="relative">
             {isThread && postTotal > 1 && (
               <span className="absolute -top-0.5 right-0 z-30 text-[10px] font-mono font-bold text-slate-400">
                 {idx + 1}/{postTotal}
