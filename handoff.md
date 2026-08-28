@@ -1,6 +1,6 @@
 # SocialFlow AI — Engineering Handoff & Platform Status
 
-**Updated:** 2026-08-23 | **Author/Brand:** SMB Robotics | **Production:** `https://socialflow-ai-akel.vercel.app` | **Repo:** `https://github.com/ShahidRafiq407/socialflow-ai`
+**Updated:** 2026-08-28 | **Author/Brand:** SMB Robotics | **Production:** `https://socialflow-ai-akel.vercel.app` | **Repo:** `https://github.com/ShahidRafiq407/socialflow-ai`
 
 ---
 
@@ -12,6 +12,7 @@
 - **Format Families:** `vertical_video` format family includes: `Instagram Reel`, `Facebook Reel`, `TikTok Video`, `YouTube Shorts`, and `Pinterest Video Pin` for seamless 1-click cross-platform media synchronization.
 - **Drafts Lifecycle:** AI Generation no longer auto-creates records in Content Library; posts are strictly saved to Content Library only when the user clicks "Save Draft" or dispatches "Publish / Schedule".
 - **Media Pipeline:** Multi-tier storage in `src/lib/supabase.ts` + `/api/uploads` (Supabase Storage with automatic fallback to `/public/uploads/` and `MediaAsset` records), with public streaming and anti-hotlink proxy in `/api/media/[id]` for external crawler ingestion by Meta/Pinterest/LinkedIn/TikTok/YouTube without 403 Forbidden blocks.
+- **Redis:** Upstash Redis via `@upstash/redis` REST client (`src/lib/redis.ts`). Reads `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (fallback `REDIS_URL` / `REDIS_TOKEN`). Used for schedule queue (sorted set), distributed cron lock, and trend caching. **NOTE:** Upstash uses an HTTPS REST endpoint + token — NOT the raw TCP protocol that `ioredis` expects.
 
 ---
 
@@ -33,7 +34,7 @@
 
 ### A. AI Studio Media Resolution (`src/app/(dashboard)/dashboard/ai-studio/page.tsx`)
 - **`resolvePostMediaUrls(platform, format, data)`**: Pulls rendered AI images from `renderedImageUrlsDict`, custom uploads from `customMediaDict`, multi-slides `0..9`, and same-family cross-platform sync. Prevents empty media URLs from being dispatched.
-- **`uploadSingleFile(file)`**: Dedicated client-side upload pipeline sending files to `/api/uploads` with live byte transfer progress; returns clean `/uploads/...` URLs to avoid 50MB Base64 Server Action payload bloat.
+- **`uploadSingleFile(file)`**: Dedicated client-side upload pipeline. Files > 3MB use a Supabase **signed-URL direct upload** (`GET /api/uploads?filename=...` → `PUT` to signed URL), then a `HEAD` verification on the public URL before applying media. Files ≤ 3MB use standard multipart `POST /api/uploads`. Returns clean Supabase public URLs to avoid 50MB Base64 Server Action payload bloat.
 - **`collectCampaignPosts(onlyActive?: boolean)`**: Strictly filters posts by `selectedPlatforms` and `selectedContentTypes`. Uses case-normalized key deduplication (`seenKeys.has(platform-format)`) to prevent duplicate post dispatches (e.g. `Feed` vs `feed`).
 - **`PublishStatusModal.tsx`**: Renders live platform feedback with direct permalinks (`[View Live Post ↗]`), scheduled timestamps, or exact platform error messages with deep connection links.
 
@@ -55,7 +56,23 @@
 3. **Facebook Publishing:**
    - Ensure user has reconnected Facebook so `finalAccessToken` holds the **Page Access Token** for the "SMB Robotics" Facebook Page instead of personal user token.
 
-## 5. Ongoing Bug (Upload Hanging)
-- **Issue:** Local PC video uploads (chunked uploads) are still failing. The progress bar gets stuck at 0% or hangs silently.
-- **Attempts so far:** Migrated FormData parsing to JSON base64 payloads to bypass Vercel limits. Added defensive completion signal checks (data?.url, status === 'completed') to prevent silent loop termination.
-- **Current Status:** Not fixed yet. The frontend upload loop might still be hanging on the first chunk or failing silently. Further investigation is needed into the /api/uploads/chunk network responses and Vercel limits.
+## 5. Media Upload Pipeline — RESOLVED (2026-08-28)
+
+### Root Cause (was "Upload Hanging")
+Local/Stock media failed to publish while AI-generated media worked. Two concrete bugs:
+
+1. **Malformed Supabase signed-upload URL (PRIMARY).** `formatSignedUploadUrl()` in `src/lib/supabase.ts` prepended `/storage/v1` to Supabase's `/object/upload/sign/...` relative path, producing `https://xxx.supabase.co/storage/v1/object/upload/sign/...` (wrong — should be `https://xxx.supabase.co/object/upload/sign/...`). The signed `PUT` returned 404/400, so large files (>3MB) were never written to Supabase, yet the frontend still used the (dead) `publicUrl`. **FIXED** — now correctly handles `/object/` paths.
+
+2. **Stock media silent fallback to hotlink-protected URL (SECONDARY).** `StockMediaModal`'s `onSelect` fell back to the raw Pixabay/Pexels CDN URL when the server-side download failed. Meta/Instagram crawlers can't fetch hotlink-protected URLs (403). **FIXED** — now surfaces a clear error instead of storing a dead URL.
+
+### Why AI Media Worked
+AI-generated media is re-uploaded at publish time via `ensureCleanMediaUrl()` → `POST /api/uploads` (the correct `uploadFile()` path), so it always ends up as a valid Supabase public URL.
+
+### Additional Hardening
+- `uploadSingleFile()` and `handleManualFileChange()` now do a `HEAD` verification on the public URL after the signed `PUT` before applying media.
+- `saveMediaBuffer()` now **rejects files > 5MB** in the DB-base64 fallback (instead of silently storing entire videos as base64 in Postgres `text`), surfacing a clear error when Supabase is unavailable.
+- Removed the unused `/api/uploads/chunk` route (frontend uses signed-URL direct upload instead).
+
+### Environment Variables Required (Vercel)
+- `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` — already configured in Vercel.
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (or `REDIS_URL` / `REDIS_TOKEN`) — **must be added** for Redis schedule queue / cron lock / caching to function. Without them, Redis silently no-ops (schedule queue falls back to DB scan).
