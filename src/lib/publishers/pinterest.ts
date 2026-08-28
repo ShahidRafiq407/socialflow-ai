@@ -149,9 +149,15 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     });
 
     let pinData = await pinRes.json().catch(() => ({}));
+    
+    const fallbackRawMsg = String(pinData.message || pinData.error || "");
 
     // If Pinterest App is in Trial mode and rejects production endpoint, attempt sandbox fallback
-    if (!pinRes.ok && (pinData.message?.includes('Trial access') || pinData.message?.includes('API Sandbox') || pinData.code === 3)) {
+    if (!pinRes.ok && (
+      fallbackRawMsg.toLowerCase().includes('trial') || 
+      fallbackRawMsg.toLowerCase().includes('sandbox') || 
+      pinData.code === 3
+    )) {
       try {
         let sandboxBoardId = null;
         
@@ -165,6 +171,9 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           if (sBoards.items && sBoards.items.length > 0) {
             sandboxBoardId = sBoards.items[0].id;
           }
+        } else {
+          const errData = await sandboxBoardsRes.json().catch(() => ({}));
+          console.error("Sandbox boards fetch failed:", sandboxBoardsRes.status, errData);
         }
 
         // 2. If no sandbox board exists, create one
@@ -184,6 +193,9 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           if (createSBoardRes.ok) {
             const newSBoard = await createSBoardRes.json();
             sandboxBoardId = newSBoard.id;
+          } else {
+            const errData = await createSBoardRes.json().catch(() => ({}));
+            console.error("Sandbox board creation failed:", createSBoardRes.status, errData);
           }
         }
 
@@ -201,16 +213,35 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           if (sandboxRes.ok) {
             pinRes = sandboxRes;
             pinData = await sandboxRes.json().catch(() => ({}));
+          } else {
+            const errData = await sandboxRes.json().catch(() => ({}));
+            console.error("Sandbox fallback failed with status:", sandboxRes.status, errData);
+            return {
+              success: false,
+              error: `Sandbox fallback failed: ${errData.message || JSON.stringify(errData)}`,
+              platform: 'PINTEREST'
+            };
           }
+        } else {
+            return {
+              success: false,
+              error: `Sandbox fallback failed: Could not resolve or create sandbox board.`,
+              platform: 'PINTEREST'
+            };
         }
-      } catch (err) {
-        console.error("Sandbox fallback failed:", err);
+      } catch (err: any) {
+        console.error("Sandbox fallback exception:", err);
+        return {
+          success: false,
+          error: `Sandbox fallback exception: ${err.message}`,
+          platform: 'PINTEREST'
+        };
       }
     }
 
     if (!pinRes.ok || pinData.code || pinData.error) {
-      const rawMsg = pinData.message || pinData.error || `Pinterest API error (${pinRes.status})`;
-      if (rawMsg.includes('Trial access') || rawMsg.includes('api-sandbox')) {
+      const rawMsg = String(pinData.message || pinData.error || `Pinterest API error (${pinRes.status})`);
+      if (rawMsg.toLowerCase().includes('trial') || rawMsg.toLowerCase().includes('sandbox')) {
         return {
           success: false,
           error: `Your Pinterest Developer App is in "Trial Access" mode. Go to developers.pinterest.com → Apps → Your App → Click "Apply for Standard Access" (Free & Instant approval) to publish live pins.`,
