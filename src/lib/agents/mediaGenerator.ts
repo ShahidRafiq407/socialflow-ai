@@ -108,7 +108,7 @@ async function generateRealVideo(options: {
   const ai = (vertexProvider as any).ai;
 
   // Candidate models: configured model only (fallbacks removed as per user request)
-  const candidateModels = [ model || "veo-3.1-generate-preview" ];
+  const candidateModels = [ model || MODELS.VIDEO || "gemini-omni-flash-preview" ];
 
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
