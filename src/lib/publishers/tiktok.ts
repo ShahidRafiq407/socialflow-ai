@@ -189,25 +189,20 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       });
     };
 
-    let response = await makePublishCall(accessToken, targetPrivacy);
+    let response = await makePublishCall(accessToken, "SELF_ONLY");
     let data = await response.json().catch(() => ({}));
 
-    // If failed due to privacy_level / unaudited app guidelines, retry immediately with SELF_ONLY
-    const initialErrMsg = String(data?.error?.message || "");
-    if (targetPrivacy !== "SELF_ONLY" && (initialErrMsg.includes("guidelines") || initialErrMsg.includes("privacy") || initialErrMsg.includes("audit") || initialErrMsg.includes("unaudited"))) {
-      console.log("[TikTok Publisher] Retrying with SELF_ONLY privacy level for unaudited client");
-      targetPrivacy = "SELF_ONLY";
-      response = await makePublishCall(accessToken, targetPrivacy);
-      data = await response.json().catch(() => ({}));
-    }
+    // Full debug logging
+    console.log("[TikTok Publisher] Init response HTTP:", response.status, "Body:", JSON.stringify(data));
 
     // If token invalid, try to refresh once and retry
     if (data?.error?.code === "access_token_invalid" || data?.error?.message?.includes("access token is invalid")) {
       const refreshedToken = await refreshTikTokAccessToken(account);
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await makePublishCall(accessToken, targetPrivacy);
+        response = await makePublishCall(accessToken, "SELF_ONLY");
         data = await response.json().catch(() => ({}));
+        console.log("[TikTok Publisher] Retry after refresh HTTP:", response.status, "Body:", JSON.stringify(data));
       }
     }
 
@@ -216,18 +211,29 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
     if (!response.ok || (apiError && apiError.code && apiError.code !== "ok")) {
       const code = String(apiError?.code || "");
       const message = String(apiError?.message || "");
+      const logId = String(apiError?.log_id || data?.data?.log_id || "");
+
+      console.error("[TikTok Publisher] FINAL ERROR — code:", code, "message:", message, "log_id:", logId, "HTTP:", response.status);
 
       if (code === "access_token_invalid" || message.toLowerCase().includes("access token")) {
         return {
           success: false,
           error:
-            "TikTok access token has expired or is invalid. Please disconnect and reconnect your TikTok account from the Integrations page to authorize posting permissions.",
+            "TikTok access token has expired or is invalid. Please disconnect and reconnect your TikTok account from the Integrations page.",
           platform: "TIKTOK",
         };
       }
 
-      // Unaudited apps may only Direct Post as SELF_ONLY — turn the cryptic API
-      // error into actionable guidance instead of a raw code.
+      // content-sharing-guidelines or integration guidelines error
+      if (message.includes("guidelines") || message.includes("content-sharing")) {
+        return {
+          success: false,
+          error:
+            `TikTok rejected the post because your app is in Sandbox/Developer mode and has not passed the TikTok App Review (audit). To fix: go to developers.tiktok.com → your app → submit for App Review to get Content Posting API approved. Until then, TikTok blocks all Direct Post requests. (Error: ${code || message})`,
+          platform: "TIKTOK",
+        };
+      }
+
       if (
         code.includes("privacy_level") ||
         message.toLowerCase().includes("audit") ||
@@ -236,7 +242,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
         return {
           success: false,
           error:
-            'Your TikTok app is in developer mode, so posts can only be private. Set "Who Can View" to "Only Me" to publish now, or complete the Content Posting API verification (app audit) in the TikTok developer console to enable public posting.',
+            'Your TikTok app is in developer mode, so posts can only be private. Complete the Content Posting API verification (app audit) in the TikTok developer console to enable posting.',
           platform: "TIKTOK",
         };
       }
@@ -251,7 +257,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
 
       return {
         success: false,
-        error: apiError?.message || apiError?.code || `TikTok publish failed (HTTP ${response.status})`,
+        error: `TikTok: ${message || code || `publish failed (HTTP ${response.status})`}`,
         platform: "TIKTOK",
       };
     }
