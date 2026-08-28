@@ -28,6 +28,7 @@ import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
+import XGuidelinesBanner from "./XGuidelinesBanner";
 
 export interface MultiMediaItem {
   id: string;
@@ -178,6 +179,8 @@ export default function MultiMediaEditor({
 
   return (
     <div className="space-y-4 text-left">
+      {capability.platform === "x" && <XGuidelinesBanner format={capability.format} />}
+      
       {/* MEDIA GRID / STRIP */}
       <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">

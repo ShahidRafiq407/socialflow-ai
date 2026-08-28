@@ -184,11 +184,11 @@ export default function GenerationProgressIndicator({
       </div>
 
       {/* STAGE & STATUS TEXT */}
-      <div className={`space-y-0.5 max-w-[280px] ${isVertical ? "" : "max-h-[36px] overflow-hidden"}`}>
-        <p className="text-[11px] sm:text-xs font-black text-white tracking-wider uppercase drop-shadow-sm truncate">
+      <div className="flex flex-col items-center justify-center space-y-1 w-full px-1 max-w-full overflow-hidden">
+        <p className="text-[11px] sm:text-xs font-black text-white tracking-wider uppercase drop-shadow-sm text-center text-wrap break-words w-full">
           {title}
         </p>
-        <p className="text-[10px] sm:text-[11px] text-slate-300 font-medium leading-tight line-clamp-1 drop-shadow-sm">
+        <p className="text-[10px] sm:text-[11px] text-slate-300 font-medium leading-tight drop-shadow-sm text-center text-wrap break-words w-full">
           {currentActionText}
         </p>
       </div>
