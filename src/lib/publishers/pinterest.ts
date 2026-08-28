@@ -251,7 +251,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
         
         // 1. Try to get a sandbox board
         const sandboxBoardsRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${sandboxToken}` },
         });
         
         if (sandboxBoardsRes.ok) {
@@ -269,7 +269,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           const createSBoardRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `Bearer ${sandboxToken}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -293,7 +293,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `Bearer ${sandboxToken}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(pinPayload),
