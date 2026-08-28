@@ -107,15 +107,8 @@ async function generateRealVideo(options: {
   const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, signal, onProgress } = options;
   const ai = (vertexProvider as any).ai;
 
-  // Candidate models: configured model first, then stable Veo GA fallbacks.
-  const candidateModels = Array.from(new Set(
-    [
-      model || "veo-3.1-generate-preview",
-      "veo-3.1-generate-preview",
-      "veo-3.0-generate-001",
-      "veo-2.0-generate-001",
-    ].filter(Boolean) as string[]
-  ));
+  // Candidate models: configured model only (fallbacks removed as per user request)
+  const candidateModels = [ model || "veo-3.1-generate-preview" ];
 
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
@@ -460,8 +453,8 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       const ai = (vertexProvider as any).ai;
       let imageUrl = "";
 
-      // Strictly Google Cloud Model Garden gemini-3-pro-image (Nano Banana Pro)
-      const modelName = "gemini-3-pro-image";
+      // Use the targetImageModel as requested instead of hardcoding
+      const modelName = targetImageModel;
 
       // 1. generateContent with responseModalities (Official Google Gemini Image Generation API)
       if (typeof ai?.models?.generateContent === "function") {
@@ -519,32 +512,45 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               )
             ]);
 
-            const candidates = (genRes as any)?.candidates || [];
-            for (const cand of candidates) {
-              const parts = cand?.content?.parts || [];
-              for (const part of parts) {
-                if (part.inlineData?.data) {
-                  imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${modelName}`);
-                  break;
-                }
-                if (part.inline_data?.data) {
-                  imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${modelName}`);
-                  break;
-                }
-                if (part.image?.imageBytes) {
-                  imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
-                  console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${modelName}`);
-                  break;
-                }
+            // Check for generatedImages array (Google Cloud GenAI Imagen response format)
+            const generatedImages = (genRes as any)?.generatedImages || (genRes as any)?.generated_images || [];
+            for (const gImg of generatedImages) {
+              if (gImg?.image?.imageBytes) {
+                imageUrl = `data:${gImg.image.mimeType || "image/png"};base64,${gImg.image.imageBytes}`;
+                console.log(`[Visualizer] ✅ Image generated successfully via generatedImages on ${modelName}`);
+                break;
               }
-              if (imageUrl) break;
             }
 
+            // Fallback to checking candidates array (standard text/multimodal response format)
             if (!imageUrl) {
-              const finishReason = (candidates as any)[0]?.finishReason || "unknown";
-              console.warn(`[Visualizer] ${modelName} responded without image data (${finishReason}). Retrying...`);
+              const candidates = (genRes as any)?.candidates || [];
+              for (const cand of candidates) {
+                const parts = cand?.content?.parts || [];
+                for (const part of parts) {
+                  if (part.inlineData?.data) {
+                    imageUrl = `data:${part.inlineData.mimeType || "image/png"};base64,${part.inlineData.data}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent on ${modelName}`);
+                    break;
+                  }
+                  if (part.inline_data?.data) {
+                    imageUrl = `data:${part.inline_data.mime_type || "image/png"};base64,${part.inline_data.data}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (inline_data) on ${modelName}`);
+                    break;
+                  }
+                  if (part.image?.imageBytes) {
+                    imageUrl = `data:image/png;base64,${part.image.imageBytes}`;
+                    console.log(`[Visualizer] ✅ Image generated successfully via generateContent (imageBytes) on ${modelName}`);
+                    break;
+                  }
+                }
+                if (imageUrl) break;
+              }
+
+              if (!imageUrl) {
+                const finishReason = candidates[0]?.finishReason || "unknown";
+                console.warn(`[Visualizer] ${modelName} responded without image data (${finishReason}). Retrying...`);
+              }
             }
           } catch (e: any) {
             console.warn(`[Visualizer] generateContent on ${modelName} (${modalities.join(",")}) failed (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}):`, e?.message || e);
@@ -610,7 +616,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         aspectRatio: targetImageAspect,
         status: "completed",
         provider: "google_vertex",
-        model: "gemini-3-pro-image (Nano Banana Pro)",
+        model: modelName,
         createdAt: Date.now(),
         slideIndex: idx,
         totalSlides: assetCount,
