@@ -151,25 +151,35 @@ export async function GET(
 
     try {
       if (platform === "tiktok") {
-        const profileRes = await fetch(
-          "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,display_name,avatar_url,username",
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        const profileData = await profileRes.json();
-        console.log("[TikTok OAuth] Profile fetch HTTP status:", profileRes.status);
-        console.log("[TikTok OAuth] Profile response:", JSON.stringify(profileData, null, 2));
+        // open_id is often available directly from the token response
+        const tokenOpenId = tokenData.data?.open_id || tokenData.open_id;
 
-        const userData = profileData.data?.user;
-        const openId = userData?.open_id || tokenData.data?.open_id;
+        // user.info.basic scope only covers: open_id, union_id, avatar_url, display_name
+        // Do NOT request 'username' here — it requires user.info.profile scope and TikTok
+        // will reject the entire request if an unauthorized field is requested.
+        let userData: any = null;
+        try {
+          const profileRes = await fetch(
+            "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,display_name,avatar_url",
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          const profileData = await profileRes.json();
+          console.log("[TikTok OAuth] Profile HTTP:", profileRes.status, "Body:", JSON.stringify(profileData));
+          userData = profileData.data?.user;
+        } catch (profileErr) {
+          console.warn("[TikTok OAuth] Profile API call failed:", profileErr);
+        }
+
+        const openId = userData?.open_id || tokenOpenId;
 
         if (!openId) {
-          console.error("[TikTok OAuth] No open_id received — token may be invalid or user did not authorize.");
+          console.error("[TikTok OAuth] No open_id from profile or token response.");
           dashboardUrl.searchParams.set("error", "TikTok authorization failed: could not retrieve your account. Please try connecting again.");
           return NextResponse.redirect(dashboardUrl);
         }
 
         accountId = openId;
-        handle = userData?.username ? `@${userData.username}` : userData?.display_name || "TikTok User";
+        handle = userData?.display_name || "TikTok User";
         pageName = userData?.display_name || null;
         avatarUrl = userData?.avatar_url || null;
       } else if (platform === "x") {

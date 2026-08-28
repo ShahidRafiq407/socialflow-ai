@@ -215,8 +215,8 @@ async function fetchYouTubeProfile(accessToken: string): Promise<{ username: str
  */
 async function fetchTikTokProfile(accessToken: string): Promise<{ username: string; displayName: string; avatarUrl: string } | null> {
   try {
-    // TikTok API - get user info
-    const url = `https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,username`;
+    // TikTok API - get user info (only fields covered by user.info.basic scope)
+    const url = `https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name`;
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
