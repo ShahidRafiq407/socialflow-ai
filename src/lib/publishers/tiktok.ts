@@ -132,6 +132,30 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       private: "SELF_ONLY",
     };
 
+    let targetPrivacy = privacyMap[settings.tiktokPrivacy] || "PUBLIC_TO_EVERYONE";
+
+    // Query creator info to check available privacy levels supported by TikTok
+    try {
+      const creatorRes = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+      });
+      if (creatorRes.ok) {
+        const creatorData = await creatorRes.json();
+        const allowedOptions: string[] = creatorData?.data?.privacy_level_options || [];
+        if (allowedOptions.length > 0 && !allowedOptions.includes(targetPrivacy)) {
+          targetPrivacy = allowedOptions.includes("PUBLIC_TO_EVERYONE")
+            ? "PUBLIC_TO_EVERYONE"
+            : (allowedOptions.includes("MUTUAL_FOLLOW_FRIENDS") ? "MUTUAL_FOLLOW_FRIENDS" : allowedOptions[0]);
+        }
+      }
+    } catch (creatorErr) {
+      console.warn("[TikTok Publisher] creator_info query failed:", creatorErr);
+    }
+
     // TikTok title = caption + hashtags, hard limit 2200 chars (API rejects beyond that)
     const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];
     const title = [post.content || "", hashtags.join(" ")]
@@ -140,7 +164,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       .slice(0, 2200)
       .trim();
 
-    const makePublishCall = async (token: string) => {
+    const makePublishCall = async (token: string, privacyLevel: string) => {
       return await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
         method: "POST",
         headers: {
@@ -150,7 +174,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
         body: JSON.stringify({
           post_info: {
             title,
-            privacy_level: privacyMap[settings.tiktokPrivacy] || "PUBLIC_TO_EVERYONE",
+            privacy_level: privacyLevel,
             disable_comment: settings.tiktokDisableComments === true,
             disable_duet: settings.tiktokDisableDuet === true,
             disable_stitch: settings.tiktokDisableStitch === true,
@@ -165,15 +189,24 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       });
     };
 
-    let response = await makePublishCall(accessToken);
+    let response = await makePublishCall(accessToken, targetPrivacy);
     let data = await response.json().catch(() => ({}));
+
+    // If failed due to privacy_level / unaudited app guidelines, retry immediately with SELF_ONLY
+    const initialErrMsg = String(data?.error?.message || "");
+    if (targetPrivacy !== "SELF_ONLY" && (initialErrMsg.includes("guidelines") || initialErrMsg.includes("privacy") || initialErrMsg.includes("audit") || initialErrMsg.includes("unaudited"))) {
+      console.log("[TikTok Publisher] Retrying with SELF_ONLY privacy level for unaudited client");
+      targetPrivacy = "SELF_ONLY";
+      response = await makePublishCall(accessToken, targetPrivacy);
+      data = await response.json().catch(() => ({}));
+    }
 
     // If token invalid, try to refresh once and retry
     if (data?.error?.code === "access_token_invalid" || data?.error?.message?.includes("access token is invalid")) {
       const refreshedToken = await refreshTikTokAccessToken(account);
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await makePublishCall(accessToken);
+        response = await makePublishCall(accessToken, targetPrivacy);
         data = await response.json().catch(() => ({}));
       }
     }
