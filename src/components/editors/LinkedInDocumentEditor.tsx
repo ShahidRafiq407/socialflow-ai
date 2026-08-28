@@ -56,6 +56,12 @@ interface LinkedInDocumentEditorProps {
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  onEnhancePrompt?: () => void;
+  isEnhancingPrompt?: boolean;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
 }
 
 export default function LinkedInDocumentEditor({
@@ -75,11 +81,17 @@ export default function LinkedInDocumentEditor({
   onRegenerateSlideAI,
   isRegeneratingSlide,
   onExportPDF,
-  isExportingPDF,
+  isExportingPDF = false,
   onUploadPDF,
   onReorderCards,
   onGenerateField,
   generatingField = null,
+  onEnhancePrompt,
+  isEnhancingPrompt = false,
+  originalPrompt,
+  onRestoreOriginalPrompt,
+  onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
 }: LinkedInDocumentEditorProps) {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const [slideCustomPrompt, setSlideCustomPrompt] = useState("");

@@ -518,12 +518,15 @@ export default function PinterestIdeaPinEditor({
                     type="button"
                     disabled={isEnhancingPrompt || !activePage.visualPrompt || !activePage.visualPrompt.trim()}
                     onClick={onEnhancePrompt}
-                    className={`text-[11px] font-semibold flex items-center gap-0.5 transition-all ${
-                      !activePage.visualPrompt || !activePage.visualPrompt.trim()
-                        ? "text-slate-400 cursor-not-allowed opacity-50"
-                        : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                      isEnhancingPrompt
+                        ? "text-pink-600 cursor-wait"
+                        : !activePage.visualPrompt || !activePage.visualPrompt.trim()
+                          ? "text-slate-400 cursor-not-allowed opacity-50"
+                          : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                     }`}
                   >
+                    {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                     <span>Enhance Prompt ✨</span>
                   </button>
                 )}

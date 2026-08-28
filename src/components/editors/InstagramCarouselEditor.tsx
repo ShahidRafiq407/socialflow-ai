@@ -77,6 +77,10 @@ interface InstagramCarouselEditorProps {
   renderError?: string | null;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  onEnhancePrompt?: () => void;
+  isEnhancingPrompt?: boolean;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
 }
 
 export default function InstagramCarouselEditor({
@@ -107,6 +111,10 @@ export default function InstagramCarouselEditor({
   renderError = null,
   onGenerateField,
   generatingField = null,
+  onEnhancePrompt,
+  isEnhancingPrompt = false,
+  originalPrompt,
+  onRestoreOriginalPrompt,
 }: InstagramCarouselEditorProps) {
   const [slideStyle, setSlideStyle] = useState("photorealistic");
   const [slideQuality, setSlideQuality] = useState("studio_4k");
@@ -467,20 +475,33 @@ export default function InstagramCarouselEditor({
                     {isGeneratingPromptFromScript ? "Generating..." : "Auto-Prompt from Caption"}
                   </button>
                 )}
-                <button
-                  type="button"
-                  disabled={!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()}
-                  onClick={() => {
-                    handleUpdateActiveSlide("visualPrompt", `${activeSlide.visualPrompt}, hyper-detailed photography, professional studio lighting, 8k resolution`);
-                  }}
-                  className={`text-[11px] font-semibold flex items-center gap-0.5 transition-all ${
-                    !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
-                      ? "text-slate-400 cursor-not-allowed opacity-50"
-                      : "text-purple-600 hover:text-purple-700 hover:underline cursor-pointer"
-                  }`}
-                >
-                  <span>Enhance Prompt ✨</span>
-                </button>
+                {onEnhancePrompt && (
+                  <button
+                    type="button"
+                    disabled={isEnhancingPrompt || !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()}
+                    onClick={onEnhancePrompt}
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                      isEnhancingPrompt
+                        ? "text-purple-600 cursor-wait"
+                        : !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
+                          ? "text-slate-400 cursor-not-allowed opacity-50"
+                          : "text-purple-600 hover:text-purple-700 hover:underline cursor-pointer"
+                    }`}
+                  >
+                    {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    <span>Enhance Prompt ✨</span>
+                  </button>
+                )}
+                {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
+                  <button
+                    type="button"
+                    onClick={onRestoreOriginalPrompt}
+                    title={originalPrompt}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                  >
+                    ↩ Original
+                  </button>
+                )}
               </div>
             </div>
 

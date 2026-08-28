@@ -74,6 +74,8 @@ interface PinterestPinEditorProps {
   renderError?: string | null;
   originalPrompt?: string | null;
   onRestoreOriginalPrompt?: () => void;
+  onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
 }
@@ -110,6 +112,8 @@ export default function PinterestPinEditor({
   renderError = null,
   originalPrompt = null,
   onRestoreOriginalPrompt,
+  onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
   onGenerateField,
   generatingField = null,
 }: PinterestPinEditorProps) {
@@ -529,17 +533,31 @@ export default function PinterestPinEditor({
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
                 Prompt
               </label>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                {onCaptionToPrompt && (
+                  <button
+                    type="button"
+                    disabled={isGeneratingPromptFromScript}
+                    onClick={onCaptionToPrompt}
+                    className="text-[11px] font-semibold flex items-center gap-1 text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                    <span>Auto Prompt from Description</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                   onClick={onEnhancePrompt}
-                  className={`text-[11px] font-semibold flex items-center gap-0.5 transition-all ${
-                    !prompt || !prompt.trim()
-                      ? "text-slate-400 cursor-not-allowed opacity-50"
-                      : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
+                  className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    isEnhancingPrompt
+                      ? "text-pink-600 cursor-wait"
+                      : !prompt || !prompt.trim()
+                        ? "text-slate-400 cursor-not-allowed opacity-50"
+                        : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                   }`}
                 >
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>Enhance Prompt ✨</span>
                 </button>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (

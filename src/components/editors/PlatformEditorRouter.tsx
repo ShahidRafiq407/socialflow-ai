@@ -147,6 +147,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
         renderError={props.renderError}
+        onCaptionToPrompt={props.onCaptionToPrompt}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
       />
     );
   }
@@ -339,6 +341,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isEnhancingPrompt={props.isEnhancingPrompt}
         originalPrompt={props.originalPrompt}
         onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
+        onCaptionToPrompt={props.onCaptionToPrompt}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         renderError={props.renderError}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}

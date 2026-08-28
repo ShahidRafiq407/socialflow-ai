@@ -66,12 +66,14 @@ interface MultiMediaEditorProps {
   onPromptChange: (val: string) => void;
   onEnhancePrompt: () => void;
   isEnhancingPrompt: boolean;
+  originalPrompt?: string | null;
+  onRestoreOriginalPrompt?: () => void;
+  onCaptionToPrompt?: () => void;
+  isGeneratingPromptFromScript?: boolean;
   renderError?: string | null;
   generationProgress?: number;
   generationStage?: string;
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
-  originalPrompt?: string | null;
-  onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
 }
@@ -98,12 +100,14 @@ export default function MultiMediaEditor({
   onPromptChange,
   onEnhancePrompt,
   isEnhancingPrompt,
-  renderError = null,
-  generationProgress = 0,
-  generationStage = "",
-  onReorderCards,
-  originalPrompt = null,
+  originalPrompt,
   onRestoreOriginalPrompt,
+  onCaptionToPrompt,
+  isGeneratingPromptFromScript = false,
+  renderError = null,
+  generationProgress,
+  generationStage,
+  onReorderCards,
   onGenerateField,
   generatingField = null,
 }: MultiMediaEditorProps) {
@@ -413,18 +417,31 @@ export default function MultiMediaEditor({
                 <Wand2 className="h-3.5 w-3.5 text-blue-600" />
                 {slotLabel(activeMediaIndex)} Visual Prompt
               </span>
-              <span className="flex items-center gap-3">
+              <span className="flex items-center gap-3 flex-wrap justify-end">
+                {onCaptionToPrompt && (
+                  <button
+                    type="button"
+                    disabled={isGeneratingPromptFromScript}
+                    onClick={onCaptionToPrompt}
+                    className="text-[11px] font-semibold flex items-center gap-1 text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                    <span>Auto Prompt from Caption</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
                   onClick={onEnhancePrompt}
-                  className={`text-[11px] font-bold flex items-center gap-1 ${
-                    !prompt || !prompt.trim()
-                      ? "text-slate-400 cursor-not-allowed opacity-50"
-                      : "text-blue-600 hover:underline cursor-pointer"
+                  className={`text-[11px] font-bold flex items-center gap-1 transition-all ${
+                    isEnhancingPrompt
+                      ? "text-blue-600 cursor-wait"
+                      : !prompt || !prompt.trim()
+                        ? "text-slate-400 cursor-not-allowed opacity-50"
+                        : "text-blue-600 hover:underline cursor-pointer"
                   }`}
                 >
-                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>Enhance Prompt ✨</span>
                 </button>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (

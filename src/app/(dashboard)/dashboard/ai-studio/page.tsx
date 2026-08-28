@@ -1388,6 +1388,26 @@ export default function AIStudioPage() {
           [targetKey]: prev[targetKey] !== undefined ? prev[targetKey] : targetPrompt,
         }));
         setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.enhancedPrompt }));
+
+        // CRITICAL FIX: Also update the slide array if we are dealing with multi-slide formats
+        if (["Carousel", "Idea Pin", "Multiple Photos", "Multi-Image", "Thread"].includes(targetFormat) || currentFormatName.toLowerCase().includes("carousel")) {
+          setGeneratedContents((prev) => {
+            const currentPrompts = [...(prev[targetPlatform]?.[targetFormat]?.visualPrompts || [])];
+            // Ensure array is large enough
+            while (currentPrompts.length <= activeSlideIdx) currentPrompts.push("");
+            currentPrompts[activeSlideIdx] = data.enhancedPrompt;
+            return {
+              ...prev,
+              [targetPlatform]: {
+                ...(prev[targetPlatform] || {}),
+                [targetFormat]: {
+                  ...(prev[targetPlatform]?.[targetFormat] || {}),
+                  visualPrompts: currentPrompts,
+                },
+              },
+            };
+          });
+        }
       } else if (data.error) {
         console.warn("Failed to enhance prompt:", data.error);
       }
@@ -1470,7 +1490,11 @@ export default function AIStudioPage() {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
-    const targetCaption = generatedContents[targetPlatform]?.[targetFormat]?.caption || currentCaption;
+    const targetCaption = 
+      generatedContents[targetPlatform]?.[targetFormat]?.caption || 
+      currentCaption || 
+      generatedContents[targetPlatform]?.[targetFormat]?.description || 
+      currentDescription;
 
     if (!targetCaption || !targetCaption.trim()) {
       return;
@@ -1493,9 +1517,27 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (data.success && data.prompt) {
         setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.prompt }));
+
+        if (["Carousel", "Idea Pin", "Multiple Photos", "Multi-Image", "Thread"].includes(targetFormat) || currentFormatName.toLowerCase().includes("carousel")) {
+          setGeneratedContents((prev) => {
+            const currentPrompts = [...(prev[targetPlatform]?.[targetFormat]?.visualPrompts || [])];
+            while (currentPrompts.length <= activeSlideIdx) currentPrompts.push("");
+            currentPrompts[activeSlideIdx] = data.prompt;
+            return {
+              ...prev,
+              [targetPlatform]: {
+                ...(prev[targetPlatform] || {}),
+                [targetFormat]: {
+                  ...(prev[targetPlatform]?.[targetFormat] || {}),
+                  visualPrompts: currentPrompts,
+                },
+              },
+            };
+          });
+        }
       }
     } catch (err) {
-      console.error("Auto prompt from script failed:", err);
+      console.error("Auto prompt from script error:", err);
     } finally {
       setScriptPromptKeys(prev => {
         const next = { ...prev };
