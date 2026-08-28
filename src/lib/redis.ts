@@ -1,25 +1,30 @@
-import Redis from 'ioredis';
+import { Redis } from '@upstash/redis';
 
-const redisUrl = process.env.REDIS_URL;
+// Upstash Redis uses a REST (HTTPS) endpoint + token, NOT the raw TCP protocol
+// that ioredis expects. We read the standard Upstash env vars (and fall back to
+// generic REDIS_URL / REDIS_TOKEN names for compatibility).
+const redisUrl =
+  process.env.UPSTASH_REDIS_REST_URL ||
+  process.env.REDIS_URL ||
+  '';
+
+const redisToken =
+  process.env.UPSTASH_REDIS_REST_TOKEN ||
+  process.env.REDIS_TOKEN ||
+  '';
 
 let redisClient: Redis | null = null;
 
 function getRedisInstance(): Redis | null {
-  if (!redisUrl) return null;
-  
+  if (!redisUrl || !redisToken) return null;
+
   if (!redisClient) {
     try {
-      redisClient = new Redis(redisUrl, {
-        lazyConnect: true,
-        maxRetriesPerRequest: 1,
-        connectTimeout: 2000,
-        enableOfflineQueue: false,
-        retryStrategy: () => null, // Never hang or retry infinitely if Redis is offline
-      });
-
-      // Catch error event to prevent Node process from terminating during build or runtime
-      redisClient.on('error', (err) => {
-        // Non-fatal warning
+      redisClient = new Redis({
+        url: redisUrl,
+        token: redisToken,
+        // Fail fast instead of hanging the request when Redis is unreachable.
+        retry: { retries: 0 },
       });
     } catch (e) {
       redisClient = null;
@@ -38,10 +43,7 @@ export async function cacheSet(key: string, value: any, ttlSeconds: number = 864
   try {
     const client = getRedisInstance();
     if (!client) return null;
-    if (client.status === 'wait') {
-      await client.connect().catch(() => null);
-    }
-    return await client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+    return await client.set(key, JSON.stringify(value), { ex: ttlSeconds });
   } catch (error) {
     return null;
   }
@@ -54,9 +56,6 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
   try {
     const client = getRedisInstance();
     if (!client) return null;
-    if (client.status === 'wait') {
-      await client.connect().catch(() => null);
-    }
     const data = await client.get(key);
     if (!data) return null;
     return (typeof data === 'string' ? JSON.parse(data) : data) as T;
@@ -74,20 +73,11 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
 
 const SCHEDULE_QUEUE_KEY = 'socialflow:schedule:queue';
 
-async function connectedClient(): Promise<Redis | null> {
-  const client = getRedisInstance();
-  if (!client) return null;
-  if (client.status === 'wait') {
-    await client.connect().catch(() => null);
-  }
-  return client.status === 'ready' ? client : null;
-}
-
 export async function scheduleEnqueue(postId: string, runAtMs: number): Promise<boolean> {
   try {
-    const client = await connectedClient();
+    const client = getRedisInstance();
     if (!client) return false;
-    await client.zadd(SCHEDULE_QUEUE_KEY, String(runAtMs), postId);
+    await client.zadd(SCHEDULE_QUEUE_KEY, { score: runAtMs, member: postId });
     return true;
   } catch {
     return false;
@@ -96,9 +86,10 @@ export async function scheduleEnqueue(postId: string, runAtMs: number): Promise<
 
 export async function dequeueDueScheduleJobs(nowMs: number, limit = 100): Promise<string[]> {
   try {
-    const client = await connectedClient();
+    const client = getRedisInstance();
     if (!client) return [];
-    return await client.zrangebyscore(SCHEDULE_QUEUE_KEY, 0, nowMs, 'LIMIT', 0, limit);
+    const members = await client.zrangebyscore(SCHEDULE_QUEUE_KEY, 0, nowMs, { limit: { offset: 0, count: limit } });
+    return members as string[];
   } catch {
     return [];
   }
@@ -106,7 +97,7 @@ export async function dequeueDueScheduleJobs(nowMs: number, limit = 100): Promis
 
 export async function removeFromScheduleQueue(postId: string): Promise<void> {
   try {
-    const client = await connectedClient();
+    const client = getRedisInstance();
     if (!client) return;
     await client.zrem(SCHEDULE_QUEUE_KEY, postId);
   } catch {
@@ -123,9 +114,10 @@ const CRON_LOCK_KEY = 'socialflow:cron:lock';
 
 export async function acquireCronLock(ttlSeconds = 240): Promise<boolean> {
   try {
-    const client = await connectedClient();
+    const client = getRedisInstance();
     if (!client) return true;
-    const res = await client.set(CRON_LOCK_KEY, String(Date.now()), 'EX', ttlSeconds, 'NX');
+    // SET key value NX EX ttl — returns "OK" only if the key did not already exist.
+    const res = await client.set(CRON_LOCK_KEY, String(Date.now()), { nx: true, ex: ttlSeconds });
     return res === 'OK';
   } catch {
     return true;
@@ -134,7 +126,7 @@ export async function acquireCronLock(ttlSeconds = 240): Promise<boolean> {
 
 export async function releaseCronLock(): Promise<void> {
   try {
-    const client = await connectedClient();
+    const client = getRedisInstance();
     if (!client) return;
     await client.del(CRON_LOCK_KEY);
   } catch {

@@ -151,21 +151,61 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     let pinData = await pinRes.json().catch(() => ({}));
 
     // If Pinterest App is in Trial mode and rejects production endpoint, attempt sandbox fallback
-    if (!pinRes.ok && (pinData.message?.includes('Trial access') || pinData.message?.includes('API Sandbox'))) {
+    if (!pinRes.ok && (pinData.message?.includes('Trial access') || pinData.message?.includes('API Sandbox') || pinData.code === 3)) {
       try {
-        const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(pinPayload),
+        let sandboxBoardId = null;
+        
+        // 1. Try to get a sandbox board
+        const sandboxBoardsRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
-        if (sandboxRes.ok) {
-          pinRes = sandboxRes;
-          pinData = await sandboxRes.json().catch(() => ({}));
+        
+        if (sandboxBoardsRes.ok) {
+          const sBoards = await sandboxBoardsRes.json();
+          if (sBoards.items && sBoards.items.length > 0) {
+            sandboxBoardId = sBoards.items[0].id;
+          }
         }
-      } catch {}
+
+        // 2. If no sandbox board exists, create one
+        if (!sandboxBoardId) {
+          const createSBoardRes = await fetch('https://api-sandbox.pinterest.com/v5/boards', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: 'Sandbox Test Board',
+              description: 'Created automatically for Sandbox testing',
+              privacy: 'PUBLIC',
+            }),
+          });
+          if (createSBoardRes.ok) {
+            const newSBoard = await createSBoardRes.json();
+            sandboxBoardId = newSBoard.id;
+          }
+        }
+
+        // 3. Post pin to sandbox using the sandbox board ID
+        if (sandboxBoardId) {
+          pinPayload.board_id = sandboxBoardId;
+          const sandboxRes = await fetch('https://api-sandbox.pinterest.com/v5/pins', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(pinPayload),
+          });
+          if (sandboxRes.ok) {
+            pinRes = sandboxRes;
+            pinData = await sandboxRes.json().catch(() => ({}));
+          }
+        }
+      } catch (err) {
+        console.error("Sandbox fallback failed:", err);
+      }
     }
 
     if (!pinRes.ok || pinData.code || pinData.error) {
