@@ -84,20 +84,48 @@ function formatSignedUploadUrl(rawUrl: string): string {
 
   // Supabase's /object/upload/sign endpoint returns a relative path like
   //   /object/upload/sign/uploads/123-file.png?token=...
-  // which must be prefixed with the bare SUPABASE_URL (NOT /storage/v1).
-  // Only paths that already include /storage/v1/ should be joined as-is.
+  // which is relative to the Storage API root -- it MUST be prefixed with
+  // `${SUPABASE_URL}/storage/v1` (the official storage-js SDK does exactly
+  // `new URL(this.url + data.url)` where this.url ends with /storage/v1).
+  // Prefixing the bare SUPABASE_URL without /storage/v1 produces a 404 and
+  // every large (>3MB) direct upload fails.
   if (cleanPath.startsWith('/storage/v1/')) {
-    return `${SUPABASE_URL}${cleanPath}`;
-  }
-  if (cleanPath.startsWith('/object/')) {
     return `${SUPABASE_URL}${cleanPath}`;
   }
   return `${SUPABASE_URL}/storage/v1${cleanPath}`;
 }
 
+// Memoized per serverless process so we only pay for one extra API call.
+let bucketPublicEnsured = false;
+
+/**
+ * Best-effort: guarantee the `uploads` bucket is PUBLIC.
+ * If the bucket exists but is private, uploads succeed (service key bypasses
+ * RLS) yet the public object URL 404s -- Meta/LinkedIn/TikTok crawlers then
+ * fail to fetch the media and publishing dies with a generic server error.
+ */
+async function ensureBucketPublic(bucketName: string = 'uploads'): Promise<void> {
+  if (bucketPublicEnsured || !isSupabaseConfigured()) return;
+  try {
+    await fetch(`${SUPABASE_URL}/storage/v1/bucket/${bucketName}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ public: true }),
+    });
+    bucketPublicEnsured = true;
+  } catch {
+    // Non-fatal -- the publishing pipeline surfaces a clear error if unreachable.
+  }
+}
+
 export async function createSignedUploadUrl(filename: string): Promise<{ signedUrl: string; publicUrl: string; storagePath: string } | null> {
   if (!isSupabaseConfigured()) return null;
   const bucketName = 'uploads';
+  await ensureBucketPublic(bucketName);
   const timestamp = Date.now();
   const cleanName = (filename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
   const storagePath = `${timestamp}-${cleanName}`;
@@ -238,6 +266,7 @@ export async function saveMediaBuffer(
   if (isSupabaseConfigured()) {
     try {
       const storagePath = await uploadFile(rawBuffer, filename, contentType);
+      await ensureBucketPublic();
       return { url: getPublicUrl(storagePath), filename: storagePath };
     } catch (err: any) {
       console.error('[Storage] Supabase upload FAILED:', err?.message || err);

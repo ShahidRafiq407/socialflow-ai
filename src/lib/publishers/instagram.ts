@@ -94,7 +94,7 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       } catch {}
     }
 
-    // 0C: If still not found, scan Meta Business Portfolios (SMB Robotics portfolio)
+    // 0C: If still not found, scan Meta Business Portfolios the user manages
     if (!igUserId.startsWith('17841')) {
       try {
         const bizRes = await fetch(
@@ -108,21 +108,6 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
               igUserId = igList[0].id;
               break;
             }
-          }
-        }
-      } catch {}
-    }
-
-    // 0D: Direct fallback for SMB Robotics Business Portfolio (ID: 1772056396948184 from Meta Business Suite)
-    if (!igUserId.startsWith('17841')) {
-      try {
-        const directBizRes = await fetch(
-          `https://graph.facebook.com/${GRAPH_VERSION}/1772056396948184/instagram_accounts?fields=id,username,name&access_token=${accessToken}`
-        );
-        if (directBizRes.ok) {
-          const directBizData = await directBizRes.json();
-          if (directBizData?.data?.[0]?.id) {
-            igUserId = directBizData.data[0].id;
           }
         }
       } catch {}

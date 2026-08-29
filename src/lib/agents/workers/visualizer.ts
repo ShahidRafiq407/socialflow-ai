@@ -3,23 +3,6 @@ import { llm, MODELS } from "../llm";
 import { HumanMessage } from "@langchain/core/messages";
 import { generateMediaAsset } from "../mediaGenerator";
 
-// High-quality HD marketing video collection for Reels/Shorts/TikTok
-const HIGH_QUALITY_MARKETING_VIDEOS = [
-  "https://cdn.pixabay.com/video/2023/10/22/185984-876939989_tiny.mp4", // Modern Tech/Digital
-  "https://cdn.pixabay.com/video/2021/04/12/70889-536417726_tiny.mp4", // Business Strategy Meeting
-  "https://cdn.pixabay.com/video/2020/09/20/50534-461421685_tiny.mp4", // Creative Workspace/Laptop
-  "https://cdn.pixabay.com/video/2022/11/04/137648-767931398_tiny.mp4", // Social Media/Mobile Content
-  "https://cdn.pixabay.com/video/2022/05/18/117387-711904791_tiny.mp4", // Growth & Analytics Abstract
-];
-
-// Curated high-resolution Unsplash images per industry keyword
-function getHighQualityImageUrl(keyword: string, aspect: string, index: number = 0): string {
-  const query = encodeURIComponent(keyword || "modern business digital marketing");
-  const width = aspect === "9:16" ? 720 : aspect === "4:5" ? 800 : aspect === "2:3" ? 800 : 1080;
-  const height = aspect === "9:16" ? 1280 : aspect === "4:5" ? 1000 : aspect === "2:3" ? 1200 : 1080;
-  return `https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=${width}&h=${height}&auto=format&fit=crop&sig=${index * 13 + 7}&q=${query}`;
-}
-
 export async function visualizerCreatorNode(state: AgentStateType) {
   console.log("--- [Visualizer Creator Agent] Generating Rich Prompts & Relevant Media ---");
 
@@ -30,7 +13,6 @@ export async function visualizerCreatorNode(state: AgentStateType) {
   const payload = { ...state.campaignPayload };
 
   // Loop through all generated platforms and formats
-  let videoIndex = 0;
   for (const platformId of Object.keys(payload.platforms)) {
     const formats = payload.platforms[platformId];
     for (const formatName of Object.keys(formats)) {
@@ -98,9 +80,11 @@ Return ONLY valid JSON.`;
           content.slideUrls = content.imageUrls;
           content.imageUrl = content.imageUrls[0];
         } catch (e) {
-          content.imageUrls = prompts.map((p: string, i: number) => getHighQualityImageUrl(p, isCarousel ? "4:5" : "2:3", i));
-          content.slideUrls = content.imageUrls;
-          content.imageUrl = content.imageUrls[0];
+          console.error(`[Visualizer] Carousel media generation failed for ${platformId}/${formatName}:`, e);
+          content.imageUrls = [];
+          content.slideUrls = [];
+          content.imageUrl = null;
+          content.generationError = e instanceof Error ? e.message : "Media generation failed";
         }
       } else if (isVideo) {
         try {
@@ -118,10 +102,10 @@ Return ONLY valid JSON.`;
             content.imageUrl = mediaRes[0].url;
           }
         } catch (e) {
-          const videoUrl = HIGH_QUALITY_MARKETING_VIDEOS[videoIndex % HIGH_QUALITY_MARKETING_VIDEOS.length];
-          videoIndex++;
-          content.videoUrl = videoUrl;
-          content.imageUrl = videoUrl;
+          console.error(`[Visualizer] Video generation failed for ${platformId}/${formatName}:`, e);
+          content.videoUrl = null;
+          content.imageUrl = null;
+          content.generationError = e instanceof Error ? e.message : "Video generation failed";
         }
         content.refinedImagePrompt = prompts[0] || "Cinematic marketing video";
       } else {
@@ -141,7 +125,9 @@ Return ONLY valid JSON.`;
             content.imageUrl = mediaRes[0].url;
           }
         } catch (e) {
-          content.imageUrl = getHighQualityImageUrl(prompts[0] || payload.topic, aspect, 0);
+          console.error(`[Visualizer] Image generation failed for ${platformId}/${formatName}:`, e);
+          content.imageUrl = null;
+          content.generationError = e instanceof Error ? e.message : "Image generation failed";
         }
       }
     }
