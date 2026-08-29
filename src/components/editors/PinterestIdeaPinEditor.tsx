@@ -554,12 +554,30 @@ export default function PinterestIdeaPinEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isRegeneratingPage}
-              onClick={() => onRegeneratePageAI(currentIdx)}
-              className="w-full h-8 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
+              onClick={isRegeneratingPage ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-ai-action", {
+                  detail: { scope: "slide", key: `${capability.platform}-${capability.format}` }
+                }));
+              } : () => onRegeneratePageAI(currentIdx)}
+              className={`w-full h-8 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+                isRegeneratingPage
+                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
+              }`}
             >
-              {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRegeneratingPage ? `Generating Page ${currentIdx + 1} Visual...` : `Generate Page ${currentIdx + 1} Visual`}</span>
+              {isRegeneratingPage ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Stop Page Visual</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Generate Page {currentIdx + 1} Visual</span>
+                </>
+              )}
             </Button>
           </div>
 
@@ -605,12 +623,30 @@ export default function PinterestIdeaPinEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isGeneratingAI}
-              onClick={onGenerateIdeaPinAI}
-              className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
+              onClick={isGeneratingAI ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-ai-action", {
+                  detail: { scope: "copy", key: `${capability.platform}-${capability.format}` }
+                }));
+              } : onGenerateIdeaPinAI}
+              className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+                isGeneratingAI
+                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+              }`}
             >
-              {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin...") : "Generate Idea Pin Pages, Title & Prompts with AI"}</span>
+              {isGeneratingAI ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Stop Idea Pin Generation</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Generate Idea Pin Pages, Title & Prompts with AI</span>
+                </>
+              )}
             </Button>
           </div>
         </div>
