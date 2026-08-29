@@ -469,18 +469,30 @@ export default function MultiMediaEditor({
               <Button
                 type="button"
                 size="sm"
-                disabled={isRenderingSingleAI || (!prompt.trim() && !activeMedia.prompt)}
-                onClick={handleGenerateActiveAsset}
-                className="h-9 px-3 text-xs bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shrink-0 font-bold gap-1"
+                disabled={!isRenderingSingleAI && !prompt.trim() && !activeMedia.prompt}
+                onClick={isRenderingSingleAI ? (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.dispatchEvent(new CustomEvent("cancel-render-media", { 
+                    detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                  }));
+                } : handleGenerateActiveAsset}
+                className={`h-9 px-3 text-xs shrink-0 font-bold gap-1 shadow-xs transition-colors ${
+                  isRenderingSingleAI 
+                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
+                }`}
               >
-                {isRenderingSingleAI && <Loader2 className="h-3 w-3 animate-spin" />}
-                <span>
-                  {isRenderingSingleAI
-                    ? "Generating..."
-                    : activeMedia.url
-                    ? "Regenerate"
-                    : "Generate"}
-                </span>
+                {isRenderingSingleAI ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Stop</span>
+                  </>
+                ) : (
+                  <span>
+                    {activeMedia.url ? "Regenerate" : "Generate"}
+                  </span>
+                )}
               </Button>
             </div>
           </div>

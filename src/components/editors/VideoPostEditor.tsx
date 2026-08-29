@@ -496,8 +496,14 @@ export default function VideoPostEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isRenderingVideo || !prompt.trim()}
-              onClick={() =>
+              disabled={(!isRenderingVideo && !prompt.trim()) || isUploadingMedia}
+              onClick={isRenderingVideo ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
+                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                }));
+              } : () =>
                 onRenderAIVideo({
                   mediaType: "video",
                   duration: durationSec,
@@ -508,10 +514,23 @@ export default function VideoPostEditor({
                   sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
                 })
               }
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
+              className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+                isRenderingVideo 
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
+              }`}
             >
-              {isRenderingVideo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingVideo ? "Generating Video..." : `Generate ${durationSec}s Video`}</span>
+              {isRenderingVideo ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Stop Generation</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Generate {durationSec}s Video</span>
+                </>
+              )}
             </Button>
           </div>
         </div>

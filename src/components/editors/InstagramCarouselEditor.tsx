@@ -516,8 +516,14 @@ export default function InstagramCarouselEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isRenderingSlideMedia || !activeSlide.visualPrompt.trim()}
-              onClick={() => {
+              disabled={!isRenderingSlideMedia && !activeSlide.visualPrompt.trim()}
+              onClick={isRenderingSlideMedia ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
+                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                }));
+              } : () => {
                 const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
                 const safeAspectRatio =
                   slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
@@ -530,10 +536,23 @@ export default function InstagramCarouselEditor({
                   imageModel: "gemini-3-pro-image",
                 });
               }}
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
+              className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+                isRenderingSlideMedia 
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
+              }`}
             >
-              {isRenderingSlideMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isRenderingSlideMedia ? `Generating Slide ${currentIdx + 1} Visual...` : `Generate Slide ${currentIdx + 1} Visual`}</span>
+              {isRenderingSlideMedia ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Stop Generation</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>{`Generate Slide ${currentIdx + 1} Visual`}</span>
+                </>
+              )}
             </Button>
           </div>
         </div>

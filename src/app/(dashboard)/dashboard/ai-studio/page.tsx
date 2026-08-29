@@ -580,6 +580,21 @@ export default function AIStudioPage() {
   const [customPromptText, setCustomPromptText] = useState("");
   const [customPromptSlideIdx, setCustomPromptSlideIdx] = useState<number>(0);
 
+  // Global map of AbortControllers to allow users to cancel long-running generation (like 2-minute Veo videos)
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
+
+  useEffect(() => {
+    const handleCancelRender = (e: any) => {
+      const key = e.detail?.formatKey;
+      if (key && abortControllersRef.current[key]) {
+        abortControllersRef.current[key].abort();
+        delete abortControllersRef.current[key];
+      }
+    };
+    window.addEventListener("cancel-render-media", handleCancelRender);
+    return () => window.removeEventListener("cancel-render-media", handleCancelRender);
+  }, []);
+
   // Verification & live link modal for Publish, Schedule, and Draft actions
   const [statusModalData, setStatusModalData] = useState<{
     isOpen: boolean;
@@ -2123,10 +2138,14 @@ export default function AIStudioPage() {
       setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
       setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Synthesizing ${duration}s cinematic video stream...` }));
 
+      const controller = new AbortController();
+      abortControllersRef.current[targetFormatKey] = controller;
+
       try {
         const res = await fetch("/api/ai-studio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             step: "generate-media",
             platform: targetPlatform,
@@ -2211,11 +2230,18 @@ export default function AIStudioPage() {
           setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
         }
       } catch (err: any) {
-        setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
-        setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Video synthesis request failed." }));
-        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation failed." }));
-        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        if (err.name === 'AbortError') {
+          setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation stopped by user." }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        } else {
+          setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+          setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Video synthesis request failed." }));
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Video generation failed." }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        }
       } finally {
+        delete abortControllersRef.current[targetFormatKey];
         setRenderingMediaKeys(prev => {
           const next = { ...prev };
           delete next[targetFormatKey];
@@ -2229,10 +2255,14 @@ export default function AIStudioPage() {
     setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
     setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Synthesizing visual canvas with Nano Banana Pro..." }));
 
+    const controller = new AbortController();
+    abortControllersRef.current[targetFormatKey] = controller;
+
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "generate-media",
           platform: targetPlatform,
@@ -2321,10 +2351,16 @@ export default function AIStudioPage() {
       }
     } catch (err: any) {
       console.error("Image generation request failed:", err);
-      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
-      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
-      setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Image generation request failed." }));
+      if (err.name === 'AbortError') {
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation stopped by user." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+      } else {
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Image generation failed." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: err.message || "Image generation request failed." }));
+      }
     } finally {
+      delete abortControllersRef.current[targetFormatKey];
       setRenderingMediaKeys(prev => {
         const next = { ...prev };
         delete next[targetFormatKey];

@@ -706,24 +706,35 @@ export default function StandardSocialEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isRenderingMedia || !prompt.trim()}
-              onClick={handleTriggerGenerate}
-              className="w-full h-9 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white shadow-xs"
+              disabled={(!isRenderingMedia && !prompt.trim()) || isUploadingMedia}
+              onClick={isRenderingMedia ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
+                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                }));
+              } : handleTriggerGenerate}
+              className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+                isRenderingMedia 
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
+              }`}
             >
               {isRenderingMedia ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Stop Generation</span>
+                </>
               ) : (
-                <Sparkles className="h-3.5 w-3.5" />
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>
+                    {selectedMediaType === "video"
+                      ? `Generate ${videoDuration}s Video`
+                      : `Generate ${capability.format === "Story" ? "Story Image" : "Image"}`}
+                  </span>
+                </>
               )}
-              <span>
-                {isRenderingMedia
-                  ? selectedMediaType === "video"
-                    ? "Generating Video..."
-                    : "Generating Image..."
-                  : selectedMediaType === "video"
-                  ? `Generate ${videoDuration}s Video`
-                  : `Generate ${capability.format === "Story" ? "Story Image" : "Image"}`}
-              </span>
             </Button>
           </div>
         </div>
