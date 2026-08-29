@@ -559,9 +559,21 @@ Return ONLY the prompt string.`;
       const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${style || "default"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
       if (!sourceImage && !sourceVideo) {
         const cachedMedia = await cacheGet<any>(mediaCacheKey);
-        if (cachedMedia) {
-          console.log(`[AI Studio] Returning Redis cached media asset for ${platform} ${format}`);
-          return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+        if (cachedMedia && cachedMedia.url) {
+          const isVid = typeof cachedMedia.url === "string" && (
+            cachedMedia.url.endsWith(".mp4") ||
+            cachedMedia.url.endsWith(".webm") ||
+            cachedMedia.url.includes(".mp4?") ||
+            cachedMedia.mediaType === "video" ||
+            cachedMedia.type === "video"
+          );
+          if (targetMediaType === "video" && isVid) {
+            console.log(`[AI Studio] Returning Redis cached video asset for ${platform} ${format}`);
+            return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+          } else if (targetMediaType === "image" && !isVid) {
+            console.log(`[AI Studio] Returning Redis cached image asset for ${platform} ${format}`);
+            return NextResponse.json({ success: true, asset: cachedMedia, fromCache: true });
+          }
         }
       }
 

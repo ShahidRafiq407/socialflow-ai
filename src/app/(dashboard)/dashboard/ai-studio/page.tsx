@@ -1104,7 +1104,7 @@ export default function AIStudioPage() {
     setActiveSlideIdx(0);
   }, [activePlatformTab, currentFormatName]);
 
-  const isMultiFormat = currentFormatName === "Carousel" || currentFormatName === "Idea Pin" || currentFormatName === "Story" || currentFormatName === "Thread";
+  const isMultiFormat = currentFormatName === "Carousel" || currentFormatName === "Idea Pin" || currentFormatName === "Document" || currentFormatName === "Multiple Photos" || currentFormatName === "Multi-Image" || currentFormatName === "Thread";
   const isHtmlSlideFormat = false;
   const displayPrompts = isMultiFormat ? currentVisualPrompts : currentVisualPrompts.slice(0, 1);
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
@@ -2106,7 +2106,7 @@ export default function AIStudioPage() {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
-    const targetSlideIdx = activeSlideIdx;
+    const targetSlideIdx = isMultiFormat ? activeSlideIdx : 0;
     const targetMediaKey = `${targetPlatform}-${targetFormat}-${targetSlideIdx}`;
     
     const capability = getPlatformCapability(targetPlatform, targetFormat);
