@@ -107,15 +107,8 @@ async function generateRealVideo(options: {
   const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, signal, onProgress } = options;
   const ai = (vertexProvider as any).ai;
 
-  // Candidate models: try configured model first, followed by production Veo & Omni models
-  const candidateModels = Array.from(new Set([
-    model,
-    MODELS.VIDEO,
-    "veo-2.0-generate-001",
-    "veo-2.0-generate",
-    "veo-001",
-    "gemini-omni-flash-preview",
-  ].filter(Boolean)));
+  // Strictly lock video generation to gemini-omni-flash-preview as requested
+  const candidateModels = ["gemini-omni-flash-preview"];
 
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
