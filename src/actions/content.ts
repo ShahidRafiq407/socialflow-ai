@@ -10,10 +10,10 @@ export async function approvePost(postId: string) {
       data: { status: "APPROVED" },
     });
     revalidatePath("/dashboard/content");
-    return { success: true, post: updatedPost };
+    return { success: true, post: { id: updatedPost.id, status: updatedPost.status } };
   } catch (error: any) {
     console.error("Error approving post:", error);
-    throw new Error(error.message || "Failed to approve post");
+    return { success: false, error: error.message || "Failed to approve post" };
   }
 }
 
@@ -24,10 +24,10 @@ export async function rejectPost(postId: string) {
       data: { status: "REJECTED" },
     });
     revalidatePath("/dashboard/content");
-    return { success: true, post: updatedPost };
+    return { success: true, post: { id: updatedPost.id, status: updatedPost.status } };
   } catch (error: any) {
     console.error("Error rejecting post:", error);
-    throw new Error(error.message || "Failed to reject post");
+    return { success: false, error: error.message || "Failed to reject post" };
   }
 }
 
@@ -40,7 +40,7 @@ export async function deletePost(postId: string) {
     return { success: true };
   } catch (error: any) {
     console.error("Error deleting post:", error);
-    throw new Error(error.message || "Failed to delete post");
+    return { success: false, error: error.message || "Failed to delete post" };
   }
 }
 

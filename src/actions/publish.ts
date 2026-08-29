@@ -121,10 +121,18 @@ export async function schedulePost(postId: string, scheduledFor: Date) {
     // Best-effort Redis queue registration — the cron worker pulls due jobs from
     // this sorted set instead of scanning the whole Post table at scale.
     if (updated && scheduledFor.getTime() > Date.now()) {
-      await scheduleEnqueue(postId, scheduledFor.getTime());
+      await scheduleEnqueue(postId, scheduledFor.getTime()).catch(() => {});
     }
 
-    return updated;
+    return {
+      success: true,
+      id: updated.id,
+      post: {
+        id: updated.id,
+        status: updated.status,
+        scheduledFor: scheduledFor instanceof Date ? scheduledFor.toISOString() : String(scheduledFor),
+      },
+    };
   } catch (err: any) {
     console.error('[schedulePost Action Error]:', err);
     return {
@@ -258,21 +266,34 @@ export async function publishToPlatform(post: any, account: any) {
 }
 
 export async function approvePost(postId: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error('Unauthorized');
+  try {
+    const { userId } = await auth();
+    if (!userId) return { success: false, error: 'Unauthorized' };
 
-  const post = await prisma.post.findUnique({
-    where: { id: postId },
-  });
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+    });
 
-  if (!post) throw new Error('Post not found');
+    if (!post) return { success: false, error: 'Post not found' };
 
-  return await prisma.post.update({
-    where: { id: postId },
-    data: {
-      status: post.scheduledFor ? 'SCHEDULED' : 'APPROVED',
-    },
-  });
+    const updated = await prisma.post.update({
+      where: { id: postId },
+      data: {
+        status: post.scheduledFor ? 'SCHEDULED' : 'APPROVED',
+      },
+    });
+
+    return {
+      success: true,
+      id: updated.id,
+      post: {
+        id: updated.id,
+        status: updated.status,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to approve post' };
+  }
 }
 
 /**
@@ -366,16 +387,28 @@ export async function dispatchDueScheduledPosts() {
 }
 
 export async function rejectPost(postId: string, feedback?: string) {
-  const { userId } = await auth();
-  if (!userId) throw new Error('Unauthorized');
+  try {
+    const { userId } = await auth();
+    if (!userId) return { success: false, error: 'Unauthorized' };
 
-  // If rejected, it goes back to DRAFT state, perhaps saving feedback in a notes field or publishError
-  return await prisma.post.update({
-    where: { id: postId },
-    data: {
-      status: 'DRAFT',
-      publishError: feedback || 'Rejected by manager',
-    },
-  });
+    const updated = await prisma.post.update({
+      where: { id: postId },
+      data: {
+        status: 'DRAFT',
+        publishError: feedback || 'Rejected by manager',
+      },
+    });
+
+    return {
+      success: true,
+      id: updated.id,
+      post: {
+        id: updated.id,
+        status: updated.status,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to reject post' };
+  }
 }
 
