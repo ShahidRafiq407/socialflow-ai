@@ -152,6 +152,13 @@ export default function StandardSocialEditor({
     return "image";
   });
 
+  // Automatically switch to video tab when an active video URL is rendered or loaded
+  React.useEffect(() => {
+    if (displayImageUrl && isMediaVideo(displayImageUrl)) {
+      setSelectedMediaType("video");
+    }
+  }, [displayImageUrl]);
+
   const handleDownloadImage = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!displayImageUrl) return;
@@ -181,20 +188,24 @@ export default function StandardSocialEditor({
     }
   };
 
+  const isStoryFormat = capability.format === "Story";
+
   const handleTriggerGenerate = () => {
     if (selectedMediaType === "video") {
-      const safeVideoAspect = videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio;
+      const activeVideoAspect = isStoryFormat ? storyVideoAspectRatio : videoAspectRatio;
+      const activeVideoTask = isStoryFormat ? storyVideoTask : videoTask;
+      const safeVideoAspect = activeVideoAspect !== "auto" ? activeVideoAspect : capability.defaultAspectRatio || "9:16";
       onRenderAI({
         mediaType: "video",
-        duration: durationSec,
+        duration: videoDuration || durationSec || 5,
         prompt,
         aspectRatio: safeVideoAspect,
-        videoTask,
+        videoTask: activeVideoTask,
         sourceImage: attachedSourceImage,
-        sourceVideo: videoTask === "edit" ? displayImageUrl : null,
+        sourceVideo: activeVideoTask === "edit" ? displayImageUrl : null,
       });
     } else {
-      const safeAspectRatio = imageAspectRatio !== "auto" ? imageAspectRatio : capability.defaultAspectRatio;
+      const safeAspectRatio = imageAspectRatio !== "auto" ? imageAspectRatio : capability.defaultAspectRatio || "1:1";
       onRenderAI({
         mediaType: "image",
         prompt,
@@ -206,7 +217,6 @@ export default function StandardSocialEditor({
     }
   };
 
-  const isStoryFormat = capability.format === "Story";
   const mediaTitle = isStoryFormat
     ? `Story ${selectedMediaType === "video" ? "Video" : "Image"}`
     : selectedMediaType === "video"
@@ -256,7 +266,7 @@ export default function StandardSocialEditor({
             ) : displayImageUrl ? (
               <ContentMediaRenderer
                 url={displayImageUrl}
-                mediaType={selectedMediaType === "video" ? "video" : "image"}
+                mediaType={selectedMediaType === "video" || isMediaVideo(displayImageUrl) ? "video" : "auto"}
                 isVertical={isVertical}
                 onRemove={onRemoveMedia}
                 showDownloadButton={false}

@@ -438,8 +438,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
       videoStatus={props.videoStatus}
       videoError={props.videoError}
-      durationSec={props.durationSec}
-      onDurationChange={props.onDurationChange}
+      durationSec={props.durationSec || 5}
+      onDurationChange={props.onDurationChange || (() => {})}
       generationProgress={props.generationProgress}
       generationStage={props.generationStage}
       renderError={props.renderError}
