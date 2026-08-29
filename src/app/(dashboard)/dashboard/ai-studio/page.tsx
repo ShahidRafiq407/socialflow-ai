@@ -806,6 +806,22 @@ export default function AIStudioPage() {
   const [showProgressBox, setShowProgressBox] = useState(false);
   const [pipelineStep, setPipelineStep] = useState(0);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
+
+  // Shared handler for plan-gated AI features. Shows a clear upgrade prompt instead
+  // of silently failing or exposing raw API codes.
+  const isUpgradeSignal = (data: any): boolean => {
+    return Boolean(data && (data.error === "UPGRADE_REQUIRED" || data.reason === "UPGRADE_REQUIRED"));
+  };
+  const handleUpgradeRequired = (message?: string) => {
+    setUpgradeRequired(true);
+    setGenerationError(
+      message || "AI generation is available on Creator Pro and Agency & Scale plans. The Free plan supports manual composition and publishing."
+    );
+  };
+  const goToBilling = () => {
+    window.location.href = "/dashboard/billing?plan=PRO";
+  };
 
   // campaignTopic, campaignHook, campaignTrendSource, generatedContents, aiCampaignId,
   // htmlSlidesDict, brandTone are now in the persisted session store
@@ -822,6 +838,7 @@ export default function AIStudioPage() {
     setGenerationState("running");
     setShowProgressBox(true);
     setGenerationError(null);
+    setUpgradeRequired(false);
     setPipelineStep(0);
     setAgentLogs([]);
     const newCampaignId = `camp_${Date.now()}`;
@@ -844,6 +861,10 @@ export default function AIStudioPage() {
         let errMsg = "Failed to connect to AI Studio";
         try {
           const errData = await res.json();
+          if (isUpgradeSignal(errData)) {
+            handleUpgradeRequired(errData.message);
+            return;
+          }
           errMsg = errData.error || errMsg;
         } catch {}
         throw new Error(errMsg);
@@ -927,9 +948,12 @@ export default function AIStudioPage() {
       }
     } catch (err: any) {
       console.error("Campaign generation error:", err);
-      setGenerationError(err.message || "Failed to generate campaign");
+      if (err?.message === "UPGRADE_REQUIRED" || isUpgradeSignal(err)) {
+        handleUpgradeRequired();
+      } else {
+        setGenerationError(err.message || "Failed to generate campaign");
+      }
       setGenerationState("idle");
-      setTimeout(() => setShowProgressBox(false), 5000);
     }
   };
 
@@ -1225,6 +1249,10 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.data) {
         const item = data.data;
         const currentFamily = getFormatFamily(targetPlatform, targetFormat);
@@ -1324,6 +1352,10 @@ export default function AIStudioPage() {
           }),
         });
         const data = await res.json();
+        if (isUpgradeSignal(data)) {
+          handleUpgradeRequired(data.message);
+          return;
+        }
         if (data.success && data.slide) {
           setGeneratedContents(prev => {
             const currentPlat = prev[targetPlatform] || {};
@@ -1395,6 +1427,10 @@ export default function AIStudioPage() {
       });
       clearTimeout(timeoutId);
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.enhancedPrompt) {
         // Keep the user's FIRST original prompt recoverable — enhancement never
         // permanently overwrites their own words.
@@ -1465,6 +1501,10 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.value !== undefined) {
         if (field === "title") {
           setTitleDict(prev => ({ ...prev, [targetKey]: data.value }));
@@ -1530,6 +1570,10 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.prompt) {
         setCustomPromptDict(prev => ({ ...prev, [targetKey]: data.prompt }));
 
@@ -1578,6 +1622,10 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.data) {
         const item = data.data;
         if (item.caption) updateCaption(item.caption);
@@ -1655,6 +1703,10 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
       if (data.success && data.caption) {
         updateCaption(data.caption);
       }
@@ -2162,6 +2214,15 @@ export default function AIStudioPage() {
         });
         const data = await res.json();
 
+        if (isUpgradeSignal(data)) {
+          handleUpgradeRequired(data.message);
+          setVideoStatusDict(prev => ({ ...prev, [targetFormatKey]: "failed" }));
+          setVideoErrorDict(prev => ({ ...prev, [targetFormatKey]: data.message || "Video generation requires a paid plan." }));
+          setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Upgrade required." }));
+          setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+          return;
+        }
+
         if (data.success && data.asset?.url) {
           const isVid = isVideoUrl(data.asset.url) || data.asset.mediaType === "video" || data.asset.type === "video";
           if (!isVid) {
@@ -2277,6 +2338,14 @@ export default function AIStudioPage() {
         }),
       });
       const data = await res.json();
+
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Upgrade required." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: data.message || "Image generation requires a paid plan." }));
+        return;
+      }
 
       if (data.success && data.asset?.url) {
         // MEDIA TYPE VALIDATION — an image request must return a real image asset
@@ -2403,6 +2472,11 @@ export default function AIStudioPage() {
             }),
           });
           const data = await res.json();
+          if (isUpgradeSignal(data)) {
+            handleUpgradeRequired(data.message);
+            setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: data.message || "Image generation requires a paid plan." }));
+            return;
+          }
           if (data.success && data.asset?.url) {
             newRendered[slideKey] = data.asset.url;
             setRenderedImageUrlsDict({ ...newRendered });
@@ -3542,6 +3616,16 @@ export default function AIStudioPage() {
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                       {generationError ? `❌ ${generationError}` : generationState === "running" ? "Agents are currently researching and drafting..." : "Campaign successfully generated."}
                     </p>
+                    {upgradeRequired && generationError && (
+                      <button
+                        type="button"
+                        onClick={goToBilling}
+                        className="mt-3 inline-flex items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Upgrade Plan
+                      </button>
+                    )}
                   </div>
                   <button type="button" onClick={() => setShowProgressBox(false)} className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
                     <X className="h-4 w-4" />
@@ -5054,7 +5138,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro (gemini-3-pro-image)</option>
+                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro</option>
                   </select>
                 </div>
                 <div>
@@ -5512,7 +5596,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro (gemini-3-pro-image)</option>
+                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro</option>
                   </select>
                 </div>
                 <div>

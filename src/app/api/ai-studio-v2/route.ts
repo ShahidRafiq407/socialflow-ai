@@ -69,6 +69,21 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Workspace not found. Please create or configure your workspace first." }, { status: 404 });
       }
 
+      // Check plan AI access
+      const { checkAIAccess } = await import("@/lib/billing/gate");
+      const gate = await checkAIAccess(workspace.id);
+      if (!gate.allowed) {
+        return NextResponse.json(
+          {
+            error: "UPGRADE_REQUIRED",
+            reason: gate.reason,
+            requiredPlan: gate.requiredPlan,
+            message: gate.message,
+          },
+          { status: 403 }
+        );
+      }
+
       const currentRunId = runId || `run_${Date.now()}`;
       const abortController = new AbortController();
       activeRuns.set(currentRunId, abortController);

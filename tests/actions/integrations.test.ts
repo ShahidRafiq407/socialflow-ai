@@ -10,9 +10,17 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+vi.mock("@clerk/nextjs/server", () => ({
+  auth: vi.fn(async () => ({ userId: "user_test_1" })),
+}));
+
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+}));
+
 describe("integrations actions", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
   it("returns platform definitions when no workspace", async () => {

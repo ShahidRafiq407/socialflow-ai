@@ -340,7 +340,7 @@ export default function PluginsHQ() {
       {activeTab === "connectors" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Google Veo 3 / Gemini Video Engine (Primary) */}
+            {/* Veo 3 Video Engine (Primary) */}
             <div className="relative rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 shadow-sm hover:shadow-md transition-all">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -348,7 +348,7 @@ export default function PluginsHQ() {
                     <Video className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Google Veo 3 / Gemini Video</h3>
+                    <h3 className="font-bold text-slate-900 dark:text-white">Veo 3 Video Engine</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">Cinematic Video & Shorts Primary Engine</p>
                   </div>
                 </div>

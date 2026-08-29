@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,9 @@ interface UploadedFile {
   name: string;
   type: string;
   content: string;
+  size: number;
+  status: "uploading" | "processing" | "ready" | "failed" | "deleted";
+  error?: string;
 }
 
 export interface ChatSessionItem {
@@ -101,8 +105,8 @@ const TOOL_LABELS: Record<string, string> = {
   get_analytics: "Reading analytics",
   save_draft: "Saving draft post",
   schedule_post: "Scheduling post",
-  generate_image: "Generating AI image (gemini-3-pro-image)",
-  generate_video: "Generating AI video (gemini-omni-flash-preview)",
+  generate_image: "Generating AI image (Nano Banana Pro)",
+  generate_video: "Generating AI video (Veo engine)",
   create_campaign_post: "Creating full campaign post",
   update_brand_dna: "Updating Brand DNA",
   recall_memory: "Recalling memory",
@@ -147,6 +151,7 @@ export function ChatInterface({
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [error, setError] = useState("");
+  const [planBlocked, setPlanBlocked] = useState(false);
   const [notice, setNotice] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const [sessionsList, setSessionsList] = useState<ChatSessionItem[]>(initialSessionsList);
@@ -184,6 +189,11 @@ export function ChatInterface({
           return [{ id: event.sessionId, title: event.title || "New Chat", updatedAt: new Date() }, ...prev];
         });
       }
+      return;
+    }
+    if (event.type === "plan_blocked") {
+      setPlanBlocked(true);
+      setError(event.message || "The AI Brain is available on paid plans.");
       return;
     }
     if (event.type === "error") {
@@ -273,6 +283,7 @@ export function ChatInterface({
     if (!prompt || isLoading) return;
     setInput("");
     setError("");
+    setPlanBlocked(false);
     setNotice("");
     setActivity([]);
     setMessages((prev) => [...prev, { role: "user", content: prompt }]);
@@ -281,6 +292,7 @@ export function ChatInterface({
     let finalAnswer = "";
     let finalSuggestions: string[] = [];
     const finalToolCalls: any[] = [];
+    let planBlockedOccurred = false;
     
     abortControllerRef.current = new AbortController();
 
@@ -315,6 +327,10 @@ export function ChatInterface({
               if (Array.isArray(event.suggestions)) {
                 finalSuggestions = event.suggestions;
               }
+            }
+            if (event.type === "plan_blocked") {
+              planBlockedOccurred = true;
+              finalAnswer = `${event.message || "The AI Brain is available on Creator Pro and Agency plans."}\n\n[Upgrade to Creator Pro](/dashboard/billing)`;
             }
             if (event.type === "tool_end" && event.tool) finalToolCalls.push({ tool: event.tool, args: event.args, result: event.result });
           } catch {
@@ -367,8 +383,27 @@ export function ChatInterface({
         continue;
       }
       if (read.length >= MAX_FILES) break;
-      const content = await readFileText(f);
-      read.push({ name: relPath, type: f.type, content });
+      // Mark as uploading → ready (or failed) so the UI reflects a real lifecycle.
+      const entry: UploadedFile = {
+        name: relPath,
+        type: f.type,
+        content: "",
+        size: f.size,
+        status: "uploading",
+      };
+      read.push(entry);
+      const idx = read.length - 1;
+      try {
+        read[idx].content = await readFileBinary(f);
+        read[idx].status = "ready";
+        if (read[idx].content.startsWith("[Binary:") || read[idx].content.startsWith("[Unsupported")) {
+          read[idx].status = "failed";
+          read[idx].error = "Unsupported or binary-only file.";
+        }
+      } catch (e: any) {
+        read[idx].status = "failed";
+        read[idx].error = e?.message || "Failed to read file.";
+      }
     }
     setFiles((prev) => [...prev, ...read]);
     if (skipped > 0) {
@@ -380,34 +415,39 @@ export function ChatInterface({
     }
   }
 
-  function readFileText(file: File): Promise<string> {
-    return new Promise((resolve) => {
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => resolve(`[Image: ${file.name} — failed to read]`);
-        reader.readAsDataURL(file);
-        return;
-      }
-      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => resolve(`[PDF: ${file.name} — failed to read]`);
-        reader.readAsDataURL(file);
-        return;
-      }
-      if (/\.(zip|rar|7z|tar|gz)$/i.test(file.name)) {
-        resolve(`[Archive file: ${file.name} (size: ${(file.size / 1024).toFixed(1)} KB)]`);
-        return;
-      }
-      const binaryExt = /\.(exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
-      if (binaryExt.test(file.name)) {
-        resolve(`[Binary file: ${file.name} (${file.type || "unknown"}) — raw bytes not displayed]`);
-        return;
-      }
+  // Reads a file for transmission to the server. Structured/binary formats
+  // (PDF/DOCX/XLSX/PPTX/ZIP/images) are sent as base64 data URLs so the server
+  // can decode bytes and parse them structurally.
+  function readFileBinary(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => resolve(`[Failed to read: ${file.name}]`);
+      reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+
+      const isImage = file.type.startsWith("image/");
+      const isStructured = /\.(pdf|docx|xlsx|xlsm|pptx|zip)$/i.test(file.name);
+      const archiveExt = /\.(zip|rar|7z|tar|gz)$/i;
+      const binaryExt = /\.(exe|dll|so|dylib|bin|dat|iso|dmg|msi|apk|ipa|woff|woff2|ttf|otf|eot|mp3|mp4|avi|mov|mkv|wmv|flv|webm|ogg|wav|flac|aac|psd|ai|sketch|fig|blend|obj|stl|step|class|jar|pyc|o|a|lib|db|sqlite|sqlite3)$/i;
+
+      if (file.size > 25 * 1024 * 1024) {
+        resolve(`[Too large: ${file.name} (${(file.size / 1048576).toFixed(1)} MB) — exceeds 25 MB limit]`);
+        return;
+      }
+      if (binaryExt.test(file.name)) {
+        resolve(`[Binary: ${file.name} (${file.type || "unknown"}) — not parsed]`);
+        return;
+      }
+      // rar/7z/tar/gz are not handled server-side; note but still send metadata.
+      if (archiveExt.test(file.name) && !/\.zip$/i.test(file.name)) {
+        resolve(`[Unsupported archive: ${file.name} (only .zip is inspected)]`);
+        return;
+      }
+      // Structured docs + images → base64 so the server can parse bytes.
+      if (isImage || isStructured || file.type === "application/zip") {
+        reader.readAsDataURL(file);
+        return;
+      }
+      // Plain text → text
       reader.readAsText(file);
     });
   }
@@ -749,6 +789,14 @@ export function ChatInterface({
         {error && (
           <div className="flex items-center gap-2 text-xs text-red-500">
             <AlertCircle className="h-3.5 w-3.5" /> {error}
+            {planBlocked && (
+              <Link
+                href="/dashboard/billing?plan=PRO"
+                className="ml-1 inline-flex items-center gap-1 rounded-md bg-slate-900 dark:bg-white px-2.5 py-1 text-[11px] font-semibold text-white dark:text-slate-900 hover:opacity-80 transition-opacity"
+              >
+                <Sparkles className="h-3 w-3" /> Upgrade
+              </Link>
+            )}
           </div>
         )}
 
@@ -765,9 +813,24 @@ export function ChatInterface({
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {files.map((f) => (
-              <span key={f.name} className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                <FileText className="h-3 w-3 text-slate-400" />
+              <span key={f.name} className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md border ${
+                f.status === "failed"
+                  ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900"
+                  : f.status === "uploading" || f.status === "processing"
+                    ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+              }`}>
+                {f.status === "uploading" || f.status === "processing" ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+                ) : f.status === "failed" ? (
+                  <AlertCircle className="h-3 w-3 text-red-500" />
+                ) : (
+                  <FileText className="h-3 w-3 text-slate-400" />
+                )}
                 {f.name}
+                {f.status === "failed" && f.error && (
+                  <span className="text-[10px] text-red-500" title={f.error}>⚠ {f.error}</span>
+                )}
                 <button type="button" onClick={() => removeFile(f.name)} className="text-slate-400 hover:text-slate-600">
                   <X className="h-3 w-3" />
                 </button>
@@ -1007,10 +1070,10 @@ function formatToolResult(tool?: string, result?: any): string {
         return `Impressions: ${result.totalImpressions?.toLocaleString() || "—"}\nClicks: ${result.totalClicks?.toLocaleString() || "—"}\nLeads: ${result.leadsAchieved || "—"}\nEngagement: ${result.avgEngagementRate || "—"}`;
       }
       case "generate_image": {
-        return `Generated Image (gemini-3-pro-image)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "1:1"}\nStatus: Saved to Content Library\nAsset URL: ${(result.url || "").slice(0, 80)}…`;
+        return `Generated Image (Nano Banana Pro)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "1:1"}\nStatus: Saved to Content Library\nAsset URL: ${(result.url || "").slice(0, 80)}…`;
       }
       case "generate_video": {
-        return `Generated Video Reel (gemini-omni-flash-preview)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "9:16"}\nStatus: Saved to Media Assets\nVideo URL: ${(result.url || "").slice(0, 80)}…`;
+        return `Generated Video Reel (Veo engine)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "9:16"}\nStatus: Saved to Media Assets\nVideo URL: ${(result.url || "").slice(0, 80)}…`;
       }
       case "schedule_post": {
         return `Post Scheduled for ${result.scheduledFor ? new Date(result.scheduledFor).toLocaleString() : "tomorrow"}\nPlatform: ${result.platform}\nStatus: SCHEDULED (Visible in Calendar & Content Library)`;

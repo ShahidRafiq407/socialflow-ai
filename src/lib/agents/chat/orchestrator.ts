@@ -20,7 +20,7 @@ export interface BrainInput {
   workspaceId: string;
   userId: string;
   history?: ChatMessage[];
-  uploadedFiles?: { name: string; content: string; type: string }[];
+  uploadedFiles?: { name: string; content: string; type: string; size?: number }[];
   onEvent?: (event: Record<string, any>) => void;
 }
 
@@ -253,7 +253,9 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   const brandBlock = brand ? `\nBRAND DNA:\n${JSON.stringify(brand)}` : "";
 
   const filesBlock = uploadedFiles.length
-    ? `\nUPLOADED ATTACHMENTS (${uploadedFiles.length}):\n${uploadedFiles.map((f) => `- ${f.name} (${f.type || "file"})`).join("\n")}`
+    ? `\nUPLOADED ATTACHMENTS (${uploadedFiles.length}):\n${uploadedFiles
+        .map((f) => `- ${f.name} (${f.type || "file"}${f.size ? `, ${(f.size / 1024).toFixed(1)} KB` : ""})`)
+        .join("\n")}\n\nIMPORTANT: To read these attachments, call the read_uploaded_files tool. It returns extracted text AND verified citations (page/sheet/slide locators) you MUST use when summarizing or answering from the documents.`
     : "";
 
   const context = `\nCONVERSATION HISTORY:\n${historyBlock || "(none)"}${memoryBlock}${brandBlock}${filesBlock}`;

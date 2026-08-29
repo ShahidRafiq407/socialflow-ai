@@ -110,6 +110,7 @@ export default function MultiAgentStreamModal({
   const [completedPayload, setCompletedPayload] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedAgentId, setFailedAgentId] = useState<string | null>(null);
+  const [upgradeRequired, setUpgradeRequired] = useState(false);
 
   const agentOutputsRef = useRef<Record<string, any>>({});
   const runIdRef = useRef<string>(`run_${Date.now()}`);
@@ -119,6 +120,7 @@ export default function MultiAgentStreamModal({
   const startStream = useCallback(async (retryOptions?: { resumeFromAgent?: string }) => {
     setIsCompleted(false);
     setErrorMessage(null);
+    setUpgradeRequired(false);
     setCompletedPayload(null);
 
     const isRetry = Boolean(retryOptions?.resumeFromAgent);
@@ -210,7 +212,10 @@ export default function MultiAgentStreamModal({
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({ error: "Server error" }));
-        throw new Error(errJson.error || `HTTP ${res.status}`);
+        if (errJson.error === "UPGRADE_REQUIRED") {
+          setUpgradeRequired(true);
+        }
+        throw new Error(errJson.message || errJson.error || `HTTP ${res.status}`);
       }
 
       if (!res.body) throw new Error("No response body");
@@ -791,14 +796,25 @@ export default function MultiAgentStreamModal({
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-red-400">{errorMessage}</span>
                         </div>
-                        <Button
-                          size="sm"
-                          onClick={() => handleRetry(failedAgentId || selectedAgentId)}
-                          className="bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 transition-all font-medium"
-                        >
-                          <RotateCw className="w-3.5 h-3.5" />
-                          Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
-                        </Button>
+                        {upgradeRequired ? (
+                          <button
+                            type="button"
+                            onClick={() => (window.location.href = "/dashboard/billing?plan=PRO")}
+                            className="inline-flex items-center gap-1.5 bg-white text-slate-900 text-xs font-semibold px-3.5 py-1.5 h-8 rounded-lg flex items-center shrink-0 transition-colors hover:opacity-90"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Upgrade Plan
+                          </button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRetry(failedAgentId || selectedAgentId)}
+                            className="bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 transition-all font-medium"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>

@@ -1599,7 +1599,7 @@ export function LeadGoalHQ({
                 Active Permissions (Guaranteed Safety):
               </p>
               <p className="text-slate-600 dark:text-slate-400">✓ AI generates captions &amp; copy into drafts</p>
-              <p className="text-slate-600 dark:text-slate-400">✓ AI generates visual assets via gemini-3-pro-image</p>
+              <p className="text-slate-600 dark:text-slate-400">✓ AI generates visual assets with Nano Banana Pro</p>
               <p className="text-slate-600 dark:text-slate-400">✓ AI schedules content during audience peak hours</p>
               <p className="text-slate-600 dark:text-slate-400">□ Direct API publishing requires user approval in Assisted mode</p>
             </div>

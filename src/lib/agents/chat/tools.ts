@@ -9,6 +9,7 @@ import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset } from "../mediaGenerator";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { removeFromScheduleQueue } from "@/lib/redis";
+import { parseAllUploadedFiles } from "./documentParser";
 
 // ============================================================================
 // MARKETING BRAIN — TOOL REGISTRY
@@ -20,7 +21,7 @@ export interface ToolContext {
   workspaceId: string;
   userId: string;
   brandDNA?: any;
-  uploadedFiles?: { name: string; content: string; type: string }[];
+  uploadedFiles?: { name: string; content: string; type: string; size?: number }[];
   onProgress?: (message: string) => void;
 }
 
@@ -746,17 +747,38 @@ INSTRUCTIONS:
   {
     name: "read_uploaded_files",
     description:
-      "Read the contents of all files the user uploaded (code, text, csv, md, json, ino, documents, or base64 images). Returns file names, types, and their complete text/data content.",
+      "Read and structurally parse the files the user uploaded (PDF, DOCX, XLSX, PPTX, CSV, TXT, MD, JSON, images, or ZIP archives). Returns extracted text, per-file summaries, and verified citations (page/sheet/slide) for grounding your answer. ZIPs are inspected safely (no execution).",
     parameters: { type: "object", properties: {} },
     execute: async (args, ctx) => {
-      const files = ctx.uploadedFiles || [];
-      if (files.length === 0) return { files: [], note: "No files uploaded." };
+      const rawFiles = (ctx.uploadedFiles || []) as { name: string; content: string; type: string }[];
+      if (rawFiles.length === 0) return { files: [], note: "No files uploaded." };
+
+      const parsed = await parseAllUploadedFiles(
+        rawFiles.map((f) => ({ name: f.name, type: f.type, content: f.content }))
+      );
+
+      const files = parsed.map((p) => ({
+        name: p.name,
+        kind: p.kind,
+        summary: p.summary,
+        citations: p.citations,
+        content: p.error
+          ? `[Could not read: ${p.error}]`
+          : p.text || p.sections.map((s) => s.text).join("\n"),
+        structure: p.structure,
+      }));
+
+      const errors = parsed.filter((p) => p.error);
       return {
-        files: files.map((f) => ({
-          name: f.name,
-          type: f.type,
-          content: (f.content || "").slice(0, 35000),
-        })),
+        files,
+        note:
+          errors.length > 0
+            ? `${errors.length} file(s) could not be fully parsed: ${errors.map((e) => e.name).join(", ")}`
+            : undefined,
+        // Flatten citations so the orchestrator can surface verified sources.
+        citations: parsed
+          .filter((p) => p.citations.length)
+          .flatMap((p) => p.citations.map((c) => ({ file: p.name, locator: c.locator }))),
       };
     },
   },

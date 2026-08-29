@@ -463,6 +463,10 @@ export function ArticleWriterHQ({
         }),
       });
       const data = await res.json();
+      if (isUpgradeRequired(data)) {
+        handleUpgradeRequired(data.message || "SEO enhancement is available on paid plans.");
+        return;
+      }
       if (data.success && data.enhancedHtml) {
         setArticle((prev) =>
           prev
@@ -479,6 +483,7 @@ export function ArticleWriterHQ({
         alert("✨ 1-Click SEO & E-E-A-T Enhancement Complete! SEO Score upgraded to 98-100/100 without altering formatting or tone.");
       }
     } catch (e: any) {
+      if (e?.message?.includes("UPGRADE_REQUIRED")) return;
       alert("Error enhancing SEO: " + e.message);
     } finally {
       setIsEnhancingSeo(false);
@@ -779,6 +784,19 @@ export function ArticleWriterHQ({
     alert(`📋 ${label} copied to clipboard!`);
   };
 
+  const handleUpgradeRequired = (message?: string) => {
+    const msg =
+      message ||
+      "This feature is available on Creator Pro and Agency & Scale plans. The Free plan supports manual article editing only.";
+    if (window.confirm(`${msg}\n\nGo to Billing to upgrade?`)) {
+      window.location.href = "/dashboard/billing?plan=PRO";
+    }
+  };
+
+  const isUpgradeRequired = (data: any): boolean => {
+    return Boolean(data && (data.error === "UPGRADE_REQUIRED" || data.reason === "UPGRADE_REQUIRED"));
+  };
+
   const filteredCategories = wpCategories.filter((c) =>
     c.name.toLowerCase().includes(categorySearch.toLowerCase())
   );
@@ -807,6 +825,10 @@ export function ArticleWriterHQ({
         }),
       });
       const data = await res.json();
+      if (isUpgradeRequired(data)) {
+        handleUpgradeRequired(data.message || "AI keyword research is available on paid plans.");
+        return;
+      }
       if (data.success && Array.isArray(data.keywords) && data.keywords.length > 0) {
         setKeywordSuggestions(data.keywords);
         setShowKeywordSuggestions(true);
@@ -817,17 +839,10 @@ export function ArticleWriterHQ({
         throw new Error(data.error || "Failed to generate keywords");
       }
     } catch (err: any) {
-      const fallback = [
-        `best ${industry || "technology"} solutions for 2026`,
-        `how to implement ${industry || "automation"} strategies efficiently`,
-        `top 10 trends in ${industry || "embedded systems"} you need to know`,
-        `complete guide to ${industry || "robotics"} for ${targetAudience || "engineers"}`,
-      ];
-      setKeywordSuggestions(fallback);
-      setShowKeywordSuggestions(true);
-      if (!keyword.trim()) {
-        setKeyword(fallback[0]);
+      if (err?.message?.includes("UPGRADE_REQUIRED")) {
+        return;
       }
+      alert("Keyword research is unavailable right now. Please check your connections and try again.");
     } finally {
       setIsSuggestingKeywords(false);
     }
@@ -854,6 +869,10 @@ export function ArticleWriterHQ({
         }),
       });
       const data = await res.json();
+      if (isUpgradeRequired(data)) {
+        handleUpgradeRequired(data.message || "AI title generation is available on paid plans.");
+        return;
+      }
       if (data.success && Array.isArray(data.titles) && data.titles.length > 0) {
         setTitleSuggestions(data.titles);
         setShowTitleSuggestions(true);
@@ -863,16 +882,10 @@ export function ArticleWriterHQ({
         throw new Error(data.error || "Failed to generate titles");
       }
     } catch (err: any) {
-      // Fallback
-      const fallback = [
-        `${keyword}: The Complete 2026 Guide (Expert Breakdown)`,
-        `How to Master ${keyword} — 7 Proven Strategies That Work`,
-        `${keyword} Explained: Everything You Need to Know`,
-        `Top 10 ${keyword} Tips for Professionals in 2026`,
-      ];
-      setTitleSuggestions(fallback);
-      setShowTitleSuggestions(true);
-      setCustomTitle(fallback[0]);
+      if (err?.message?.includes("UPGRADE_REQUIRED")) {
+        return;
+      }
+      alert("Title generation is unavailable right now. Please try again.");
     } finally {
       setIsGeneratingTitle(false);
     }
@@ -910,6 +923,10 @@ export function ArticleWriterHQ({
           }),
         });
         const serpJson = await serpRes.json();
+        if (isUpgradeRequired(serpJson)) {
+          handleUpgradeRequired(serpJson.message || "SERP research is available on paid plans.");
+          return;
+        }
         if (serpJson.serpData) {
           currentSerp = serpJson.serpData;
           setSerpData(currentSerp);
@@ -943,6 +960,10 @@ export function ArticleWriterHQ({
       });
       const genJson = await genRes.json();
       updateStep("generate", "completed");
+      if (isUpgradeRequired(genJson)) {
+        handleUpgradeRequired(genJson.message || "Article generation is available on paid plans.");
+        return;
+      }
 
       // Step 4: Media
       updateStep("media", "working");
@@ -963,6 +984,7 @@ export function ArticleWriterHQ({
       }
       updateStep("audit", "completed");
     } catch (err: any) {
+      if (err?.message?.includes("UPGRADE_REQUIRED")) return;
       console.error("Pipeline error:", err);
       alert("Error executing pipeline: " + (err.message || "Unknown error"));
     } finally {
@@ -1111,6 +1133,10 @@ export function ArticleWriterHQ({
         }),
       });
       const data = await res.json();
+      if (isUpgradeRequired(data)) {
+        handleUpgradeRequired(data.message || "AI category suggestions are available on paid plans.");
+        return;
+      }
       if (data.success && Array.isArray(data.suggested) && data.suggested.length > 0) {
         const matchedIds: number[] = [];
         data.suggested.forEach((suggName: string) => {

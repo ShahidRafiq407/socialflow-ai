@@ -27,6 +27,38 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { step } = body;
 
+    // ── AI GATING ─────────────────────────────────────────────────────────────
+    // Steps that consume paid AI generation require a paid plan.
+    const aiSteps = new Set([
+      "generate",
+      "serp-only",
+      "suggest-keyword",
+      "suggest-title",
+      "suggest-categories",
+      "enhance-seo",
+    ]);
+    if (aiSteps.has(step)) {
+      const workspace = await prisma.workspace.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      if (workspace) {
+        const { checkAIAccess } = await import("@/lib/billing/gate");
+        const gate = await checkAIAccess(workspace.id);
+        if (!gate.allowed) {
+          return NextResponse.json(
+            {
+              error: "UPGRADE_REQUIRED",
+              reason: gate.reason,
+              requiredPlan: gate.requiredPlan,
+              message: gate.message,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     // =========================================================================
     // STEP: WordPress Connect & Fetch Metadata
     // =========================================================================

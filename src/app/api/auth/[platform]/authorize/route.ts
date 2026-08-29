@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
+import prisma from "@/lib/db";
 import {
   getOAuthConfig,
   getCallbackUrl,
@@ -44,6 +45,21 @@ export async function GET(
         { error: `OAuth credentials not configured for ${config.displayName}.` },
         { status: 500 }
       );
+    }
+
+    // ── Plan limit gate: Free plan supports up to 2 connected accounts ────────
+    const workspace = await prisma.workspace.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (workspace) {
+      const { checkSocialAccountLimit } = await import("@/lib/billing/gate");
+      const limit = await checkSocialAccountLimit(workspace.id);
+      if (!limit.allowed) {
+        return NextResponse.redirect(
+          new URL(`/dashboard/billing?status=error&message=${encodeURIComponent(limit.message || "Account limit reached")}`, req.url)
+        );
+      }
     }
 
     // Generate CSRF state token

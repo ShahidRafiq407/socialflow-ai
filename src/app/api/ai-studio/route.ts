@@ -8,6 +8,8 @@ import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
 import { cacheGet, cacheSet } from "@/lib/redis";
 
+import { checkAIAccess } from "@/lib/billing/gate";
+
 /** Hard character clamp at a word boundary — programmatic platform limit enforcement. */
 function clampText(text: string, limit: number): string {
   if (text.length <= limit) return text;
@@ -37,6 +39,31 @@ export async function POST(req: Request) {
 
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found. Please complete onboarding." }, { status: 404 });
+    }
+
+    // Gating check: AI generation features require Creator Pro or Agency plan.
+    // Covers every LLM/media-consuming step exposed by this route.
+    const isGatedAIStep =
+      (typeof step === "string" && step.startsWith("generate-")) ||
+      step === "regenerate-slide" ||
+      step === "slide-regenerate" ||
+      step === "ai-field-generate" ||
+      step === "enhance-prompt" ||
+      step === "auto-prompt-from-script" ||
+      step === "refine-caption";
+    if (isGatedAIStep) {
+      const gate = await checkAIAccess(workspace.id);
+      if (!gate.allowed) {
+        return NextResponse.json(
+          {
+            error: "UPGRADE_REQUIRED",
+            reason: gate.reason,
+            requiredPlan: gate.requiredPlan,
+            message: gate.message,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     const brandDNA = {

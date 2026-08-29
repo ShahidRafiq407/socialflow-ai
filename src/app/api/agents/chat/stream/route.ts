@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
 import { runBrain } from "@/lib/agents/chat/orchestrator";
+import { checkAIAccess } from "@/lib/billing/gate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,6 +17,42 @@ export async function POST(req: Request) {
 
   if (!prompt || !workspaceId) {
     return new Response(JSON.stringify({ error: "prompt and workspaceId required" }), { status: 400 });
+  }
+
+  // Verify the workspace belongs to the user.
+  const workspace = await prisma.workspace.findFirst({
+    where: { id: workspaceId, userId },
+    select: { id: true },
+  });
+  if (!workspace) {
+    return new Response(JSON.stringify({ error: "Workspace not found" }), { status: 404 });
+  }
+
+  // Plan gate: the AI Brain requires a paid plan.
+  const gate = await checkAIAccess(workspace.id);
+  if (!gate.allowed) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              type: "plan_blocked",
+              message: gate.message,
+              requiredPlan: gate.requiredPlan,
+            })}\n\n`
+          )
+        );
+        controller.close();
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
   }
 
   // Find or create the chat session
