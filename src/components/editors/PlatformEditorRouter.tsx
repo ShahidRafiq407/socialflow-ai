@@ -116,6 +116,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   if (platform === "pinterest" && (format === "Pin" || format === "Standard Pin" || format === "Video Pin")) {
     return (
       <PinterestPinEditor
+        key={`${platform}-${format}`}
         capability={capability}
         title={props.title}
         onTitleChange={props.onTitleChange}
@@ -166,6 +167,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
 
     return (
       <PinterestIdeaPinEditor
+        key={`${platform}-${format}`}
         capability={capability}
         title={props.title ?? ""}
         onTitleChange={props.onTitleChange}
@@ -225,6 +227,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
 
     return (
       <InstagramCarouselEditor
+        key={`${platform}-${format}`}
         capability={capability}
         caption={props.caption ?? ""}
         onCaptionChange={props.onCaptionChange}
@@ -269,6 +272,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
 
     return (
       <LinkedInDocumentEditor
+        key={`${platform}-${format}`}
         capability={capability}
         documentTitle={props.title ?? ""}
         onDocumentTitleChange={props.onTitleChange}
@@ -317,6 +321,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   ) {
     return (
       <MultiMediaEditor
+        key={`${platform}-${format}`}
         capability={capability}
         caption={props.caption}
         onCaptionChange={props.onCaptionChange}
@@ -359,6 +364,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   ) {
     return (
       <VideoPostEditor
+        key={`${platform}-${format}`}
         capability={capability}
         title={props.title}
         onTitleChange={props.onTitleChange}
@@ -406,6 +412,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   // 7. DEFAULT STANDARD SOCIAL EDITOR (Feed Single Image / Story / Text Post)
   return (
     <StandardSocialEditor
+      key={`${platform}-${format}`}
       capability={capability}
       caption={props.caption}
       onCaptionChange={props.onCaptionChange}
