@@ -1710,7 +1710,10 @@ export default function AIStudioPage() {
       if (file.size > 3 * 1024 * 1024) {
         try {
           const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
-          if (!signRes.ok) throw new Error("Could not get signed upload URL from backend");
+          if (!signRes.ok) {
+            const errBody = await signRes.json().catch(() => null);
+            throw new Error(errBody?.error || `Could not get signed upload URL from backend (HTTP ${signRes.status})`);
+          }
           
           const signData = await signRes.json();
           if (!signData.signedUrl) throw new Error("Backend did not return a signedUrl");
@@ -1753,10 +1756,16 @@ export default function AIStudioPage() {
           
         } catch (chunkErr: any) {
           console.error("[Upload] Direct upload error:", chunkErr);
-          setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
-          setTimeout(() => setPublishResult(null), 4000);
-          clearUpload();
-          return;
+          // Fallback: files only slightly above the 3MB threshold can still go
+          // through the server-mediated multipart route below (Vercel accepts
+          // request bodies up to ~4.5MB). Truly large files must surface the
+          // real signed-URL error instead of failing silently.
+          if (file.size > 4.2 * 1024 * 1024) {
+            setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
+            setTimeout(() => setPublishResult(null), 4000);
+            clearUpload();
+            return;
+          }
         }
       }
 
@@ -3220,7 +3229,10 @@ export default function AIStudioPage() {
         setPublishResult({ success: true, message: `Uploading ${file.name}...` });
         try {
           const signRes = await fetch(`/api/uploads?filename=${encodeURIComponent(file.name)}`);
-          if (!signRes.ok) throw new Error("Could not get signed upload URL from backend");
+          if (!signRes.ok) {
+            const errBody = await signRes.json().catch(() => null);
+            throw new Error(errBody?.error || `Could not get signed upload URL from backend (HTTP ${signRes.status})`);
+          }
           
           const signData = await signRes.json();
           if (!signData.signedUrl) throw new Error("Backend did not return a signedUrl");
@@ -3252,9 +3264,15 @@ export default function AIStudioPage() {
           
         } catch (chunkErr: any) {
           console.error("[Upload] Direct upload error:", chunkErr);
-          setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
-          setTimeout(() => setPublishResult(null), 4000);
-          return;
+          // Fallback: files only slightly above the 3MB threshold can still go
+          // through the server-mediated multipart route below (Vercel accepts
+          // request bodies up to ~4.5MB). Truly large files must surface the
+          // real signed-URL error.
+          if (file.size > 4.2 * 1024 * 1024) {
+            setPublishResult({ success: false, message: `Upload failed: ${chunkErr.message || "Network error"}` });
+            setTimeout(() => setPublishResult(null), 4000);
+            return;
+          }
         }
       }
 

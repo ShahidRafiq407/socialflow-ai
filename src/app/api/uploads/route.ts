@@ -14,11 +14,14 @@ export async function GET(req: NextRequest) {
     const filename = searchParams.get('filename') || 'media_asset';
 
     const signed = await createSignedUploadUrl(filename);
-    if (signed) {
+    if (signed.ok) {
       return NextResponse.json(signed, { status: 200 });
     }
 
-    return NextResponse.json({ error: 'Direct signed upload not available' }, { status: 404 });
+    // Surface the REAL reason (bad key, missing bucket, RLS, ...) instead of a
+    // generic 404 — it lands in the UI toast and in Vercel function logs.
+    console.error('[Uploads] Signed upload ticket failed:', signed.error);
+    return NextResponse.json({ error: signed.error }, { status: 500 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed to create upload ticket' }, { status: 500 });
   }

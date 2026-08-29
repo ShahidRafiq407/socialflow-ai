@@ -2,6 +2,13 @@ import prisma from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
 import { PlanTier, getPlanConfig, canAccessAI, getMaxSocialAccounts } from "./plans";
 
+// ──────────────────────────────────────────────────────────────────────────
+// TEMPORARY KILL-SWITCH: billing/subscription gating is DISABLED so every
+// feature can be tested without a paid plan. Flip back to `true` to re-enable
+// plan checks (AI generation gating + social account limits).
+// ──────────────────────────────────────────────────────────────────────────
+export const BILLING_ENABLED = false;
+
 export interface PlanGateResult {
   allowed: boolean;
   currentPlan: PlanTier;
@@ -33,6 +40,10 @@ export interface BillingEvent {
  * Server-side guard to verify if an action requiring AI generation is permitted.
  */
 export async function checkAIAccess(workspaceId?: string): Promise<PlanGateResult> {
+  // TEMP: billing disabled — allow every workspace (see BILLING_ENABLED above).
+  if (!BILLING_ENABLED) {
+    return { allowed: true, currentPlan: "AGENCY" };
+  }
   const { plan } = await getWorkspacePlan(workspaceId);
   const allowed = canAccessAI(plan);
 
@@ -58,6 +69,10 @@ export async function checkAIAccess(workspaceId?: string): Promise<PlanGateResul
  * the current plan limits (Free = up to 2 accounts).
  */
 export async function checkSocialAccountLimit(workspaceId: string): Promise<PlanGateResult> {
+  // TEMP: billing disabled — allow unlimited connected accounts for testing.
+  if (!BILLING_ENABLED) {
+    return { allowed: true, currentPlan: "AGENCY" };
+  }
   const { plan } = await getWorkspacePlan(workspaceId);
   const maxAccounts = getMaxSocialAccounts(plan);
 

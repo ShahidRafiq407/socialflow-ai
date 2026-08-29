@@ -122,37 +122,61 @@ async function ensureBucketPublic(bucketName: string = 'uploads'): Promise<void>
   }
 }
 
-export async function createSignedUploadUrl(filename: string): Promise<{ signedUrl: string; publicUrl: string; storagePath: string } | null> {
-  if (!isSupabaseConfigured()) return null;
+export type SignedUploadTicket =
+  | { ok: true; signedUrl: string; publicUrl: string; storagePath: string }
+  | { ok: false; error: string };
+
+/**
+ * Creates a Supabase signed UPLOAD URL so the browser can PUT large files
+ * directly to Storage, bypassing Vercel's ~4.5MB request-body limit.
+ *
+ * Previously this silently returned `null` on ANY failure, which surfaced in
+ * the UI as the unhelpful "Could not get signed upload URL from backend".
+ * Now the exact Supabase response (status + body) is captured, logged, and
+ * returned so the UI toast / Vercel logs show the real cause (missing bucket,
+ * insufficient key permissions, wrong env key, etc.).
+ */
+export async function createSignedUploadUrl(filename: string): Promise<SignedUploadTicket> {
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: 'Supabase storage is not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing in environment).' };
+  }
   const bucketName = 'uploads';
   await ensureBucketPublic(bucketName);
   const timestamp = Date.now();
   const cleanName = (filename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
   const storagePath = `${timestamp}-${cleanName}`;
+  const signEndpoint = `${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`;
 
-  try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-        'apikey': SUPABASE_SERVICE_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ expiresIn: 3600 }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const relativeSignedUrl = data.url || data.signedUrl || data.signedURL;
-      if (relativeSignedUrl) {
-        const fullSignedUrl = formatSignedUploadUrl(relativeSignedUrl);
-        const publicUrl = getPublicUrl(storagePath);
-        return { signedUrl: fullSignedUrl, publicUrl, storagePath };
+  const attemptSign = async (): Promise<{ signedUrl?: string; error?: string }> => {
+    try {
+      const res = await fetch(signEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      const text = await res.text();
+      if (res.ok) {
+        let data: any = null;
+        try { data = JSON.parse(text); } catch { /* handled below */ }
+        const relativeSignedUrl = data?.url || data?.signedUrl || data?.signedURL;
+        if (relativeSignedUrl) return { signedUrl: formatSignedUploadUrl(relativeSignedUrl) };
+        return { error: `Supabase sign response did not include a url field (body: ${text.slice(0, 200)})` };
       }
+      return { error: `Supabase sign endpoint returned HTTP ${res.status}: ${text.slice(0, 300)}` };
+    } catch (err: any) {
+      return { error: `Signed-URL request failed: ${err?.message || String(err)}` };
     }
+  };
 
-    // Auto-create bucket if missing
-    if (res.status === 404) {
+  let result = await attemptSign();
+
+  // Auto-create the bucket and retry once when it simply does not exist yet.
+  if (!result.signedUrl && /404|Bucket not found/i.test(result.error || '')) {
+    try {
       await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
         method: 'POST',
         headers: {
@@ -162,29 +186,16 @@ export async function createSignedUploadUrl(filename: string): Promise<{ signedU
         },
         body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
       });
-      const retryRes = await fetch(`${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-          'apikey': SUPABASE_SERVICE_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ expiresIn: 3600 }),
-      });
-      if (retryRes.ok) {
-        const retryData = await retryRes.json();
-        const relativeSignedUrl = retryData.url || retryData.signedUrl || retryData.signedURL;
-        if (relativeSignedUrl) {
-          const fullSignedUrl = formatSignedUploadUrl(relativeSignedUrl);
-          const publicUrl = getPublicUrl(storagePath);
-          return { signedUrl: fullSignedUrl, publicUrl, storagePath };
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Supabase] createSignedUploadUrl error:', err);
+    } catch { /* non-fatal — the retry result decides */ }
+    result = await attemptSign();
   }
-  return null;
+
+  if (!result.signedUrl) {
+    console.error('[Supabase] createSignedUploadUrl failed:', result.error);
+    return { ok: false, error: result.error || 'Unknown signed-upload failure' };
+  }
+
+  return { ok: true, signedUrl: result.signedUrl, publicUrl: getPublicUrl(storagePath), storagePath };
 }
 
 export function getPublicUrl(storagePath: string): string {
