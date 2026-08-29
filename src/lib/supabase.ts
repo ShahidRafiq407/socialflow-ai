@@ -219,10 +219,9 @@ export async function deleteFile(storagePath: string): Promise<void> {
 
 
 /**
- * Saves a binary media buffer using the best available storage backend:
- * 1. Supabase Storage (if configured)
- * 2. Local public/uploads/ directory (on local disk or Node server)
- * 3. PostgreSQL MediaAsset record (on Vercel Serverless read-only filesystem)
+ * Saves a binary media buffer to Supabase Storage (production) or local disk (dev).
+ * DB fallback has been REMOVED to prevent Neon bandwidth exhaustion.
+ * If Supabase is unavailable/paused, this will throw a clear error.
  */
 export async function saveMediaBuffer(
   buffer: Buffer | ArrayBuffer,
@@ -235,20 +234,21 @@ export async function saveMediaBuffer(
   const filename = `${timestamp}-${cleanName}`;
   const rawBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 
-  // 1. Try Supabase if configured
+  // 1. Supabase Storage — REQUIRED for production
   if (isSupabaseConfigured()) {
     try {
       const storagePath = await uploadFile(rawBuffer, filename, contentType);
       return { url: getPublicUrl(storagePath), filename: storagePath };
-    } catch (err) {
-      console.warn('[Storage] Supabase upload failed, falling back to local/DB storage:', err);
+    } catch (err: any) {
+      console.error('[Storage] Supabase upload FAILED:', err?.message || err);
+      throw new Error(
+        `Supabase Storage upload failed: ${err?.message || 'Unknown error'}. ` +
+        'Check that your Supabase project is active (not paused) and the "uploads" bucket exists.'
+      );
     }
   }
 
   // 2. Local public/uploads fallback — ONLY for local development.
-  //    On Vercel the filesystem is read-only/ephemeral, so a `/uploads/...` URL
-  //    would be dead by the time the social platform crawler fetches it. We must
-  //    never return a `/uploads/...` URL in production.
   const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
   if (!isProduction) {
     try {
@@ -260,53 +260,15 @@ export async function saveMediaBuffer(
       await fs.promises.writeFile(filePath, rawBuffer);
       return { url: `/uploads/${filename}`, filename };
     } catch (localErr) {
-      console.warn('[Storage] Local disk file save not available, persisting to DB MediaAsset:', localErr);
+      console.warn('[Storage] Local disk save failed:', localErr);
     }
   }
 
-  // 3. PostgreSQL MediaAsset storage fallback (Vercel Serverless).
-  //    Storing large binaries (especially video) as base64 in a Postgres `text`
-  //    column is wasteful and slow — base64 inflates size ~33% and multi-MB blobs
-  //    degrade DB performance. We only allow this fallback for SMALL files
-  //    (<= 5MB, i.e. images). Larger files must go through Supabase; if that
-  //    failed, we surface a clear error instead of silently bloating the DB.
-  const MAX_DB_FALLBACK_BYTES = 5 * 1024 * 1024; // 5MB
-  if (rawBuffer.length > MAX_DB_FALLBACK_BYTES) {
-    throw new Error(
-      `Media file (${(rawBuffer.length / (1024 * 1024)).toFixed(1)}MB) is too large to store without Supabase. ` +
-      'Please ensure Supabase storage is configured and reachable.'
-    );
-  }
-
-  try {
-    const prisma = (await import('@/lib/db')).default;
-    let targetWorkspaceId = workspaceId;
-    if (!targetWorkspaceId) {
-      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
-      targetWorkspaceId = firstWs?.id;
-    }
-
-    if (targetWorkspaceId) {
-      const base64Data = `data:${contentType};base64,${rawBuffer.toString('base64')}`;
-      const asset = await prisma.mediaAsset.create({
-        data: {
-          url: base64Data,
-          filename,
-          contentType,
-          size: rawBuffer.length,
-          workspaceId: targetWorkspaceId,
-        },
-      });
-      const ext = contentType.includes('video') ? '.mp4' : '.png';
-      return { url: `/api/media/asset/${asset.id}${ext}`, filename };
-    }
-  } catch (dbErr) {
-    console.error('[Storage] Database asset fallback failed:', dbErr);
-  }
-
-  // Emergency fallback (small files only — large files already threw above)
-  const base64 = rawBuffer.toString('base64');
-  return { url: `data:${contentType};base64,${base64}`, filename };
+  // No Supabase configured and not local dev — hard error, never fall back to DB
+  throw new Error(
+    'Media storage requires Supabase Storage. ' +
+    'Please set SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables and ensure the Supabase project is active.'
+  );
 }
 
 /**
