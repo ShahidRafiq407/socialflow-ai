@@ -6,10 +6,10 @@ export const MODELS = {
   BRAND_ANALYST: "none", // Database processing
 
   // Premium frontier intelligence text infrastructure from your exact GCP project models list
-  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
-  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
+  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-2.5-flash",
+  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-2.5-flash",
   // Lightweight fast model dedicated to live agent reasoning ("thinking") streams
-  FAST_THOUGHT: process.env.MODEL_FAST_THOUGHT || "gemini-3.6-flash",
+  FAST_THOUGHT: process.env.MODEL_FAST_THOUGHT || "gemini-2.5-flash",
   CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
   CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro-preview", // Exact model string from your Google Usage Dashboard
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",

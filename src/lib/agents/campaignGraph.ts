@@ -150,7 +150,7 @@ export async function runCampaignGraph(
       }
       const text = await vertexProvider.generateTextStream(
         [{ role: "user", content: prompt }],
-        { modelName: MODELS.FAST_THOUGHT, temperature: 0.5, maxOutputTokens: 280 },
+        { modelName: MODELS.FAST_THOUGHT, temperature: 0.5, maxOutputTokens: 400 },
         (delta) => onEvent({ type: "agent_thought", agentId, data: { delta } })
       );
       if (!text || !text.trim()) {

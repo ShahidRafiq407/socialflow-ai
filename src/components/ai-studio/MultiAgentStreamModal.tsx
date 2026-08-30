@@ -136,9 +136,7 @@ export default function MultiAgentStreamModal({
       agentOutputsRef.current = {};
       setAgentThoughts({});
       setFailedAgentId(null);
-      setAgentActivities({
-        brand_analyst: [{ label: "Querying workspace database for Brand DNA...", status: "running" }],
-      });
+      setAgentActivities({});
       setUserHasManuallySelected(false);
       setSelectedAgentId("brand_analyst");
       setAgentStatuses({
