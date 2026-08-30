@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Trash2, AlertCircle, Play, Pause, Volume2, VolumeX, Download } from "lucide-react";
 import VideoPreviewPlayer from "./VideoPreviewPlayer";
 
@@ -50,6 +50,12 @@ export default function ContentMediaRenderer({
   muted = true,
 }: ContentMediaRendererProps) {
   const [hasError, setHasError] = useState(false);
+
+  // Reset error state when URL changes — prevents stale "Media preview unavailable"
+  // when new media is generated or URL is updated
+  useEffect(() => {
+    setHasError(false);
+  }, [url]);
 
   if (!url) return null;
 
