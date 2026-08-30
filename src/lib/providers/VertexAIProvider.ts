@@ -54,9 +54,9 @@ export class VertexAIProvider {
   private getFallbackModels(primaryModel: string): string[] {
     const list = [primaryModel];
     if (primaryModel.includes("pro")) {
-      list.push("gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash");
+      list.push("gemini-3.6-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash");
     } else {
-      list.push("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash");
+      list.push("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash");
     }
     return Array.from(new Set(list.filter(Boolean)));
   }
@@ -146,7 +146,7 @@ export class VertexAIProvider {
     prompt: string,
     options: { modelName?: string; temperature?: number } = {}
   ): Promise<{ text: string; searchQueries: string[]; sources: { title: string; url: string; snippet: string }[] }> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-2.5-flash");
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
     let lastError: any = null;
 
     for (const modelName of candidateModels) {
@@ -218,7 +218,7 @@ export class VertexAIProvider {
     options: { modelName?: string; temperature?: number; maxOutputTokens?: number } = {},
     onChunk?: (delta: string) => void
   ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-2.5-flash");
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
     let lastError: any = null;
 
     const prompt = messages.map(m => {
