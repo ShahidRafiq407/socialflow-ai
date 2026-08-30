@@ -115,6 +115,7 @@ export default function MultiAgentStreamModal({
   const [userHasManuallySelected, setUserHasManuallySelected] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
   const [agentProgress, setAgentProgress] = useState<Record<string, number>>({});
+  const [agentStages, setAgentStages] = useState<Record<string, string>>({});
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [trendSources, setTrendSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -152,6 +153,7 @@ export default function MultiAgentStreamModal({
       setAgentOutputs({});
       agentOutputsRef.current = {};
       setAgentProgress({});
+      setAgentStages({});
       setTimeline([]);
       setFailedAgentId(null);
       setUserHasManuallySelected(false);
@@ -302,18 +304,6 @@ export default function MultiAgentStreamModal({
 
     if (type === "agent_started") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
-      setTimeline((prev) => [
-        ...prev,
-        {
-          id: eventId,
-          agentId,
-          status: "running",
-          stage: "started",
-          summary: "Agent started",
-          progress: agentProgressRef.current[agentId] ?? 0,
-          ts: Date.now(),
-        },
-      ]);
       // Automatically switch active panel to running agent unless user explicitly clicked another
       if (!userHasManuallySelected) {
         setSelectedAgentId(agentId);
@@ -324,28 +314,21 @@ export default function MultiAgentStreamModal({
         agentProgressRef.current[agentId] = p;
         setAgentProgress((prev) => ({ ...prev, [agentId]: p }));
       }
-      const entryStatus: TimelineEntry["status"] =
-        data?.status === "completed" ? "completed" : data?.status === "error" ? "error" : "running";
-      const entry: TimelineEntry = {
-        id: eventId,
-        agentId,
-        status: entryStatus,
-        stage: data?.stage || "working",
-        summary: data?.safe_summary || data?.stage || "Working",
-        progress: typeof p === "number" ? p : undefined,
-        ts: Date.now(),
-      };
-      setTimeline((prev) => [
-        // keep completed entries above the active running entry for this agent
-        ...prev.filter(
-          (e) => !(e.agentId === agentId && e.status === "running" && e.stage === "working")
-        ),
-        entry,
-      ]);
+      if (data?.safe_summary) {
+        setAgentStages((prev) => ({ ...prev, [agentId]: data.safe_summary }));
+      }
+      // Only update the progress bar + current stage label.
+      // Do NOT add timeline entries — agent_action events carry the
+      // real work steps that the user actually sees.
     } else if (type === "agent_action") {
       if (data?.label) {
         setTimeline((prev) => [
-          ...prev,
+          // Mark the previous running step for this agent as completed
+          ...prev.map((e) =>
+            e.agentId === agentId && e.status === "running"
+              ? { ...e, status: "completed" as const }
+              : e
+          ),
           {
             id: eventId,
             agentId,
@@ -648,7 +631,7 @@ export default function MultiAgentStreamModal({
                         </h4>
                         <div className="text-[10px] font-mono uppercase text-[#6B7280] mt-0.5">
                           {activeAgentStatus === "running"
-                            ? "Executing"
+                            ? agentStages[selectedAgentId] || "Executing"
                             : activeAgentStatus === "completed"
                             ? "Completed"
                             : activeAgentStatus === "error"
