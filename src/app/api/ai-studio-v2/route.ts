@@ -145,11 +145,13 @@ export async function POST(req: Request) {
             sendSSE({
               type: "workflow_completed",
               agentId: "system",
+              // Do NOT ship `resultState` back over SSE. It re-serializes
+              // `generatedContent` + `generatedAssets` (duplicate base64 media),
+              // bloating the final event and risking image loss in the editor.
               data: {
                 campaign: campaignPayload,
                 savedPostIds,
                 totalSaved: savedPostIds.length,
-                resultState,
               },
             });
 

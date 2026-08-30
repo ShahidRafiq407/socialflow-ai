@@ -1211,7 +1211,12 @@ Briefly explain what you fixed and why the campaign is now ready to ship.`,
   onEvent({
     type: "workflow_completed",
     agentId: "system",
-    data: { campaign: state.generatedContent, resultState: state },
+    // Keep only the campaign payload. `state` contains `generatedAssets` +
+    // `generatedContent`, which duplicate the same base64 `data:` media URLs
+    // (multi-megabyte each). Shipping the full state inflates this SSE event
+    // ~3x and can blow through buffering limits, so the editor never receives
+    // the generated `imageUrl`. The modal only reads `data.campaign`.
+    data: { campaign: state.generatedContent },
   });
 
   return state;
