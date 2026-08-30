@@ -29,18 +29,18 @@ function SectionHeading({ badge, title, sub }: { badge: string; title: React.Rea
       viewport={{ once: true, margin: "-80px" }}
       className="text-center max-w-3xl mx-auto mb-16"
     >
-      <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1E8A47]/10 border border-[#3DB36B]/30 text-[#5CC489] text-xs font-semibold tracking-widest uppercase mb-6">
+      <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1E8A47]/10 border border-[#3DB36B]/30 mkt-accent-text text-xs font-semibold tracking-widest uppercase mb-6">
         <Sparkles className="w-3.5 h-3.5" /> {badge}
       </span>
       <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-6">{title}</h2>
-      <p className="text-lg text-stone-400 leading-relaxed">{sub}</p>
+      <p className="text-lg mkt-muted leading-relaxed">{sub}</p>
     </motion.div>
   );
 }
 
 function GradientText({ children }: { children: React.ReactNode }) {
   return (
-    <span className="bg-gradient-to-r from-[#3DB36B] via-[#6D54A8] to-[#8B6FD8] bg-clip-text text-transparent">
+    <span className="mkt-accent-text">
       {children}
     </span>
   );
@@ -97,6 +97,10 @@ const FOOTER_COLS: { title: string; links: { label: string; href: string; badge?
     links: [
       { label: "Privacy Policy", href: "/privacy-policy" },
       { label: "Terms of Service", href: "/terms-of-service" },
+      { label: "Refund Policy", href: "/refund-policy" },
+      { label: "Cookie Policy", href: "/cookie-policy" },
+      { label: "Acceptable Use", href: "/acceptable-use" },
+      { label: "Data Processing (GDPR)", href: "/data-processing" },
     ],
   },
 ];
@@ -123,7 +127,7 @@ function NewsletterForm() {
 
   if (state === "done") {
     return (
-      <div className="flex items-center gap-3 h-12 px-4 rounded-xl bg-[#18713C]/15 border border-[#3DB36B]/40 text-sm text-[#5CC489]">
+      <div className="flex items-center gap-3 h-12 px-4 rounded-xl bg-[#18713C]/15 border border-[#3DB36B]/40 text-sm mkt-accent-text">
         <Check className="w-4 h-4 shrink-0" />
         You&apos;re subscribed! Check your inbox soon.
       </div>
@@ -138,12 +142,12 @@ function NewsletterForm() {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="you@company.com"
-        className="flex-1 h-12 px-4 rounded-xl bg-white/[0.05] border border-white/10 text-sm placeholder:text-stone-600 focus:outline-none focus:border-[#6D54A8]/60 focus:ring-2 focus:ring-[#5A4591]/20 transition"
+        className="flex-1 h-12 px-4 rounded-xl mkt-surface border mkt-border text-sm placeholder:text-stone-600 focus:outline-none focus:border-[#6D54A8]/60 focus:ring-2 focus:ring-[#5A4591]/20 transition"
       />
       <button
         type="submit"
         disabled={state === "loading"}
-        className="h-12 px-5 rounded-xl text-sm font-bold bg-gradient-to-r from-[#1E8A47] to-[#48357B] hover:scale-[1.03] transition-transform shadow-[0_8px_25px_-8px_rgba(24,113,60,0.7)] disabled:opacity-60"
+        className="h-12 px-5 rounded-xl text-sm font-bold bg-[#18713C] text-white hover:scale-[1.03] transition-transform shadow-[0_8px_25px_-8px_rgba(24,113,60,0.7)] disabled:opacity-60"
       >
         {state === "loading" ? "..." : state === "error" ? "Retry" : "Subscribe"}
       </button>
@@ -215,7 +219,7 @@ const SOCIALS: { label: string; href: string; Icon: SocialIcon }[] = [
 
 export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
   return (
-    <div className="relative bg-[#0A0D0B] text-white overflow-x-clip">
+    <div className="relative mkt-bg mkt-text overflow-x-clip">
       {/* Global background fx */}
       <div className="fixed inset-0 -z-10 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(180,140,90,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(180,140,90,0.05)_1px,transparent_1px)] bg-[size:64px_64px]" />
@@ -230,7 +234,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div className="text-center lg:text-left">
             <motion.div variants={fadeUp} initial="hidden" animate="show" custom={0}>
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-md text-sm text-[#5CC489] mb-8">
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full mkt-surface border mkt-border backdrop-blur-md text-sm mkt-accent-text mb-8">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3DB36B] opacity-75" />
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#3DB36B]" />
@@ -252,7 +256,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
 
             <motion.p
               variants={fadeUp} initial="hidden" animate="show" custom={2}
-              className="text-lg sm:text-xl text-stone-400 max-w-xl mx-auto lg:mx-0 leading-relaxed mb-10"
+              className="text-lg sm:text-xl mkt-muted max-w-xl mx-auto lg:mx-0 leading-relaxed mb-10"
             >
               PostloomAI plans, creates, schedules and publishes scroll-stopping
               content across every platform — powered by a team of AI agents that
@@ -265,23 +269,23 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
             >
               <Link
                 href={isLoggedIn ? "/dashboard" : "/sign-up"}
-                className="group relative inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-2xl bg-gradient-to-r from-[#1E8A47] via-[#48357B] to-[#48357B] shadow-[0_0_40px_-5px_rgba(24,113,60,0.7)] hover:shadow-[0_0_60px_-5px_rgba(24,113,60,0.9)] transition-all duration-300 hover:scale-[1.04]"
+                className="group relative inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.7)] hover:shadow-[0_0_60px_-5px_rgba(24,113,60,0.9)] transition-all duration-300 hover:scale-[1.04]"
               >
                 {isLoggedIn ? "Open Dashboard" : "Start Free — No Card Needed"}
-                <ArrowRight className="ml-2 w-5 h-5 group-hover:transtone-x-1 transition-transform" />
+                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
                 href="#how-it-works"
-                className="inline-flex items-center justify-center h-14 px-8 text-lg font-semibold rounded-2xl border border-white/15 bg-white/5 backdrop-blur-md hover:bg-white/10 hover:border-[#3DB36B]/40 transition-all duration-300"
+                className="inline-flex items-center justify-center h-14 px-8 text-lg font-semibold rounded-2xl border mkt-border mkt-surface backdrop-blur-md hover:mkt-surface2 hover:border-[#3DB36B]/40 transition-all duration-300"
               >
-                <MousePointerClick className="mr-2 w-5 h-5 text-[#5CC489]" />
+                <MousePointerClick className="mr-2 w-5 h-5 mkt-accent-text" />
                 See How It Works
               </Link>
             </motion.div>
 
             <motion.div
               variants={fadeUp} initial="hidden" animate="show" custom={4}
-              className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-3 text-sm text-stone-500"
+              className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-3 text-sm mkt-faint"
             >
               <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 14-day free trial</span>
               <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Cancel anytime</span>
@@ -300,10 +304,20 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           </motion.div>
         </div>
 
+        {/* Mobile 3D robot (scaled down, fully visible on phones) */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 1, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          className="relative flex md:hidden justify-center mt-8 origin-top scale-[0.62] h-[280px]"
+        >
+          <Robot3D />
+        </motion.div>
+
         {/* stats strip */}
         <motion.div
           variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="max-w-5xl mx-auto mt-24 grid grid-cols-2 md:grid-cols-4 gap-px rounded-3xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur-xl"
+          className="max-w-5xl mx-auto mt-24 grid grid-cols-2 md:grid-cols-4 gap-px rounded-3xl overflow-hidden mkt-glass"
         >
           {[
             { value: "10K+", label: "Active Marketers" },
@@ -312,10 +326,10 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
             { value: "4.9★", label: "Average Rating" },
           ].map((s) => (
             <div key={s.label} className="bg-[#0D120E]/80 px-6 py-8 text-center">
-              <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-[#5CC489] to-[#8B6FD8] bg-clip-text text-transparent">
+              <div className="text-3xl sm:text-4xl font-black mkt-accent-text">
                 {s.value}
               </div>
-              <div className="text-xs sm:text-sm text-stone-400 mt-1">{s.label}</div>
+              <div className="text-xs sm:text-sm mkt-muted mt-1">{s.label}</div>
             </div>
           ))}
         </motion.div>
@@ -331,26 +345,26 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
-              { icon: BrainCircuit, title: "AI Content Engine", desc: "Generate captions, hooks, hashtags and full campaigns tuned to your brand voice in seconds.", color: "from-[#3DB36B] to-[#5A4591]" },
-              { icon: Wand2, title: "AI Image & Video Studio", desc: "Create stunning visuals, product shots and short-form videos without a designer.", color: "from-[#6D54A8] to-[#48357B]" },
-              { icon: CalendarClock, title: "Smart Auto-Scheduling", desc: "Loom picks the perfect posting time per platform and publishes automatically.", color: "from-[#8B6FD8] to-[#48357B]" },
-              { icon: BarChart3, title: "Deep Analytics", desc: "Know exactly what's working with AI-powered insights, not just vanity metrics.", color: "from-emerald-400 to-teal-500" },
-              { icon: Globe2, title: "Every Platform, One Place", desc: "Instagram, TikTok, X, LinkedIn, Facebook & YouTube — connected in one dashboard.", color: "from-[#3DB36B] to-[#5A4591]" },
-              { icon: ShieldCheck, title: "Brand-Safe by Default", desc: "Approval flows, brand guardrails and human-in-the-loop controls built in.", color: "from-[#6D54A8] to-red-500" },
+              { icon: BrainCircuit, title: "AI Content Engine", desc: "Generate captions, hooks, hashtags and full campaigns tuned to your brand voice in seconds.", color: "#18713C" },
+              { icon: Wand2, title: "`AI Image & Video Studio", desc: "Create stunning visuals, product shots and short-form videos without a designer.", color: "#48357B" },
+              { icon: CalendarClock, title: "`Smart Auto-Scheduling", desc: "Loom picks the perfect posting time per platform and publishes automatically.", color: "#48357B" },
+              { icon: BarChart3, title: "Deep Analytics", desc: "Know exactly what's working with AI-powered insights, not just vanity metrics.", color: "#48357B" },
+              { icon: Globe2, title: "Every Platform, One Place", desc: "Instagram, TikTok, X, LinkedIn, Facebook & YouTube — connected in one dashboard.", color: "#18713C" },
+              { icon: ShieldCheck, title: "Brand-Safe by Default", desc: "Approval flows, brand guardrails and human-in-the-loop controls built in.", color: "#48357B" },
             ].map((f, i) => (
               <motion.div
                 key={f.title}
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i % 3}
                 whileHover={{ y: -10, rotateX: 4, rotateY: -4 }}
                 style={{ transformStyle: "preserve-3d", perspective: 800 }}
-                className="group relative rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-xl p-8 hover:border-white/25 transition-colors"
+                className="group relative rounded-3xl mkt-glass p-8 hover:mkt-border transition-colors"
               >
-                <div className={`absolute inset-0 rounded-3xl bg-gradient-to-br ${f.color} opacity-0 group-hover:opacity-[0.08] transition-opacity duration-500`} />
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${f.color} flex items-center justify-center mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300`}>
+                <div style={{ backgroundColor: f.color }} className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-[0.08] transition-opacity duration-500" />
+                <div style={{ backgroundColor: f.color }} className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300">
                   <f.icon className="w-7 h-7 text-white" />
                 </div>
                 <h3 className="text-xl font-bold mb-3">{f.title}</h3>
-                <p className="text-stone-400 leading-relaxed">{f.desc}</p>
+                <p className="mkt-muted leading-relaxed">{f.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -366,7 +380,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
             sub="From signup to your first AI-generated campaign in under 5 minutes."
           />
           <div className="grid md:grid-cols-3 gap-8 relative">
-            <div className="hidden md:block absolute top-12 left-[16%] right-[16%] h-px bg-gradient-to-r from-[#3DB36B]/50 via-[#6D54A8]/50 to-[#8B6FD8]/50" />
+            <div className="hidden md:block absolute top-12 left-[16%] right-[16%] h-px bg-[#48357B]/50" />
             {[
               { icon: Layers, step: "01", title: "Connect Your Brand", desc: "Link your social accounts and tell Loom about your brand voice, audience and goals." },
               { icon: Bot, step: "02", title: "AI Agents Get to Work", desc: "Watch the agent pipeline research trends, write copy and design creatives — with live reasoning." },
@@ -378,15 +392,15 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                 className="relative text-center"
               >
                 <div className="relative inline-flex mb-8">
-                  <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#101610] to-[#231A42] border border-white/15 flex items-center justify-center shadow-[0_0_40px_-10px_rgba(24,113,60,0.6)]">
-                    <s.icon className="w-10 h-10 text-[#5CC489]" />
+                  <div className="w-24 h-24 rounded-3xl mkt-surface border mkt-border flex items-center justify-center shadow-[0_0_40px_-10px_rgba(24,113,60,0.6)]">
+                    <s.icon className="w-10 h-10 mkt-accent-text" />
                   </div>
-                  <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-gradient-to-br from-[#3DB36B] to-[#7A5CC9] text-sm font-black flex items-center justify-center shadow-lg">
+                  <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-[#18713C] text-sm font-black flex items-center justify-center shadow-lg">
                     {s.step}
                   </span>
                 </div>
                 <h3 className="text-2xl font-bold mb-3">{s.title}</h3>
-                <p className="text-stone-400 leading-relaxed max-w-xs mx-auto">{s.desc}</p>
+                <p className="mkt-muted leading-relaxed max-w-xs mx-auto">{s.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -407,27 +421,27 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                 key={p.name}
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
                 whileHover={{ y: -12 }}
-                className={`relative rounded-3xl p-8 flex flex-col backdrop-blur-xl border transition-colors ${
+                className={`relative rounded-3xl p-8 flex flex-col mkt-glass transition-colors ${
                   p.highlight
-                    ? "bg-gradient-to-b from-[#48357B]/20 to-[#48357B]/10 border-[#6D54A8]/50 shadow-[0_0_60px_-15px_rgba(24,113,60,0.8)] lg:scale-[1.05] z-10"
-                    : "bg-white/[0.04] border-white/10 hover:border-white/25"
+                    ? "!bg-[#48357B]/10 border-[#48357B]/50 shadow-[0_0_60px_-15px_rgba(72,53,123,0.6)] lg:scale-[1.05] z-10"
+                    : "hover:border-[#18713C]/40"
                 }`}
               >
                 {p.highlight && (
-                  <span className="absolute -top-4 left-1/2 -transtone-x-1/2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#3DB36B] to-[#7A5CC9] text-xs font-black tracking-wide uppercase shadow-lg">
+                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg">
                     Most Popular
                   </span>
                 )}
-                <h3 className="text-lg font-bold text-stone-300">{p.name}</h3>
+                <h3 className="text-lg font-bold mkt-muted">{p.name}</h3>
                 <div className="mt-4 mb-1">
                   <span className="text-5xl font-black">{p.price}</span>
-                  {p.period && <span className="text-stone-400 ml-1">{p.period}</span>}
+                  {p.period && <span className="mkt-muted ml-1">{p.period}</span>}
                 </div>
-                <p className="text-sm text-stone-500 mb-8">{p.tagline}</p>
+                <p className="text-sm mkt-faint mb-8">{p.tagline}</p>
                 <ul className="space-y-3.5 mb-10 flex-1">
                   {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-3 text-sm text-stone-300">
-                      <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "text-[#8B6FD8]" : "text-[#3DB36B]"}`} />
+                    <li key={f} className="flex items-start gap-3 text-sm mkt-muted">
+                      <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
                       {f}
                     </li>
                   ))}
@@ -436,8 +450,8 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                   href={isLoggedIn ? "/dashboard" : "/sign-up"}
                   className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
                     p.highlight
-                      ? "bg-gradient-to-r from-[#1E8A47] via-[#48357B] to-[#48357B] shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
-                      : "border border-white/15 bg-white/5 hover:bg-white/10"
+                      ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
+                      : "border mkt-border mkt-surface hover:mkt-surface2"
                   }`}
                 >
                   {p.cta}
@@ -445,7 +459,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
               </motion.div>
             ))}
           </div>
-          <p className="text-center text-sm text-stone-500 mt-10 flex items-center justify-center gap-2">
+          <p className="text-center text-sm mkt-faint mt-10 flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             30-day money-back guarantee · No hidden fees · Cancel anytime
           </p>
@@ -466,21 +480,21 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                 key={t.name}
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
                 whileHover={{ y: -8 }}
-                className="rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-xl p-8 hover:border-white/25 transition-colors"
+                className="rounded-3xl mkt-glass p-8 hover:mkt-border transition-colors"
               >
                 <div className="flex gap-1 mb-5">
                   {Array.from({ length: 5 }).map((_, s) => (
                     <Star key={s} className="w-4 h-4 fill-[#3DB36B] text-[#3DB36B]" />
                   ))}
                 </div>
-                <p className="text-stone-300 leading-relaxed mb-8">&ldquo;{t.quote}&rdquo;</p>
+                <p className="mkt-muted leading-relaxed mb-8">&ldquo;{t.quote}&rdquo;</p>
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#3DB36B] to-[#7A5CC9] flex items-center justify-center font-black text-sm">
+                  <div className="w-11 h-11 rounded-full bg-[#18713C] flex items-center justify-center font-black text-sm">
                     {t.name.split(" ").map((n) => n[0]).join("")}
                   </div>
                   <div>
                     <div className="font-bold text-sm">{t.name}</div>
-                    <div className="text-xs text-stone-500">{t.role}</div>
+                    <div className="text-xs mkt-faint">{t.role}</div>
                   </div>
                 </div>
               </motion.div>
@@ -493,29 +507,29 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
       <section className="relative py-28 px-4 sm:px-6 lg:px-8">
         <motion.div
           variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="relative max-w-5xl mx-auto rounded-[40px] border border-white/10 bg-gradient-to-br from-[#3A2B63]/25 via-[#101610] to-[#18713C]/20 backdrop-blur-xl p-12 sm:p-20 text-center overflow-hidden"
+          className="relative max-w-5xl mx-auto rounded-[40px] border mkt-border mkt-glass backdrop-blur-xl p-12 sm:p-20 text-center overflow-hidden"
         >
-          <div className="absolute -top-24 left-1/2 -transtone-x-1/2 w-[400px] h-[300px] bg-[#7A5CC9]/25 blur-[100px] rounded-full" />
-          <Bot className="w-14 h-14 mx-auto mb-6 text-[#5CC489]" />
+          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[400px] h-[300px] bg-[#7A5CC9]/25 blur-[100px] rounded-full" />
+          <Bot className="w-14 h-14 mx-auto mb-6 mkt-accent-text" />
           <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-6">
             Ready to Put Marketing<br />on <GradientText>Autopilot?</GradientText>
           </h2>
-          <p className="text-lg text-stone-400 mb-10 max-w-2xl mx-auto">
+          <p className="text-lg mkt-muted mb-10 max-w-2xl mx-auto">
             Join 10,000+ creators and brands growing with PostloomAI. Your first campaign is free.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href={isLoggedIn ? "/dashboard" : "/sign-up"}
-              className="group inline-flex items-center justify-center h-14 px-10 text-lg font-bold rounded-2xl bg-gradient-to-r from-[#1E8A47] via-[#48357B] to-[#48357B] shadow-[0_0_40px_-5px_rgba(24,113,60,0.8)] hover:scale-[1.04] transition-all duration-300"
+              className="group inline-flex items-center justify-center h-14 px-10 text-lg font-bold rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.8)] hover:scale-[1.04] transition-all duration-300"
             >
               Get Started Free
-              <Rocket className="ml-2 w-5 h-5 group-hover:-transtone-y-1 group-hover:transtone-x-1 transition-transform" />
+              <Rocket className="ml-2 w-5 h-5 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
               href="#pricing"
-              className="inline-flex items-center justify-center h-14 px-10 text-lg font-semibold rounded-2xl border border-white/15 bg-white/5 hover:bg-white/10 transition-all duration-300"
+              className="inline-flex items-center justify-center h-14 px-10 text-lg font-semibold rounded-2xl border mkt-border mkt-surface hover:mkt-surface2 transition-all duration-300"
             >
-              <LineChart className="mr-2 w-5 h-5 text-[#5CC489]" />
+              <LineChart className="mr-2 w-5 h-5 mkt-accent-text" />
               Compare Plans
             </Link>
           </div>
@@ -523,23 +537,23 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer className="relative border-t border-white/[0.08] bg-gradient-to-b from-transparent to-[#0D120E] pt-20 pb-10 px-4 sm:px-6 lg:px-8">
+      <footer className="relative border-t mkt-border mkt-bg2 pt-20 pb-10 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           {/* top row: brand + newsletter */}
-          <div className="flex flex-col lg:flex-row justify-between gap-10 pb-14 border-b border-white/[0.08]">
+          <div className="flex flex-col lg:flex-row justify-between gap-10 pb-14 border-b mkt-border">
             <div className="max-w-sm">
               <Link href="/" className="flex items-center gap-3 mb-5 group w-fit">
                 <PostloomLogo size={44} />
                 <div className="leading-none">
                   <span className="block font-black text-xl tracking-tight">
-                    Postloom<span className="bg-gradient-to-r from-[#3DB36B] to-[#8B6FD8] bg-clip-text text-transparent">AI</span>
+                    Postloom<span className="mkt-accent-text">AI</span>
                   </span>
-                  <span className="block text-[10px] font-medium tracking-[0.22em] uppercase text-stone-500 mt-1">
+                  <span className="block text-[10px] font-medium tracking-[0.22em] uppercase mkt-faint mt-1">
                     Marketing on Autopilot
                   </span>
                 </div>
               </Link>
-              <p className="text-sm text-stone-500 leading-relaxed mb-6">
+              <p className="text-sm mkt-faint leading-relaxed mb-6">
                 The autonomous AI marketing platform that plans, creates and publishes
                 content that grows your brand — 24/7.
               </p>
@@ -552,7 +566,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl border border-white/10 bg-white/[0.04] flex items-center justify-center text-stone-400 hover:text-white hover:border-[#6D54A8]/50 hover:bg-[#5A4591]/10 hover:-translate-y-0.5 transition-all duration-300"
+                    className="w-10 h-10 rounded-xl border mkt-border mkt-surface flex items-center justify-center mkt-muted hover:text-white hover:border-[#6D54A8]/50 hover:bg-[#5A4591]/10 hover:-translate-y-0.5 transition-all duration-300"
                   >
                     <Icon className="w-4.5 h-4.5" />
                   </a>
@@ -560,10 +574,10 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
               </div>
             </div>
             <div className="max-w-md w-full">
-              <h4 className="font-bold text-sm tracking-wide uppercase text-stone-300 mb-2">
+              <h4 className="font-bold text-sm tracking-wide uppercase mkt-muted mb-2">
                 Stay in the loop
               </h4>
-              <p className="text-sm text-stone-500 mb-4">
+              <p className="text-sm mkt-faint mb-4">
                 Monthly growth tactics, product updates and AI marketing playbooks. No spam.
               </p>
               <NewsletterForm />
@@ -574,19 +588,19 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-10 py-14">
             {FOOTER_COLS.map((col) => (
               <div key={col.title}>
-                <h4 className="font-bold mb-5 text-xs tracking-[0.18em] uppercase text-stone-300">
+                <h4 className="font-bold mb-5 text-xs tracking-[0.18em] uppercase mkt-muted">
                   {col.title}
                 </h4>
-                <ul className="space-y-3 text-sm text-stone-500">
+                <ul className="space-y-3 text-sm mkt-faint">
                   {col.links.map((l) => (
                     <li key={l.label}>
                       <Link
                         href={l.href}
-                        className="hover:text-[#5CC489] transition-colors inline-flex items-center gap-2"
+                        className="hover:mkt-accent-text transition-colors inline-flex items-center gap-2"
                       >
                         {l.label}
                         {"badge" in l && l.badge && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#5A4591]/15 text-[#8B6FD8] border border-[#6D54A8]/20">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#5A4591]/15 mkt-accent2-text border border-[#6D54A8]/20">
                             {l.badge}
                           </span>
                         )}
@@ -599,7 +613,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
 
           {/* bottom bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/[0.08] pt-8 text-sm text-stone-600">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t mkt-border pt-8 text-sm text-stone-600">
             <p>© {new Date().getFullYear()} PostloomAI, Inc. All rights reserved.</p>
             <div className="flex items-center gap-2 text-xs">
               <span className="relative flex h-2 w-2">
@@ -609,9 +623,9 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
               All systems operational
             </div>
             <div className="flex gap-6 text-xs">
-              <Link href="/privacy-policy" className="hover:text-[#5CC489] transition">Privacy</Link>
-              <Link href="/terms-of-service" className="hover:text-[#5CC489] transition">Terms</Link>
-              <Link href="#" className="hover:text-[#5CC489] transition">Cookies</Link>
+              <Link href="/privacy-policy" className="hover:mkt-accent-text transition">Privacy</Link>
+              <Link href="/terms-of-service" className="hover:mkt-accent-text transition">Terms</Link>
+              <Link href="/cookie-policy" className="hover:mkt-accent-text transition">Cookies</Link>
             </div>
           </div>
         </div>
@@ -619,3 +633,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
     </div>
   );
 }
+
+
+
+

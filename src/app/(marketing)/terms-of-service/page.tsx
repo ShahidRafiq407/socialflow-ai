@@ -11,7 +11,7 @@ export default function TermsOfService() {
         <section>
           <h2 className="text-2xl font-bold mt-8 mb-4">1. Acceptance of Terms</h2>
           <p>
-            By accessing and using SocialFlow AI ("the Service"), you accept and agree to be bound by the terms and provision of this agreement.
+            By accessing and using PostloomAI (&quot;the Service&quot;), you accept and agree to be bound by the terms and provision of this agreement.
           </p>
         </section>
 
@@ -25,7 +25,7 @@ export default function TermsOfService() {
         <section>
           <h2 className="text-2xl font-bold mt-8 mb-4">3. User Responsibilities</h2>
           <p>
-            You are responsible for the content published through your connected accounts. While AI generates the content, you are expected to review and ensure it aligns with platform guidelines (e.g., Meta's Community Standards). 
+            You are responsible for the content published through your connected accounts. While AI generates the content, you are expected to review and ensure it aligns with platform guidelines (e.g., Meta&apos;s Community Standards).
             You agree not to use the Service to generate hate speech, spam, or illegal content.
           </p>
         </section>

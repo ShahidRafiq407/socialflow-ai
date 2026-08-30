@@ -27,7 +27,7 @@ export function Robot3D() {
   return (
     <div className="relative flex items-center justify-center" style={{ perspective: 1200 }}>
       {/* glow behind robot */}
-      <div className="absolute w-[420px] h-[420px] rounded-full bg-gradient-to-tr from-[#1E8A47]/30 via-[#48357B]/30 to-[#7A5CC9]/30 blur-[100px] animate-pulse" />
+      <div className="absolute w-[420px] h-[420px] rounded-full bg-[#48357B]/25 blur-[100px] animate-pulse" />
 
       {/* orbiting rings */}
       <motion.div
@@ -58,35 +58,35 @@ export function Robot3D() {
         >
           {/* ===== HEAD ===== */}
           <div
-            className="absolute left-1/2 top-0 -transtone-x-1/2 w-[190px] h-[150px] rounded-[42px] bg-gradient-to-b from-stone-100 via-stone-300 to-stone-400 shadow-[inset_0_-14px_24px_rgba(0,0,0,0.25),0_25px_60px_rgba(92,196,137,0.25)]"
+            className="absolute left-1/2 top-0 -translate-x-1/2 w-[190px] h-[150px] rounded-[42px] bg-gradient-to-b from-stone-100 via-stone-300 to-stone-400 shadow-[inset_0_-14px_24px_rgba(0,0,0,0.25),0_25px_60px_rgba(92,196,137,0.25)]"
             style={{ transformStyle: "preserve-3d", transform: "translateZ(40px)" }}
           >
             {/* face screen */}
-            <div className="absolute inset-x-4 top-6 bottom-6 rounded-[28px] bg-gradient-to-br from-[#0F160F] to-[#1B1430] overflow-hidden border border-[#3DB36B]/30 shadow-[inset_0_0_30px_rgba(92,196,137,0.15)]">
+            <div className="absolute inset-x-4 top-6 bottom-6 rounded-[28px] bg-[#101610] overflow-hidden border border-[#3DB36B]/30 shadow-[inset_0_0_30px_rgba(92,196,137,0.15)]">
               <motion.div
-                className="absolute left-9 top-1/2 -transtone-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
+                className="absolute left-9 top-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
                 animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
                 transition={{ duration: 4, repeat: Infinity, times: [0, 0.45, 0.5, 0.55, 1] }}
               />
               <motion.div
-                className="absolute right-9 top-1/2 -transtone-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
+                className="absolute right-9 top-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
                 animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
                 transition={{ duration: 4, repeat: Infinity, times: [0, 0.45, 0.5, 0.55, 1] }}
               />
-              <div className="absolute left-1/2 -transtone-x-1/2 bottom-4 w-14 h-4 border-b-4 border-[#5CC489]/90 rounded-b-full" />
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-4 w-14 h-4 border-b-4 border-[#5CC489]/90 rounded-b-full" />
               <motion.div
-                className="absolute inset-x-0 h-8 bg-gradient-to-b from-transparent via-[#3DB36B]/15 to-transparent"
+                className="absolute inset-x-0 h-8 bg-[#3DB36B]/10"
                 animate={{ top: ["-20%", "120%"] }}
                 transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
               />
             </div>
             {/* ear pods */}
-            <div className="absolute -left-4 top-1/2 -transtone-y-1/2 w-5 h-14 rounded-full bg-gradient-to-b from-[#5A4591] to-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
-            <div className="absolute -right-4 top-1/2 -transtone-y-1/2 w-5 h-14 rounded-full bg-gradient-to-b from-[#5A4591] to-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
+            <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-5 h-14 rounded-full bg-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
+            <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-5 h-14 rounded-full bg-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
             {/* antenna */}
-            <div className="absolute left-1/2 -transtone-x-1/2 -top-10 w-1.5 h-10 bg-gradient-to-t from-stone-400 to-stone-200 rounded-full">
+            <div className="absolute left-1/2 -translate-x-1/2 -top-10 w-1.5 h-10 bg-gradient-to-t from-stone-400 to-stone-200 rounded-full">
               <motion.div
-                className="absolute -top-3 left-1/2 -transtone-x-1/2 w-4 h-4 rounded-full bg-[#8B6FD8] shadow-[0_0_18px_5px_rgba(139,111,216,0.8)]"
+                className="absolute -top-3 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#8B6FD8] shadow-[0_0_18px_5px_rgba(139,111,216,0.8)]"
                 animate={{ scale: [1, 1.35, 1] }}
                 transition={{ duration: 1.6, repeat: Infinity }}
               />
@@ -96,17 +96,17 @@ export function Robot3D() {
 
           {/* ===== NECK ===== */}
           <div
-            className="absolute left-1/2 top-[152px] -transtone-x-1/2 w-12 h-6 bg-gradient-to-b from-stone-500 to-stone-600 rounded"
+            className="absolute left-1/2 top-[152px] -translate-x-1/2 w-12 h-6 bg-gradient-to-b from-stone-500 to-stone-600 rounded"
             style={{ transform: "translateZ(20px)" }}
           />
 
           {/* ===== BODY ===== */}
           <div
-            className="absolute left-1/2 top-[176px] -transtone-x-1/2 w-[150px] h-[130px] rounded-[36px] bg-gradient-to-b from-stone-200 via-stone-300 to-stone-500 shadow-[inset_0_-12px_20px_rgba(0,0,0,0.3),0_20px_50px_rgba(24,113,60,0.25)]"
+            className="absolute left-1/2 top-[176px] -translate-x-1/2 w-[150px] h-[130px] rounded-[36px] bg-gradient-to-b from-stone-200 via-stone-300 to-stone-500 shadow-[inset_0_-12px_20px_rgba(0,0,0,0.3),0_20px_50px_rgba(24,113,60,0.25)]"
             style={{ transform: "translateZ(30px)" }}
           >
             <motion.div
-              className="absolute left-1/2 top-1/2 -transtone-x-1/2 -transtone-y-1/2 w-14 h-14 rounded-full bg-gradient-to-br from-[#5CC489] to-[#5A4591]"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-[#18713C]"
               animate={{
                 boxShadow: [
                   "0 0 20px 4px rgba(92,196,137,0.5)",
@@ -118,7 +118,7 @@ export function Robot3D() {
             >
               <div className="absolute inset-2 rounded-full bg-[#0F160F]" />
               <motion.div
-                className="absolute inset-4 rounded-full bg-gradient-to-br from-[#3DB36B] to-[#7A5CC9]"
+                className="absolute inset-4 rounded-full bg-[#18713C]"
                 animate={{ rotate: 360 }}
                 transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
               />
@@ -132,7 +132,7 @@ export function Robot3D() {
             animate={{ rotate: [8, 16, 8] }}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
           >
-            <div className="absolute -bottom-3 left-1/2 -transtone-x-1/2 w-8 h-8 rounded-full bg-gradient-to-br from-[#3DB36B] to-[#5A4591] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#48357B] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
           </motion.div>
           <motion.div
             className="absolute right-[-6px] top-[190px] w-10 h-24 rounded-full bg-gradient-to-b from-stone-300 to-stone-500 origin-top"
@@ -140,12 +140,12 @@ export function Robot3D() {
             animate={{ rotate: [-8, -16, -8] }}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
           >
-            <div className="absolute -bottom-3 left-1/2 -transtone-x-1/2 w-8 h-8 rounded-full bg-gradient-to-br from-[#3DB36B] to-[#5A4591] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#48357B] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
           </motion.div>
 
           {/* ===== HOLO BASE ===== */}
           <motion.div
-            className="absolute left-1/2 -transtone-x-1/2 bottom-[-18px] w-[220px] h-[50px] rounded-[50%] bg-gradient-to-r from-[#1E8A47]/40 via-[#5A4591]/40 to-[#7A5CC9]/40 blur-md"
+            className="absolute left-1/2 -translate-x-1/2 bottom-[-18px] w-[220px] h-[50px] rounded-[50%] bg-[#48357B]/40 blur-md"
             animate={{ scaleX: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
             transition={{ duration: 3, repeat: Infinity }}
           />
@@ -171,3 +171,5 @@ export function Robot3D() {
     </div>
   );
 }
+
+

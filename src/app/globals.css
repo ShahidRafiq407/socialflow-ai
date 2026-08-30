@@ -128,3 +128,88 @@
     @apply font-sans;
   }
 }
+
+/* ===== PostloomAI Marketing Theme (dark default, .light overrides) ===== */
+:root,
+.dark {
+  --mkt-bg: #0a0d0b;
+  --mkt-bg2: #0d120e;
+  --mkt-surface: rgba(255, 255, 255, 0.04);
+  --mkt-surface2: rgba(255, 255, 255, 0.08);
+  --mkt-border: rgba(255, 255, 255, 0.1);
+  --mkt-text: #ffffff;
+  --mkt-muted: #a8a29e;
+  --mkt-faint: #78716c;
+  --mkt-accent: #3db36b;
+  --mkt-accent2: #8b6fd8;
+  --mkt-glass-shine: rgba(255, 255, 255, 0.09);
+  --mkt-header-bg: rgba(10, 13, 11, 0.75);
+}
+
+.light {
+  --mkt-bg: #f7f9f7;
+  --mkt-bg2: #eef3ee;
+  --mkt-surface: rgba(24, 113, 60, 0.05);
+  --mkt-surface2: rgba(24, 113, 60, 0.1);
+  --mkt-border: rgba(16, 26, 20, 0.12);
+  --mkt-text: #10160f;
+  --mkt-muted: #4e5650;
+  --mkt-faint: #6b7268;
+  --mkt-accent: #18713c;
+  --mkt-accent2: #48357b;
+  --mkt-glass-shine: rgba(255, 255, 255, 0.65);
+  --mkt-header-bg: rgba(247, 249, 247, 0.8);
+}
+
+@utility mkt-bg {
+  background-color: var(--mkt-bg);
+}
+@utility mkt-bg2 {
+  background-color: var(--mkt-bg2);
+}
+@utility mkt-surface {
+  background-color: var(--mkt-surface);
+}
+@utility mkt-surface2 {
+  background-color: var(--mkt-surface2);
+}
+@utility mkt-border {
+  border-color: var(--mkt-border);
+}
+@utility mkt-text {
+  color: var(--mkt-text);
+}
+@utility mkt-muted {
+  color: var(--mkt-muted);
+}
+@utility mkt-faint {
+  color: var(--mkt-faint);
+}
+@utility mkt-accent-text {
+  color: var(--mkt-accent);
+}
+@utility mkt-accent2-text {
+  color: var(--mkt-accent2);
+}
+@utility mkt-header-bg {
+  background-color: var(--mkt-header-bg);
+}
+
+/* Realistic 3D glass card */
+@utility mkt-glass {
+  position: relative;
+  background-color: var(--mkt-surface);
+  border: 1px solid var(--mkt-border);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    inset 0 1px 0 var(--mkt-glass-shine),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15),
+    0 20px 40px -20px rgba(0, 0, 0, 0.5);
+}
+@utility mkt-glass-shine {
+  background-image: linear-gradient(
+    135deg,
+    var(--mkt-glass-shine) 0%,
+    transparent 40%
+  );
+}

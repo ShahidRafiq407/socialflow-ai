@@ -31,7 +31,7 @@ const POST_1: BlogPost = {
   readTime: "9 min read",
   tag: "Trending",
   keywords: ["AI social media marketing", "AI content creation", "social media automation 2026", "AI marketing tools", "autonomous marketing agents"],
-  gradient: "from-[#18713C] via-[#0F2B1A] to-[#48357B]",
+  gradient: "#18713C",
   icon: "trend",
   blocks: [
     {
@@ -81,7 +81,7 @@ const POST_1: BlogPost = {
     { type: "h2", text: "How Small Teams Outperform Big Brands With AI" },
     {
       type: "p",
-      text: "Large brands move slowly: legal reviews, agency retainers, weekly alignment meetings. A two-person team with an autonomous AI pipeline can react to a trend within an hour and publish across five platforms before lunch. Speed plus consistency beats budget almost every time on social. We've seen this pattern repeatedly among PostloomAI users — creators and small brands growing engagement three to four times faster after switching to an [AI-powered content workflow](/blog/ai-automation-workflows-save-20-hours).",
+      text: "Large brands move slowly: legal reviews, agency retainers, weekly alignment meetings. A two-person team with an autonomous AI pipeline can react to a trend within an hour and publish across five platforms before lunch. Speed plus consistency beats budget almost every time on social. We've seen this pattern repeatedly among PostloomAI users — creators and small brands growing engagement three to four times faster after switching to an [AI-powered content workflow](/blog/`ai-automation-workflows-save-20-hours).",
     },
     {
       type: "quote",
@@ -133,7 +133,7 @@ const POST_2: BlogPost = {
   readTime: "8 min read",
   tag: "Workflows",
   keywords: ["AI automation workflows", "marketing automation", "save time social media", "AI content pipeline", "marketing productivity"],
-  gradient: "from-[#48357B] via-[#221A3E] to-[#18713C]",
+  gradient: "#48357B",
   icon: "workflow",
   blocks: [
     {
@@ -218,7 +218,7 @@ const POST_3: BlogPost = {
   readTime: "8 min read",
   tag: "Strategy",
   keywords: ["small business content strategy", "AI content marketing", "compete with big brands", "small business marketing", "AI for small business"],
-  gradient: "from-[#18713C] via-[#231A42] to-[#48357B]",
+  gradient: "#18713C",
   icon: "growth",
   blocks: [
     {
@@ -298,3 +298,5 @@ export const POSTS: BlogPost[] = [POST_1, POST_2, POST_3];
 export function getPost(slug: string) {
   return POSTS.find((p) => p.slug === slug);
 }
+
+
