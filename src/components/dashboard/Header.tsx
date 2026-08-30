@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/marketing/theme-toggle";
 import { sidebarLinks } from "@/components/dashboard/Sidebar";
 
 interface HeaderProps {
@@ -266,6 +267,9 @@ export function Header({ workspaces = [], userDetails = null }: HeaderProps) {
             </Tabs>
           </PopoverContent>
         </Popover>
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
 
         {/* Profile Dropdown */}
         <DropdownMenu>

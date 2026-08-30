@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -17,6 +17,7 @@ import {
   CreditCard,
   Settings,
 } from "lucide-react";
+import { PostloomLogo } from "@/components/marketing/logo";
 
 export const sidebarLinks = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -35,33 +36,32 @@ export const sidebarLinks = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [navigatingTo, setNavigatingTo] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setNavigatingTo(null);
-  }, [pathname]);
+  // Pending navigation is derived from (href, clickedFrom) so it clears
+  // automatically when the route changes — no effect needed.
+  const [pendingNav, setPendingNav] = useState<{ href: string; from: string } | null>(
+    null
+  );
 
   return (
     <aside className="w-[250px] fixed inset-y-0 left-0 z-50 hidden md:flex flex-col border-r bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 select-none">
       <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 dark:border-slate-800 px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
-          <Bot className="h-5 w-5" />
-        </div>
+        <PostloomLogo size={34} />
         <span className="font-bold text-lg tracking-tight text-slate-900 dark:text-slate-100">
-          Marketing AI
+          Postloom<span className="text-[#18713C] dark:text-[#3DB36B]">AI</span>
         </span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
         {sidebarLinks.map((item) => {
           const isActive =
-            navigatingTo === item.href ||
-            (!navigatingTo &&
+            pendingNav?.href === item.href ||
+            (pendingNav === null &&
               (item.href === "/dashboard"
                 ? pathname === "/dashboard"
                 : pathname === item.href || pathname.startsWith(item.href + "/")));
 
-          const isPending = navigatingTo === item.href && pathname !== item.href;
+          const isPending =
+            pendingNav?.href === item.href && pendingNav?.from === pathname;
 
           return (
             <Link
@@ -70,7 +70,7 @@ export function Sidebar() {
               prefetch={true}
               onClick={() => {
                 if (pathname !== item.href) {
-                  setNavigatingTo(item.href);
+                  setPendingNav({ href: item.href, from: pathname });
                 }
               }}
               className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
@@ -98,7 +98,7 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-slate-200 dark:border-slate-800 p-4 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
-        <span>SaaS Engine v1.0</span>
+        <span>PostloomAI v1.0</span>
         <span className="h-2 w-2 rounded-full bg-emerald-500" title="System Online" />
       </div>
     </aside>
