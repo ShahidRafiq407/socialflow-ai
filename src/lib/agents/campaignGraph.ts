@@ -133,6 +133,39 @@ export async function runCampaignGraph(
     data: { message: "Starting Multi-Agent Campaign Engine", timestamp: Date.now() },
   });
 
+  // ── Live Agent Reasoning Stream ──────────────────────────────────────────
+  // Streams each agent's genuine, data-grounded internal reasoning token-by-token
+  // to the client (Claude-style thinking UI) instead of static status messages.
+  const thoughtStyle = (agentName: string) =>
+    `You are the internal reasoning voice of the ${agentName} agent inside an AI marketing campaign pipeline. ` +
+    `Think out loud in first person, present tense, in 2-4 concise sentences. ` +
+    `Reference the ACTUAL data provided below (names, industries, numbers, sources). ` +
+    `Sound like a sharp strategist reasoning through a decision. ` +
+    `No headers, no bullets, no markdown, no self-introduction — plain internal monologue only.`;
+
+  const streamThought = async (agentId: string, prompt: string, opts: { append?: boolean } = {}) => {
+    try {
+      if (!opts.append) {
+        onEvent({ type: "agent_thought", agentId, data: { reset: true } });
+      }
+      const text = await vertexProvider.generateTextStream(
+        [{ role: "user", content: prompt }],
+        { modelName: MODELS.FAST_THOUGHT, temperature: 0.5, maxOutputTokens: 280 },
+        (delta) => onEvent({ type: "agent_thought", agentId, data: { delta } })
+      );
+      if (!text || !text.trim()) {
+        onEvent({
+          type: "agent_thought",
+          agentId,
+          data: { delta: "Processing the inputs and locking in the execution plan." },
+        });
+      }
+      onEvent({ type: "agent_thought", agentId, data: { done: true } });
+    } catch (err: any) {
+      console.warn(`[Agent Thought] ${agentId} reasoning stream failed (non-fatal):`, err?.message || err);
+    }
+  };
+
   // =========================================================================
   // 1. BRAND ANALYST (Database query)
   // =========================================================================
@@ -185,6 +218,29 @@ export async function runCampaignGraph(
         writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
         hasCustomDNA,
       };
+
+      await streamThought(
+        "brand_analyst",
+        `${thoughtStyle("Brand Analyst")}
+
+Brand DNA just loaded from the workspace database:
+${JSON.stringify(
+  {
+    name: state.brandData.name,
+    industry: state.brandData.industry,
+    website: state.brandData.website,
+    tone: state.brandData.tone,
+    missionVision: state.brandData.missionVision,
+    targetAudience: state.brandData.targetAudience,
+    writingStyle: state.brandData.writingStyle,
+    hasCustomDNA: state.brandData.hasCustomDNA,
+  },
+  null,
+  2
+)}
+
+Explain what stands out about this brand and how it should shape the campaign direction.`
+      );
 
       const brandElapsed = Date.now() - brandStartTime;
       console.log(`[Brand Analyst] Completed in ${brandElapsed}ms`);
@@ -288,6 +344,29 @@ Analyze query: ${searchQuery}`;
         ],
         rawText,
       };
+
+      await streamThought(
+        "trend_researcher",
+        `${thoughtStyle("Trend Researcher")}
+
+Campaign topic: "${topic}".
+Brand: ${state.brandData.name} (${state.brandData.industry} industry, targeting ${state.brandData.targetAudience}).
+Search query executed: ${searchQuery}
+Live sources found (${sources.length}):
+${sources
+  .slice(0, 6)
+  .map((s, i) => `${i + 1}. "${s.title}" — ${(s.snippet || "").slice(0, 160)}`)
+  .join("\n")}
+Key findings extracted:
+${state.trendResearch.findings.map((f) => `- ${f}`).join("\n")}
+
+Explain what these live search results reveal and which angles look strongest for the campaign.`
+      );
+      onEvent({
+        type: "agent_action",
+        agentId: "trend_researcher",
+        data: { label: `Cross-referenced ${sources.length} live sources into ${state.trendResearch.findings.length} actionable trend insights` },
+      });
 
       onEvent({
         type: "source_found",
@@ -422,6 +501,21 @@ Return strictly JSON with format:
         ],
       };
 
+      await streamThought(
+        "competitor_analyst",
+        `${thoughtStyle("Competitor Analyst")}
+
+Brand: ${state.brandData.name} (${state.brandData.industry} industry).
+Top competitors identified: ${topComps.join(", ")}.
+My analysis results:
+- Positioning: ${state.competitorAnalysis.positioning}
+- Weaknesses to exploit: ${state.competitorAnalysis.weaknesses.slice(0, 3).join("; ")}
+- Differentiation angles: ${state.competitorAnalysis.differentiation.slice(0, 3).join("; ")}
+- Winning angle: ${compRes.winningAngle || state.competitorAnalysis.differentiation[0]}
+
+Explain how the brand should position itself against competitors in this campaign.`
+      );
+
       onEvent({
         type: "agent_action",
         agentId: "competitor_analyst",
@@ -475,11 +569,20 @@ Return strictly JSON with format:
     onEvent({ type: "agent_completed", agentId: "content_creator" });
   } else {
     onEvent({ type: "agent_started", agentId: "content_creator" });
-    onEvent({
-      type: "agent_thought",
-      agentId: "content_creator",
-      data: "Synthesizing audience psychology, curiosity gaps, user intent, and platform-specific algorithms...",
-    });
+    await streamThought(
+      "content_creator",
+      `${thoughtStyle("Viral Content Creator")}
+
+Brand: ${state.brandData?.name || "the brand"} — ${state.brandData?.industry || "general"} industry.
+Voice: ${state.brandData?.tone || "professional"}. Target audience: ${state.brandData?.targetAudience || "general"}. Mission: ${state.brandData?.missionVision || "growth"}.
+Trend research highlights: ${(state.trendResearch?.rawText || "").slice(0, 900) || "No trend data available."}
+Competitor differentiation angles: ${(state.competitorAnalysis?.differentiation || []).slice(0, 3).join("; ") || "None"}.
+Platforms & formats to write: ${Object.entries(contentTypes)
+        .map(([p, fmts]) => `${p} (${fmts.join(", ")})`)
+        .join(" · ")}
+
+Explain your creative strategy for this copy before writing it.`
+    );
     onEvent({
       type: "agent_action",
       agentId: "content_creator",
@@ -701,6 +804,20 @@ Return strictly JSON format:
       detail: `Smart dedup plan: ${generationBuckets.size} unique generations instead of ${mediaTasks.length} (saves ${savedCalls} API calls, credits & wait time)`,
     },
   });
+
+  await streamThought(
+    "visualizer",
+    `${thoughtStyle("Visual Director")}
+
+Brand: ${state.brandData?.name || "the brand"} (${state.brandData?.industry || "general"} industry, ${state.brandData?.tone || "professional"} tone).
+Asset plan: ${mediaTasks.length} required asset(s) — ${mediaTasks
+      .slice(0, 10)
+      .map((t) => `${t.platform}/${t.contentType} (${t.reqSpec.assetType}, ${t.reqSpec.aspectRatio})`)
+      .join(", ")}.
+Smart dedup: ${generationBuckets.size} unique generation(s) will cover all ${mediaTasks.length} requirement(s).
+
+Explain the visual direction you are setting for these assets and why the formats fit each platform.`
+  );
 
   let completedTaskCount = 0;
 
@@ -985,6 +1102,20 @@ Return strictly JSON format:
     };
   }
 
+  await streamThought(
+    "ceo_auditor",
+    `${thoughtStyle("CEO & Quality Auditor")}
+
+Audit verdict: ${state.auditResult.passed ? "PASSED" : "FAILED"} — score ${state.auditResult.score}/100.
+Notes: ${state.auditResult.notes}
+Issues flagged: ${state.auditResult.issues.join("; ") || "none"}
+Campaign scope: ${platforms.length} platform(s), ${state.generatedAssets?.length || 0} visual asset(s) produced.
+
+Explain your verdict as the CEO deciding whether this campaign ships.${
+      !state.auditResult.passed ? " You are about to auto-revise the copy yourself to fix the issues." : ""
+    }`
+  );
+
   if (!state.auditResult.passed && state.auditResult.issues && state.auditResult.issues.length > 0) {
     onEvent({
       type: "agent_action",
@@ -1042,6 +1173,17 @@ Return strictly JSON matching the EXACT same structure as the "platforms" object
         agentId: "ceo_auditor",
         data: { label: `CEO Auto-Revision Complete! Campaign Approved.` },
       });
+
+      await streamThought(
+        "ceo_auditor",
+        `${thoughtStyle("CEO & Quality Auditor")}
+
+The first audit FAILED with issues: ${state.auditResult.issues.join("; ")}.
+I have just rewritten the campaign copy myself to eliminate those issues while keeping the brand voice (${state.brandData?.tone || "professional"}).
+
+Briefly explain what you fixed and why the campaign is now ready to ship.`,
+        { append: true }
+      );
     } catch (e: any) {
       console.warn("CEO Auto-Revision failed:", e);
       onEvent({

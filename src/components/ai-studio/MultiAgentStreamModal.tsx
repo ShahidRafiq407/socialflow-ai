@@ -111,8 +111,10 @@ export default function MultiAgentStreamModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedAgentId, setFailedAgentId] = useState<string | null>(null);
   const [upgradeRequired, setUpgradeRequired] = useState(false);
+  const [agentThoughts, setAgentThoughts] = useState<Record<string, string>>({});
 
   const agentOutputsRef = useRef<Record<string, any>>({});
+  const thinkingEndRef = useRef<HTMLDivElement>(null);
   const runIdRef = useRef<string>(`run_${Date.now()}`);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<any>(null);
@@ -132,6 +134,7 @@ export default function MultiAgentStreamModal({
       setSearchQuery("");
       setAgentOutputs({});
       agentOutputsRef.current = {};
+      setAgentThoughts({});
       setFailedAgentId(null);
       setAgentActivities({
         brand_analyst: [{ label: "Querying workspace database for Brand DNA...", status: "running" }],
@@ -149,6 +152,8 @@ export default function MultiAgentStreamModal({
     } else if (targetResumeAgent) {
       setFailedAgentId(null);
       setSelectedAgentId(targetResumeAgent);
+      // Clear the retried agent's previous reasoning so it re-streams live
+      setAgentThoughts((prev) => ({ ...prev, [targetResumeAgent]: "" }));
       
       // Keep prior agents marked as completed, target as running, subsequent as waiting
       setAgentStatuses((prev) => {
@@ -277,6 +282,15 @@ export default function MultiAgentStreamModal({
           [agentId]: [...(prev[agentId] || []), { label: data.label, status: "running" }],
         }));
       }
+    } else if (type === "agent_thought") {
+      // Live agent reasoning stream (Claude-style thinking), token-by-token from the pipeline
+      if (typeof data === "string") {
+        setAgentThoughts((prev) => ({ ...prev, [agentId]: prev[agentId] ? prev[agentId] : data }));
+      } else if (data?.reset) {
+        setAgentThoughts((prev) => ({ ...prev, [agentId]: "" }));
+      } else if (typeof data?.delta === "string") {
+        setAgentThoughts((prev) => ({ ...prev, [agentId]: (prev[agentId] || "") + data.delta }));
+      }
     } else if (type === "web_search") {
       if (data?.query) setSearchQuery(data.query);
     } else if (type === "source_found") {
@@ -323,6 +337,11 @@ export default function MultiAgentStreamModal({
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isOpen, startStream]);
+
+  // Keep the live reasoning stream pinned to the latest token
+  useEffect(() => {
+    thinkingEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [agentThoughts, selectedAgentId]);
 
   const handleRetry = (agentId?: string) => {
     const targetAgent = agentId || failedAgentId || selectedAgentId || "visualizer";
@@ -507,6 +526,32 @@ export default function MultiAgentStreamModal({
                       </div>
                     ) : (
                       <p className="text-xs text-[#6B7280]">Agent waiting to execute...</p>
+                    )}
+
+                    {/* Live Agent Reasoning — streamed token-by-token from the pipeline */}
+                    {(agentStatuses[selectedAgentId] === "running" || (agentThoughts[selectedAgentId] || "").length > 0) && (
+                      <div className="rounded-xl border border-[#252A32] bg-[#0D1015] p-3 sm:p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles
+                            className={`w-3.5 h-3.5 ${
+                              agentStatuses[selectedAgentId] === "running" ? "text-[#A78BFA] animate-pulse" : "text-[#6B7280]"
+                            }`}
+                          />
+                          <span className="text-[10px] font-semibold uppercase tracking-widest text-[#9CA3AF]">Agent Reasoning</span>
+                          {agentStatuses[selectedAgentId] === "running" && (
+                            <span className="text-[10px] text-[#A78BFA] animate-pulse ml-auto">Thinking...</span>
+                          )}
+                        </div>
+                        <div className="max-h-36 overflow-y-auto pr-1">
+                          <p className="text-xs leading-relaxed text-[#9CA3AF] italic whitespace-pre-wrap border-l-2 border-[#8B5CF6]/40 pl-3">
+                            {agentThoughts[selectedAgentId] || ""}
+                            {agentStatuses[selectedAgentId] === "running" && (
+                              <span className="inline-block w-1.5 h-3.5 bg-[#A78BFA]/80 animate-pulse ml-0.5 align-middle" />
+                            )}
+                          </p>
+                          <div ref={thinkingEndRef} />
+                        </div>
+                      </div>
                     )}
 
                     {/* Real Data Details Panel for selectedAgentId */}
