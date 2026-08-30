@@ -10,9 +10,9 @@ export function PostloomLogo({ size = 40 }: { size?: number }) {
     >
       <defs>
         <linearGradient id="pl-grad" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#FBBF24" />
-          <stop offset="50%" stopColor="#F97316" />
-          <stop offset="100%" stopColor="#F43F5E" />
+          <stop offset="0%" stopColor="#3DB36B" />
+          <stop offset="50%" stopColor="#18713C" />
+          <stop offset="100%" stopColor="#48357B" />
         </linearGradient>
         <linearGradient id="pl-thread" x1="0" y1="48" x2="48" y2="0" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#FFF7ED" />
@@ -30,7 +30,7 @@ export function PostloomLogo({ size = 40 }: { size?: number }) {
       {/* vertical warp thread weaving through */}
       <path
         d="M18 11 C18 18, 26 20, 26 24 C26 28, 20 30, 20 37"
-        stroke="#7C2D12"
+        stroke="#241A45"
         strokeWidth="3"
         strokeLinecap="round"
         opacity="0.55"
