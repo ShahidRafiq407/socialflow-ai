@@ -3119,8 +3119,10 @@ export default function AIStudioPage() {
     }
     setPublishLoading(true);
     try {
-      const modalItems: PublishItemResult[] = await Promise.all(
-        posts.map(async ({ platform, format, data, resolvedMediaType }) => {
+      const modalItems: PublishItemResult[] = [];
+      // Publish sequentially (not in parallel) so each platform call completes
+      // cleanly without overwhelming the API and triggering "unexpected response".
+      for (const { platform, format, data, resolvedMediaType } of posts) {
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
@@ -3150,49 +3152,49 @@ export default function AIStudioPage() {
             });
 
             if (!draftRes?.id) {
-              return {
+              modalItems.push({
                 platform,
                 format,
                 status: "FAILED" as const,
                 error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
                 title: data.caption?.slice(0, 60),
                 thumbnailUrl: mediaUrl,
-              };
+              });
+              continue;
             }
 
             const pubRes: any = await apiPublishNow(draftRes.id);
             if (pubRes?.success) {
-              return {
+              modalItems.push({
                 platform,
                 format,
                 status: "PUBLISHED" as const,
                 liveUrl: pubRes.liveUrl || `https://${platform.toLowerCase()}.com`,
                 title: data.caption?.slice(0, 60),
                 thumbnailUrl: mediaUrl,
-              };
+              });
             } else {
-              return {
+              modalItems.push({
                 platform,
                 format,
                 status: "FAILED" as const,
                 error: pubRes?.error || "Publishing was rejected by social platform API.",
                 title: data.caption?.slice(0, 60),
                 thumbnailUrl: mediaUrl,
-              };
+              });
             }
           } catch (e: any) {
             console.error(`Publish failed for ${platform}:`, e);
-            return {
+            modalItems.push({
               platform,
               format,
               status: "FAILED" as const,
               error: e.message || "Failed to dispatch post.",
               title: data.caption?.slice(0, 60),
               thumbnailUrl: mediaUrl,
-            };
+            });
           }
-        })
-      );
+        }
 
       setPublishModal({ type: null });
       setStatusModalData({

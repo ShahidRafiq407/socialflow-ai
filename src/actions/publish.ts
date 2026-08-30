@@ -193,8 +193,8 @@ export async function publishToPlatform(post: any, account: any) {
       publishToPlatformProvider(post, account),
       new Promise<any>((_, reject) =>
         setTimeout(
-          () => reject(new Error("Social platform crawler took too long to download the media (Timeout). Ensure your media URL is publicly accessible and not blocked by hotlink protection.")),
-          50000
+          () => reject(new Error("Publishing timed out after 30 seconds. The social platform may be slow or your media URL may not be publicly accessible.")),
+          30000
         )
       ),
     ]);
