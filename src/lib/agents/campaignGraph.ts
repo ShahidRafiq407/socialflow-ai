@@ -166,6 +166,30 @@ export async function runCampaignGraph(
     }
   };
 
+  // Real, safe execution progress. Derived from actual completed work inside
+  // each agent (loaded records, drafted posts, generated assets, audit results).
+  // Never exposes private reasoning — only stage + safe summary + real progress.
+  const emitProgress = (
+    agentId: string,
+    progress: number,
+    stage: string,
+    safe_summary: string,
+    status: "running" | "completed" = "running"
+  ) => {
+    onEvent({
+      type: "agent_progress",
+      agentId,
+      data: {
+        agent: agentId,
+        status,
+        stage,
+        progress: Math.max(0, Math.min(100, Math.round(progress))),
+        safe_summary,
+        timestamp: Date.now(),
+      },
+    });
+  };
+
   // =========================================================================
   // 1. BRAND ANALYST (Database query)
   // =========================================================================
@@ -179,6 +203,7 @@ export async function runCampaignGraph(
       agentId: "brand_analyst",
       data: { label: `Loaded Brand: ${state.brandData.name} (${state.brandData.industry})` },
     });
+    emitProgress("brand_analyst", 100, "loaded", "Brand DNA loaded", "completed");
     onEvent({
       type: "output_ready",
       agentId: "brand_analyst",
@@ -193,6 +218,7 @@ export async function runCampaignGraph(
       agentId: "brand_analyst",
       data: { label: "Loading brand DNA...", detail: "Querying workspace database" },
     });
+    emitProgress("brand_analyst", 15, "loading_brand", "Loading brand DNA from database");
 
     try {
       let workspace = input.workspaceData;
@@ -249,6 +275,7 @@ Explain what stands out about this brand and how it should shape the campaign di
         agentId: "brand_analyst",
         data: { label: `Loaded Brand: ${state.brandData.name} (${state.brandData.industry})` },
       });
+      emitProgress("brand_analyst", 100, "loaded", "Brand DNA loaded", "completed");
       onEvent({
         type: "output_ready",
         agentId: "brand_analyst",
@@ -289,6 +316,7 @@ Explain what stands out about this brand and how it should shape the campaign di
       agentId: "trend_researcher",
       data: state.trendResearch,
     });
+    emitProgress("trend_researcher", 100, "completed", "Trend research restored", "completed");
     onEvent({ type: "agent_completed", agentId: "trend_researcher" });
   } else {
     onEvent({ type: "agent_started", agentId: "trend_researcher" });
@@ -303,6 +331,7 @@ Explain what stands out about this brand and how it should shape the campaign di
     const currentDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     const searchQuery = `Latest business news, emerging market trends, and content opportunities for ${state.brandData.industry} (Target Audience: ${state.brandData.targetAudience}) ${currentYear}`;
     onEvent({ type: "web_search", agentId: "trend_researcher", data: { query: searchQuery, searchDate: currentDateStr } });
+    emitProgress("trend_researcher", 25, "searching", "Searching live sources");
 
     try {
       const trendPrompt = `You are a professional Trend Researcher. Current search date: ${currentDateStr} (Year: ${currentYear}).
@@ -314,6 +343,7 @@ Analyze query: ${searchQuery}`;
         modelName: MODELS.TREND_RESEARCHER,
         temperature: 0.3,
       });
+      emitProgress("trend_researcher", 70, "reviewing_sources", "Reviewing discovered sources");
 
       let sources: GroundingSource[] = groundingRes.sources;
       if (!sources || sources.length === 0) {
@@ -367,6 +397,7 @@ Explain what these live search results reveal and which angles look strongest fo
         agentId: "trend_researcher",
         data: { label: `Cross-referenced ${sources.length} live sources into ${state.trendResearch.findings.length} actionable trend insights` },
       });
+      emitProgress("trend_researcher", 100, "completed", "Trend research complete", "completed");
 
       onEvent({
         type: "source_found",
@@ -402,6 +433,7 @@ Explain what these live search results reveal and which angles look strongest fo
 
   if (!shouldRunComp && state.competitorAnalysis) {
     onEvent({ type: "agent_started", agentId: "competitor_analyst" });
+    emitProgress("competitor_analyst", 100, "completed", "Competitor analysis restored", "completed");
     onEvent({
       type: "output_ready",
       agentId: "competitor_analyst",
@@ -410,6 +442,7 @@ Explain what these live search results reveal and which angles look strongest fo
     onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
   } else {
     onEvent({ type: "agent_started", agentId: "competitor_analyst" });
+    emitProgress("competitor_analyst", 15, "scanning_market", "Scanning competitor landscape");
     onEvent({
       type: "agent_action",
       agentId: "competitor_analyst",
@@ -488,6 +521,7 @@ Return strictly JSON with format:
       const topComps = Array.isArray(compRes.topCompetitors) && compRes.topCompetitors.length > 0
         ? compRes.topCompetitors
         : ["Industry Market Leaders", "Category Competitors"];
+      emitProgress("competitor_analyst", 80, "analyzing", "Analyzing competitor gaps");
 
       state.competitorAnalysis = {
         positioning: compRes.positioning || `Competitors in ${state.brandData.industry} rely on generic feature lists and static infographics.`,
@@ -569,6 +603,7 @@ Explain how the brand should position itself against competitors in this campaig
     onEvent({ type: "agent_completed", agentId: "content_creator" });
   } else {
     onEvent({ type: "agent_started", agentId: "content_creator" });
+    emitProgress("content_creator", 10, "structuring", "Preparing platform-native copy");
     await streamThought(
       "content_creator",
       `${thoughtStyle("Viral Content Creator")}
@@ -670,6 +705,12 @@ Return strictly JSON format:
       );
 
       const structuredPlatforms: Record<string, Record<string, ContentOutputItem>> = {};
+      const totalRequestedFormats =
+        Object.values(contentTypes || {}).reduce(
+          (acc, fmts) => acc + (Array.isArray(fmts) ? fmts.length : 1),
+          0
+        ) || 1;
+      let draftedFormats = 0;
 
       for (const plt of platforms) {
         const normPlt = plt.toLowerCase();
@@ -718,6 +759,13 @@ Return strictly JSON format:
           };
 
           // Emit granular real-time progress for each drafted post
+          draftedFormats += 1;
+          emitProgress(
+            "content_creator",
+            30 + Math.round((70 * draftedFormats) / totalRequestedFormats),
+            draftedFormats === totalRequestedFormats ? "completed" : "drafting",
+            `Drafting platform-native copy (${draftedFormats}/${totalRequestedFormats})`
+          );
           onEvent({
             type: "agent_action",
             agentId: "content_creator",
@@ -733,6 +781,7 @@ Return strictly JSON format:
         agentId: "content_creator",
         data: state.generatedContent,
       });
+      emitProgress("content_creator", 100, "completed", "Content copy drafted", "completed");
       onEvent({ type: "agent_completed", agentId: "content_creator" });
     } catch (err: any) {
       console.error("Content Creator error:", err);
@@ -755,6 +804,7 @@ Return strictly JSON format:
     agentId: "visualizer",
     data: { label: "Resolving visual requirements...", detail: "Checking platforms and media formats" },
   });
+  emitProgress("visualizer", 10, "planning", "Planning media generation");
 
   state.generatedAssets = [];
 
@@ -820,6 +870,7 @@ Explain the visual direction you are setting for these assets and why the format
   );
 
   let completedTaskCount = 0;
+  let bucketIndex = 0;
 
   for (const [bucketKey, bucketTasks] of generationBuckets) {
     checkCancelled();
@@ -900,6 +951,14 @@ Explain the visual direction you are setting for these assets and why the format
           data: { label: `${completedTaskCount}/${mediaTasks.length} assets ready: ${task.platform} ${task.contentType}${reuseNote}.` },
         });
       }
+
+      bucketIndex += 1;
+      emitProgress(
+        "visualizer",
+        Math.round((bucketIndex / generationBuckets.size) * 100),
+        bucketIndex === generationBuckets.size ? "completed" : "generating",
+        `${completedTaskCount}/${mediaTasks.length} assets ready`
+      );
     } catch (err: any) {
       // User cancellation flows through cleanly — no red error event
       if (err?.isCancelled) throw err;
@@ -938,6 +997,7 @@ Explain the visual direction you are setting for these assets and why the format
     agentId: "visualizer",
     data: { generatedAssets: state.generatedAssets },
   });
+  emitProgress("visualizer", 100, "completed", "Media generation complete", "completed");
   onEvent({ type: "agent_completed", agentId: "visualizer" });
 
   // =========================================================================
@@ -945,6 +1005,7 @@ Explain the visual direction you are setting for these assets and why the format
   // =========================================================================
   checkCancelled();
   onEvent({ type: "agent_started", agentId: "ceo_auditor" });
+  emitProgress("ceo_auditor", 10, "auditing", "Auditing campaign quality");
   onEvent({
     type: "agent_action",
     agentId: "ceo_auditor",
@@ -1101,6 +1162,7 @@ Return strictly JSON format:
       issues: [],
     };
   }
+  emitProgress("ceo_auditor", 60, "evaluating", "Evaluating brand alignment");
 
   await streamThought(
     "ceo_auditor",
@@ -1206,6 +1268,7 @@ Briefly explain what you fixed and why the campaign is now ready to ship.`,
     agentId: "ceo_auditor",
     data: state.auditResult,
   });
+  emitProgress("ceo_auditor", 100, "completed", "Campaign audit complete", "completed");
   onEvent({ type: "agent_completed", agentId: "ceo_auditor" });
 
   onEvent({

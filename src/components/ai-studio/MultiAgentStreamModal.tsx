@@ -31,6 +31,17 @@ interface MultiAgentStreamModalProps {
 
 type AgentStatus = "waiting" | "running" | "completed" | "error";
 
+/** Structured, safe execution entry derived from real backend/SSE events. */
+interface TimelineEntry {
+  id: string;
+  agentId: string;
+  status: "running" | "completed" | "error" | "pending";
+  stage: string;
+  summary: string;
+  progress?: number;
+  ts: number;
+}
+
 interface AgentConfig {
   id: string;
   number: number;
@@ -103,7 +114,8 @@ export default function MultiAgentStreamModal({
   const [selectedAgentId, setSelectedAgentId] = useState<string>("brand_analyst");
   const [userHasManuallySelected, setUserHasManuallySelected] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
-  const [agentActivities, setAgentActivities] = useState<Record<string, { label: string; status: AgentStatus }[]>>({});
+  const [agentProgress, setAgentProgress] = useState<Record<string, number>>({});
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [trendSources, setTrendSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -111,13 +123,18 @@ export default function MultiAgentStreamModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedAgentId, setFailedAgentId] = useState<string | null>(null);
   const [upgradeRequired, setUpgradeRequired] = useState(false);
-  const [agentThoughts, setAgentThoughts] = useState<Record<string, string>>({});
 
   const agentOutputsRef = useRef<Record<string, any>>({});
-  const thinkingEndRef = useRef<HTMLDivElement>(null);
+  const agentProgressRef = useRef<Record<string, number>>({});
   const runIdRef = useRef<string>(`run_${Date.now()}`);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<any>(null);
+  // Event dedup: id derived from (runId, type, agentId, stage/timestamp).
+  // Prevents duplicate timeline entries on reconnects / re-runs.
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const timelineEndRef = useRef<HTMLDivElement>(null);
+  const timelineBoxRef = useRef<HTMLDivElement>(null);
+  const followScrollRef = useRef<boolean>(true);
 
   const startStream = useCallback(async (retryOptions?: { resumeFromAgent?: string }) => {
     setIsCompleted(false);
@@ -134,11 +151,12 @@ export default function MultiAgentStreamModal({
       setSearchQuery("");
       setAgentOutputs({});
       agentOutputsRef.current = {};
-      setAgentThoughts({});
+      setAgentProgress({});
+      setTimeline([]);
       setFailedAgentId(null);
-      setAgentActivities({});
       setUserHasManuallySelected(false);
       setSelectedAgentId("brand_analyst");
+      seenEventIdsRef.current.clear();
       setAgentStatuses({
         brand_analyst: "running",
         trend_researcher: "waiting",
@@ -150,9 +168,6 @@ export default function MultiAgentStreamModal({
     } else if (targetResumeAgent) {
       setFailedAgentId(null);
       setSelectedAgentId(targetResumeAgent);
-      // Clear the retried agent's previous reasoning so it re-streams live
-      setAgentThoughts((prev) => ({ ...prev, [targetResumeAgent]: "" }));
-      
       // Keep prior agents marked as completed, target as running, subsequent as waiting
       setAgentStatuses((prev) => {
         const next: Record<string, AgentStatus> = { ...prev };
@@ -169,16 +184,19 @@ export default function MultiAgentStreamModal({
         }
         return next;
       });
-
-      setAgentActivities((prev) => ({
+      // Show a real retry entry based on the actual resume target
+      setTimeline((prev) => [
         ...prev,
-        [targetResumeAgent]: [
-          ...(prev[targetResumeAgent] || []).filter(a => a.status === "completed"),
-          { label: `Retrying ${AGENT_SEQUENCE.find(a => a.id === targetResumeAgent)?.name || targetResumeAgent}...`, status: "running" }
-        ],
-      }));
+        {
+          id: `${runIdRef.current}:retry:${targetResumeAgent}:${Date.now()}`,
+          agentId: targetResumeAgent,
+          status: "running",
+          stage: "retrying",
+          summary: `Retrying ${AGENT_SEQUENCE.find((a) => a.id === targetResumeAgent)?.name || targetResumeAgent}`,
+          ts: Date.now(),
+        },
+      ]);
     }
-
     const runId = `run_${Date.now()}`;
     runIdRef.current = runId;
 
@@ -267,27 +285,77 @@ export default function MultiAgentStreamModal({
   const handleStreamEvent = (event: any) => {
     const { type, agentId, data } = event;
 
+    // Dedup event: (runId, type, agentId, unique payload key). Events replayed
+    // on reconnect / resume are ignored so timeline entries never duplicate.
+    const payloadKey =
+      data?.timestamp ??
+      data?.progress ??
+      data?.safe_summary ??
+      data?.stage ??
+      data?.label ??
+      data?.query ??
+      data?.message ??
+      JSON.stringify(data ?? {})?.slice(0, 80);
+    const eventId = `${runIdRef.current}:${type}:${agentId}:${payloadKey}`;
+    if (seenEventIdsRef.current.has(eventId)) return;
+    seenEventIdsRef.current.add(eventId);
+
     if (type === "agent_started") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
+      setTimeline((prev) => [
+        ...prev,
+        {
+          id: eventId,
+          agentId,
+          status: "running",
+          stage: "started",
+          summary: "Agent started",
+          progress: agentProgressRef.current[agentId] ?? 0,
+          ts: Date.now(),
+        },
+      ]);
       // Automatically switch active panel to running agent unless user explicitly clicked another
       if (!userHasManuallySelected) {
         setSelectedAgentId(agentId);
       }
+    } else if (type === "agent_progress") {
+      const p = data?.progress;
+      if (typeof p === "number") {
+        agentProgressRef.current[agentId] = p;
+        setAgentProgress((prev) => ({ ...prev, [agentId]: p }));
+      }
+      const entryStatus: TimelineEntry["status"] =
+        data?.status === "completed" ? "completed" : data?.status === "error" ? "error" : "running";
+      const entry: TimelineEntry = {
+        id: eventId,
+        agentId,
+        status: entryStatus,
+        stage: data?.stage || "working",
+        summary: data?.safe_summary || data?.stage || "Working",
+        progress: typeof p === "number" ? p : undefined,
+        ts: Date.now(),
+      };
+      setTimeline((prev) => [
+        // keep completed entries above the active running entry for this agent
+        ...prev.filter(
+          (e) => !(e.agentId === agentId && e.status === "running" && e.stage === "working")
+        ),
+        entry,
+      ]);
     } else if (type === "agent_action") {
       if (data?.label) {
-        setAgentActivities((prev) => ({
+        setTimeline((prev) => [
           ...prev,
-          [agentId]: [...(prev[agentId] || []), { label: data.label, status: "running" }],
-        }));
-      }
-    } else if (type === "agent_thought") {
-      // Live agent reasoning stream (Claude-style thinking), token-by-token from the pipeline
-      if (typeof data === "string") {
-        setAgentThoughts((prev) => ({ ...prev, [agentId]: prev[agentId] ? prev[agentId] : data }));
-      } else if (data?.reset) {
-        setAgentThoughts((prev) => ({ ...prev, [agentId]: "" }));
-      } else if (typeof data?.delta === "string") {
-        setAgentThoughts((prev) => ({ ...prev, [agentId]: (prev[agentId] || "") + data.delta }));
+          {
+            id: eventId,
+            agentId,
+            status: "running",
+            stage: "action",
+            summary: data.label,
+            progress: agentProgressRef.current[agentId] ?? 0,
+            ts: Date.now(),
+          },
+        ]);
       }
     } else if (type === "web_search") {
       if (data?.query) setSearchQuery(data.query);
@@ -302,13 +370,51 @@ export default function MultiAgentStreamModal({
       }
     } else if (type === "agent_completed") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "completed" }));
-      setAgentActivities((prev) => ({
+      agentProgressRef.current[agentId] = 100;
+      setAgentProgress((prev) => ({ ...prev, [agentId]: 100 }));
+      // Mark this agent's running entries as completed
+      setTimeline((prev) =>
+        prev.map((e) =>
+          e.agentId === agentId && e.status === "running"
+            ? { ...e, status: "completed" as const }
+            : e
+        )
+      );
+      // Final completed entry
+      setTimeline((prev) => [
         ...prev,
-        [agentId]: (prev[agentId] || []).map((act) => ({ ...act, status: "completed" })),
-      }));
+        {
+          id: eventId,
+          agentId,
+          status: "completed",
+          stage: "completed",
+          summary: "Completed",
+          progress: 100,
+          ts: Date.now(),
+        },
+      ]);
     } else if (type === "agent_error") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "error" }));
       setFailedAgentId(agentId);
+      // Mark this agent's running entries as error, then append the error entry
+      setTimeline((prev) =>
+        prev.map((e) =>
+          e.agentId === agentId && e.status === "running"
+            ? { ...e, status: "error" as const }
+            : e
+        )
+      );
+      setTimeline((prev) => [
+        ...prev,
+        {
+          id: eventId,
+          agentId,
+          status: "error",
+          stage: "error",
+          summary: data?.message || "Failed",
+          ts: Date.now(),
+        },
+      ]);
       if (data?.message) setErrorMessage(data.message);
     } else if (type === "workflow_completed") {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -336,10 +442,20 @@ export default function MultiAgentStreamModal({
     };
   }, [isOpen, startStream]);
 
-  // Keep the live reasoning stream pinned to the latest token
+  // Keep the live execution timeline pinned to the latest event, but respect
+  // manual scroll: if the user scrolled up, don't yank the view back down.
   useEffect(() => {
-    thinkingEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [agentThoughts, selectedAgentId]);
+    if (followScrollRef.current) {
+      timelineEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [timeline, selectedAgentId]);
+
+  const handleTimelineScroll = () => {
+    const el = timelineBoxRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    followScrollRef.current = distanceFromBottom < 80;
+  };
 
   const handleRetry = (agentId?: string) => {
     const targetAgent = agentId || failedAgentId || selectedAgentId || "visualizer";
@@ -384,7 +500,17 @@ export default function MultiAgentStreamModal({
 
   const activeAgentConfig = AGENT_SEQUENCE.find((a) => a.id === selectedAgentId) || AGENT_SEQUENCE[0];
   const activeAgentOutput = agentOutputs[selectedAgentId];
-  const activeActivities = agentActivities[selectedAgentId] || [];
+  const activeAgentStatus = agentStatuses[selectedAgentId] || "waiting";
+  const activeAgentProgress = agentProgress[selectedAgentId] ?? 0;
+  // Timeline filtered to the selected agent so the execution console stays scoped
+  const activeTimeline = timeline.filter((e) => e.agentId === selectedAgentId);
+  // All agents' progress for the sidebar (real, from backend)
+  const sidebarProgress = (agentId: string) => {
+    const st = agentStatuses[agentId] || "waiting";
+    if (st === "completed") return 100;
+    if (st === "error") return agentProgress[agentId] ?? 0;
+    return agentProgress[agentId] ?? (st === "running" ? 0 : 0);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-sm transition-all duration-300 font-sans overflow-hidden">
@@ -464,15 +590,31 @@ export default function MultiAgentStreamModal({
                           <h4 className={`text-xs sm:text-sm font-semibold truncate ${isSelected ? "text-white" : "text-[#9CA3AF]"}`}>
                             {agent.name}
                           </h4>
-                          {isRunning && (
-                            <span className="text-[9px] sm:text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-1.5 py-0.5 rounded-full border border-[#8B5CF6]/20 shrink-0 ml-1">
-                              RUNNING
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                            {isRunning && (
+                              <span className="text-[9px] sm:text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-1.5 py-0.5 rounded-full border border-[#8B5CF6]/20">
+                                {Math.round(sidebarProgress(agent.id))}%
+                              </span>
+                            )}
+                            {isAgentCompleted && (
+                              <span className="text-[9px] sm:text-[10px] font-mono text-[#22C55E]">100%</span>
+                            )}
+                          </div>
                         </div>
                         <p className="text-[11px] sm:text-xs text-[#6B7280] line-clamp-1 md:line-clamp-2 leading-tight sm:leading-relaxed">
                           {agent.description}
                         </p>
+                        {/* Compact per-agent progress bar (real backend progress) */}
+                        {(isRunning || isAgentCompleted) && (
+                          <div className="h-0.5 w-full bg-[#1A1D24] rounded-full overflow-hidden mt-1.5">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ease-out ${
+                                isAgentCompleted ? "bg-[#22C55E]" : "bg-[#8B5CF6]"
+                              }`}
+                              style={{ width: `${sidebarProgress(agent.id)}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -497,60 +639,138 @@ export default function MultiAgentStreamModal({
                   </div>
 
                   {/* Activity & Details Panel */}
-                  <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-6 space-y-5">
+                  <div className="bg-[#11141A] border border-[#252A32] rounded-[16px] p-4 sm:p-5 space-y-4">
+                    {/* Header: agent + real progress + status */}
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs sm:text-sm font-semibold text-white flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-[#8B5CF6]" />
-                        {activeAgentConfig.name} — Live Activity
-                      </h4>
-                      <span className="text-[10px] font-mono text-[#9CA3AF] uppercase bg-[#1A1D24] px-2 py-0.5 rounded border border-[#252A32]">
-                        {agentStatuses[selectedAgentId] || "waiting"}
-                      </span>
+                      <div className="min-w-0">
+                        <h4 className="text-xs sm:text-sm font-semibold text-white truncate">
+                          {activeAgentConfig.name}
+                        </h4>
+                        <div className="text-[10px] font-mono uppercase text-[#6B7280] mt-0.5">
+                          {activeAgentStatus === "running"
+                            ? "Executing"
+                            : activeAgentStatus === "completed"
+                            ? "Completed"
+                            : activeAgentStatus === "error"
+                            ? "Failed"
+                            : "Queued"}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {activeAgentStatus === "running" && (
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#8B5CF6] opacity-60" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#8B5CF6]" />
+                          </span>
+                        )}
+                        <span className="text-sm font-mono font-bold text-white">
+                          {activeAgentStatus === "completed"
+                            ? "100%"
+                            : `${Math.round(activeAgentProgress)}%`}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Agent Live Activity Messages */}
-                    {activeActivities.length > 0 ? (
-                      <div className="space-y-3">
-                        {activeActivities.map((act, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            {act.status === "completed" ? (
-                              <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0" />
-                            ) : (
-                              <Loader2 className="w-4 h-4 text-[#8B5CF6] animate-spin shrink-0" />
-                            )}
-                            <span className="text-xs sm:text-sm text-white font-medium truncate">{act.label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[#6B7280]">Agent waiting to execute...</p>
-                    )}
-
-                    {/* Live Agent Reasoning — streamed token-by-token from the pipeline */}
-                    {(agentStatuses[selectedAgentId] === "running" || (agentThoughts[selectedAgentId] || "").length > 0) && (
-                      <div className="rounded-xl border border-[#252A32] bg-[#0D1015] p-3 sm:p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Sparkles
-                            className={`w-3.5 h-3.5 ${
-                              agentStatuses[selectedAgentId] === "running" ? "text-[#A78BFA] animate-pulse" : "text-[#6B7280]"
+                    {/* Compact progress bar — real backend progress, no fake animation */}
+                    <div className="h-1.5 w-full bg-[#1A1D24] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ease-out ${
+                          activeAgentStatus === "error"
+                            ? "bg-[#EF4444]"
+                            : activeAgentStatus === "completed"
+                            ? "bg-[#22C55E]"
+                            : "bg-[#8B5CF6]"
+                        }`}
+                        style={{
+                          width: `${
+                            activeAgentStatus === "completed" ? 100 : Math.round(activeAgentProgress)
+                          }%`,
+                        }}
+                      />
+                    </div>
+                    {/* Scrollable live execution timeline (real backend events) */}
+                    <div
+                      ref={timelineBoxRef}
+                      onScroll={handleTimelineScroll}
+                      className="h-52 sm:h-56 overflow-y-auto pr-1 -mr-1 space-y-1"
+                    >
+                      {activeTimeline.length > 0 ? (
+                        activeTimeline.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className={`flex items-start gap-2.5 px-2 py-1.5 rounded-md ${
+                              entry.status === "running"
+                                ? "bg-[#0D1015] border border-[#252A32]/60"
+                                : ""
                             }`}
-                          />
-                          <span className="text-[10px] font-semibold uppercase tracking-widest text-[#9CA3AF]">Agent Reasoning</span>
-                          {agentStatuses[selectedAgentId] === "running" && (
-                            <span className="text-[10px] text-[#A78BFA] animate-pulse ml-auto">Thinking...</span>
+                          >
+                            <span
+                              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                entry.status === "completed"
+                                  ? "bg-[#22C55E]/15 text-[#22C55E]"
+                                  : entry.status === "error"
+                                  ? "bg-[#EF4444]/15 text-[#EF4444]"
+                                  : entry.status === "pending"
+                                  ? "bg-[#1A1D24] text-[#4B5563]"
+                                  : "bg-[#8B5CF6]/15 text-[#8B5CF6]"
+                              }`}
+                            >
+                              {entry.status === "completed" ? (
+                                "✓"
+                              ) : entry.status === "error" ? (
+                                "✕"
+                              ) : entry.status === "pending" ? (
+                                "○"
+                              ) : (
+                                "●"
+                              )}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={`text-xs leading-snug ${
+                                  entry.status === "completed" || entry.status === "running"
+                                    ? "text-white"
+                                    : entry.status === "error"
+                                    ? "text-[#F87171]"
+                                    : "text-[#6B7280]"
+                                }`}
+                              >
+                                {entry.summary}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {typeof entry.progress === "number" && (
+                                  <span className="text-[9px] font-mono text-[#6B7280]">
+                                    {Math.round(entry.progress)}%
+                                  </span>
+                                )}
+                                <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
+                                  {entry.stage}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-2 py-4 text-center">
+                          {activeAgentStatus === "waiting" ? (
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#6B7280]">
+                              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#1A1D24] text-[10px] text-[#4B5563]">○</span>
+                              Queued — waiting for previous agent
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-2 text-xs text-[#6B7280]">
+                              <span className="inline-block h-2 w-2 rounded-full bg-[#8B5CF6] animate-pulse" />
+                              Waiting for execution events…
+                            </div>
                           )}
                         </div>
-                        <div className="max-h-36 overflow-y-auto pr-1">
-                          <p className="text-xs leading-relaxed text-[#9CA3AF] italic whitespace-pre-wrap border-l-2 border-[#8B5CF6]/40 pl-3">
-                            {agentThoughts[selectedAgentId] || ""}
-                            {agentStatuses[selectedAgentId] === "running" && (
-                              <span className="inline-block w-1.5 h-3.5 bg-[#A78BFA]/80 animate-pulse ml-0.5 align-middle" />
-                            )}
-                          </p>
-                          <div ref={thinkingEndRef} />
-                        </div>
-                      </div>
-                    )}
+                      )}
+                      <div ref={timelineEndRef} />
+                    </div>
+                  </div>
+
+                    {/* Agent Live Activity Messages — rendered from real backend events above */}
+{/* REAL-DETAILS-ANCHOR */}
 
                     {/* Real Data Details Panel for selectedAgentId */}
                     {selectedAgentId === "trend_researcher" && (
@@ -860,7 +1080,7 @@ export default function MultiAgentStreamModal({
                         )}
                       </div>
                     )}
-                  </div>
+
                 </div>
               </div>
             </div>
