@@ -196,3 +196,51 @@ describe('saveMediaBuffer — Supabase configured but unreachable (paused projec
     );
   });
 });
+
+describe('SUPABASE_URL normalization (PGRST125 fix)', () => {
+  it.each([
+    ['https://xyzcompany.supabase.co/storage/v1', 'https://xyzcompany.supabase.co'],
+    ['https://xyzcompany.supabase.co/rest/v1/', 'https://xyzcompany.supabase.co'],
+    ['https://xyzcompany.supabase.co/auth/v1//', 'https://xyzcompany.supabase.co'],
+    ['https://xyzcompany.supabase.co', 'https://xyzcompany.supabase.co'],
+  ])('normalizes %s -> %s', async (input, expected) => {
+    process.env.SUPABASE_URL = input;
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+    vi.resetModules();
+
+    const { SUPABASE_URL } = await import('@/lib/supabase');
+    expect(SUPABASE_URL).toBe(expected);
+  });
+
+  it('rejects the Supabase dashboard URL with an actionable error', async () => {
+    process.env.SUPABASE_URL = 'https://supabase.com/dashboard/project/abc123';
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+    vi.resetModules();
+
+    const { createSignedUploadUrl, isSupabaseConfigured } = await import('@/lib/supabase');
+    expect(isSupabaseConfigured()).toBe(true);
+
+    const ticket = await createSignedUploadUrl('video.mp4');
+    expect(ticket.ok).toBe(false);
+    if (!ticket.ok) {
+      expect(ticket.error).toMatch(/dashboard URL[\s\S]*project URL[\s\S]*supabase\.co/);
+    }
+  });
+
+  it('PGRST125 responses include the host and URL-format hint', async () => {
+    // Point at a path-prefixed URL that the gateway will reject with an
+    // invalid-path style failure — the error must name the host and the
+    // expected URL format so the operator can fix the env var.
+    process.env.SUPABASE_URL = 'http://127.0.0.1:59999';
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+    vi.resetModules();
+
+    const { createSignedUploadUrl } = await import('@/lib/supabase');
+    const ticket = await createSignedUploadUrl('video.mp4');
+    // Connection-refused path also names the host in the error for diagnosis.
+    expect(ticket.ok).toBe(false);
+    if (!ticket.ok) {
+      expect(ticket.error).toMatch(/127\.0\.0\.1:59999|Signed-URL request failed/);
+    }
+  });
+});

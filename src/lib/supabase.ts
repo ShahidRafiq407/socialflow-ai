@@ -1,13 +1,42 @@
 import fs from 'fs';
 import path from 'path';
 
-export const SUPABASE_URL = (
+/**
+ * Normalizes the SUPABASE_URL env value. Common copy-paste mistakes put a
+ * service path suffix on the project URL (e.g. ".../rest/v1" from the API
+ * page or ".../storage/v1" from the Storage page). Every storage call then
+ * builds paths like /rest/v1/storage/v1/object/... which Supabase's gateway
+ * rejects with PGRST125 "Invalid path specified in request URL" — exactly the
+ * 404 the signed-upload endpoint surfaces. Strip the suffixes instead of
+ * failing, and report what was changed so the env var can be fixed properly.
+ */
+function normalizeSupabaseUrl(raw: string): { url: string; warning: string | null } {
+  let url = (raw || '').trim().replace(/\/+$/, '');
+  const SERVICE_SUFFIX = /\/(storage|rest|auth)\/v1$/i;
+  let stripped = false;
+  while (SERVICE_SUFFIX.test(url)) {
+    url = url.replace(SERVICE_SUFFIX, '');
+    stripped = true;
+  }
+  const warning = stripped
+    ? `SUPABASE_URL ended with a service path (/storage/v1, /rest/v1 or /auth/v1) — normalized to project root "${url}". Update the env var to just the project URL (e.g. https://<project-ref>.supabase.co).`
+    : null;
+  return { url, warning };
+}
+
+const rawSupabaseUrl = (
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_PROJECT_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_PROJECT_URL ||
   ''
-).replace(/\/+$/, '');
+);
+
+const normalizedSupabase = normalizeSupabaseUrl(rawSupabaseUrl);
+export const SUPABASE_URL = normalizedSupabase.url;
+if (normalizedSupabase.warning) {
+  console.warn('[Supabase]', normalizedSupabase.warning);
+}
 
 export const SUPABASE_SERVICE_KEY =
   process.env.SUPABASE_SERVICE_KEY ||
@@ -17,6 +46,32 @@ export const SUPABASE_SERVICE_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_KEY ||
   process.env.SUPABASE_SECRET_KEY ||
   '';
+
+/** Non-secret host for error messages (project refs appear in public URLs anyway). */
+function supabaseHostForErrors(): string {
+  try {
+    return new URL(SUPABASE_URL).host;
+  } catch {
+    return SUPABASE_URL.slice(0, 60) || '(empty)';
+  }
+}
+
+/**
+ * Pre-flight validation for common fatal SUPABASE_URL mistakes that the
+ * storage API cannot self-heal (dashboard URLs, connection strings, keys).
+ * Returns a human-actionable error string, or null when the URL looks sane.
+ */
+export function validateSupabaseUrlForErrors(): string | null {
+  if (!SUPABASE_URL) return null; // "not configured" is handled by isSupabaseConfigured
+  const asLower = SUPABASE_URL.toLowerCase();
+  if (/^https?:\/\/(www\.)?supabase\.com\//.test(asLower)) {
+    return `SUPABASE_URL "${supabaseHostForErrors()}" is the Supabase dashboard URL. Set it to your project URL, e.g. https://<project-ref>.supabase.co (find it in Project Settings → API → Project URL).`;
+  }
+  if (!/^https?:\/\/[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/|$)/i.test(SUPABASE_URL)) {
+    return `SUPABASE_URL "${SUPABASE_URL.slice(0, 60)}" is not a valid http(s) project URL. Expected something like https://<project-ref>.supabase.co`;
+  }
+  return null;
+}
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
@@ -140,6 +195,10 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
   if (!isSupabaseConfigured()) {
     return { ok: false, error: 'Supabase storage is not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY missing in environment).' };
   }
+  const urlError = validateSupabaseUrlForErrors();
+  if (urlError) {
+    return { ok: false, error: `Invalid SUPABASE_URL: ${urlError}` };
+  }
   const bucketName = 'uploads';
   await ensureBucketPublic(bucketName);
   const timestamp = Date.now();
@@ -166,7 +225,13 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
         if (relativeSignedUrl) return { signedUrl: formatSignedUploadUrl(relativeSignedUrl) };
         return { error: `Supabase sign response did not include a url field (body: ${text.slice(0, 200)})` };
       }
-      return { error: `Supabase sign endpoint returned HTTP ${res.status}: ${text.slice(0, 300)}` };
+      return {
+        error:
+          `Supabase sign endpoint returned HTTP ${res.status}: ${text.slice(0, 300)}` +
+          (/PGRST125|invalid path/i.test(text)
+            ? ` — the request path was rejected. Check SUPABASE_URL (host: ${supabaseHostForErrors()}); it must be the project root URL like https://<project-ref>.supabase.co WITHOUT /storage/v1, /rest/v1, or dashboard paths.`
+            : ''),
+      };
     } catch (err: any) {
       return { error: `Signed-URL request failed: ${err?.message || String(err)}` };
     }
