@@ -1860,8 +1860,20 @@ export default function AIStudioPage() {
             }
           } catch {}
         }
-        setPublishResult({ success: false, message: `Upload failed for ${file.name}.` });
-        setTimeout(() => setPublishResult(null), 4000);
+        // Surface the REAL backend error (storage config, size limits, ...) —
+        // a generic "Upload failed" hides the actionable cause.
+        let serverError = "";
+        try {
+          const errJson = JSON.parse(xhr.responseText);
+          serverError = errJson?.error || "";
+        } catch {}
+        setPublishResult({
+          success: false,
+          message: serverError
+            ? `Upload failed: ${serverError}`
+            : `Upload failed for ${file.name} (HTTP ${xhr.status}).`,
+        });
+        setTimeout(() => setPublishResult(null), 6000);
         clearUpload();
       };
 
@@ -3348,15 +3360,22 @@ export default function AIStudioPage() {
       const formData = new FormData();
       formData.append("file", file);
       fetch("/api/uploads", { method: "POST", body: formData })
-        .then(res => res.json())
-        .then(data => {
-          if (data.url) {
+        .then(async res => {
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.url) {
             setManualMedia({ url: data.url, type: isVid ? "video" : "image" });
+          } else {
+            setPublishResult({
+              success: false,
+              message: data.error ? `Upload failed: ${data.error}` : `Upload failed for ${file.name} (HTTP ${res.status}).`,
+            });
+            setTimeout(() => setPublishResult(null), 6000);
           }
         })
-        .catch(() => {
-          setPublishResult({ success: false, message: "Upload failed." });
-          setTimeout(() => setPublishResult(null), 4000);
+        .catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : "Network error";
+          setPublishResult({ success: false, message: `Upload failed: ${msg}` });
+          setTimeout(() => setPublishResult(null), 6000);
         });
     }
   };

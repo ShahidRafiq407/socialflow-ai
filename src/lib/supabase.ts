@@ -258,9 +258,18 @@ export async function deleteFile(storagePath: string): Promise<void> {
 
 
 /**
- * Saves a binary media buffer to Supabase Storage (production) or local disk (dev).
- * DB fallback has been REMOVED to prevent Neon bandwidth exhaustion.
- * If Supabase is unavailable/paused, this will throw a clear error.
+ * Saves a binary media buffer using the best available storage backend:
+ *   1. Supabase Storage (if configured) — preferred, required for large media
+ *   2. Local public/uploads directory (local development only)
+ *   3. PostgreSQL MediaAsset record (serverless production without Supabase) —
+ *      small media only (<= 5MB). Served via /api/media/asset/<id>.
+ *
+ * The DB fallback (removed in 2b742e2, restored here) is what made PC uploads
+ * work before Supabase was ever configured. Removing it broke ALL local file
+ * uploads in production with Supabase env vars unset, while the AI pipeline
+ * silently fell back to data: URLs — which is why "AI content publishes fine
+ * but my local upload fails". Storage served from the DB is bandwidth-heavy,
+ * so configure SUPABASE_URL + SUPABASE_SERVICE_KEY for production quality.
  */
 export async function saveMediaBuffer(
   buffer: Buffer | ArrayBuffer,
@@ -273,7 +282,7 @@ export async function saveMediaBuffer(
   const filename = `${timestamp}-${cleanName}`;
   const rawBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 
-  // 1. Supabase Storage — REQUIRED for production
+  // 1. Supabase Storage — preferred backend when configured
   if (isSupabaseConfigured()) {
     try {
       const storagePath = await uploadFile(rawBuffer, filename, contentType);
@@ -304,10 +313,47 @@ export async function saveMediaBuffer(
     }
   }
 
-  // No Supabase configured and not local dev — hard error, never fall back to DB
+  // 3. PostgreSQL MediaAsset fallback (serverless production without Supabase).
+  //    Small media only: base64 inflates ~33% and multi-MB blobs are slow to
+  //    serve from the DB. Larger files REQUIRE Supabase (or another object
+  //    store) — surface a clear, actionable error instead of bloating Neon.
+  const MAX_DB_FALLBACK_BYTES = 5 * 1024 * 1024; // 5MB
+  if (rawBuffer.length > MAX_DB_FALLBACK_BYTES) {
+    throw new Error(
+      `Media file is too large (${(rawBuffer.length / (1024 * 1024)).toFixed(1)}MB) to store without Supabase Storage. ` +
+      'Set SUPABASE_URL and SUPABASE_SERVICE_KEY to enable large uploads (free tier at supabase.com).'
+    );
+  }
+
+  try {
+    const prisma = (await import('@/lib/db')).default;
+    let targetWorkspaceId = workspaceId;
+    if (!targetWorkspaceId) {
+      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
+      targetWorkspaceId = firstWs?.id;
+    }
+
+    if (targetWorkspaceId) {
+      const base64Data = `data:${contentType};base64,${rawBuffer.toString('base64')}`;
+      const asset = await prisma.mediaAsset.create({
+        data: {
+          url: base64Data,
+          filename,
+          contentType,
+          size: rawBuffer.length,
+          workspaceId: targetWorkspaceId,
+        },
+      });
+      const ext = contentType.includes('video') ? '.mp4' : '.png';
+      return { url: `/api/media/asset/${asset.id}${ext}`, filename };
+    }
+  } catch (dbErr) {
+    console.error('[Storage] Database asset fallback failed:', dbErr);
+  }
+
   throw new Error(
-    'Media storage requires Supabase Storage. ' +
-    'Please set SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables and ensure the Supabase project is active.'
+    'Media storage failed: no storage backend available. ' +
+    'Configure Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_KEY) for reliable uploads.'
   );
 }
 
