@@ -2,31 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
+import { parseDataUri, mimeFromFilename } from '@/lib/media/urls';
 
 export const dynamic = 'force-dynamic';
-
-function getMimeTypeFromFilename(filename: string): string {
-  const ext = path.extname(filename).toLowerCase();
-  switch (ext) {
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.png':
-      return 'image/png';
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.mp4':
-      return 'video/mp4';
-    case '.mov':
-      return 'video/quicktime';
-    case '.webm':
-      return 'video/webm';
-    default:
-      return 'application/octet-stream';
-  }
-}
 
 export async function GET(
   req: NextRequest,
@@ -52,14 +30,13 @@ export async function GET(
 
     // 1. Data URI
     if (targetUrl.startsWith('data:')) {
-      const match = targetUrl.match(/^data:([^;]+);base64,(.*)$/);
-      if (!match) {
+      const parsed = parseDataUri(targetUrl);
+      if (!parsed) {
         return new NextResponse('Invalid media format', { status: 400 });
       }
 
-      const mimeType = match[1] || asset.contentType || 'image/png';
-      const base64Data = match[2];
-      const buffer = Buffer.from(base64Data, 'base64');
+      const mimeType = parsed.mimeType || asset.contentType || 'image/png';
+      const buffer = Buffer.from(parsed.base64, 'base64');
 
       return new NextResponse(buffer, {
         status: 200,
@@ -77,7 +54,7 @@ export async function GET(
       const diskPath = path.join(process.cwd(), 'public', cleanPath);
       if (fs.existsSync(diskPath)) {
         const fileBuffer = await fs.promises.readFile(diskPath);
-        const mimeType = asset.contentType || getMimeTypeFromFilename(diskPath);
+        const mimeType = asset.contentType || mimeFromFilename(diskPath);
         return new NextResponse(fileBuffer, {
           status: 200,
           headers: {

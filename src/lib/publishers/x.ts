@@ -1,4 +1,5 @@
 import { PublishResult } from './index';
+import { toAbsoluteAppUrl, parseDataUri, extractMediaIdFromApiUrl } from '@/lib/media/urls';
 
 const X_TWEET_LIMIT = 280;
 const MAX_THREAD_TWEETS = 6;
@@ -31,26 +32,28 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
     let buffer: Buffer;
 
     if (imageUrl.startsWith('data:')) {
-      const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
-      if (!match) return null;
-      mimeType = match[1];
-      buffer = Buffer.from(match[2], 'base64');
+      const parsed = parseDataUri(imageUrl);
+      if (!parsed) return null;
+      mimeType = parsed.mimeType;
+      buffer = Buffer.from(parsed.base64, 'base64');
     } else if (imageUrl.includes('/api/media/')) {
-      const assetId = imageUrl.split('/api/media/asset/')[1] || imageUrl.split('/api/media/')[1];
+      const assetId = extractMediaIdFromApiUrl(imageUrl);
       const prisma = (await import('@/lib/db')).default;
-      const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId.replace(/^asset-/, '') } });
+      const asset = assetId
+        ? await prisma.mediaAsset.findUnique({ where: { id: assetId } })
+        : null;
       if (asset && asset.url) {
         if (asset.url.startsWith('data:')) {
-          const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
-          mimeType = match ? match[1] : (asset.contentType || 'image/png');
-          buffer = Buffer.from(match ? match[2] : asset.url, 'base64');
+          const parsed = parseDataUri(asset.url);
+          mimeType = parsed?.mimeType || asset.contentType || 'image/png';
+          buffer = Buffer.from(parsed?.base64 || asset.url, 'base64');
         } else {
           const imgRes = await fetch(asset.url);
           buffer = Buffer.from(await imgRes.arrayBuffer());
           mimeType = imgRes.headers.get('content-type') || asset.contentType || 'image/png';
         }
       } else {
-        const fullUrl = imageUrl.startsWith('http') ? imageUrl : `https://socialflow-ai-akel.vercel.app${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+        const fullUrl = toAbsoluteAppUrl(imageUrl);
         const imgRes = await fetch(fullUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         if (!imgRes.ok) return null;
         mimeType = imgRes.headers.get('content-type') || 'image/png';
@@ -65,7 +68,7 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
         buffer = await fs.promises.readFile(diskPath);
         mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
       } else {
-        const fullUrl = imageUrl.startsWith('http') ? imageUrl : `https://socialflow-ai-akel.vercel.app${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`;
+        const fullUrl = toAbsoluteAppUrl(imageUrl);
         const imgRes = await fetch(fullUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });

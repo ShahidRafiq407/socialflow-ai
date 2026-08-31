@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
 import { saveAllMediaToIndexedDB, loadAllMediaFromIndexedDB, removeMediaFromIndexedDB } from "@/lib/indexedDbMedia";
+import { detectMediaUrlKind } from "@/lib/media/urls";
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
 import StockMediaModal from "@/components/stock-media/StockMediaModal";
@@ -2721,13 +2722,16 @@ export default function AIStudioPage() {
   const ensureCleanMediaUrl = async (rawUrl: string): Promise<string> => {
     if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
 
-    // Already a clean URL — pass through immediately
-    if (rawUrl.startsWith("https://") || rawUrl.startsWith("http://")) return rawUrl;
-    if (rawUrl.startsWith("/api/media/")) return rawUrl;
-    if (rawUrl.startsWith("/uploads/")) return rawUrl;
+    // Classification lives in the shared media contract module (src/lib/media/urls.ts)
+    // so the client save path, the preview path and the publish path can never
+    // disagree about what a "clean" URL is.
+    const kind = detectMediaUrlKind(rawUrl);
+    if (kind === "remote" || kind === "asset" || kind === "post-media" || kind === "local-upload") {
+      return rawUrl; // already storable — server resolves at publish time
+    }
 
-    // Only data: and blob: need conversion
-    if (!rawUrl.startsWith("data:") && !rawUrl.startsWith("blob:")) return rawUrl;
+    // Only data: and blob: need conversion to a persisted asset
+    if (kind !== "data" && kind !== "blob") return rawUrl;
 
     try {
       const res = await fetch(rawUrl);

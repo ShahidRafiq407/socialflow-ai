@@ -3,23 +3,15 @@
 import React, { useState, useEffect } from "react";
 import { Trash2, AlertCircle, Play, Pause, Volume2, VolumeX, Download } from "lucide-react";
 import VideoPreviewPlayer from "./VideoPreviewPlayer";
+import { isMediaVideoUrl } from "@/lib/media/urls";
 
-export const isMediaVideo = (url: string | null, explicitType?: "image" | "video" | string): boolean => {
-  if (explicitType === "video") return true;
-  if (explicitType === "image") return false;
-  if (!url) return false;
-  const lowerUrl = url.toLowerCase();
-  return (
-    lowerUrl.endsWith(".mp4") ||
-    lowerUrl.endsWith(".webm") ||
-    lowerUrl.endsWith(".mov") ||
-    lowerUrl.endsWith(".ogg") ||
-    lowerUrl.includes(".mp4?") ||
-    lowerUrl.includes(".webm?") ||
-    lowerUrl.includes("pixabay.com/video/") ||
-    lowerUrl.startsWith("data:video/")
-  );
-};
+/**
+ * Kept as a re-export for backwards compatibility — existing imports
+ * (StandardSocialEditor, etc.) keep working. The implementation now lives in
+ * the shared media URL contract module so preview and publish paths can never
+ * drift apart again.
+ */
+export const isMediaVideo = isMediaVideoUrl;
 
 interface ContentMediaRendererProps {
   url: string | null;

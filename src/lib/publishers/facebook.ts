@@ -1,46 +1,9 @@
 import { PublishResult } from './index';
+import { toPublicMediaUrl, collectMediaUrls, parseDataUri } from '@/lib/media/urls';
 
 // Graph API v23.0 (released May 2025, supported until Oct 2027).
 // v19.0 was deprecated and removed on May 21, 2026 — every call to it now fails.
 const GRAPH_VERSION = 'v23.0';
-
-function getAppBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') && !process.env.NEXT_PUBLIC_APP_URL.includes('127.0.0.1')) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
-  }
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'https://socialflow-ai-akel.vercel.app';
-}
-
-function toPublicMediaUrl(url: string, postId: string, slideIdx = 0): string {
-  if (!url) return url;
-  // If it's a known hotlink-protected CDN (like Pixabay) or a blob/data URI, proxy it through our media endpoint
-  if (
-    url.includes('pixabay.com') ||
-    url.startsWith('data:') ||
-    url.startsWith('blob:') ||
-    url.startsWith('/') ||
-    !url.startsWith('http')
-  ) {
-    return `${getAppBaseUrl()}/api/media/${postId}?idx=${slideIdx}`;
-  }
-  // Our internal asset streaming endpoint — prepend app base URL
-  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
-  // Otherwise, it's a fully-qualified public URL (Supabase CDN, etc.) — use as-is
-  if (url.startsWith('https://') || url.startsWith('http://')) return url;
-  
-  return url;
-}
-
-function collectMediaUrls(post: any): string[] {
-  const history = post.mediaHistory as any;
-  if (history?.mediaUrls && Array.isArray(history.mediaUrls) && history.mediaUrls.length > 0) {
-    return history.mediaUrls.filter(Boolean).map((u: string) => String(u));
-  }
-  if (post.imageUrl) return [post.imageUrl];
-  return [];
-}
 
 export async function publishToFacebook(post: any, account: any): Promise<PublishResult> {
   try {
@@ -218,10 +181,10 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       const imageUrl = mediaUrls[0];
       if (imageUrl.startsWith('data:')) {
         // Direct Multipart Binary Upload to Facebook Photos API
-        const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
-        if (match) {
-          const mimeType = match[1] || 'image/png';
-          const buffer = Buffer.from(match[2], 'base64');
+        const parsed = parseDataUri(imageUrl);
+        if (parsed) {
+          const mimeType = parsed.mimeType || 'image/png';
+          const buffer = Buffer.from(parsed.base64, 'base64');
           const blob = new Blob([buffer], { type: mimeType });
 
           const formData = new FormData();

@@ -1,15 +1,10 @@
 import { PublishResult } from './index';
-
-// Server-side fetch() cannot follow relative paths — convert "/api/media/..."
-// to an absolute URL using the app's public origin.
-function resolveAbsoluteMediaUrl(url: string): string {
-  if (!url) return url;
-  if (/^(https?:|data:)/i.test(url)) return url;
-  let base = process.env.NEXT_PUBLIC_APP_URL || '';
-  if (!base && process.env.VERCEL_URL) base = `https://${process.env.VERCEL_URL}`;
-  if (!base) return url;
-  return `${base.replace(/\/+$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
-}
+import {
+  toAbsoluteAppUrl,
+  parseDataUri,
+  extractMediaIdFromApiUrl,
+  mimeFromFilename,
+} from '@/lib/media/urls';
 
 // LinkedIn UGC share commentary hard limit is 3000 characters.
 const LINKEDIN_MAX_TEXT = 3000;
@@ -91,7 +86,7 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
     for (let i = 0; i < Math.min(attachedUrls.length, isVideo ? 1 : 9); i++) {
       const rawUrl = attachedUrls[i];
       try {
-        const absoluteImageUrl = resolveAbsoluteMediaUrl(rawUrl);
+        const absoluteImageUrl = toAbsoluteAppUrl(rawUrl);
         const recipe = isVideo
           ? 'urn:li:digitalmediaRecipe:feedshare-video'
           : 'urn:li:digitalmediaRecipe:feedshare-image';
@@ -133,18 +128,20 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
         let mimeType = isVideo ? 'video/mp4' : 'image/png';
 
         if (rawUrl.startsWith('data:')) {
-          const match = rawUrl.match(/^data:([^;]+);base64,(.*)$/);
-          mimeType = match ? match[1] : (isVideo ? 'video/mp4' : 'image/png');
-          buffer = Buffer.from(match ? match[2] : rawUrl, 'base64');
+          const parsed = parseDataUri(rawUrl);
+          mimeType = parsed?.mimeType || (isVideo ? 'video/mp4' : 'image/png');
+          buffer = Buffer.from(parsed?.base64 || rawUrl, 'base64');
         } else if (rawUrl.includes('/api/media/')) {
-          const assetId = rawUrl.split('/api/media/asset/')[1] || rawUrl.split('/api/media/')[1];
+          const assetId = extractMediaIdFromApiUrl(rawUrl);
           const prisma = (await import('@/lib/db')).default;
-          const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId.replace(/^asset-/, '') } });
+          const asset = assetId
+            ? await prisma.mediaAsset.findUnique({ where: { id: assetId } })
+            : null;
           if (asset && asset.url) {
             if (asset.url.startsWith('data:')) {
-              const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
-              mimeType = match ? match[1] : (asset.contentType || (isVideo ? 'video/mp4' : 'image/png'));
-              buffer = Buffer.from(match ? match[2] : asset.url, 'base64');
+              const parsed = parseDataUri(asset.url);
+              mimeType = parsed?.mimeType || asset.contentType || (isVideo ? 'video/mp4' : 'image/png');
+              buffer = Buffer.from(parsed?.base64 || asset.url, 'base64');
             } else {
               const imgRes = await fetch(asset.url);
               buffer = Buffer.from(await imgRes.arrayBuffer());
@@ -162,10 +159,9 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
           const diskPath = path.join(process.cwd(), 'public', cleanPath);
           if (fs.existsSync(diskPath)) {
             buffer = await fs.promises.readFile(diskPath);
-            if (diskPath.endsWith('.mp4')) mimeType = 'video/mp4';
-            else if (diskPath.endsWith('.webm')) mimeType = 'video/webm';
-            else if (diskPath.endsWith('.mov')) mimeType = 'video/quicktime';
-            else mimeType = diskPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+            mimeType = mimeFromFilename(diskPath) !== 'application/octet-stream'
+              ? mimeFromFilename(diskPath)
+              : (isVideo ? 'video/mp4' : 'image/png');
           } else {
             const imgRes = await fetch(absoluteImageUrl, {
               headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },

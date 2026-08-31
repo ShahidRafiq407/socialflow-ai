@@ -2,31 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
+import { parseDataUri, mimeFromFilename, extractMediaIdFromApiUrl } from '@/lib/media/urls';
 
 export const dynamic = 'force-dynamic';
-
-function getMimeTypeFromFilename(filename: string): string {
-  const ext = path.extname(filename).toLowerCase();
-  switch (ext) {
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.png':
-      return 'image/png';
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.mp4':
-      return 'video/mp4';
-    case '.mov':
-      return 'video/quicktime';
-    case '.webm':
-      return 'video/webm';
-    default:
-      return 'application/octet-stream';
-  }
-}
 
 /**
  * Public Media Serving Endpoint
@@ -69,9 +47,7 @@ export async function GET(
 
     // 2. If targetMediaUrl points to an internal asset or post not found, check MediaAsset table
     if (!targetMediaUrl || targetMediaUrl.includes('/api/media/')) {
-      const assetId = targetMediaUrl
-        ? targetMediaUrl.split('/api/media/asset/')[1] || targetMediaUrl.split('/api/media/')[1] || cleanId
-        : cleanId;
+      const assetId = extractMediaIdFromApiUrl(targetMediaUrl) || cleanId;
 
       const asset = await prisma.mediaAsset.findUnique({
         where: { id: assetId },
@@ -88,14 +64,13 @@ export async function GET(
 
     // A. If it is a base64 Data URI
     if (targetMediaUrl.startsWith('data:')) {
-      const match = targetMediaUrl.match(/^data:([^;]+);base64,(.*)$/);
-      if (!match) {
+      const parsed = parseDataUri(targetMediaUrl);
+      if (!parsed) {
         return new NextResponse('Invalid media format', { status: 400 });
       }
 
-      const mimeType = match[1] || 'image/png';
-      const base64Data = match[2];
-      const buffer = Buffer.from(base64Data, 'base64');
+      const mimeType = parsed.mimeType || 'image/png';
+      const buffer = Buffer.from(parsed.base64, 'base64');
 
       return new NextResponse(buffer, {
         status: 200,
@@ -113,7 +88,7 @@ export async function GET(
       const diskPath = path.join(process.cwd(), 'public', cleanPath);
       if (fs.existsSync(diskPath)) {
         const fileBuffer = await fs.promises.readFile(diskPath);
-        const mimeType = getMimeTypeFromFilename(diskPath);
+        const mimeType = mimeFromFilename(diskPath);
         return new NextResponse(fileBuffer, {
           status: 200,
           headers: {
@@ -138,7 +113,7 @@ export async function GET(
         });
 
         if (fetchRes.ok) {
-          const contentType = fetchRes.headers.get('content-type') || getMimeTypeFromFilename(targetMediaUrl);
+          const contentType = fetchRes.headers.get('content-type') || mimeFromFilename(targetMediaUrl);
           const arrayBuf = await fetchRes.arrayBuffer();
           const buffer = Buffer.from(arrayBuf);
 

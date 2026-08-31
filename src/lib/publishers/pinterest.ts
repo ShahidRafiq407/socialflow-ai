@@ -1,29 +1,5 @@
 import { PublishResult } from './index';
-
-function getAppBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') && !process.env.NEXT_PUBLIC_APP_URL.includes('127.0.0.1')) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
-  }
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'https://socialflow-ai-akel.vercel.app';
-}
-
-// Pinterest's ingestion fetches image_url over public HTTPS — relative paths,
-// local uploads, and hotlink-protected stock media are routed to /api/media/[postId].
-function toAbsoluteUrl(url: string, postId?: string): string {
-  if (!url) return url;
-  // Already a fully-qualified public URL (Supabase CDN, external CDN, etc.) — use as-is
-  if (url.startsWith('https://')) return url;
-  // Our internal asset streaming endpoint — prepend app base URL
-  if (url.startsWith('/api/media/')) return `${getAppBaseUrl()}${url}`;
-  // Local uploads or relative paths — proxy through our media endpoint
-  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
-    if (postId) return `${getAppBaseUrl()}/api/media/${postId}?idx=0`;
-  }
-  if (/^(https?:|data:)/i.test(url)) return url;
-  return `${getAppBaseUrl()}${url.startsWith('/') ? '' : '/'}${url}`;
-}
+import { toPublicMediaUrl, parseDataUri } from '@/lib/media/urls';
 
 async function uploadVideoToPinterest(videoUrl: string, accessToken: string, isSandbox: boolean = false): Promise<string> {
   const baseUrl = isSandbox ? 'https://api-sandbox.pinterest.com/v5' : 'https://api.pinterest.com/v5';
@@ -170,20 +146,20 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     if (isVideo) {
       try {
         // Try production upload first
-        const mediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), accessToken, false);
+        const mediaId = await uploadVideoToPinterest(toPublicMediaUrl(imageUrl, post.id), accessToken, false);
         media_source = {
           source_type: 'video_id',
           media_id: mediaId,
-          ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
+          ...(post.thumbnailUrl ? { cover_image_url: toPublicMediaUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
         };
       } catch (err: any) {
         if (err.message?.includes('Trial access') || err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('Trial')) {
            // Fallback to sandbox upload
-           const mediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), sandboxToken, true);
+           const mediaId = await uploadVideoToPinterest(toPublicMediaUrl(imageUrl, post.id), sandboxToken, true);
            media_source = {
              source_type: 'video_id',
              media_id: mediaId,
-             ...(post.thumbnailUrl ? { cover_image_url: toAbsoluteUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
+             ...(post.thumbnailUrl ? { cover_image_url: toPublicMediaUrl(post.thumbnailUrl, post.id) } : { cover_image_key_frame_time: 0 })
            };
            isSandboxMedia = true;
         } else {
@@ -191,9 +167,9 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
         }
       }
     } else if (imageUrl.startsWith('data:')) {
-      const match = imageUrl.match(/^data:([^;]+);base64,(.*)$/);
-      const contentType = match ? match[1] : 'image/png';
-      const base64Data = match ? match[2] : imageUrl;
+      const parsed = parseDataUri(imageUrl);
+      const contentType = parsed?.mimeType || 'image/png';
+      const base64Data = parsed?.base64 || imageUrl;
 
       media_source = {
         source_type: 'image_base64',
@@ -203,7 +179,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
     } else {
       media_source = {
         source_type: 'image_url',
-        url: toAbsoluteUrl(imageUrl, post.id),
+        url: toPublicMediaUrl(imageUrl, post.id),
       };
     }
 
@@ -294,7 +270,7 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
           pinPayload.board_id = sandboxBoardId;
           
           if (isVideo && !isSandboxMedia) {
-             const sandboxMediaId = await uploadVideoToPinterest(toAbsoluteUrl(imageUrl, post.id), sandboxToken, true);
+             const sandboxMediaId = await uploadVideoToPinterest(toPublicMediaUrl(imageUrl, post.id), sandboxToken, true);
              pinPayload.media_source.media_id = sandboxMediaId;
              isSandboxMedia = true;
           }

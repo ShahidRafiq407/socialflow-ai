@@ -1,4 +1,5 @@
 import { PublishResult } from './index';
+import { toAbsoluteAppUrl, parseDataUri, extractMediaIdFromApiUrl } from '@/lib/media/urls';
 
 /**
  * REAL YouTube publisher — Data API v3 resumable video upload.
@@ -78,24 +79,25 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
 
     let videoBuffer: Buffer;
     if (videoUrl.startsWith('data:')) {
-      const match = videoUrl.match(/^data:([^;]+);base64,(.*)$/);
-      const base64Data = match ? match[2] : videoUrl;
+      const parsed = parseDataUri(videoUrl);
+      const base64Data = parsed?.base64 || videoUrl;
       videoBuffer = Buffer.from(base64Data, 'base64');
     } else if (videoUrl.includes('/api/media/')) {
-      const assetId = videoUrl.split('/api/media/asset/')[1] || videoUrl.split('/api/media/')[1];
+      const assetId = extractMediaIdFromApiUrl(videoUrl);
       const prisma = (await import('@/lib/db')).default;
-      const asset = await prisma.mediaAsset.findUnique({ where: { id: assetId.replace(/^asset-/, '') } });
+      const asset = assetId
+        ? await prisma.mediaAsset.findUnique({ where: { id: assetId } })
+        : null;
       if (asset && asset.url) {
         if (asset.url.startsWith('data:')) {
-          const match = asset.url.match(/^data:([^;]+);base64,(.*)$/);
-          videoBuffer = Buffer.from(match ? match[2] : asset.url, 'base64');
+          const parsed = parseDataUri(asset.url);
+          videoBuffer = Buffer.from(parsed?.base64 || asset.url, 'base64');
         } else {
           const videoRes = await fetch(asset.url);
           videoBuffer = Buffer.from(await videoRes.arrayBuffer());
         }
       } else {
-        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
-        const fullVideoUrl = `${appUrl}${videoUrl.startsWith('/') ? '' : '/'}${videoUrl}`;
+        const fullVideoUrl = toAbsoluteAppUrl(videoUrl);
         const videoRes = await fetch(fullVideoUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });
@@ -110,8 +112,7 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
       if (fs.existsSync(diskPath)) {
         videoBuffer = await fs.promises.readFile(diskPath);
       } else {
-        const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
-        const fullVideoUrl = `${appUrl}/${cleanPath}`;
+        const fullVideoUrl = toAbsoluteAppUrl(videoUrl);
         const videoRes = await fetch(fullVideoUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });
@@ -119,8 +120,7 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
         videoBuffer = Buffer.from(await videoRes.arrayBuffer());
       }
     } else {
-      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || 'https://socialflow-ai-akel.vercel.app').replace(/\/$/, '');
-      const fullVideoUrl = videoUrl.startsWith('/') ? `${appUrl}${videoUrl}` : videoUrl;
+      const fullVideoUrl = toAbsoluteAppUrl(videoUrl);
       const videoRes = await fetch(fullVideoUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
