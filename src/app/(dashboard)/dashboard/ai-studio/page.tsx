@@ -5,7 +5,7 @@ import Link from "next/link";
 import { create } from "zustand";
 import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
-import { saveAllMediaToIndexedDB, loadAllMediaFromIndexedDB, removeMediaFromIndexedDB } from "@/lib/indexedDbMedia";
+import { saveAllMediaToIndexedDB, loadAllMediaFromIndexedDB, removeMediaFromIndexedDB, removeMediaKeysFromIndexedDB } from "@/lib/indexedDbMedia";
 import { detectMediaUrlKind } from "@/lib/media/urls";
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
 import VideoStudioModal from "@/components/video-studio/VideoStudioModal";
@@ -711,6 +711,37 @@ export default function AIStudioPage() {
   const handleMultiAgentPayload = (campaignPayload: any) => {
     if (!campaignPayload || !campaignPayload.platforms) return;
 
+    // Fresh campaign media must WIN over stale per-slot overrides. clearedMediaKeys /
+    // customMediaDict / renderedImageUrlsDict / mediaItemsDict persist in the session
+    // store (and IndexedDB) across campaign runs — without this reset, a media slot the
+    // user once cleared or uploaded to keeps hiding/shadowing every NEW generated image.
+    // ONLY formats whose incoming content actually carries media are reset: a media-less
+    // format (e.g. X Thread text_only) must never destroy user-uploaded media.
+    const refreshedFormatKeys: string[] = [];
+    for (const [plt, formats] of Object.entries(
+      campaignPayload.platforms as Record<string, Record<string, any>>
+    )) {
+      const normalizedPlt = plt.toLowerCase();
+      const pltDef = PLATFORMS.find((p) => p.id.toLowerCase() === normalizedPlt);
+      const validFmts = pltDef?.contentTypes || [];
+      for (const [fmt, rawContent] of Object.entries(formats)) {
+        const content = rawContent || {};
+        const hasMedia = Boolean(
+          content.imageUrl ||
+            content.videoUrl ||
+            (Array.isArray(content.slideUrls) && content.slideUrls.length > 0)
+        );
+        if (!hasMedia) continue;
+        refreshedFormatKeys.push(`${normalizedPlt}-${fmt}`);
+        const matchedTitleCase = validFmts.find((vf) => vf.toLowerCase() === fmt.toLowerCase());
+        if (matchedTitleCase) {
+          refreshedFormatKeys.push(`${normalizedPlt}-${matchedTitleCase}`);
+        }
+      }
+    }
+    const isStaleMediaKey = (key: string) =>
+      refreshedFormatKeys.some((prefix) => key === prefix || key.startsWith(`${prefix}-`));
+
     setGeneratedContents((prev) => {
       const updated = { ...prev };
       for (const [plt, formats] of Object.entries(
@@ -777,6 +808,37 @@ export default function AIStudioPage() {
       }
       return updated;
     });
+
+    // Drop stale media overrides for every platform/format this campaign refreshes,
+    // so the newly generated image is visible in the editor + live preview immediately.
+    // Each setter re-serializes the whole persisted session state, so only fire the
+    // ones that actually have stale entries to drop.
+    if (refreshedFormatKeys.length > 0) {
+      // Purge persisted copies in IndexedDB too (they re-hydrate on refresh)
+      // — one batched connection/transaction instead of one open per key.
+      const staleCustomKeys = Object.keys(customMediaDict).filter(isStaleMediaKey);
+      if (staleCustomKeys.length > 0) {
+        removeMediaKeysFromIndexedDB(staleCustomKeys);
+        setCustomMediaDict((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([k]) => !isStaleMediaKey(k)))
+        );
+      }
+      if (Object.keys(clearedMediaKeys).some(isStaleMediaKey)) {
+        setClearedMediaKeys((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([k]) => !isStaleMediaKey(k)))
+        );
+      }
+      if (Object.keys(renderedImageUrlsDict).some(isStaleMediaKey)) {
+        setRenderedImageUrlsDict((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([k]) => !isStaleMediaKey(k)))
+        );
+      }
+      if (Object.keys(mediaItemsDict).some(isStaleMediaKey)) {
+        setMediaItemsDict((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([k]) => !isStaleMediaKey(k)))
+        );
+      }
+    }
 
     const firstPlatform = selectedPlatforms[0] || Object.keys(campaignPayload.platforms)[0];
     if (firstPlatform) {

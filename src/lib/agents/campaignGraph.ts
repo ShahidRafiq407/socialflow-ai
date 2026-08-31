@@ -17,7 +17,6 @@ export interface AgentEventCallback {
       | "agent_action"
       | "web_search"
       | "source_found"
-      | "agent_thought"
       | "output_ready"
       | "agent_completed"
       | "agent_error"
@@ -134,37 +133,10 @@ export async function runCampaignGraph(
   });
 
   // ── Live Agent Reasoning Stream ──────────────────────────────────────────
-  // Streams each agent's genuine, data-grounded internal reasoning token-by-token
-  // to the client (Claude-style thinking UI) instead of static status messages.
-  const thoughtStyle = (agentName: string) =>
-    `You are the internal reasoning voice of the ${agentName} agent inside an AI marketing campaign pipeline. ` +
-    `Think out loud in first person, present tense, in 2-4 concise sentences. ` +
-    `Reference the ACTUAL data provided below (names, industries, numbers, sources). ` +
-    `Sound like a sharp strategist reasoning through a decision. ` +
-    `No headers, no bullets, no markdown, no self-introduction — plain internal monologue only.`;
-
-  const streamThought = async (agentId: string, prompt: string, opts: { append?: boolean } = {}) => {
-    try {
-      if (!opts.append) {
-        onEvent({ type: "agent_thought", agentId, data: { reset: true } });
-      }
-      const text = await vertexProvider.generateTextStream(
-        [{ role: "user", content: prompt }],
-        { modelName: MODELS.FAST_THOUGHT, temperature: 0.5, maxOutputTokens: 400 },
-        (delta) => onEvent({ type: "agent_thought", agentId, data: { delta } })
-      );
-      if (!text || !text.trim()) {
-        onEvent({
-          type: "agent_thought",
-          agentId,
-          data: { delta: "Processing the inputs and locking in the execution plan." },
-        });
-      }
-      onEvent({ type: "agent_thought", agentId, data: { done: true } });
-    } catch (err: any) {
-      console.warn(`[Agent Thought] ${agentId} reasoning stream failed (non-fatal):`, err?.message || err);
-    }
-  };
+  // REMOVED: per-agent "thinking" LLM streams. The modal no longer renders
+  // agent_thought events (chain-of-thought display was removed for safety),
+  // so these 6 extra sequential LLM calls were pure latency — often 20-40s
+  // of a campaign run — with zero visible output.
 
   // Real, safe execution progress. Derived from actual completed work inside
   // each agent (loaded records, drafted posts, generated assets, audit results).
@@ -245,29 +217,6 @@ export async function runCampaignGraph(
         hasCustomDNA,
       };
 
-      await streamThought(
-        "brand_analyst",
-        `${thoughtStyle("Brand Analyst")}
-
-Brand DNA just loaded from the workspace database:
-${JSON.stringify(
-  {
-    name: state.brandData.name,
-    industry: state.brandData.industry,
-    website: state.brandData.website,
-    tone: state.brandData.tone,
-    missionVision: state.brandData.missionVision,
-    targetAudience: state.brandData.targetAudience,
-    writingStyle: state.brandData.writingStyle,
-    hasCustomDNA: state.brandData.hasCustomDNA,
-  },
-  null,
-  2
-)}
-
-Explain what stands out about this brand and how it should shape the campaign direction.`
-      );
-
       const brandElapsed = Date.now() - brandStartTime;
       console.log(`[Brand Analyst] Completed in ${brandElapsed}ms`);
       onEvent({
@@ -294,37 +243,60 @@ Explain what stands out about this brand and how it should shape the campaign di
   }
 
   // =========================================================================
-  // 2. TREND RESEARCHER (Gemini 3.6 Flash + Google Search Grounding)
+  // 2 + 3. TREND RESEARCHER & COMPETITOR ANALYST — PARALLEL
+  // Both agents depend ONLY on brand DNA (not on each other), so they run
+  // concurrently. This cuts the research phase from trend_time + competitor_time
+  // down to max(trend_time, competitor_time) — typically saving 10-25s per run.
   // =========================================================================
   checkCancelled();
-  const shouldRunTrend =
-    !state.trendResearch ||
-    input.resumeFromAgent === "brand_analyst" ||
-    input.resumeFromAgent === "trend_researcher";
 
-  if (!shouldRunTrend && state.trendResearch) {
-    onEvent({ type: "agent_started", agentId: "trend_researcher" });
-    if (state.trendResearch.sources && state.trendResearch.sources.length > 0) {
-      onEvent({
-        type: "source_found",
-        agentId: "trend_researcher",
-        data: { count: state.trendResearch.sources.length, sources: state.trendResearch.sources },
-      });
+  // Halt propagation: when one research agent fails (or the run is cancelled),
+  // the sibling stops at its next checkpoint instead of continuing orphaned
+  // Vertex/DB work on an already-failed workflow (the original serial code
+  // guaranteed this by never starting the second agent after an error).
+  let researchHalted = false;
+  const checkResearchRunnable = () => {
+    checkCancelled();
+    if (researchHalted) {
+      const err = new Error("Research phase halted (sibling agent failed)");
+      (err as any).isSilentHalt = true;
+      throw err;
     }
-    onEvent({
-      type: "output_ready",
-      agentId: "trend_researcher",
-      data: state.trendResearch,
-    });
-    emitProgress("trend_researcher", 100, "completed", "Trend research restored", "completed");
-    onEvent({ type: "agent_completed", agentId: "trend_researcher" });
-  } else {
+  };
+
+  const runTrendResearcher = async () => {
+    const shouldRunTrend =
+      !state.trendResearch ||
+      input.resumeFromAgent === "brand_analyst" ||
+      input.resumeFromAgent === "trend_researcher";
+
+    if (!shouldRunTrend && state.trendResearch) {
+      onEvent({ type: "agent_started", agentId: "trend_researcher" });
+      if (state.trendResearch.sources && state.trendResearch.sources.length > 0) {
+        onEvent({
+          type: "source_found",
+          agentId: "trend_researcher",
+          data: { count: state.trendResearch.sources.length, sources: state.trendResearch.sources },
+        });
+      }
+      onEvent({
+        type: "output_ready",
+        agentId: "trend_researcher",
+        data: state.trendResearch,
+      });
+      emitProgress("trend_researcher", 100, "completed", "Trend research restored", "completed");
+      onEvent({ type: "agent_completed", agentId: "trend_researcher" });
+      return;
+    }
+
     onEvent({ type: "agent_started", agentId: "trend_researcher" });
     onEvent({
       type: "agent_action",
       agentId: "trend_researcher",
       data: { label: "Searching Google for live viral trends...", detail: `Querying trends for ${state.brandData.industry}` },
     });
+
+    checkResearchRunnable();
 
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -376,23 +348,6 @@ Analyze query: ${searchQuery}`;
         rawText,
       };
 
-      await streamThought(
-        "trend_researcher",
-        `${thoughtStyle("Trend Researcher")}
-
-Campaign topic: "${topic}".
-Brand: ${state.brandData.name} (${state.brandData.industry} industry, targeting ${state.brandData.targetAudience}).
-Search query executed: ${searchQuery}
-Live sources found (${sources.length}):
-${sources
-  .slice(0, 6)
-  .map((s, i) => `${i + 1}. "${s.title}" — ${(s.snippet || "").slice(0, 160)}`)
-  .join("\n")}
-Key findings extracted:
-${state.trendResearch.findings.map((f) => `- ${f}`).join("\n")}
-
-Explain what these live search results reveal and which angles look strongest for the campaign.`
-      );
       onEvent({
         type: "agent_action",
         agentId: "trend_researcher",
@@ -412,6 +367,10 @@ Explain what these live search results reveal and which angles look strongest fo
       });
       onEvent({ type: "agent_completed", agentId: "trend_researcher" });
     } catch (err: any) {
+      // Sibling short-circuit: silently stop — the real failure already
+      // rejected the workflow via the other agent's agent_error event.
+      if (err?.isSilentHalt) throw err;
+      researchHalted = true;
       console.error("Trend Researcher error:", err);
       onEvent({
         type: "agent_error",
@@ -420,28 +379,30 @@ Explain what these live search results reveal and which angles look strongest fo
       });
       throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
     }
-  }
+  };
 
   // =========================================================================
   // 3. COMPETITOR ANALYST (Google Search Grounding + Market Gap Intelligence)
   // =========================================================================
-  checkCancelled();
-  const shouldRunComp =
-    !state.competitorAnalysis ||
-    input.resumeFromAgent === "brand_analyst" ||
-    input.resumeFromAgent === "trend_researcher" ||
-    input.resumeFromAgent === "competitor_analyst";
+  const runCompetitorAnalyst = async () => {
+    const shouldRunComp =
+      !state.competitorAnalysis ||
+      input.resumeFromAgent === "brand_analyst" ||
+      input.resumeFromAgent === "trend_researcher" ||
+      input.resumeFromAgent === "competitor_analyst";
 
-  if (!shouldRunComp && state.competitorAnalysis) {
-    onEvent({ type: "agent_started", agentId: "competitor_analyst" });
-    emitProgress("competitor_analyst", 100, "completed", "Competitor analysis restored", "completed");
-    onEvent({
-      type: "output_ready",
-      agentId: "competitor_analyst",
-      data: state.competitorAnalysis,
-    });
-    onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
-  } else {
+    if (!shouldRunComp && state.competitorAnalysis) {
+      onEvent({ type: "agent_started", agentId: "competitor_analyst" });
+      emitProgress("competitor_analyst", 100, "completed", "Competitor analysis restored", "completed");
+      onEvent({
+        type: "output_ready",
+        agentId: "competitor_analyst",
+        data: state.competitorAnalysis,
+      });
+      onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
+      return;
+    }
+
     onEvent({ type: "agent_started", agentId: "competitor_analyst" });
     emitProgress("competitor_analyst", 15, "scanning_market", `Searching competitors in ${state.brandData.industry}`);
     onEvent({
@@ -449,6 +410,8 @@ Explain what these live search results reveal and which angles look strongest fo
       agentId: "competitor_analyst",
       data: { label: "Scanning competitor landscape...", detail: `Identifying market leaders in ${state.brandData.industry}` },
     });
+
+    checkResearchRunnable();
 
     const compSearchQuery = `Top competitors, market leaders, viral social media posts, winning hooks, and engagement angles for ${state.brandData.industry} 2026`;
     onEvent({ type: "web_search", agentId: "competitor_analyst", data: { query: compSearchQuery } });
@@ -474,6 +437,10 @@ Explain what these live search results reveal and which angles look strongest fo
           data: { count: compSources.length, sources: compSources },
         });
       }
+
+      // Checkpoint before the expensive JSON synthesis: stop here if the
+      // sibling agent already failed or the user cancelled mid-research.
+      checkResearchRunnable();
 
       const dbCompetitors = await prisma.competitor.findMany({
         where: { workspaceId },
@@ -536,21 +503,6 @@ Return strictly JSON with format:
         ],
       };
 
-      await streamThought(
-        "competitor_analyst",
-        `${thoughtStyle("Competitor Analyst")}
-
-Brand: ${state.brandData.name} (${state.brandData.industry} industry).
-Top competitors identified: ${topComps.join(", ")}.
-My analysis results:
-- Positioning: ${state.competitorAnalysis.positioning}
-- Weaknesses to exploit: ${state.competitorAnalysis.weaknesses.slice(0, 3).join("; ")}
-- Differentiation angles: ${state.competitorAnalysis.differentiation.slice(0, 3).join("; ")}
-- Winning angle: ${compRes.winningAngle || state.competitorAnalysis.differentiation[0]}
-
-Explain how the brand should position itself against competitors in this campaign.`
-      );
-
       onEvent({
         type: "agent_action",
         agentId: "competitor_analyst",
@@ -573,6 +525,10 @@ Explain how the brand should position itself against competitors in this campaig
       });
       onEvent({ type: "agent_completed", agentId: "competitor_analyst" });
     } catch (err: any) {
+      // Sibling short-circuit: silently stop — the real failure already
+      // rejected the workflow via the other agent's agent_error event.
+      if (err?.isSilentHalt) throw err;
+      researchHalted = true;
       console.error("Competitor Analyst error:", err);
       onEvent({
         type: "agent_error",
@@ -581,7 +537,9 @@ Explain how the brand should position itself against competitors in this campaig
       });
       throw err; // HALT WORKFLOW IMMEDIATELY ON ERROR
     }
-  }
+  };
+
+  await Promise.all([runTrendResearcher(), runCompetitorAnalyst()]);
 
   // =========================================================================
   // 4. CONTENT CREATOR (Platform-Native Algorithms + High User Intent)
@@ -605,20 +563,6 @@ Explain how the brand should position itself against competitors in this campaig
   } else {
     onEvent({ type: "agent_started", agentId: "content_creator" });
     emitProgress("content_creator", 10, "structuring", `Writing copy for ${platforms.map((p: string) => p.toUpperCase()).join(", ")}`);
-    await streamThought(
-      "content_creator",
-      `${thoughtStyle("Viral Content Creator")}
-
-Brand: ${state.brandData?.name || "the brand"} — ${state.brandData?.industry || "general"} industry.
-Voice: ${state.brandData?.tone || "professional"}. Target audience: ${state.brandData?.targetAudience || "general"}. Mission: ${state.brandData?.missionVision || "growth"}.
-Trend research highlights: ${(state.trendResearch?.rawText || "").slice(0, 900) || "No trend data available."}
-Competitor differentiation angles: ${(state.competitorAnalysis?.differentiation || []).slice(0, 3).join("; ") || "None"}.
-Platforms & formats to write: ${Object.entries(contentTypes)
-        .map(([p, fmts]) => `${p} (${fmts.join(", ")})`)
-        .join(" · ")}
-
-Explain your creative strategy for this copy before writing it.`
-    );
     onEvent({
       type: "agent_action",
       agentId: "content_creator",
@@ -855,20 +799,6 @@ Return strictly JSON format:
       detail: `Smart dedup plan: ${generationBuckets.size} unique generations instead of ${mediaTasks.length} (saves ${savedCalls} API calls, credits & wait time)`,
     },
   });
-
-  await streamThought(
-    "visualizer",
-    `${thoughtStyle("Visual Director")}
-
-Brand: ${state.brandData?.name || "the brand"} (${state.brandData?.industry || "general"} industry, ${state.brandData?.tone || "professional"} tone).
-Asset plan: ${mediaTasks.length} required asset(s) — ${mediaTasks
-      .slice(0, 10)
-      .map((t) => `${t.platform}/${t.contentType} (${t.reqSpec.assetType}, ${t.reqSpec.aspectRatio})`)
-      .join(", ")}.
-Smart dedup: ${generationBuckets.size} unique generation(s) will cover all ${mediaTasks.length} requirement(s).
-
-Explain the visual direction you are setting for these assets and why the formats fit each platform.`
-  );
 
   let completedTaskCount = 0;
   let bucketIndex = 0;
@@ -1167,20 +1097,6 @@ Return strictly JSON format:
   }
   emitProgress("ceo_auditor", 60, "evaluating", "Evaluating brand alignment");
 
-  await streamThought(
-    "ceo_auditor",
-    `${thoughtStyle("CEO & Quality Auditor")}
-
-Audit verdict: ${state.auditResult.passed ? "PASSED" : "FAILED"} — score ${state.auditResult.score}/100.
-Notes: ${state.auditResult.notes}
-Issues flagged: ${state.auditResult.issues.join("; ") || "none"}
-Campaign scope: ${platforms.length} platform(s), ${state.generatedAssets?.length || 0} visual asset(s) produced.
-
-Explain your verdict as the CEO deciding whether this campaign ships.${
-      !state.auditResult.passed ? " You are about to auto-revise the copy yourself to fix the issues." : ""
-    }`
-  );
-
   if (!state.auditResult.passed && state.auditResult.issues && state.auditResult.issues.length > 0) {
     onEvent({
       type: "agent_action",
@@ -1238,17 +1154,6 @@ Return strictly JSON matching the EXACT same structure as the "platforms" object
         agentId: "ceo_auditor",
         data: { label: `CEO Auto-Revision Complete! Campaign Approved.` },
       });
-
-      await streamThought(
-        "ceo_auditor",
-        `${thoughtStyle("CEO & Quality Auditor")}
-
-The first audit FAILED with issues: ${state.auditResult.issues.join("; ")}.
-I have just rewritten the campaign copy myself to eliminate those issues while keeping the brand voice (${state.brandData?.tone || "professional"}).
-
-Briefly explain what you fixed and why the campaign is now ready to ship.`,
-        { append: true }
-      );
     } catch (e: any) {
       console.warn("CEO Auto-Revision failed:", e);
       onEvent({

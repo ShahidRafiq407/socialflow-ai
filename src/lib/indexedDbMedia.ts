@@ -89,6 +89,28 @@ export async function removeMediaFromIndexedDB(key: string): Promise<void> {
   } catch {}
 }
 
+/**
+ * Batched variant of removeMediaFromIndexedDB: one connection + one readwrite
+ * transaction for all keys (instead of one openDB()/transaction per key), and
+ * the connection is closed once the transaction completes so repeated purges
+ * don't accumulate open IndexedDB connections in long-lived tabs.
+ */
+export async function removeMediaKeysFromIndexedDB(keys: string[]): Promise<void> {
+  if (!keys.length) return;
+  try {
+    const db = await openDB();
+    if (!db) return;
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    for (const key of keys) {
+      store.delete(key);
+    }
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => db.close();
+    tx.onabort = () => db.close();
+  } catch {}
+}
+
 export async function clearAllMediaFromIndexedDB(): Promise<void> {
   try {
     const db = await openDB();
