@@ -150,3 +150,49 @@ describe('saveMediaBuffer — serverless production fallback (no Supabase)', () 
     );
   });
 });
+
+describe('saveMediaBuffer — Supabase configured but unreachable (paused project)', () => {
+  it('falls back to the DB MediaAsset backend instead of failing the upload', async () => {
+    // Simulate a paused/dead Supabase project: configured env vars pointing
+    // at an unreachable host. uploadFile's fetch fails fast (connection
+    // refused) and saveMediaBuffer must fall through to the DB backend.
+    setNodeEnv('production');
+    process.env.SUPABASE_URL = 'http://127.0.0.1:59999'; // nothing listening
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+
+    const createMock = vi.fn().mockResolvedValue({ id: 'asset_sb' });
+    const findFirstMock = vi.fn().mockResolvedValue({ id: 'ws_sb' });
+    vi.resetModules(); // module-level SUPABASE_URL const is read at import time
+    vi.doMock('@/lib/db', () => ({
+      default: { mediaAsset: { create: createMock }, workspace: { findFirst: findFirstMock } },
+    }));
+
+    const { saveMediaBuffer } = await import('@/lib/supabase');
+    const buf = Buffer.from('paused-supabase-upload-bytes');
+    const saved = await saveMediaBuffer(buf, 'pic.png', 'image/png');
+
+    expect(saved.url).toBe('/api/media/asset/asset_sb.png');
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(createMock.mock.calls[0][0].data.workspaceId).toBe('ws_sb');
+  });
+
+  it('reports the Supabase failure reason when the file is too large for the DB fallback', async () => {
+    setNodeEnv('production');
+    process.env.SUPABASE_URL = 'http://127.0.0.1:59999';
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+
+    vi.resetModules();
+    vi.doMock('@/lib/db', () => ({
+      default: {
+        mediaAsset: { create: vi.fn() },
+        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_sb' }) },
+      },
+    }));
+
+    const { saveMediaBuffer } = await import('@/lib/supabase');
+    const bigBuf = Buffer.alloc(6 * 1024 * 1024, 1);
+    await expect(saveMediaBuffer(bigBuf, 'big.mp4', 'video/mp4')).rejects.toThrow(
+      /Supabase Storage upload failed[\s\S]*too large/i
+    );
+  });
+});

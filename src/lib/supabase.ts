@@ -281,19 +281,20 @@ export async function saveMediaBuffer(
   const cleanName = (originalFilename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
   const filename = `${timestamp}-${cleanName}`;
   const rawBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  let supabaseError: string | null = null;
 
-  // 1. Supabase Storage — preferred backend when configured
+  // 1. Supabase Storage — preferred backend when configured.
   if (isSupabaseConfigured()) {
     try {
       const storagePath = await uploadFile(rawBuffer, filename, contentType);
       await ensureBucketPublic();
       return { url: getPublicUrl(storagePath), filename: storagePath };
     } catch (err: any) {
-      console.error('[Storage] Supabase upload FAILED:', err?.message || err);
-      throw new Error(
-        `Supabase Storage upload failed: ${err?.message || 'Unknown error'}. ` +
-        'Check that your Supabase project is active (not paused) and the "uploads" bucket exists.'
-      );
+      // A paused/unreachable Supabase project (free tier auto-pauses after
+      // inactivity) must NOT take uploads down with it: log and fall through
+      // to the next backend instead of hard-failing (pre-2b742e2 behavior).
+      supabaseError = err?.message || 'Unknown error';
+      console.error('[Storage] Supabase upload FAILED, falling back to local/DB storage:', supabaseError);
     }
   }
 
@@ -313,15 +314,18 @@ export async function saveMediaBuffer(
     }
   }
 
-  // 3. PostgreSQL MediaAsset fallback (serverless production without Supabase).
+  // 3. PostgreSQL MediaAsset fallback (serverless production, or Supabase down).
   //    Small media only: base64 inflates ~33% and multi-MB blobs are slow to
-  //    serve from the DB. Larger files REQUIRE Supabase (or another object
-  //    store) — surface a clear, actionable error instead of bloating Neon.
+  //    serve from the DB. Larger files REQUIRE working Supabase (or another
+  //    object store) — surface a clear, actionable error instead of bloating Neon.
   const MAX_DB_FALLBACK_BYTES = 5 * 1024 * 1024; // 5MB
   if (rawBuffer.length > MAX_DB_FALLBACK_BYTES) {
     throw new Error(
-      `Media file is too large (${(rawBuffer.length / (1024 * 1024)).toFixed(1)}MB) to store without Supabase Storage. ` +
-      'Set SUPABASE_URL and SUPABASE_SERVICE_KEY to enable large uploads (free tier at supabase.com).'
+      (supabaseError
+        ? `Supabase Storage upload failed: ${supabaseError}. `
+        : '') +
+      `Media file (${(rawBuffer.length / (1024 * 1024)).toFixed(1)}MB) is too large to store without working Supabase Storage. ` +
+      'Check that your Supabase project is active (not paused) and set SUPABASE_URL + SUPABASE_SERVICE_KEY.'
     );
   }
 
@@ -352,8 +356,9 @@ export async function saveMediaBuffer(
   }
 
   throw new Error(
-    'Media storage failed: no storage backend available. ' +
-    'Configure Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_KEY) for reliable uploads.'
+    'Media storage failed: no storage backend available' +
+    (supabaseError ? ` (Supabase: ${supabaseError})` : '') +
+    '. Configure Supabase Storage (SUPABASE_URL + SUPABASE_SERVICE_KEY) for reliable uploads.'
   );
 }
 
