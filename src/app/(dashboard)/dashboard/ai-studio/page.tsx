@@ -998,16 +998,43 @@ export default function AIStudioPage() {
   const historyKey = `${activePlatformTab}-${currentFormatName}`;
 
   const updateCaption = useCallback((newCaption: string) => {
-    setGeneratedContents(prev => ({
-      ...prev,
-      [activePlatformTab]: {
-        ...prev[activePlatformTab],
-        [currentFormatName]: {
-          ...(prev[activePlatformTab]?.[currentFormatName] || { caption: "", visualPrompts: [], hashtags: [], bestTime: "" }),
-          caption: newCaption,
-        },
-      },
-    }));
+    // Family sync: an edited caption must propagate to every format in the
+    // same family (vertical_video / story / carousel / single_image) across
+    // selected platforms — mirroring how media assets already sync. Without
+    // this, editing the caption on one tab publishes the OLD caption on
+    // sibling formats (e.g. edit IG Reel caption → FB Reel still publishes
+    // the stale saved caption).
+    const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
+
+    setGeneratedContents(prev => {
+      const next = { ...prev };
+
+      const applyCaption = (plt: string, fmt: string, createIfMissing = false) => {
+        next[plt] = next[plt] || {};
+        // Family formats: only overwrite formats that already exist — never
+        // fabricate empty entries for platforms the campaign didn't generate.
+        if (next[plt][fmt] || createIfMissing) {
+          next[plt][fmt] = {
+            ...(next[plt][fmt] || { visualPrompts: [], hashtags: [], bestTime: "" }),
+            caption: newCaption,
+          };
+        }
+      };
+
+      applyCaption(activePlatformTab, currentFormatName, true);
+
+      PLATFORMS.forEach((platformDef) => {
+        const pId = platformDef.id;
+        (platformDef.contentTypes || []).forEach((otherFmt) => {
+          if (pId === activePlatformTab && otherFmt === currentFormatName) return;
+          if (getFormatFamily(pId, otherFmt) === currentFamily) {
+            applyCaption(pId, otherFmt);
+          }
+        });
+      });
+
+      return next;
+    });
     // push to history
     setCaptionHistory(prev => {
       const hist = prev[historyKey] || [];
@@ -2829,6 +2856,118 @@ export default function AIStudioPage() {
     return rawUrl;
   };
 
+  // ============================================================================
+  // MEDIA PERSISTENCE SWEEPER — self-heal data:/blob: media into server assets
+  // ============================================================================
+  // AI media generation returns `data:` URLs whenever the Supabase storage
+  // upload fails (and the Redis cache happily re-serves them for 24h). Those
+  // URLs render fine in the live preview at first, but:
+  //   - sessionStorage persistence strips them → media disappears on refresh
+  //   - IndexedDB persistence skips them  → media disappears on tab switch
+  //   - external platform crawlers can never fetch them at publish time
+  // This sweeper converts every data:/blob: URL found in the editor state into
+  // a persistent server asset (/api/uploads → Supabase public URL), so media
+  // previews survive refreshes and publishing always has a public URL.
+  const mediaSweepDoneRef = useRef(false);
+  useEffect(() => {
+    if (generationState === "running") {
+      // A new campaign is generating — re-arm the sweeper for when it lands.
+      mediaSweepDoneRef.current = false;
+      return;
+    }
+    if (mediaSweepDoneRef.current) return;
+    mediaSweepDoneRef.current = true;
+
+    const isTransient = (u: unknown): u is string =>
+      typeof u === "string" && (u.startsWith("data:") || u.startsWith("blob:"));
+
+    const sweep = async () => {
+      // 1. customMediaDict
+      const customUpdates: Record<string, { url: string; type: "image" | "video"; name?: string }> = {};
+      for (const [key, item] of Object.entries(customMediaDict)) {
+        if (isTransient(item?.url)) {
+          const clean = await ensureCleanMediaUrl(item.url);
+          if (clean !== item.url) customUpdates[key] = { ...item, url: clean };
+        }
+      }
+      if (Object.keys(customUpdates).length > 0) {
+        setCustomMediaDict((prev) => ({ ...prev, ...customUpdates }));
+        saveAllMediaToIndexedDB(customUpdates);
+      }
+
+      // 2. renderedImageUrlsDict
+      const renderedUpdates: Record<string, string> = {};
+      for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
+        if (isTransient(url)) {
+          const clean = await ensureCleanMediaUrl(url);
+          if (clean !== url) renderedUpdates[key] = clean;
+        }
+      }
+      if (Object.keys(renderedUpdates).length > 0) {
+        setRenderedImageUrlsDict((prev) => ({ ...prev, ...renderedUpdates }));
+      }
+
+      // 3. mediaItemsDict (multi-asset editors)
+      const itemUpdates: Record<string, MultiMediaItem[]> = {};
+      for (const [key, items] of Object.entries(mediaItemsDict)) {
+        if (!Array.isArray(items)) continue;
+        let changed = false;
+        const nextItems = await Promise.all(
+          items.map(async (item) => {
+            if (isTransient(item?.url)) {
+              const clean = await ensureCleanMediaUrl(item.url);
+              if (clean !== item.url) {
+                changed = true;
+                return { ...item, url: clean };
+              }
+            }
+            return item;
+          })
+        );
+        if (changed) itemUpdates[key] = nextItems;
+      }
+      if (Object.keys(itemUpdates).length > 0) {
+        setMediaItemsDict((prev) => ({ ...prev, ...itemUpdates }));
+      }
+
+      // 4. generatedContents (imageUrl / videoUrl / imageUrls)
+      const nextContents: typeof generatedContents = { ...generatedContents };
+      let contentsChanged = false;
+      for (const [plt, formats] of Object.entries(generatedContents)) {
+        const nextFormats = { ...formats };
+        for (const [fmt, data] of Object.entries(formats)) {
+          let { imageUrl, videoUrl, imageUrls } = data;
+          let fmtChanged = false;
+          if (isTransient(imageUrl)) {
+            const clean = await ensureCleanMediaUrl(imageUrl);
+            if (clean !== imageUrl) { imageUrl = clean; fmtChanged = true; }
+          }
+          if (isTransient(videoUrl)) {
+            const clean = await ensureCleanMediaUrl(videoUrl);
+            if (clean !== videoUrl) { videoUrl = clean; fmtChanged = true; }
+          }
+          if (Array.isArray(imageUrls)) {
+            const nextUrls = await Promise.all(
+              imageUrls.map((u) => (isTransient(u) ? ensureCleanMediaUrl(u) : u))
+            );
+            if (nextUrls.some((u, i) => u !== imageUrls![i])) {
+              imageUrls = nextUrls;
+              fmtChanged = true;
+            }
+          }
+          if (fmtChanged) {
+            nextFormats[fmt] = { ...data, imageUrl, videoUrl, imageUrls };
+            contentsChanged = true;
+          }
+        }
+        nextContents[plt] = nextFormats;
+      }
+      if (contentsChanged) setGeneratedContents(nextContents);
+    };
+
+    sweep().catch((e) => console.warn("[Media Sweeper] failed:", e));
+  }, [generationState, customMediaDict, renderedImageUrlsDict, mediaItemsDict, generatedContents]);
+
   const saveAsDraft = async () => {
     const post = buildCurrentPost("draft");
     if (!post) return;
@@ -3235,16 +3374,20 @@ export default function AIStudioPage() {
     }
     setPublishLoading(true);
     try {
-      const modalItems: PublishItemResult[] = [];
-      // Publish sequentially (not in parallel) so each platform call completes
-      // cleanly without overwhelming the API and triggering "unexpected response".
-      for (const { platform, format, data, resolvedMediaType } of posts) {
+      // Publish all platforms in PARALLEL — each platform is a different
+      // external API (Meta, TikTok, Pinterest, ...), so dispatching them
+      // concurrently is safe and turns a 6-post campaign from ~6 sequential
+      // waits into a single round-trip. Results render as they arrive.
+      let completedCount = 0;
+      const modalItems: PublishItemResult[] = await Promise.all(
+        posts.map(async ({ platform, format, data, resolvedMediaType }) => {
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
           const mediaUrl = cleanPrimaryUrl;
-          let computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
+          const computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
           try {
+            setPublishResult({ success: true, message: `Publishing ${platform} ${format}... (${completedCount + 1}/${posts.length})` });
             const draftRes = await apiSaveDraft({
               platform,
               content: data.caption || "",
@@ -3279,50 +3422,53 @@ export default function AIStudioPage() {
             });
 
             if (!draftRes?.id) {
-              modalItems.push({
+              completedCount++;
+              return {
                 platform,
                 format,
                 status: "FAILED" as const,
                 error: (draftRes as any)?.error || "Server failed to save the draft before publishing.",
                 title: data.caption?.slice(0, 60),
                 thumbnailUrl: mediaUrl,
-              });
-              continue;
+              };
             }
 
             const pubRes: any = await apiPublishNow(draftRes.id);
+            completedCount++;
             if (pubRes?.success) {
-              modalItems.push({
+              return {
                 platform,
                 format,
                 status: "PUBLISHED" as const,
                 liveUrl: pubRes.liveUrl || `https://${platform.toLowerCase()}.com`,
                 title: data.caption?.slice(0, 60),
                 thumbnailUrl: mediaUrl,
-              });
-            } else {
-              modalItems.push({
-                platform,
-                format,
-                status: "FAILED" as const,
-                error: pubRes?.error || "Publishing was rejected by social platform API.",
-                title: data.caption?.slice(0, 60),
-                thumbnailUrl: mediaUrl,
-              });
+              };
             }
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: pubRes?.error || "Publishing was rejected by social platform API.",
+              title: data.caption?.slice(0, 60),
+              thumbnailUrl: mediaUrl,
+            };
           } catch (e: any) {
             console.error(`Publish failed for ${platform}:`, e);
-            modalItems.push({
+            completedCount++;
+            return {
               platform,
               format,
               status: "FAILED" as const,
               error: e.message || "Failed to dispatch post.",
               title: data.caption?.slice(0, 60),
               thumbnailUrl: mediaUrl,
-            });
+            };
           }
-        }
+        })
+      );
 
+      setPublishResult(null);
       setPublishModal({ type: null });
       setStatusModalData({
         isOpen: true,

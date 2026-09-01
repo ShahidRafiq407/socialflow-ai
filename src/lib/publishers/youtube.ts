@@ -233,6 +233,42 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
     }
 
     const videoId = uploadData?.id;
+
+    // First comment — commentThreads.insert creates a top-level comment on
+    // the uploaded video (requires the youtube.force-ssl scope, which the
+    // OAuth config now requests). Best-effort: never fails the upload.
+    const firstComment = String(settings.firstComment || '').trim();
+    if (firstComment && videoId) {
+      try {
+        const commentRes = await fetch(
+          'https://www.googleapis.com/youtube/v3/commentThreads?part=snippet',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              snippet: {
+                videoId,
+                topLevelComment: {
+                  snippet: {
+                    textOriginal: firstComment.slice(0, 10000),
+                  },
+                },
+              },
+            }),
+          }
+        );
+        if (!commentRes.ok) {
+          const errBody = await commentRes.text().catch(() => '');
+          console.warn('[YouTube Publisher] First comment failed:', commentRes.status, errBody.slice(0, 300));
+        }
+      } catch (commentErr) {
+        console.warn('[YouTube Publisher] First comment error:', commentErr);
+      }
+    }
+
     return {
       success: true,
       platformPostId: videoId,

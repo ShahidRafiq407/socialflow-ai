@@ -87,13 +87,15 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
         const uploadUrl = startData.upload_url || `https://rupload.facebook.com/video-upload/${GRAPH_VERSION}/${videoId}`;
 
         // 2. TRANSFER Phase
+        // rupload requires BOTH the `offset` and `file_size` headers — missing
+        // `file_size` makes the transfer phase reject the upload with a generic
+        // "Failed to transfer Facebook Video Story" error.
         const transferRes = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
             'Authorization': `OAuth ${targetAccessToken}`,
             'offset': '0',
-            'file_offset': '0',
-            'Content-Length': fileSize.toString(),
+            'file_size': fileSize.toString(),
             'Content-Type': 'application/octet-stream'
           },
           body: vidBuffer,

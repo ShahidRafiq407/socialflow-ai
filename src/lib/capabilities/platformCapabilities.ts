@@ -783,7 +783,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsTitle: true,
     supportsDescription: true,
     supportsCaption: false,
-    supportsFirstComment: false,
+    // commentThreads.insert (youtube.force-ssl scope) — supported, posted
+    // right after the video goes live by the YouTube publisher.
+    supportsFirstComment: true,
     supportsHashtags: true,
     supportsDestinationUrl: false,
     supportsBoard: false,
@@ -799,7 +801,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     titleLimit: 100,
     descriptionLimit: 5000,
     captionLimit: 5000,
-    firstCommentLimit: 5000,
+    firstCommentLimit: 10000,
     hashtagLimit: 15,
     publishingMode: "api_direct",
     supportsAIImage: false,
@@ -821,7 +823,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsTitle: true,
     supportsDescription: true,
     supportsCaption: false,
-    supportsFirstComment: false,
+    // commentThreads.insert (youtube.force-ssl scope) — supported, posted
+    // right after the video goes live by the YouTube publisher.
+    supportsFirstComment: true,
     supportsHashtags: true,
     supportsDestinationUrl: false,
     supportsBoard: false,
@@ -837,7 +841,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     titleLimit: 100,
     descriptionLimit: 5000,
     captionLimit: 5000,
-    firstCommentLimit: 5000,
+    firstCommentLimit: 10000,
     hashtagLimit: 15,
     publishingMode: "api_direct",
     supportsAIImage: true, // For Thumbnail

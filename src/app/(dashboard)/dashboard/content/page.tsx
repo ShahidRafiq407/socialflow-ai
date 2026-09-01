@@ -20,9 +20,17 @@ export default async function ContentApprovalBoardPage() {
   const workspaceId = workspace?.id || "default-workspace";
   const workspaceName = workspace?.name || "SMB Robotics";
 
+  // Content Library = working board (drafts, scheduled, review, approved).
+  // PUBLISHED / PUBLISHING posts are intentionally EXCLUDED: publishing does
+  // not "save to library" — only the explicit Save-to-Draft action does. The
+  // publish status modal already links to the live post, and the cleanup cron
+  // prunes published/failed rows after 24h anyway.
   const posts = await Promise.race([
     prisma.post.findMany({
-      where: { workspaceId },
+      where: {
+        workspaceId,
+        status: { notIn: ["PUBLISHED", "PUBLISHING"] },
+      },
       orderBy: { createdAt: "desc" },
     }),
     new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),

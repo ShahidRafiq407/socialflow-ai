@@ -648,6 +648,7 @@ export default function PinterestPinEditor({
                   onChange={(e) => onBoardChange(e.target.value)}
                   className="w-full h-8.5 px-2.5 pr-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 appearance-none focus:ring-1 focus:ring-red-500"
                 >
+                  <option value="">Auto-detect (first board)</option>
                   {boards.map((b) => (
                     <option key={b.id} value={b.name}>
                       {b.name}
@@ -734,6 +735,7 @@ export default function PinterestPinEditor({
                   </div>
                   <Textarea
                     rows={2}
+                    maxLength={500}
                     value={altText}
                     onChange={(e) => onAltTextChange(e.target.value)}
                     placeholder="Describe your Pin's visual details"

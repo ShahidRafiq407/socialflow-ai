@@ -586,7 +586,8 @@ Return ONLY the prompt string.`;
       const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${style || "default"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
       if (!sourceImage && !sourceVideo) {
         const cachedMedia = await cacheGet<any>(mediaCacheKey);
-        if (cachedMedia && cachedMedia.url) {
+        // Skip stale cache entries holding unpublishable data: payloads.
+        if (cachedMedia && cachedMedia.url && !String(cachedMedia.url).startsWith("data:")) {
           const isVid = typeof cachedMedia.url === "string" && (
             cachedMedia.url.endsWith(".mp4") ||
             cachedMedia.url.endsWith(".webm") ||
@@ -642,8 +643,13 @@ Return ONLY the prompt string.`;
           },
         };
 
-        // Cache media asset in Redis (24 hours TTL)
-        await cacheSet(mediaCacheKey, assetPayload, 86400);
+        // Cache media asset in Redis (24 hours TTL).
+        // NEVER cache data: URLs — they are multi-MB base64 payloads that
+        // bloat Redis, break preview persistence (sessionStorage strips them),
+        // and can never be fetched by external platform crawlers at publish time.
+        if (!asset.url.startsWith("data:")) {
+          await cacheSet(mediaCacheKey, assetPayload, 86400);
+        }
 
         return NextResponse.json({
           success: true,

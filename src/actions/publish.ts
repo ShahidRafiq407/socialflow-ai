@@ -204,15 +204,31 @@ export async function publishToPlatform(post: any, account: any) {
   const timeoutMs = isVideoPost ? 300000 : 90000;
 
   try {
-    const result = await Promise.race([
-      publishToPlatformProvider(post, account),
-      new Promise<any>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Publishing timed out after ${Math.round(timeoutMs / 1000)} seconds. The social platform may be slow or your media URL may not be publicly accessible. Check the post status on the platform itself — it may still appear there shortly.`)),
-          timeoutMs
-        )
-      ),
-    ]);
+    // Video publishing is genuinely slow: Instagram polls its media container
+    // for up to ~45s, Pinterest polls media processing for up to ~45s, and the
+    // video bytes must be downloaded + transferred to the platform first.
+    // The old 30s race killed these flows mid-flight — that is why IG Reels and
+    // Pinterest Video Pins consistently reported "timed out after 30 seconds".
+    const PUBLISH_TIMEOUT_MS = 90_000;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`Publishing timed out after ${PUBLISH_TIMEOUT_MS / 1000} seconds. The social platform may be slow or your media URL may not be publicly accessible.`)),
+        PUBLISH_TIMEOUT_MS
+      );
+    });
+
+    let result: any;
+    try {
+      result = await Promise.race([
+        publishToPlatformProvider(post, account),
+        timeoutPromise,
+      ]);
+    } finally {
+      // Always clear the timer — otherwise the serverless function stays alive
+      // (and billing keeps running) until the losing timeout fires.
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
 
     if (result.success) {
       const now = new Date();

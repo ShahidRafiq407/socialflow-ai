@@ -16,7 +16,6 @@ import {
   Filter,
   CheckCircle2,
   Clock,
-  Send,
   Sparkles,
   ArrowRight,
   Camera,
@@ -56,7 +55,6 @@ export function ContentBoardClient({
     { id: "SCHEDULED", label: "Scheduled (AI Peak Time)" },
     { id: "PENDING_APPROVAL", label: "Pending Review" },
     { id: "APPROVED", label: "Approved • Scheduled" },
-    { id: "PUBLISHED", label: "Published" },
     { id: "REJECTED", label: "Rejected" },
   ];
 
@@ -67,8 +65,8 @@ export function ContentBoardClient({
   const countApproved = initialPosts.filter(
     (p) => p.status === "APPROVED"
   ).length;
-  const countPublished = initialPosts.filter(
-    (p) => p.status === "PUBLISHED"
+  const countScheduled = initialPosts.filter(
+    (p) => p.status === "SCHEDULED"
   ).length;
 
   // Filter posts
@@ -162,9 +160,9 @@ export function ContentBoardClient({
         </Card>
 
         <Card
-          onClick={() => setSelectedStatus("PUBLISHED")}
+          onClick={() => setSelectedStatus("SCHEDULED")}
           className={`cursor-pointer transition-all border ${
-            selectedStatus === "PUBLISHED"
+            selectedStatus === "SCHEDULED"
               ? "border-blue-500 bg-blue-500/10 shadow-sm"
               : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-400"
           }`}
@@ -172,14 +170,14 @@ export function ContentBoardClient({
           <CardContent className="p-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Published Live
+                Scheduled
               </p>
               <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">
-                {countPublished}
+                {countScheduled}
               </p>
             </div>
             <div className="h-10 w-10 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <Send className="h-5 w-5" />
+              <Clock className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>

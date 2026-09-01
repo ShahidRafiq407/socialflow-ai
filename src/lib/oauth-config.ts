@@ -89,7 +89,9 @@ export function getOAuthConfig(platform: string): OAuthPlatformConfig | null {
       displayName: "YouTube",
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
-      scopes: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload openid profile email",
+      // youtube.force-ssl is required by commentThreads.insert — lets the
+      // publisher post the "first comment" on uploaded videos.
+      scopes: "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid profile email",
       clientId: process.env.YOUTUBE_CLIENT_ID || "",
       clientSecret: process.env.YOUTUBE_CLIENT_SECRET || "",
       tokenAuthMethod: "body",
