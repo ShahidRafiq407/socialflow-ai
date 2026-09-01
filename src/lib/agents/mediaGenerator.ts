@@ -82,7 +82,14 @@ export interface MediaAssetOutput {
   type: "image" | "video";
   url: string;
   prompt: string;
+  /** The ratio the pixels were actually rendered at. */
   aspectRatio: string;
+  /**
+   * The ratio the target platform ideally wanted, when it differs from what was
+   * rendered — a shared family render serves several platforms, so the editor needs
+   * to know the intended crop rather than assuming `aspectRatio` is native.
+   */
+  requestedAspectRatio?: string;
   status: "completed" | "failed";
   provider: string;
   model: string;
@@ -136,8 +143,10 @@ async function generateRealVideo(options: {
   const { prompt, topic, aspectRatio, model, videoTask, sourceImage, sourceVideo, signal, onProgress } = options;
   const ai = (vertexProvider as any).ai;
 
-  // Strictly lock video generation to gemini-omni-flash-preview as requested
-  const candidateModels = ["gemini-omni-flash-preview"];
+  // Video generation runs on the configured video model (MODELS.VIDEO, overridable
+  // via MODEL_VIDEO_GENERATOR). Never hardcode the model here — the caller already
+  // resolved it, and ignoring `model` made the env override silently dead.
+  const candidateModels = [model || MODELS.VIDEO].filter(Boolean);
 
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
@@ -349,6 +358,10 @@ export function resolveVisualRequirements(
 
   let assetType: "image" | "video" | "multi_image" = "image";
   let requiredAssets = 1;
+  // Text-only formats (X text posts, LinkedIn text updates, …) publish without any
+  // media. Callers used to still queue an image render for them because assetType
+  // fell through to "image" — that burned a paid generation on an asset nothing reads.
+  let visualRequired = true;
 
   if (spec.mediaType === "video") {
     assetType = "video";
@@ -361,6 +374,7 @@ export function resolveVisualRequirements(
   } else if (spec.mediaType === "text_only") {
     assetType = "image";
     requiredAssets = 0;
+    visualRequired = false;
   } else {
     assetType = "image";
     requiredAssets = 1;
@@ -370,6 +384,8 @@ export function resolveVisualRequirements(
     assetType,
     aspectRatio: spec.aspectRatio,
     requiredAssets,
+    visualRequired,
+    mediaType: spec.mediaType,
   };
 }
 

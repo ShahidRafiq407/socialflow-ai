@@ -138,3 +138,53 @@ export async function releaseCronLock(): Promise<void> {
     // best-effort
   }
 }
+
+/**
+ * Same idea as acquireCronLock but for any named job, so a new cron (e.g. the
+ * growth autopilot) cannot block the existing publish cron and vice-versa.
+ */
+export async function acquireNamedLock(name: string, ttlSeconds = 240): Promise<boolean> {
+  try {
+    const client = getRedisInstance();
+    if (!client) return true;
+    const res = await client.set(`socialflow:lock:${name}`, String(Date.now()), {
+      nx: true,
+      ex: ttlSeconds,
+    });
+    return res === 'OK';
+  } catch {
+    return true;
+  }
+}
+
+export async function releaseNamedLock(name: string): Promise<void> {
+  try {
+    const client = getRedisInstance();
+    if (!client) return;
+    await client.del(`socialflow:lock:${name}`);
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Fixed-window rate limit for public endpoints (website lead tag, short links).
+ * Returns { allowed, count }. Without Redis it allows the request — the callers
+ * still validate the key/origin, so this is throttling, not authorization.
+ */
+export async function rateLimit(
+  key: string,
+  limit: number,
+  windowSeconds: number
+): Promise<{ allowed: boolean; count: number }> {
+  try {
+    const client = getRedisInstance();
+    if (!client) return { allowed: true, count: 0 };
+    const redisKey = `socialflow:rl:${key}`;
+    const count = await client.incr(redisKey);
+    if (count === 1) await client.expire(redisKey, windowSeconds);
+    return { allowed: count <= limit, count };
+  } catch {
+    return { allowed: true, count: 0 };
+  }
+}

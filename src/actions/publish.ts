@@ -8,7 +8,7 @@
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
 import { publishToPlatformProvider, normalizePlatformToEnum } from '@/lib/publishers';
-import { scheduleEnqueue, removeFromScheduleQueue } from '@/lib/redis';
+import { scheduleEnqueue } from '@/lib/redis';
 
 import { uploadBase64ToStorage } from '@/lib/supabase';
 
@@ -240,6 +240,22 @@ export async function publishToPlatform(post: any, account: any) {
           source: result.liveUrl || result.platformPostId || 'published',
         },
       });
+      // Permanent history receipt — survives the Post retention purge
+      const { recordPublishLog } = await import('@/lib/publishing/dispatch');
+      await recordPublishLog({
+        workspaceId: post.workspaceId,
+        postId: post.id,
+        channel: 'SOCIAL',
+        platform: post.platform,
+        format: post.format,
+        status: 'PUBLISHED',
+        liveUrl: result.liveUrl || null,
+        mediaUrl: post.imageUrl,
+        mediaType: post.mediaType,
+        excerpt: post.content,
+        topic: post.campaignTopic || null,
+        publishedAt: now,
+      });
       return {
         success: true,
         post: {
@@ -260,6 +276,20 @@ export async function publishToPlatform(post: any, account: any) {
           status: 'FAILED',
           publishError: errMsg,
         },
+      });
+      const { recordPublishLog } = await import('@/lib/publishing/dispatch');
+      await recordPublishLog({
+        workspaceId: post.workspaceId,
+        postId: post.id,
+        channel: 'SOCIAL',
+        platform: post.platform,
+        format: post.format,
+        status: 'FAILED',
+        mediaUrl: post.imageUrl,
+        mediaType: post.mediaType,
+        excerpt: post.content,
+        topic: post.campaignTopic || null,
+        error: errMsg,
       });
       return {
         success: false,
@@ -346,88 +376,16 @@ export async function dispatchDueScheduledPosts() {
     const workspaceIds = workspaces.map((w) => w.id);
     if (workspaceIds.length === 0) return { success: true, dispatched: 0 };
 
-    // Published posts are kept only as a short-lived receipt (1 hour) —
-    // purge them here on every dispatch tick so removal happens promptly
-    // while the dashboard is open, without waiting for the daily cron.
-    const publishedCutoff = new Date(Date.now() - 60 * 60 * 1000);
-    await prisma.post
-      .deleteMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          status: { in: ['PUBLISHED', 'published'] },
-          OR: [
-            { publishedAt: { lt: publishedCutoff } },
-            { publishedAt: null, createdAt: { lt: publishedCutoff } },
-          ],
-        },
-      })
-      .catch(() => {});
+    const { publishDuePosts, purgePublishedPosts } = await import('@/lib/publishing/dispatch');
 
-    const due = await prisma.post.findMany({
-      where: {
-        workspaceId: { in: workspaceIds },
-        status: 'SCHEDULED',
-        scheduledFor: { lte: new Date() },
-      },
-      orderBy: { scheduledFor: 'asc' },
-      take: 10,
-    });
+    // Retention split: normal published posts are a 1-hour receipt, autopilot
+    // posts stay 3 days so the user can review what the AI put out. The slim
+    // PublishLog row is never purged, so Lead Goal HQ keeps every live link.
+    await purgePublishedPosts(workspaceIds).catch(() => {});
 
-    let dispatched = 0;
-    for (const post of due) {
-      // Atomic claim — skips posts already grabbed by the cron or another tab
-      const claim = await prisma.post.updateMany({
-        where: { id: post.id, status: 'SCHEDULED' },
-        data: { status: 'PUBLISHING' },
-      });
-      if (claim.count === 0) continue;
+    const result = await publishDuePosts({ workspaceIds, limit: 10 });
 
-      try {
-        const platformEnum = normalizePlatformToEnum(post.platform);
-        if (!platformEnum) throw new Error(`Unknown platform: ${post.platform}`);
-
-        const account = await prisma.socialAccount.findFirst({
-          where: {
-            workspaceId: post.workspaceId,
-            platform: platformEnum as any,
-          },
-        });
-        if (!account) throw new Error(`Social account not connected for ${post.platform}.`);
-
-        const result = await publishToPlatformProvider(post, account);
-        if (result.success) {
-          await prisma.post.update({
-            where: { id: post.id },
-            data: {
-              status: 'PUBLISHED',
-              publishedAt: new Date(),
-              source: result.liveUrl || result.platformPostId || 'published',
-            },
-          });
-        } else {
-          await prisma.post.update({
-            where: { id: post.id },
-            data: {
-              status: 'FAILED',
-              publishError: result.error || 'Failed to publish to platform',
-            },
-          });
-        }
-        dispatched++;
-      } catch (err: any) {
-        await prisma.post.update({
-          where: { id: post.id },
-          data: {
-            status: 'FAILED',
-            publishError: err?.message || 'Unknown dispatch error',
-          },
-        }).catch(() => {});
-      } finally {
-        await removeFromScheduleQueue(post.id);
-      }
-    }
-
-    return { success: true, dispatched };
+    return { success: true, dispatched: result.dispatched };
   } catch (err: any) {
     console.error('[dispatchDueScheduledPosts Error]:', err);
     return { success: false, dispatched: 0, error: err?.message };

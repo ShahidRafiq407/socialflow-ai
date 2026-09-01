@@ -18,6 +18,9 @@ import {
   Search,
   Film,
   RotateCw,
+  Brain,
+  Zap,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -35,9 +38,17 @@ type AgentStatus = "waiting" | "running" | "completed" | "error";
 interface TimelineEntry {
   id: string;
   agentId: string;
-  status: "running" | "completed" | "error" | "pending";
+  status: "running" | "completed" | "error" | "pending" | "thought";
+  /**
+   * "action" = a step the agent performed. "thought" = a reasoning line streamed
+   * straight from the model that is doing the work (Gemini thought summaries), so the
+   * console shows what the agent is actually considering, one step at a time.
+   */
+  kind: "action" | "thought";
   stage: string;
   summary: string;
+  /** Which parallel unit of work this line belongs to (e.g. "vertical video (9:16)"). */
+  scope?: string;
   progress?: number;
   ts: number;
 }
@@ -48,6 +59,12 @@ interface AgentConfig {
   name: string;
   icon: React.ElementType;
   description: string;
+  /**
+   * Share of the overall progress bar. These are relative costs of the real work
+   * (a database read is not worth as much as rendering every asset), so the bar
+   * tracks how much of the campaign is actually done instead of counting agents.
+   */
+  weight: number;
 }
 
 const AGENT_SEQUENCE: AgentConfig[] = [
@@ -57,6 +74,7 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     name: "Brand Analyst",
     icon: Database,
     description: "Loading brand DNA from database",
+    weight: 5,
   },
   {
     id: "trend_researcher",
@@ -64,6 +82,7 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     name: "Trend Researcher",
     icon: Globe,
     description: "Live Google Search & trend research",
+    weight: 15,
   },
   {
     id: "competitor_analyst",
@@ -71,6 +90,7 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     name: "Competitor Analyst",
     icon: Users,
     description: "Evaluating market positioning & gaps",
+    weight: 15,
   },
   {
     id: "content_creator",
@@ -78,6 +98,7 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     name: "Content Creator",
     icon: PenTool,
     description: "Writing platform-native viral copy",
+    weight: 25,
   },
   {
     id: "visualizer",
@@ -85,15 +106,54 @@ const AGENT_SEQUENCE: AgentConfig[] = [
     name: "Visualizer",
     icon: ImageIcon,
     description: "Generating visual & video assets",
+    weight: 30,
   },
   {
     id: "ceo_auditor",
     number: 6,
     name: "CEO Auditor",
     icon: ShieldCheck,
-    description: "Quality & brand alignment audit",
+    description: "Quality audit, revision & re-verification",
+    weight: 10,
   },
 ];
+
+interface PhaseInfo {
+  phase: string;
+  label: string;
+  agents: string[];
+  /** True when the agents in this phase genuinely run at the same time. */
+  parallel: boolean;
+  status: "waiting" | "running" | "completed";
+}
+
+/**
+ * Placeholder grouping so the sidebar has structure before the first event lands.
+ * Every field is overwritten by the real `phase_started` events, so the UI always
+ * ends up showing the graph the backend actually executed.
+ */
+const DEFAULT_PHASES: PhaseInfo[] = [
+  { phase: "foundation", label: "Brand foundation", agents: ["brand_analyst"], parallel: false, status: "waiting" },
+  {
+    phase: "research",
+    label: "Market research",
+    agents: ["trend_researcher", "competitor_analyst"],
+    parallel: true,
+    status: "waiting",
+  },
+  {
+    phase: "production",
+    label: "Content production",
+    agents: ["content_creator", "visualizer"],
+    parallel: true,
+    status: "waiting",
+  },
+  { phase: "audit", label: "CEO audit", agents: ["ceo_auditor"], parallel: false, status: "waiting" },
+];
+
+/** Keeps the console bounded on long campaigns without losing the recent history. */
+const MAX_TIMELINE_ENTRIES = 400;
+
 
 export default function MultiAgentStreamModal({
   isOpen,
@@ -117,6 +177,8 @@ export default function MultiAgentStreamModal({
   const [agentProgress, setAgentProgress] = useState<Record<string, number>>({});
   const [agentStages, setAgentStages] = useState<Record<string, string>>({});
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [phases, setPhases] = useState<PhaseInfo[]>(DEFAULT_PHASES);
+  const [auditResult, setAuditResult] = useState<any>(null);
   const [trendSources, setTrendSources] = useState<{ title: string; url: string; snippet: string }[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -130,8 +192,10 @@ export default function MultiAgentStreamModal({
   const runIdRef = useRef<string>(`run_${Date.now()}`);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<any>(null);
-  // Event dedup: id derived from (runId, type, agentId, stage/timestamp).
-  // Prevents duplicate timeline entries on reconnects / re-runs.
+  // Event dedup: the backend stamps every event with a monotonic `seq`, so identity is
+  // exact. Deriving the key from the payload (as this used to) collapsed two genuinely
+  // different steps that happened to produce the same label, and real progress vanished
+  // from the console. `seq` falls back to the payload key for older/other producers.
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const timelineEndRef = useRef<HTMLDivElement>(null);
   const timelineBoxRef = useRef<HTMLDivElement>(null);
@@ -155,6 +219,8 @@ export default function MultiAgentStreamModal({
       setAgentProgress({});
       setAgentStages({});
       setTimeline([]);
+      setPhases(DEFAULT_PHASES);
+      setAuditResult(null);
       setFailedAgentId(null);
       setUserHasManuallySelected(false);
       setSelectedAgentId("brand_analyst");
@@ -193,6 +259,7 @@ export default function MultiAgentStreamModal({
           id: `${runIdRef.current}:retry:${targetResumeAgent}:${Date.now()}`,
           agentId: targetResumeAgent,
           status: "running",
+          kind: "action",
           stage: "retrying",
           summary: `Retrying ${AGENT_SEQUENCE.find((a) => a.id === targetResumeAgent)?.name || targetResumeAgent}`,
           ts: Date.now(),
@@ -287,8 +354,9 @@ export default function MultiAgentStreamModal({
   const handleStreamEvent = (event: any) => {
     const { type, agentId, data } = event;
 
-    // Dedup event: (runId, type, agentId, unique payload key). Events replayed
-    // on reconnect / resume are ignored so timeline entries never duplicate.
+    // Dedup. `seq` is a monotonic counter the backend stamps on every event, so two
+    // steps with identical text are still distinct. Replayed events on a resume are
+    // ignored because the runId changes with each stream.
     const payloadKey =
       data?.timestamp ??
       data?.progress ??
@@ -298,11 +366,55 @@ export default function MultiAgentStreamModal({
       data?.query ??
       data?.message ??
       JSON.stringify(data ?? {})?.slice(0, 80);
-    const eventId = `${runIdRef.current}:${type}:${agentId}:${payloadKey}`;
+    const eventId =
+      typeof data?.seq === "number"
+        ? `${runIdRef.current}:${data.seq}`
+        : `${runIdRef.current}:${type}:${agentId}:${payloadKey}`;
     if (seenEventIdsRef.current.has(eventId)) return;
     seenEventIdsRef.current.add(eventId);
 
-    if (type === "agent_started") {
+    /** Appends a console line, closing off the agent's previous in-flight action. */
+    const pushEntry = (entry: TimelineEntry, closePreviousAction = false) => {
+      setTimeline((prev) => {
+        const base = closePreviousAction
+          ? prev.map((e) =>
+              e.agentId === entry.agentId && e.status === "running"
+                ? { ...e, status: "completed" as const }
+                : e
+            )
+          : prev;
+        const next = [...base, entry];
+        return next.length > MAX_TIMELINE_ENTRIES ? next.slice(next.length - MAX_TIMELINE_ENTRIES) : next;
+      });
+    };
+
+    if (type === "phase_started") {
+      const phase = data?.phase;
+      if (phase) {
+        setPhases((prev) => {
+          const incoming: PhaseInfo = {
+            phase,
+            label: data?.label || phase,
+            agents: Array.isArray(data?.agents) ? data.agents : [],
+            parallel: Boolean(data?.parallel),
+            status: "running",
+          };
+          const idx = prev.findIndex((p) => p.phase === phase);
+          if (idx === -1) return [...prev, incoming];
+          const next = [...prev];
+          // The backend is authoritative about which agents ran in this phase.
+          next[idx] = { ...incoming, agents: incoming.agents.length ? incoming.agents : prev[idx].agents };
+          return next;
+        });
+      }
+    } else if (type === "phase_completed") {
+      const phase = data?.phase;
+      if (phase) {
+        setPhases((prev) =>
+          prev.map((p) => (p.phase === phase ? { ...p, status: "completed" as const } : p))
+        );
+      }
+    } else if (type === "agent_started") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
       // Automatically switch active panel to running agent unless user explicitly clicked another
       if (!userHasManuallySelected) {
@@ -320,25 +432,36 @@ export default function MultiAgentStreamModal({
       // Only update the progress bar + current stage label.
       // Do NOT add timeline entries — agent_action events carry the
       // real work steps that the user actually sees.
+    } else if (type === "agent_thought") {
+      // A single reasoning step, already trimmed to one narrow line server-side.
+      if (data?.line) {
+        pushEntry({
+          id: eventId,
+          agentId,
+          status: "thought",
+          kind: "thought",
+          stage: "thinking",
+          summary: data.line,
+          scope: data?.scope,
+          ts: Date.now(),
+        });
+      }
     } else if (type === "agent_action") {
       if (data?.label) {
-        setTimeline((prev) => [
-          // Mark the previous running step for this agent as completed
-          ...prev.map((e) =>
-            e.agentId === agentId && e.status === "running"
-              ? { ...e, status: "completed" as const }
-              : e
-          ),
+        pushEntry(
           {
             id: eventId,
             agentId,
             status: "running",
+            kind: "action",
             stage: "action",
             summary: data.label,
+            scope: data?.scope,
             progress: agentProgressRef.current[agentId] ?? 0,
             ts: Date.now(),
           },
-        ]);
+          true
+        );
       }
     } else if (type === "web_search") {
       if (data?.query) setSearchQuery(data.query);
@@ -350,32 +473,25 @@ export default function MultiAgentStreamModal({
       if (data) {
         agentOutputsRef.current[agentId] = data;
         setAgentOutputs((prev) => ({ ...prev, [agentId]: data }));
+        if (agentId === "ceo_auditor") setAuditResult(data);
       }
     } else if (type === "agent_completed") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "completed" }));
       agentProgressRef.current[agentId] = 100;
       setAgentProgress((prev) => ({ ...prev, [agentId]: 100 }));
-      // Mark this agent's running entries as completed
-      setTimeline((prev) =>
-        prev.map((e) =>
-          e.agentId === agentId && e.status === "running"
-            ? { ...e, status: "completed" as const }
-            : e
-        )
-      );
-      // Final completed entry
-      setTimeline((prev) => [
-        ...prev,
+      pushEntry(
         {
           id: eventId,
           agentId,
           status: "completed",
+          kind: "action",
           stage: "completed",
           summary: "Completed",
           progress: 100,
           ts: Date.now(),
         },
-      ]);
+        true
+      );
     } else if (type === "agent_error") {
       setAgentStatuses((prev) => ({ ...prev, [agentId]: "error" }));
       setFailedAgentId(agentId);
@@ -387,17 +503,15 @@ export default function MultiAgentStreamModal({
             : e
         )
       );
-      setTimeline((prev) => [
-        ...prev,
-        {
-          id: eventId,
-          agentId,
-          status: "error",
-          stage: "error",
-          summary: data?.message || "Failed",
-          ts: Date.now(),
-        },
-      ]);
+      pushEntry({
+        id: eventId,
+        agentId,
+        status: "error",
+        kind: "action",
+        stage: "error",
+        summary: data?.message || "Failed",
+        ts: Date.now(),
+      });
       if (data?.message) setErrorMessage(data.message);
     } else if (type === "workflow_completed") {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -405,6 +519,7 @@ export default function MultiAgentStreamModal({
       if (payload) {
         setCompletedPayload(payload);
       }
+      if (data?.audit) setAuditResult(data.audit);
       setIsCompleted(true);
     } else if (type === "workflow_cancelled") {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -477,9 +592,20 @@ export default function MultiAgentStreamModal({
 
   if (!isOpen) return null;
 
-  const completedCount = Object.values(agentStatuses).filter((s) => s === "completed").length;
-  const runningCount = Object.values(agentStatuses).filter((s) => s === "running").length;
-  const realProgress = Math.min(100, Math.round(((completedCount + (runningCount ? 0.5 : 0)) / AGENT_SEQUENCE.length) * 100));
+  // Weighted by how much real work each agent does, so the bar reflects campaign
+  // completion rather than "3 of 6 boxes ticked". Two agents running in parallel both
+  // contribute at once, which is exactly what the production phase does.
+  const totalWeight = AGENT_SEQUENCE.reduce((acc, a) => acc + a.weight, 0);
+  const realProgress = Math.min(
+    100,
+    Math.round(
+      AGENT_SEQUENCE.reduce((acc, a) => {
+        const status = agentStatuses[a.id] || "waiting";
+        const pct = status === "completed" ? 100 : Math.max(0, Math.min(100, agentProgress[a.id] ?? 0));
+        return acc + (a.weight * pct) / 100;
+      }, 0) / (totalWeight / 100)
+    )
+  );
 
   const activeAgentConfig = AGENT_SEQUENCE.find((a) => a.id === selectedAgentId) || AGENT_SEQUENCE[0];
   const activeAgentOutput = agentOutputs[selectedAgentId];
@@ -487,12 +613,96 @@ export default function MultiAgentStreamModal({
   const activeAgentProgress = agentProgress[selectedAgentId] ?? 0;
   // Timeline filtered to the selected agent so the execution console stays scoped
   const activeTimeline = timeline.filter((e) => e.agentId === selectedAgentId);
+  const activeThoughtCount = activeTimeline.filter((e) => e.kind === "thought").length;
+  // Every agent the backend has grouped into a phase, so the sidebar can only show an
+  // agent once even if a phase list changes mid-run.
+  const phasedAgentIds = new Set(phases.flatMap((p) => p.agents));
+  const ungroupedAgents = AGENT_SEQUENCE.filter((a) => !phasedAgentIds.has(a.id));
   // All agents' progress for the sidebar (real, from backend)
   const sidebarProgress = (agentId: string) => {
     const st = agentStatuses[agentId] || "waiting";
     if (st === "completed") return 100;
     if (st === "error") return agentProgress[agentId] ?? 0;
     return agentProgress[agentId] ?? (st === "running" ? 0 : 0);
+  };
+
+  const renderAgentCard = (agent: AgentConfig) => {
+    const Icon = agent.icon;
+    const status = agentStatuses[agent.id] || "waiting";
+    const isSelected = agent.id === selectedAgentId;
+    const isAgentCompleted = status === "completed";
+    const isRunning = status === "running";
+    const isFailed = status === "error";
+
+    return (
+      <div
+        key={agent.id}
+        onClick={() => {
+          setUserHasManuallySelected(true);
+          setSelectedAgentId(agent.id);
+        }}
+        className={`flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border cursor-pointer transition-all duration-200 ${
+          isSelected
+            ? "bg-[#161920] border-[#8B5CF6]/40 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
+            : isAgentCompleted
+            ? "bg-transparent border-[#252A32] opacity-80 hover:bg-[#11141A]"
+            : isFailed
+            ? "bg-transparent border-[#EF4444]/30 hover:bg-[#11141A]"
+            : "bg-transparent border-transparent opacity-50 hover:opacity-75"
+        }`}
+      >
+        <div
+          className={`flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center border mt-0.5 ${
+            isAgentCompleted
+              ? "bg-[#22C55E]/10 border-[#22C55E]/20 text-[#22C55E]"
+              : isFailed
+              ? "bg-[#EF4444]/10 border-[#EF4444]/20 text-[#EF4444]"
+              : isRunning
+              ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/20 text-[#8B5CF6]"
+              : "bg-[#1A1D24] border-[#252A32] text-[#9CA3AF]"
+          }`}
+        >
+          {isAgentCompleted ? (
+            <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          ) : isFailed ? (
+            <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          ) : isRunning ? (
+            <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+          ) : (
+            <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-0.5">
+            <h4 className={`text-xs sm:text-sm font-semibold truncate ${isSelected ? "text-white" : "text-[#9CA3AF]"}`}>
+              {agent.name}
+            </h4>
+            <div className="flex items-center gap-1.5 shrink-0 ml-1">
+              {isRunning && (
+                <span className="text-[9px] sm:text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-1.5 py-0.5 rounded-full border border-[#8B5CF6]/20">
+                  {Math.round(sidebarProgress(agent.id))}%
+                </span>
+              )}
+              {isAgentCompleted && <span className="text-[9px] sm:text-[10px] font-mono text-[#22C55E]">100%</span>}
+            </div>
+          </div>
+          <p className="text-[11px] sm:text-xs text-[#6B7280] line-clamp-1 md:line-clamp-2 leading-tight sm:leading-relaxed">
+            {agentStages[agent.id] || agent.description}
+          </p>
+          {/* Compact per-agent progress bar (real backend progress) */}
+          {(isRunning || isAgentCompleted || isFailed) && (
+            <div className="h-0.5 w-full bg-[#1A1D24] rounded-full overflow-hidden mt-1.5">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${
+                  isAgentCompleted ? "bg-[#22C55E]" : isFailed ? "bg-[#EF4444]" : "bg-[#8B5CF6]"
+                }`}
+                style={{ width: `${sidebarProgress(agent.id)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -527,81 +737,53 @@ export default function MultiAgentStreamModal({
 
             {/* 2-Column Responsive Layout */}
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden min-h-0">
-              {/* Left Column: Agents List */}
-              <div className="w-full md:w-[35%] lg:w-[32%] md:min-w-[280px] border-b md:border-b-0 md:border-r border-[#252A32] overflow-y-auto p-3 sm:p-4 space-y-2 max-h-[180px] sm:max-h-[220px] md:max-h-none shrink-0 md:shrink">
-                {AGENT_SEQUENCE.map((agent) => {
-                  const Icon = agent.icon;
-                  const status = agentStatuses[agent.id] || "waiting";
-                  const isSelected = agent.id === selectedAgentId;
-                  const isAgentCompleted = status === "completed";
-                  const isRunning = status === "running";
+              {/* Left Column: Agents grouped by execution phase */}
+              <div className="w-full md:w-[35%] lg:w-[32%] md:min-w-[280px] border-b md:border-b-0 md:border-r border-[#252A32] overflow-y-auto p-3 sm:p-4 space-y-3 max-h-[180px] sm:max-h-[220px] md:max-h-none shrink-0 md:shrink">
+                {phases.map((phase) => {
+                  const phaseAgents = phase.agents
+                    .map((id) => AGENT_SEQUENCE.find((a) => a.id === id))
+                    .filter(Boolean) as AgentConfig[];
+                  if (phaseAgents.length === 0) return null;
+
+                  const runningInPhase = phaseAgents.filter((a) => agentStatuses[a.id] === "running").length;
 
                   return (
-                    <div
-                      key={agent.id}
-                      onClick={() => {
-                        setUserHasManuallySelected(true);
-                        setSelectedAgentId(agent.id);
-                      }}
-                      className={`flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border cursor-pointer transition-all duration-200 ${
-                        isSelected
-                          ? "bg-[#161920] border-[#8B5CF6]/40 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
-                          : isAgentCompleted
-                          ? "bg-transparent border-[#252A32] opacity-80 hover:bg-[#11141A]"
-                          : "bg-transparent border-transparent opacity-50 hover:opacity-75"
-                      }`}
-                    >
-                      <div
-                        className={`flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center border mt-0.5 ${
-                          isAgentCompleted
-                            ? "bg-[#22C55E]/10 border-[#22C55E]/20 text-[#22C55E]"
-                            : isRunning
-                            ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/20 text-[#8B5CF6]"
-                            : "bg-[#1A1D24] border-[#252A32] text-[#9CA3AF]"
-                        }`}
-                      >
-                        {isAgentCompleted ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                        ) : isRunning ? (
-                          <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
-                        ) : (
-                          <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <div key={phase.phase} className="space-y-1.5">
+                      <div className="flex items-center gap-2 px-1">
+                        <span
+                          className={`text-[10px] font-semibold uppercase tracking-wider ${
+                            phase.status === "completed"
+                              ? "text-[#22C55E]"
+                              : phase.status === "running"
+                              ? "text-[#A78BFA]"
+                              : "text-[#4B5563]"
+                          }`}
+                        >
+                          {phase.label}
+                        </span>
+                        {/* Parallel phases really do run at the same time in the graph —
+                            the badge and the simultaneous spinners are not decorative. */}
+                        {phase.parallel && phaseAgents.length > 1 && (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                              runningInPhase > 1
+                                ? "bg-[#8B5CF6]/15 text-[#A78BFA] border-[#8B5CF6]/30"
+                                : "bg-[#1A1D24] text-[#6B7280] border-[#252A32]"
+                            }`}
+                          >
+                            <Zap className="w-2.5 h-2.5" />
+                            PARALLEL
+                          </span>
                         )}
+                        <div className="flex-1 h-px bg-[#252A32]" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <h4 className={`text-xs sm:text-sm font-semibold truncate ${isSelected ? "text-white" : "text-[#9CA3AF]"}`}>
-                            {agent.name}
-                          </h4>
-                          <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                            {isRunning && (
-                              <span className="text-[9px] sm:text-[10px] font-mono text-[#8B5CF6] bg-[#8B5CF6]/10 px-1.5 py-0.5 rounded-full border border-[#8B5CF6]/20">
-                                {Math.round(sidebarProgress(agent.id))}%
-                              </span>
-                            )}
-                            {isAgentCompleted && (
-                              <span className="text-[9px] sm:text-[10px] font-mono text-[#22C55E]">100%</span>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-[11px] sm:text-xs text-[#6B7280] line-clamp-1 md:line-clamp-2 leading-tight sm:leading-relaxed">
-                          {agent.description}
-                        </p>
-                        {/* Compact per-agent progress bar (real backend progress) */}
-                        {(isRunning || isAgentCompleted) && (
-                          <div className="h-0.5 w-full bg-[#1A1D24] rounded-full overflow-hidden mt-1.5">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ease-out ${
-                                isAgentCompleted ? "bg-[#22C55E]" : "bg-[#8B5CF6]"
-                              }`}
-                              style={{ width: `${sidebarProgress(agent.id)}%` }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                      {phaseAgents.map(renderAgentCard)}
                     </div>
                   );
                 })}
+                {ungroupedAgents.length > 0 && (
+                  <div className="space-y-1.5">{ungroupedAgents.map(renderAgentCard)}</div>
+                )}
               </div>
 
               {/* Right Column: Active Agent Details */}
@@ -671,74 +853,102 @@ export default function MultiAgentStreamModal({
                         }}
                       />
                     </div>
-                    {/* Scrollable live execution timeline (real backend events) */}
+                    {/* Scrollable live execution console: real actions interleaved with the
+                        model's own reasoning, in the order they actually happened. */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
+                        Live execution
+                      </span>
+                      {activeThoughtCount > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#A78BFA] bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 px-1.5 py-0.5 rounded-full">
+                          <Brain className="w-2.5 h-2.5" />
+                          {activeThoughtCount} reasoning step{activeThoughtCount === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
                     <div
                       ref={timelineBoxRef}
                       onScroll={handleTimelineScroll}
                       className="h-52 sm:h-56 overflow-y-auto pr-1 -mr-1 space-y-1"
                     >
                       {activeTimeline.length > 0 ? (
-                        activeTimeline.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className={`flex items-start gap-2.5 px-2 py-1.5 rounded-md ${
-                              entry.status === "running"
-                                ? "bg-[#0D1015] border border-[#252A32]/60"
-                                : ""
-                            }`}
-                          >
-                            <span
-                              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                                entry.status === "completed"
-                                  ? "bg-[#22C55E]/15 text-[#22C55E]"
-                                  : entry.status === "error"
-                                  ? "bg-[#EF4444]/15 text-[#EF4444]"
-                                  : entry.status === "pending"
-                                  ? "bg-[#1A1D24] text-[#4B5563]"
-                                  : "bg-[#8B5CF6]/15 text-[#8B5CF6]"
-                              }`}
-                            >
-                              {entry.status === "completed" ? (
-                                "✓"
-                              ) : entry.status === "error" ? (
-                                "✕"
-                              ) : entry.status === "pending" ? (
-                                "○"
-                              ) : (
-                                "●"
-                              )}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p
-                                className={`text-xs leading-snug ${
-                                  entry.status === "completed" || entry.status === "running"
-                                    ? "text-white"
-                                    : entry.status === "error"
-                                    ? "text-[#F87171]"
-                                    : "text-[#6B7280]"
-                                }`}
-                              >
-                                {entry.summary}
-                              </p>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                {typeof entry.progress === "number" && (
-                                  <span className="text-[9px] font-mono text-[#6B7280]">
-                                    {Math.round(entry.progress)}%
+                        activeTimeline.map((entry) =>
+                          entry.kind === "thought" ? (
+                            // One reasoning step, one narrow line — streamed from the model
+                            // that is doing this work, not a scripted string.
+                            <div key={entry.id} className="flex items-start gap-2.5 px-2 py-1">
+                              <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#6D28D9]" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] italic leading-snug text-[#9CA3AF]">{entry.summary}</p>
+                                {entry.scope && (
+                                  <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
+                                    {entry.scope}
                                   </span>
                                 )}
-                                <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
-                                  {entry.stage}
-                                </span>
                               </div>
                             </div>
-                          </div>
-                        ))
+                          ) : (
+                            <div
+                              key={entry.id}
+                              className={`flex items-start gap-2.5 px-2 py-1.5 rounded-md ${
+                                entry.status === "running"
+                                  ? "bg-[#0D1015] border border-[#252A32]/60"
+                                  : ""
+                              }`}
+                            >
+                              <span
+                                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                  entry.status === "completed"
+                                    ? "bg-[#22C55E]/15 text-[#22C55E]"
+                                    : entry.status === "error"
+                                    ? "bg-[#EF4444]/15 text-[#EF4444]"
+                                    : entry.status === "pending"
+                                    ? "bg-[#1A1D24] text-[#4B5563]"
+                                    : "bg-[#8B5CF6]/15 text-[#8B5CF6]"
+                                }`}
+                              >
+                                {entry.status === "completed" ? (
+                                  "✓"
+                                ) : entry.status === "error" ? (
+                                  "✕"
+                                ) : entry.status === "pending" ? (
+                                  "○"
+                                ) : (
+                                  "●"
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className={`text-xs leading-snug ${
+                                    entry.status === "completed" || entry.status === "running"
+                                      ? "text-white"
+                                      : entry.status === "error"
+                                      ? "text-[#F87171]"
+                                      : "text-[#6B7280]"
+                                  }`}
+                                >
+                                  {entry.summary}
+                                </p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {typeof entry.progress === "number" && (
+                                    <span className="text-[9px] font-mono text-[#6B7280]">
+                                      {Math.round(entry.progress)}%
+                                    </span>
+                                  )}
+                                  <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
+                                    {entry.scope || entry.stage}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        )
                       ) : (
                         <div className="px-2 py-4 text-center">
                           {activeAgentStatus === "waiting" ? (
                             <div className="flex items-center justify-center gap-2 text-xs text-[#6B7280]">
                               <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#1A1D24] text-[10px] text-[#4B5563]">○</span>
-                              Queued — waiting for previous agent
+                              Queued — waiting for the previous phase
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-2 text-xs text-[#6B7280]">

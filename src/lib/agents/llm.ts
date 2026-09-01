@@ -18,7 +18,10 @@ export const MODELS = {
   // Generates short-form video content from text/image prompts.
   VIDEO: process.env.MODEL_VIDEO_GENERATOR || "gemini-omni-flash-preview",
 
-  SLIDE_REGENERATOR: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.1-pro-preview",
+  // Regenerating a single slide's copy is a content-creator job, so it follows the
+  // content-creator override rather than the (unrelated) competitor-analyst one.
+  SLIDE_REGENERATOR:
+    process.env.MODEL_SLIDE_REGENERATOR || process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // The "Marketing Brain" orchestrator / planner / synthesizer model
   ORCHESTRATOR: process.env.MODEL_ORCHESTRATOR || "gemini-3.1-pro-preview",

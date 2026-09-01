@@ -1067,7 +1067,14 @@ function formatToolResult(tool?: string, result?: any): string {
         return comps.length ? `Found ${comps.length} competitors:\n${comps.map((c: any) => `• ${c.name} (${c.platform})`).join("\n")}` : "No competitors tracked.";
       }
       case "get_analytics": {
-        return `Impressions: ${result.totalImpressions?.toLocaleString() || "—"}\nClicks: ${result.totalClicks?.toLocaleString() || "—"}\nLeads: ${result.leadsAchieved || "—"}\nEngagement: ${result.avgEngagementRate || "—"}`;
+        const t = result.totals || {};
+        const goalLine = result.goal
+          ? `Goal: ${result.goal.leadsAchieved}/${result.goal.leadTarget} in ${result.goal.daysTotal} days`
+          : "Goal: none set";
+        const platforms = Array.isArray(result.platforms) && result.platforms.length
+          ? result.platforms.map((p: any) => `${p.label} (${p.clicks}c/${p.leads}l)`).join(", ")
+          : "none with activity";
+        return `Clicks: ${t.clicks?.toLocaleString?.() ?? 0}\nUnique clicks: ${t.uniqueClicks ?? 0}\nLeads: ${t.leads ?? 0} (${t.socialLeads ?? 0} social, ${t.websiteLeads ?? 0} website)\nPublished: ${t.postsPublished ?? 0} posts, ${t.articlesPublished ?? 0} articles, ${t.publishFailures ?? 0} failed\n${goalLine}\nPlatforms: ${platforms}`;
       }
       case "generate_image": {
         return `Generated Image (Nano Banana Pro)\nPlatform: ${result.platform || "Instagram"}\nAspect Ratio: ${result.aspectRatio || "1:1"}\nStatus: Saved to Content Library\nAsset URL: ${(result.url || "").slice(0, 80)}…`;

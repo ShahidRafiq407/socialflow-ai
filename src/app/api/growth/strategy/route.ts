@@ -1,10 +1,29 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
-import { generateGrowthStrategy, LeadType } from "@/lib/agents/growthEngine";
+import { generateGrowthStrategy } from "@/lib/agents/growthEngine";
+import { LeadSource, LeadType } from "@/lib/types/growth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/**
+ * Streaming plan builder.
+ *
+ * Every input comes from the goal the user saved — there are no default target,
+ * timeframe or platform values here. Without a saved goal the request is
+ * refused, because inventing one would put numbers on screen the user never
+ * chose. The client holds an `AbortController`, so Stop aborts this request and
+ * the abort propagates into the LLM calls.
+ */
+
+function normalizeLeadSources(value: any): LeadSource[] {
+  const list = Array.isArray(value) ? value : [];
+  const out = list
+    .map((v) => String(v).toUpperCase())
+    .filter((v): v is LeadSource => v === "SOCIAL" || v === "WEBSITE");
+  return out.length ? Array.from(new Set(out)) : ["SOCIAL"];
+}
 
 export async function POST(req: Request) {
   try {
@@ -13,106 +32,139 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const {
-      workspaceId,
-      leadTarget = 150,
-      leadType = "QUALIFIED_LEADS",
-      timeframeDays = 60,
-      targetPlatforms = ["LinkedIn", "Instagram", "X", "TikTok"],
-      customGuidance,
-    } = body;
+    const body = await req.json().catch(() => ({}));
+    const workspaceId: string = body.workspaceId;
+    const customGuidance: string | undefined = body.customGuidance || undefined;
 
     if (!workspaceId) {
       return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });
     }
 
-    // Set up Server-Sent Events (SSE) stream
+    const workspace = await prisma.workspace.findFirst({ where: { id: workspaceId, userId } });
+    if (!workspace) {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+
+    const { checkAIAccess } = await import("@/lib/billing/gate");
+    const gate = await checkAIAccess(workspaceId);
+    if (!gate.allowed) {
+      return NextResponse.json(
+        {
+          error: gate.message || "Upgrade required",
+          reason: gate.reason,
+          requiredPlan: gate.requiredPlan,
+        },
+        { status: 403 }
+      );
+    }
+
+    // ── The plan is built from the saved goal, never from defaults.
+    const goal = await (prisma as any).growthGoal
+      .findUnique({ where: { workspaceId } })
+      .catch(() => null);
+
+    if (!goal) {
+      return NextResponse.json(
+        { error: "Save your goal first — the plan is built from your target, timeframe and platforms." },
+        { status: 400 }
+      );
+    }
+
+    const leadSources = normalizeLeadSources(goal.leadSources);
+    const pausedPlatforms: string[] = (goal.pausedPlatforms || []).map((p: string) =>
+      String(p).toLowerCase()
+    );
+    const targetPlatforms: string[] = (goal.targetPlatforms || []).filter(
+      (p: string) => !pausedPlatforms.includes(String(p).toLowerCase())
+    );
+
+    if (targetPlatforms.length === 0 && !leadSources.includes("WEBSITE")) {
+      return NextResponse.json(
+        {
+          error:
+            "Every platform on this goal is paused. Un-pause one in the Autopilot tab, or add Website as a lead source.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ── SSE plumbing
     const encoder = new TextEncoder();
     const stream = new TransformStream();
     const writer = stream.writable.getWriter();
+    let closed = false;
 
     const sendEvent = async (event: string, data: any) => {
+      if (closed) return;
       try {
-        const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-        await writer.write(encoder.encode(payload));
-      } catch (err) {
-        console.warn("[Growth Strategy SSE] Client disconnected or write failed:", err);
+        await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      } catch {
+        closed = true;
       }
     };
 
-    // Execute agentic workflow in background while streaming
+    // Stop from the client aborts the request; forward that into generation.
+    const controller = new AbortController();
+    req.signal.addEventListener("abort", () => controller.abort(), { once: true });
+
     (async () => {
       try {
         await sendEvent("strategy_started", {
-          message: `Initializing Autonomous Growth Engine for ${leadTarget} ${leadType.replace(/_/g, " ")} (${timeframeDays} days)...`,
+          leadTarget: goal.leadTarget,
+          leadType: goal.leadType,
+          timeframeDays: goal.timeframeDays,
+          targetPlatforms,
+          leadSources,
+          message: `Building a plan for ${goal.leadTarget} ${String(goal.leadType)
+            .replace(/_/g, " ")
+            .toLowerCase()} in ${goal.timeframeDays} days.`,
           timestamp: new Date().toISOString(),
         });
 
         const strategy = await generateGrowthStrategy({
           workspaceId,
           userId,
-          leadTarget: Number(leadTarget),
-          leadType: leadType as LeadType,
-          timeframeDays: Number(timeframeDays),
+          leadTarget: Number(goal.leadTarget),
+          leadType: goal.leadType as LeadType,
+          timeframeDays: Number(goal.timeframeDays),
           targetPlatforms,
+          leadSources,
+          articlesPerWeek: goal.articlesPerWeek ?? undefined,
+          ctaDestinations: (goal.ctaDestinations as Record<string, string>) || null,
           customGuidance,
+          signal: controller.signal,
           onProgress: async (step, status = "running") => {
-            await sendEvent("agent_step", {
-              step,
-              status,
-              timestamp: new Date().toISOString(),
-            });
+            await sendEvent("agent_step", { step, status, timestamp: new Date().toISOString() });
           },
         });
 
-        // 1. Persist to Redis Cache for instant ultra-fast retrieval
+        if (controller.signal.aborted) {
+          await sendEvent("strategy_error", { error: "Stopped by user." });
+          return;
+        }
+
+        // Cache for instant reads, then persist. Status is left to
+        // computeGrowthKPIs — nothing is written here that was not measured.
         try {
           const { cacheSet } = await import("@/lib/redis");
           await cacheSet(`growth:strategy:${workspaceId}`, strategy, 86400 * 30);
-          await cacheSet(`growth:meta:${workspaceId}`, {
-            leadTarget: Number(leadTarget),
-            leadType,
-            timeframeDays: Number(timeframeDays),
-            targetPlatforms,
-            updatedAt: new Date().toISOString(),
-          }, 86400 * 30);
         } catch (cacheErr) {
-          console.warn("[Growth Strategy SSE] Redis cache warning:", cacheErr);
+          console.warn("[growth/strategy] cache warning:", cacheErr);
         }
 
-        // 2. Persist or upsert to database
         try {
-          await (prisma as any).growthGoal.upsert({
+          await (prisma as any).growthGoal.update({
             where: { workspaceId },
-            create: {
-              workspaceId,
-              leadTarget: Number(leadTarget),
-              leadType,
-              timeframeDays: Number(timeframeDays),
-              startDate: new Date(),
-              targetPlatforms,
-              status: "ON_TRACK",
-              statusReason: `Active growth strategy calculated for ${leadTarget} leads over ${timeframeDays} days.`,
+            data: {
               strategy: strategy as any,
               decisions: strategy.decisions as any,
               experiments: strategy.experiments as any,
-            },
-            update: {
-              leadTarget: Number(leadTarget),
-              leadType,
-              timeframeDays: Number(timeframeDays),
-              targetPlatforms,
-              status: "ON_TRACK",
-              statusReason: `Active growth strategy recalculated for ${leadTarget} leads over ${timeframeDays} days.`,
-              strategy: strategy as any,
-              decisions: strategy.decisions as any,
-              experiments: strategy.experiments as any,
+              lastPlanError: strategy.warnings?.length ? strategy.warnings.join(" ") : null,
               updatedAt: new Date(),
             },
           });
         } catch (dbErr) {
-          console.warn("[Growth Strategy SSE] Non-fatal DB upsert warning:", dbErr);
+          console.warn("[growth/strategy] persist warning:", dbErr);
         }
 
         await sendEvent("strategy_completed", {
@@ -121,11 +173,13 @@ export async function POST(req: Request) {
           timestamp: new Date().toISOString(),
         });
       } catch (err: any) {
-        console.error("[Growth Strategy SSE] Error:", err);
+        const aborted = err?.name === "AbortError" || controller.signal.aborted;
+        if (!aborted) console.error("[growth/strategy] error:", err);
         await sendEvent("strategy_error", {
-          error: err.message || "Failed to generate growth strategy",
+          error: aborted ? "Stopped by user." : err?.message || "Failed to build the plan.",
         });
       } finally {
+        closed = true;
         try {
           await writer.close();
         } catch {}
@@ -140,7 +194,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: any) {
-    console.error("[Growth Strategy Route] Fatal error:", error);
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    console.error("[growth/strategy] fatal:", error);
+    return NextResponse.json({ error: error?.message || "Internal server error" }, { status: 500 });
   }
 }

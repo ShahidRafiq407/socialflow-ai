@@ -33,6 +33,7 @@ import XGuidelinesBanner from "./XGuidelinesBanner";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { DECK_MEDIA_FIT, mediaPreviewFrame, resolvePreviewRatio } from "./mediaPreviewFrame";
 
 export interface MultiMediaItem {
   id: string;
@@ -148,6 +149,19 @@ export default function MultiMediaEditor({
     prompt: "",
   };
 
+  // The preview shows a finished, text-rich asset, so it is sized from the ratio the
+  // asset is actually generated at instead of a fixed square thumbnail.
+  const previewFrame = mediaPreviewFrame(
+    resolvePreviewRatio(imageAspectRatio, capability.defaultAspectRatio)
+  );
+
+  // ONE action produces the whole post — caption, hashtags AND every asset's designed
+  // graphic. It deliberately does not stop at writing visual prompts: prompts are an
+  // internal step of generating the media, never the deliverable.
+  const fullPostLabel = isThreadFormat
+    ? "Generate Complete Thread with AI"
+    : `Generate Complete ${capability.format} Post with AI`;
+
   const handleRemoveMedia = (idx: number) => {
     if (mediaItems.length <= 1) return;
     const updated = mediaItems.filter((_, i) => i !== idx);
@@ -200,7 +214,7 @@ export default function MultiMediaEditor({
   return (
     <div className="space-y-4 text-left">
       {capability.platform === "x" && <XGuidelinesBanner format={capability.format} />}
-      
+
       {/* MEDIA GRID / STRIP */}
       <div className="p-3 bg-primary/5 dark:bg-primary/10 rounded-xl border border-primary/15 dark:border-primary/20 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -212,28 +226,6 @@ export default function MultiMediaEditor({
                 {mediaItems.length} of {capability.maxMedia}
               </span>
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!isGeneratingAllMedia && mediaItems.length === 0}
-              onClick={() => {
-                if (isGeneratingAllMedia) {
-                  cancelAIAction("copy", formatKey);
-                  return;
-                }
-                onGenerateAllMediaAI();
-              }}
-              title={isGeneratingAllMedia ? "Stop generating all assets" : "Regenerate all assets with AI"}
-              className={`h-7 px-2.5 text-[11px] font-bold gap-1 transition-colors ${
-                isGeneratingAllMedia
-                  ? "bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
-                  : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-              }`}
-            >
-              {isGeneratingAllMedia ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-slate-600" />}
-              <span>{isGeneratingAllMedia ? "Stop Generating" : "Regenerate All Assets"}</span>
-            </Button>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
@@ -337,10 +329,18 @@ export default function MultiMediaEditor({
         </div>
       </div>
 
-      {/* ACTIVE MEDIA VIEWER & PROMPT */}
+      {/* ACTIVE ASSET PREVIEW + POST COPY */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-        <div className="xl:col-span-5 space-y-3.5">
-          <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[220px] max-w-[220px] aspect-square overflow-hidden group shadow-2xs mx-auto">
+        {/*
+          Full-size preview at the ratio the asset is generated at. These assets are
+          informational graphics with copy typeset into them — a 220px thumbnail made
+          that text unreadable, so good media looked broken.
+        */}
+        <div className="xl:col-span-7 space-y-3.5">
+          <div
+            className="relative w-full rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto"
+            style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
+          >
             {isRenderingSingleAI ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
@@ -353,6 +353,7 @@ export default function MultiMediaEditor({
               <ContentMediaRenderer
                 url={activeMedia.url}
                 mediaType={activeMedia.type}
+                className={DECK_MEDIA_FIT}
                 isVertical={false}
                 showRemoveButton={false}
                 alt={slotLabel(activeMediaIndex)}
@@ -393,283 +394,288 @@ export default function MultiMediaEditor({
           </div>
         </div>
 
-        {/* PROMPT CONTROLS */}
-        <div className="xl:col-span-7 space-y-3.5">
-          {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
-              </span>
-            </div>
-
-            <div className="space-y-2.5">
-
-              {/* 2. Aspect Ratio — only ratios this platform/format actually supports */}
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                  Aspect Ratio
+        {/* POST COPY — caption, hashtags and the one action that builds the whole post */}
+        <div className="xl:col-span-5 space-y-3">
+          {isThreadFormat && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                  <Layers className="h-3.5 w-3.5 text-secondary" /> {slotLabel(activeMediaIndex)} Text
                 </label>
-                <select
-                  value={imageAspectRatio}
-                  onChange={(e) => setImageAspectRatio(e.target.value)}
-                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
-                >
-                  <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"} Platform Default)</option>
-                  {(capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : ["1:1", "4:5", "9:16", "16:9"] as const).map((ratio) => (
-                    <option key={ratio} value={ratio}>{ratio}</option>
-                  ))}
-                </select>
+                <CharacterCounter current={(activeMedia.caption || "").length} max={capability.captionLimit} />
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {/* 3. Visual Style */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                    Visual Style
-                  </label>
-                  <select
-                    value={imageStyle}
-                    onChange={(e) => setImageStyle(e.target.value)}
-                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                  >
-                    <option value="photorealistic">Photorealistic</option>
-                    <option value="cinematic">Cinematic</option>
-                    <option value="commercial_product">Commercial Product</option>
-                    <option value="minimalist">Minimalist Modern</option>
-                    <option value="3d_render">3D Digital Art</option>
-                    <option value="editorial">Editorial Fashion</option>
-                    <option value="illustration">Vector Illustration</option>
-                  </select>
-                </div>
-
-                {/* 4. Quality */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
-                    Quality
-                  </label>
-                  <select
-                    value={imageQuality}
-                    onChange={(e) => setImageQuality(e.target.value)}
-                    className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                  >
-                    <option value="studio_4k">Studio 4K</option>
-                    <option value="ultra_hd_8k">Ultra HD 8K</option>
-                    <option value="standard_hd">Standard HD</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* VISUAL PROMPT */}
-          <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Wand2 className="h-3.5 w-3.5 text-blue-600" />
-                {slotLabel(activeMediaIndex)} Visual Prompt
-              </span>
-              <span className="flex items-center gap-3 flex-wrap justify-end">
-                {onCaptionToPrompt && (
-                  <button
-                    type="button"
-                    disabled={!isGeneratingPromptFromScript && !caption.trim()}
-                    onClick={() => {
-                      if (isGeneratingPromptFromScript) {
-                        cancelAIAction("script", formatKey);
-                      } else {
-                        onCaptionToPrompt();
-                      }
-                    }}
-                    title={isGeneratingPromptFromScript ? "Stop generating prompt from caption" : "Generate media prompt from current caption"}
-                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                      isGeneratingPromptFromScript
-                        ? "text-red-500 hover:text-red-600 cursor-pointer"
-                        : "text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    }`}
-                  >
-                    {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-                    <span>{isGeneratingPromptFromScript ? "Stop" : "Auto Prompt from Caption"}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
-                  onClick={() => {
-                    if (isEnhancingPrompt) {
-                      cancelAIAction("enhance", formatKey);
-                    } else {
-                      onEnhancePrompt();
-                    }
-                  }}
-                  className={`text-[11px] font-bold flex items-center gap-1 transition-all ${
-                    isEnhancingPrompt
-                      ? "text-red-500 hover:text-red-600 cursor-pointer"
-                      : !prompt || !prompt.trim()
-                        ? "text-slate-400 cursor-not-allowed opacity-50"
-                        : "text-blue-600 hover:underline cursor-pointer"
-                  }`}
-                >
-                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                  <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
-                </button>
-                {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
-                  <button
-                    type="button"
-                    onClick={onRestoreOriginalPrompt}
-                    title={originalPrompt}
-                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
-                  >
-                    ↩ Original
-                  </button>
-                )}
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                value={prompt}
-                onChange={(e) => onPromptChange(e.target.value)}
-                placeholder="Describe image for this asset slot..."
-                className="h-9 text-xs bg-white dark:bg-slate-900 flex-1"
+              <Textarea
+                rows={2}
+                value={activeMedia.caption || ""}
+                onChange={(e) => handleUpdateActiveMediaText(e.target.value)}
+                placeholder={`Write the text for post ${activeMediaIndex + 1} of this thread...`}
+                className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
               />
-              <Button
-                type="button"
-                size="sm"
-                disabled={!isRenderingSingleAI && !prompt.trim() && !activeMedia.prompt}
-                onClick={isRenderingSingleAI ? (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  window.dispatchEvent(new CustomEvent("cancel-render-media", { 
-                    detail: { formatKey: `${capability.platform}-${capability.format}` } 
-                  }));
-                } : handleGenerateActiveAsset}
-                className={`h-9 px-3 text-xs shrink-0 font-bold gap-1 shadow-xs transition-colors ${
-                  isRenderingSingleAI 
-                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
-                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
-                }`}
-              >
-                {isRenderingSingleAI ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    <span>Stop</span>
-                  </>
-                ) : (
-                  <span>
-                    {activeMedia.url ? "Regenerate" : "Generate"}
-                  </span>
-                )}
-              </Button>
             </div>
-          </div>
-        </div>
-      </div>
+          )}
 
-      {/* CAPTION & HASHTAGS */}
-      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-3">
-        {isThreadFormat && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Post Caption
+              </label>
+              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            </div>
+            <Textarea
+              rows={6}
+              value={caption}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Write your post caption..."
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+            />
+            {onAIRefine && (
+              <CaptionRefineActions
+                formatKey={formatKey}
+                caption={caption}
+                onRefine={onAIRefine}
+                isRefining={isRefiningCaption}
+                refiningAction={refiningAction}
+              />
+            )}
+          </div>
+
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                <Layers className="h-3.5 w-3.5 text-blue-600" /> {slotLabel(activeMediaIndex)} Text
+                <Hash className="h-3.5 w-3.5 text-secondary" /> Hashtags
               </label>
-              <CharacterCounter current={(activeMedia.caption || "").length} max={capability.captionLimit} />
+              {onGenerateField && (<button type="button" onClick={() => {
+                if (generatingField === "hashtags") {
+                  cancelAIAction("field", `${formatKey}:hashtags`);
+                } else {
+                  onGenerateField("hashtags");
+                }
+              }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                generatingField === "hashtags"
+                  ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                  : "bg-secondary/10 text-secondary hover:bg-secondary/20"
+              } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                      {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
+                    </button>)}
             </div>
-            <Textarea
-              rows={2}
-              value={activeMedia.caption || ""}
-              onChange={(e) => handleUpdateActiveMediaText(e.target.value)}
-              placeholder={`Write the text for post ${activeMediaIndex + 1} of this thread...`}
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+            <Input
+              value={hashtags.join(" ")}
+              onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
+              placeholder="#technology #automation #marketing"
+              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
             />
           </div>
-        )}
 
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-              Post Caption
-            </label>
-            <CharacterCounter current={caption.length} max={capability.captionLimit} />
-          </div>
-          <Textarea
-            rows={4}
-            value={caption}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            placeholder="Write your post caption..."
-            className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
-          />
-          {onAIRefine && (
-            <CaptionRefineActions
-              formatKey={formatKey}
-              caption={caption}
-              onRefine={onAIRefine}
-              isRefining={isRefiningCaption}
-              refiningAction={refiningAction}
-            />
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-              <Hash className="h-3.5 w-3.5 text-blue-600" /> Hashtags
-            </label>
-            {onGenerateField && (<button type="button" onClick={() => {
-              if (generatingField === "hashtags") {
-                cancelAIAction("field", `${formatKey}:hashtags`);
-              } else {
-                onGenerateField("hashtags");
-              }
-            }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
-              generatingField === "hashtags"
-                ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
-                : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100"
-            } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
-                    {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
-                  </button>)}
-          </div>
-          <Input
-            value={hashtags.join(" ")}
-            onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
-            placeholder="#technology #automation #marketing"
-            className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
-          />
-        </div>
-
-        {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
-        {onAnalyzeMedia && (
-          <div className="pt-1">
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
+          {onAnalyzeMedia && (
             <AnalyzeMediaAIButton
               formatKey={formatKey}
               onClick={onAnalyzeMedia}
               isAnalyzing={isAnalyzingMedia}
               hasMedia={hasUserMedia}
             />
-          </div>
-        )}
+          )}
 
-        {/* AUTO-GENERATE CAPTION BUTTON */}
-        <div className="pt-1">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              if (isGeneratingCopy) {
-                cancelAIAction("copy", formatKey);
-                return;
-              }
-              onGenerateCopyAI();
-            }}
-            className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-              isGeneratingCopy
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
-                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
-            }`}
-          >
-            {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>{isGeneratingCopy ? "Stop Generating" : "Generate Captions, Hashtags & Media Prompts with AI"}</span>
-          </Button>
+          {/*
+            THE post action. One press writes the caption + hashtags and then designs
+            every asset in the strip, so the format comes out publish-ready.
+          */}
+          <div className="pt-1 space-y-1.5">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (isGeneratingAllMedia) {
+                  cancelAIAction("copy", formatKey);
+                  return;
+                }
+                onGenerateAllMediaAI();
+              }}
+              className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
+                isGeneratingAllMedia
+                  ? "bg-destructive text-white hover:bg-destructive/90"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              }`}
+            >
+              {isGeneratingAllMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isGeneratingAllMedia ? "Stop Generating" : fullPostLabel}</span>
+            </Button>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Writes the caption and hashtags, then designs {isThreadFormat ? "every post's visual" : `all ${mediaItems.length} asset${mediaItems.length === 1 ? "" : "s"}`}.
+              Every selected platform that shares this format gets the same post.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* IMAGE SETTINGS & PER-ASSET PROMPT — sit under the preview they affect */}
+      <div className="pt-3 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 xl:grid-cols-2 gap-3.5 items-start">
+        {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
+            </span>
+          </div>
+
+          <div className="space-y-2.5">
+
+            {/* Aspect Ratio — only ratios this platform/format actually supports */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                Aspect Ratio
+              </label>
+              <select
+                value={imageAspectRatio}
+                onChange={(e) => setImageAspectRatio(e.target.value)}
+                className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
+              >
+                <option value="auto">Auto ({capability.defaultAspectRatio || "1:1"} Platform Default)</option>
+                {(capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : ["1:1", "4:5", "9:16", "16:9"] as const).map((ratio) => (
+                  <option key={ratio} value={ratio}>{ratio}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Visual Style */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Visual Style
+                </label>
+                <select
+                  value={imageStyle}
+                  onChange={(e) => setImageStyle(e.target.value)}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                >
+                  <option value="photorealistic">Photorealistic</option>
+                  <option value="cinematic">Cinematic</option>
+                  <option value="commercial_product">Commercial Product</option>
+                  <option value="minimalist">Minimalist Modern</option>
+                  <option value="3d_render">3D Digital Art</option>
+                  <option value="editorial">Editorial Fashion</option>
+                  <option value="illustration">Vector Illustration</option>
+                </select>
+              </div>
+
+              {/* Quality */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
+                  Quality
+                </label>
+                <select
+                  value={imageQuality}
+                  onChange={(e) => setImageQuality(e.target.value)}
+                  className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                >
+                  <option value="studio_4k">Studio 4K</option>
+                  <option value="ultra_hd_8k">Ultra HD 8K</option>
+                  <option value="standard_hd">Standard HD</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* VISUAL PROMPT — manual control for redesigning a single asset */}
+        <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-1.5">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <Wand2 className="h-3.5 w-3.5 text-secondary" />
+              {slotLabel(activeMediaIndex)} Visual Prompt
+            </span>
+            <span className="flex items-center gap-3 flex-wrap justify-end">
+              {onCaptionToPrompt && (
+                <button
+                  type="button"
+                  disabled={!isGeneratingPromptFromScript && !caption.trim()}
+                  onClick={() => {
+                    if (isGeneratingPromptFromScript) {
+                      cancelAIAction("script", formatKey);
+                    } else {
+                      onCaptionToPrompt();
+                    }
+                  }}
+                  title={isGeneratingPromptFromScript ? "Stop generating prompt from caption" : "Generate media prompt from current caption"}
+                  className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    isGeneratingPromptFromScript
+                      ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                      : "text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  }`}
+                >
+                  {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                  <span>{isGeneratingPromptFromScript ? "Stop" : "Auto Prompt from Caption"}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
+                onClick={() => {
+                  if (isEnhancingPrompt) {
+                    cancelAIAction("enhance", formatKey);
+                  } else {
+                    onEnhancePrompt();
+                  }
+                }}
+                className={`text-[11px] font-bold flex items-center gap-1 transition-all ${
+                  isEnhancingPrompt
+                    ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                    : !prompt || !prompt.trim()
+                      ? "text-slate-400 cursor-not-allowed opacity-50"
+                      : "text-secondary hover:underline cursor-pointer"
+                }`}
+              >
+                {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
+              </button>
+              {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
+                <button
+                  type="button"
+                  onClick={onRestoreOriginalPrompt}
+                  title={originalPrompt}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                >
+                  ↩ Original
+                </button>
+              )}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={prompt}
+              onChange={(e) => onPromptChange(e.target.value)}
+              placeholder="Describe image for this asset slot..."
+              className="h-9 text-xs bg-white dark:bg-slate-900 flex-1"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={!isRenderingSingleAI && !prompt.trim() && !activeMedia.prompt}
+              onClick={isRenderingSingleAI ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent("cancel-render-media", {
+                  detail: { formatKey: `${capability.platform}-${capability.format}` }
+                }));
+              } : handleGenerateActiveAsset}
+              className={`h-9 px-3 text-xs shrink-0 font-bold gap-1 shadow-xs transition-colors ${
+                isRenderingSingleAI
+                ? "bg-destructive text-white hover:bg-destructive/90"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
+              }`}
+            >
+              {isRenderingSingleAI ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Stop</span>
+                </>
+              ) : (
+                <span>
+                  {activeMedia.url ? "Regenerate" : "Generate"}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

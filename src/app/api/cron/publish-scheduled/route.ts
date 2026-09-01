@@ -1,22 +1,25 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
-import { publishToPlatformProvider } from '@/lib/publishers';
 import {
   acquireCronLock,
   releaseCronLock,
   dequeueDueScheduleJobs,
   removeFromScheduleQueue,
 } from '@/lib/redis';
+import { publishDuePosts } from '@/lib/publishing/dispatch';
 
 // Video publishing can take minutes — give the cron worker enough runway.
 export const maxDuration = 300;
 
 export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
+    const keyParam = url.searchParams.get('key');
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    // Bearer for Vercel Cron, ?key= so an external scheduler (cron-job.org,
+    // QStash) can hit it every few minutes for exact publish times.
+    if (cronSecret && authHeader !== `Bearer ${cronSecret}` && keyParam !== cronSecret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -30,110 +33,30 @@ export async function GET(request: Request) {
     const now = new Date();
 
     // Redis sorted-set queue first (only the DUE job ids — no full table scan).
-    // Falls back to a bounded Prisma scan when Redis is not configured.
+    // Falls back to a bounded scan inside publishDuePosts when Redis is absent.
     const dueIds = await dequeueDueScheduleJobs(now.getTime(), 100);
-    let scheduledPosts;
 
-    if (dueIds.length > 0) {
-      scheduledPosts = await prisma.post.findMany({
-        where: {
-          id: { in: dueIds },
-          status: 'SCHEDULED',
-          scheduledFor: { lte: now },
-        },
-        take: 100,
-      });
-    } else {
-      scheduledPosts = await prisma.post.findMany({
-        where: {
-          status: 'SCHEDULED',
-          scheduledFor: { lte: now },
-        },
-        take: 100,
-      });
-    }
+    const result = await publishDuePosts(
+      dueIds.length > 0 ? { postIds: dueIds, limit: 100 } : { limit: 100 }
+    );
 
-    if (scheduledPosts.length === 0) {
+    if (result.dispatched === 0) {
       // Clean up any queue entries whose posts are gone or already handled
       for (const id of dueIds) {
-        await removeFromScheduleQueue(id);
-      }
-      await releaseCronLock();
-      return NextResponse.json({ message: 'No posts to publish' }, { status: 200 });
-    }
-
-    const results = [];
-
-    for (const post of scheduledPosts) {
-      // Atomic claim (SCHEDULED → PUBLISHING) guards against double-publish if a
-      // lock-less run or the in-app dispatcher overlaps this cron execution.
-      const claim = await prisma.post.updateMany({
-        where: { id: post.id, status: 'SCHEDULED' },
-        data: { status: 'PUBLISHING' },
-      });
-      if (claim.count === 0) {
-        await removeFromScheduleQueue(post.id);
-        continue;
-      }
-
-      try {
-        const { normalizePlatformToEnum } = await import('@/lib/publishers');
-        const platformEnum = normalizePlatformToEnum(post.platform);
-
-        if (!platformEnum) {
-          throw new Error(`Unknown platform: ${post.platform}`);
-        }
-
-        const account = await prisma.socialAccount.findFirst({
-          where: {
-            workspaceId: post.workspaceId,
-            platform: platformEnum as any,
-          },
-        });
-
-        if (!account) {
-          throw new Error(`Social account not found for platform: ${post.platform}`);
-        }
-
-        const result = await publishToPlatformProvider(post, account);
-
-        if (result.success) {
-          await prisma.post.update({
-            where: { id: post.id },
-            data: {
-              status: 'PUBLISHED',
-              publishedAt: new Date(),
-              source: result.liveUrl || result.platformPostId || 'published',
-            },
-          });
-          results.push({ id: post.id, status: 'PUBLISHED' });
-        } else {
-          await prisma.post.update({
-            where: { id: post.id },
-            data: {
-              status: 'FAILED',
-              publishError: result.error,
-            },
-          });
-          results.push({ id: post.id, status: 'FAILED', error: result.error });
-        }
-      } catch (error: any) {
-        await prisma.post.update({
-          where: { id: post.id },
-          data: {
-            status: 'FAILED',
-            publishError: error.message || 'Unknown error',
-          },
-        });
-        results.push({ id: post.id, status: 'FAILED', error: error.message });
-      } finally {
-        // Job handled either way — remove it from the Redis queue
-        await removeFromScheduleQueue(post.id);
+        await removeFromScheduleQueue(id).catch(() => {});
       }
     }
 
     await releaseCronLock();
-    return NextResponse.json({ message: 'Processed scheduled posts', results }, { status: 200 });
+    return NextResponse.json(
+      {
+        message: result.dispatched === 0 ? 'No posts to publish' : 'Processed scheduled posts',
+        published: result.published,
+        failed: result.failed,
+        results: result.results,
+      },
+      { status: 200 }
+    );
   } catch (error: any) {
     await releaseCronLock().catch(() => {});
     console.error('Cron error:', error);

@@ -253,6 +253,260 @@ export class VertexAIProvider {
   }
 
   /**
+   * Shared JSON extraction for both the buffered and the streamed JSON paths:
+   * models wrap the object in prose or fences often enough that slicing to the
+   * outermost brace/bracket pair is more reliable than trusting the raw text.
+   */
+  private extractJSON(text: string): any {
+    let cleaned = text.trim();
+    const firstBrace = cleaned.indexOf("{");
+    const firstBracket = cleaned.indexOf("[");
+    const lastBrace = cleaned.lastIndexOf("}");
+    const lastBracket = cleaned.lastIndexOf("]");
+    let startIndex = -1;
+    let endIndex = -1;
+
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      startIndex = firstBrace;
+      endIndex = lastBrace;
+    } else if (firstBracket !== -1) {
+      startIndex = firstBracket;
+      endIndex = lastBracket;
+    }
+
+    if (startIndex !== -1 && endIndex !== -1 && endIndex >= startIndex) {
+      cleaned = cleaned.substring(startIndex, endIndex + 1);
+    }
+
+    return JSON.parse(cleaned);
+  }
+
+  /**
+   * Core streaming call used by every "show the real reasoning" agent path.
+   *
+   * `thinkingConfig.includeThoughts` makes Gemini emit thought-summary parts on
+   * the SAME request as the answer, so live reasoning costs no extra latency and
+   * no extra call. Parts are separated by the `thought` flag: flagged parts go to
+   * `onThought`, everything else is the actual answer.
+   *
+   * Not every model in the fallback chain accepts `thinkingConfig` — when a model
+   * rejects it, the same model is retried once with thinking disabled so the run
+   * degrades to "no live reasoning" instead of failing.
+   */
+  private async streamGenerate(
+    prompt: string,
+    options: {
+      modelName?: string;
+      temperature?: number;
+      responseMimeType?: string;
+      grounded?: boolean;
+      includeThoughts?: boolean;
+      signal?: AbortSignal;
+    },
+    callbacks: { onThought?: (chunk: string) => void; onText?: (chunk: string) => void } = {}
+  ): Promise<{
+    text: string;
+    thoughtChars: number;
+    searchQueries: string[];
+    sources: { title: string; url: string; snippet: string }[];
+    model: string;
+    thinkingUsed: boolean;
+  }> {
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
+    let lastError: any = null;
+
+    if (typeof (this.ai as any)?.models?.generateContentStream !== "function") {
+      throw new Error("Vertex AI Provider: generateContentStream is unavailable in this SDK build.");
+    }
+
+    for (const modelName of candidateModels) {
+      // Two passes per model: with thought summaries, then without if the model
+      // rejects the thinking config outright.
+      for (const withThinking of options.includeThoughts === false ? [false] : [true, false]) {
+        const config: any = { temperature: options.temperature ?? 0.4 };
+        if (options.responseMimeType) config.responseMimeType = options.responseMimeType;
+        if (options.grounded) config.tools = [{ googleSearch: {} }];
+        if (withThinking) config.thinkingConfig = { includeThoughts: true };
+
+        try {
+          console.log(
+            `[Vertex AI Stream] ${modelName} (thoughts: ${withThinking}, grounded: ${!!options.grounded})`
+          );
+          const stream = await this.ai.models.generateContentStream({
+            model: modelName,
+            contents: prompt,
+            config,
+          });
+
+          let answer = "";
+          let thoughtChars = 0;
+          const searchQueries: string[] = [];
+          const sources: { title: string; url: string; snippet: string }[] = [];
+
+          for await (const chunk of stream) {
+            if (options.signal?.aborted) {
+              const abortErr: any = new Error("Generation cancelled by user");
+              abortErr.isCancelled = true;
+              throw abortErr;
+            }
+
+            const candidates = (chunk as any)?.candidates || [];
+            for (const candidate of candidates) {
+              for (const part of candidate?.content?.parts || []) {
+                const partText: string = part?.text || "";
+                if (!partText) continue;
+                // `thought: true` marks a summary of the model's reasoning.
+                if (part?.thought === true) {
+                  thoughtChars += partText.length;
+                  callbacks.onThought?.(partText);
+                } else {
+                  answer += partText;
+                  callbacks.onText?.(partText);
+                }
+              }
+
+              const groundingMetadata = candidate?.groundingMetadata;
+              if (groundingMetadata) {
+                if (Array.isArray(groundingMetadata.webSearchQueries)) {
+                  searchQueries.push(...groundingMetadata.webSearchQueries);
+                }
+                for (const gChunk of groundingMetadata.groundingChunks || []) {
+                  if (gChunk?.web) {
+                    sources.push({
+                      title: gChunk.web.title || "Web Source",
+                      url: gChunk.web.uri || gChunk.web.url || "",
+                      snippet: gChunk.web.snippet || "",
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          if (answer.trim()) {
+            return {
+              text: answer,
+              thoughtChars,
+              searchQueries: Array.from(new Set(searchQueries)),
+              sources,
+              model: modelName,
+              thinkingUsed: withThinking && thoughtChars > 0,
+            };
+          }
+          lastError = new Error(`${modelName} streamed an empty response.`);
+        } catch (err: any) {
+          if (err?.isCancelled) throw err;
+          lastError = err;
+          const msg = (err?.message || "").toLowerCase();
+          const rejectedThinking =
+            withThinking &&
+            (msg.includes("thinking") ||
+              msg.includes("thought") ||
+              msg.includes("invalid_argument") ||
+              msg.includes("400"));
+
+          console.warn(
+            `[Vertex AI Stream] ❌ ${modelName} (thoughts: ${withThinking}) failed:`,
+            err?.message || err
+          );
+
+          if (rejectedThinking) continue; // retry same model without thinking
+          if (this.isRateLimitOrTransientError(err)) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          break; // move to the next candidate model
+        }
+      }
+    }
+
+    throw new Error(
+      `Vertex AI Provider Stream: ${lastError?.message || "no candidate model produced a response."}`
+    );
+  }
+
+  /**
+   * Streamed JSON generation that surfaces the model's real thought summaries as
+   * they arrive. Falls back to the buffered `generateJSON` path when streaming is
+   * unavailable, so callers always get a parsed object.
+   */
+  async generateJSONWithThoughts(
+    messages: { role: string; content: string }[],
+    options: { modelName?: string; temperature?: number; signal?: AbortSignal } = {},
+    callbacks: { onThought?: (chunk: string) => void } = {}
+  ): Promise<{ data: any; thinkingUsed: boolean; model: string }> {
+    const prompt = messages
+      .map((m) => (m.role === "system" ? `[System Instructions]: ${m.content}` : m.content))
+      .join("\n\n");
+
+    try {
+      const res = await this.streamGenerate(
+        prompt,
+        {
+          modelName: options.modelName,
+          temperature: options.temperature ?? 0.1,
+          responseMimeType: "application/json",
+          includeThoughts: true,
+          signal: options.signal,
+        },
+        callbacks
+      );
+      return { data: this.extractJSON(res.text), thinkingUsed: res.thinkingUsed, model: res.model };
+    } catch (err: any) {
+      if (err?.isCancelled) throw err;
+      console.warn("[Vertex AI] Streamed JSON failed, falling back to buffered call:", err?.message || err);
+      const data = await this.generateJSON(messages, {
+        modelName: options.modelName,
+        temperature: options.temperature,
+      });
+      return { data, thinkingUsed: false, model: options.modelName || "fallback" };
+    }
+  }
+
+  /**
+   * Streamed Google-Search-grounded generation with live thought summaries and
+   * real citation metadata. Falls back to the buffered grounded call.
+   */
+  async generateGroundedWithThoughts(
+    prompt: string,
+    options: { modelName?: string; temperature?: number; signal?: AbortSignal } = {},
+    callbacks: { onThought?: (chunk: string) => void; onText?: (chunk: string) => void } = {}
+  ): Promise<{
+    text: string;
+    searchQueries: string[];
+    sources: { title: string; url: string; snippet: string }[];
+    thinkingUsed: boolean;
+  }> {
+    try {
+      const res = await this.streamGenerate(
+        prompt,
+        {
+          modelName: options.modelName,
+          temperature: options.temperature ?? 0.3,
+          grounded: true,
+          includeThoughts: true,
+          signal: options.signal,
+        },
+        callbacks
+      );
+      return {
+        text: res.text,
+        searchQueries: res.searchQueries,
+        sources: res.sources,
+        thinkingUsed: res.thinkingUsed,
+      };
+    } catch (err: any) {
+      if (err?.isCancelled) throw err;
+      console.warn("[Vertex AI] Streamed grounding failed, falling back to buffered call:", err?.message || err);
+      const res = await this.generateWithGrounding(prompt, {
+        modelName: options.modelName,
+        temperature: options.temperature,
+      });
+      return { ...res, thinkingUsed: false };
+    }
+  }
+
+  /**
    * Generate structured JSON output using Google Cloud Vertex AI with retry and fallback
    */
   async generateJSON(

@@ -302,7 +302,7 @@ INSTRUCTIONS:
   {
     name: "get_analytics",
     description:
-      "Read the workspace analytics (impressions, clicks, leads, engagement, post performance).",
+      "Read the workspace analytics measured from real rows: tracked link clicks, confirmed leads, publish receipts (posts/articles/failures), goal progress, per-platform attribution and recent post performance. No estimates.",
     parameters: { type: "object", properties: {} },
     execute: async (args, ctx) => {
       return getWorkspaceAnalytics(ctx.workspaceId);
@@ -1246,6 +1246,14 @@ INSTRUCTIONS:
         getWorkspaceGrowthGoal(ctx.workspaceId),
         getRecentGrowthActivity(ctx.workspaceId),
       ]);
+      if (growth.needsSetup) {
+        return {
+          needsSetup: true,
+          message:
+            "No lead goal has been created yet. Ask the user how many leads they want, in how many days, and whether those leads should come from social media, their website, or both.",
+          measured: growth.metrics,
+        };
+      }
       return {
         ...growth,
         recentActivitySummary: activity.slice(0, 5).map((a) => ({
@@ -1254,6 +1262,7 @@ INSTRUCTIONS:
           topic: a.topic,
           time: a.formattedTime,
           status: a.status,
+          liveUrl: a.publishedUrl,
         })),
       };
     },
@@ -1261,13 +1270,19 @@ INSTRUCTIONS:
   {
     name: "validate_lead_goal",
     description:
-      "Validate if an organic lead goal target and timeframe is realistic, moderate, or highly aggressive based on real historical organic reach/CTR/CVR data. Returns realistic expected range and recommended target.",
+      "Validate if an organic lead goal target and timeframe is realistic, moderate, or highly aggressive. Uses the workspace's own tracked clicks/leads once enough data exists, otherwise published organic benchmarks — the result says which. Returns the realistic expected range and a recommended target.",
     parameters: {
       type: "object",
       properties: {
         leadTarget: { type: "number", description: "Desired lead target (e.g. 150 or 1000)" },
         timeframeDays: { type: "number", description: "Timeframe in days (e.g. 7, 30, 60)" },
         leadType: { type: "string", enum: ["QUALIFIED_LEADS", "LEADS", "WEBSITE_INQUIRIES", "CONTACT_FORM", "WHATSAPP", "BOOKINGS", "CUSTOM"] },
+        leadSources: {
+          type: "array",
+          items: { type: "string", enum: ["SOCIAL", "WEBSITE"] },
+          description: "Where leads should come from. WEBSITE means SEO articles on the user's own site.",
+        },
+        articlesPerWeek: { type: "number", description: "Planned SEO articles per week when WEBSITE is a source" },
       },
       required: ["leadTarget", "timeframeDays"],
     },
@@ -1277,8 +1292,92 @@ INSTRUCTIONS:
         ctx.workspaceId,
         Number(args.leadTarget),
         Number(args.timeframeDays),
-        args.leadType || "QUALIFIED_LEADS"
+        args.leadType || "QUALIFIED_LEADS",
+        Array.isArray(args.leadSources) && args.leadSources.length ? args.leadSources : undefined,
+        args.articlesPerWeek !== undefined ? Number(args.articlesPerWeek) : undefined
       );
+    },
+  },
+  {
+    name: "log_lead",
+    description:
+      "Record a real lead the user just confirmed (\"lead aa gayi\", \"ek customer ne WhatsApp kiya\"). Optionally attribute it to a history row so the goal knows which post produced it. Only call this when the user actually confirms a lead — never infer one from clicks.",
+    parameters: {
+      type: "object",
+      properties: {
+        publishLogId: { type: "string", description: "History row id the lead came from, when known" },
+        platform: { type: "string", description: "Platform the lead came from (e.g. Instagram, Website)" },
+        channel: { type: "string", enum: ["SOCIAL", "WEBSITE"] },
+        leadType: { type: "string", enum: ["QUALIFIED_LEADS", "LEADS", "WEBSITE_INQUIRIES", "CONTACT_FORM", "WHATSAPP", "BOOKINGS", "CUSTOM"] },
+        contactName: { type: "string" },
+        contactInfo: { type: "string", description: "Phone, email or handle the user shared" },
+        value: { type: "number", description: "Deal value, if the user mentioned one" },
+        note: { type: "string" },
+        status: { type: "string", enum: ["NEW", "CONFIRMED", "QUALIFIED", "WON", "LOST"] },
+      },
+    },
+    execute: async (args, ctx) => {
+      const { logLead } = await import("@/actions/growthLeads");
+      return logLead(ctx.workspaceId, {
+        publishLogId: args.publishLogId || null,
+        platform: args.platform || null,
+        channel: args.channel || undefined,
+        leadType: args.leadType || undefined,
+        contactName: args.contactName || null,
+        contactInfo: args.contactInfo || null,
+        value: args.value !== undefined ? Number(args.value) : null,
+        note: args.note || null,
+        status: args.status || undefined,
+      });
+    },
+  },
+  {
+    name: "get_publish_history",
+    description:
+      "Get the permanent record of what was actually published — which post went to which platform, at what exact time, its real live link, measured clicks and confirmed leads. Use this to answer \"aaj kya post hua?\" or \"is post ka link do\".",
+    parameters: {
+      type: "object",
+      properties: {
+        channel: { type: "string", enum: ["SOCIAL", "WEBSITE", "ALL"] },
+        platform: { type: "string", description: "Platform name, or ALL" },
+        status: { type: "string", enum: ["PUBLISHED", "FAILED", "ALL"] },
+        from: { type: "string", description: "ISO date lower bound" },
+        to: { type: "string", description: "ISO date upper bound" },
+        limit: { type: "number" },
+      },
+    },
+    execute: async (args, ctx) => {
+      const { listPublishHistory } = await import("@/actions/growthLeads");
+      const rows = await listPublishHistory(ctx.workspaceId, {
+        channel: args.channel || "ALL",
+        platform: args.platform || "ALL",
+        status: args.status || "ALL",
+        from: args.from || null,
+        to: args.to || null,
+        limit: Math.min(50, Number(args.limit) || 25),
+      });
+      return {
+        count: rows.length,
+        items: rows.map((r) => ({
+          id: r.id,
+          publishedAt: r.publishedAt,
+          channel: r.channel,
+          platform: r.platform,
+          format: r.format,
+          status: r.status,
+          topic: r.topic,
+          keyword: r.keyword,
+          excerpt: r.excerpt,
+          // Only a real platform URL — never a feed link stand-in
+          liveUrl: r.liveUrl,
+          trackedLink: r.shortUrl,
+          clicks: r.clicks,
+          leads: r.leads,
+          autopilot: r.isAutopilot,
+          error: r.error,
+        })),
+        note: "clicks are measured from tracked links; leads are confirmed events only.",
+      };
     },
   },
   {
@@ -1309,16 +1408,37 @@ INSTRUCTIONS:
     execute: async (args, ctx) => {
       const { getWorkspaceGrowthGoal, saveGrowthGoal } = await import("@/actions/goals");
       const current = await getWorkspaceGrowthGoal(ctx.workspaceId);
+      const existing = current.goal;
+
+      // No goal yet — the target and timeframe cannot be guessed, so ask.
+      if (!existing && (args.leadTarget === undefined || args.timeframeDays === undefined)) {
+        return {
+          success: false,
+          needsSetup: true,
+          error:
+            "No lead goal exists yet. Ask the user how many leads they want and in how many days, then call this tool again with leadTarget and timeframeDays.",
+        };
+      }
+
       const updatedData = {
-        leadTarget: args.leadTarget !== undefined ? Number(args.leadTarget) : current.goal.leadTarget,
-        leadType: args.leadType || current.goal.leadType,
-        timeframeDays: args.timeframeDays !== undefined ? Number(args.timeframeDays) : current.goal.timeframeDays,
-        targetPlatforms: args.targetPlatforms || current.goal.targetPlatforms,
-        pausedPlatforms: args.pausedPlatforms || current.goal.pausedPlatforms,
-        autopilotMode: args.autopilotMode || current.goal.autopilotMode,
+        leadTarget: args.leadTarget !== undefined ? Number(args.leadTarget) : existing!.leadTarget,
+        leadType: args.leadType || existing?.leadType || "QUALIFIED_LEADS",
+        timeframeDays:
+          args.timeframeDays !== undefined ? Number(args.timeframeDays) : existing!.timeframeDays,
+        targetPlatforms: args.targetPlatforms || existing?.targetPlatforms || [],
+        pausedPlatforms: args.pausedPlatforms || existing?.pausedPlatforms || [],
+        autopilotMode: args.autopilotMode || existing?.autopilotMode || "AUTOPILOT",
+        leadSources: existing?.leadSources || ["SOCIAL"],
+        ctaDestinations: existing?.ctaDestinations || null,
+        articlesPerWeek: existing?.articlesPerWeek ?? null,
       };
-      const result = await saveGrowthGoal(ctx.workspaceId, updatedData);
-      return { success: true, updated: updatedData, result };
+      const result = await saveGrowthGoal(ctx.workspaceId, updatedData as any);
+
+      // saveGrowthGoal refuses impossible targets — pass the honest range through
+      if (!result.success) {
+        return { success: false, error: result.error, feasibility: result.feasibility };
+      }
+      return { success: true, updated: updatedData, feasibility: result.feasibility };
     },
   },
   {
@@ -1336,6 +1456,15 @@ INSTRUCTIONS:
       const { generateGrowthStrategy } = await import("@/lib/agents/growthEngine");
       const current = await getWorkspaceGrowthGoal(ctx.workspaceId);
 
+      if (!current.goal) {
+        return {
+          success: false,
+          needsSetup: true,
+          error:
+            "There is no lead goal yet, so there is nothing to recalculate. Ask the user for a lead target and timeframe first and call update_lead_goal.",
+        };
+      }
+
       const strategy = await generateGrowthStrategy({
         workspaceId: ctx.workspaceId,
         userId: ctx.userId,
@@ -1343,6 +1472,9 @@ INSTRUCTIONS:
         leadType: current.goal.leadType,
         timeframeDays: current.goal.timeframeDays,
         targetPlatforms: current.goal.targetPlatforms,
+        leadSources: current.goal.leadSources,
+        articlesPerWeek: current.goal.articlesPerWeek ?? undefined,
+        ctaDestinations: current.goal.ctaDestinations,
         customGuidance: args.guidance,
       });
 
@@ -1364,6 +1496,8 @@ INSTRUCTIONS:
         requiredPostsPerWeek: strategy.funnel.requiredPostsPerWeek,
         todayTasksCount: strategy.todayPlan?.length || 0,
         pillars: strategy.contentPillars?.map((p: any) => p.name) || [],
+        needsBrandDNA: strategy.needsBrandDNA || false,
+        warnings: strategy.warnings || [],
       };
     },
   },

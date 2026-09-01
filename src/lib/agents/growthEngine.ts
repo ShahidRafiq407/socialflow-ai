@@ -1,26 +1,25 @@
 import prisma from "@/lib/db";
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
-import { PLATFORM_CAPABILITIES, getPlatformCapability, PlatformId } from "@/lib/capabilities/platformCapabilities";
+import { PLATFORM_CAPABILITIES } from "@/lib/capabilities/platformCapabilities";
 import { cacheGet, cacheSet } from "@/lib/redis";
-import { getNextBestTime } from "@/lib/bestPublishTime";
+import { getBestTimeSpec } from "@/lib/bestPublishTime";
+import { getGrowthMetrics, GrowthMetrics } from "@/lib/growth/metrics";
+import { LINK_PLACEHOLDER, isCaptionLinkClickable } from "@/lib/growth/ctaLinks";
 
 import {
   LeadType,
-  AutopilotMode,
+  LeadSource,
   GoalStatus,
-  AutopilotPermissions,
   FunnelCalculation,
   PlatformStrategyItem,
   ContentPillar,
   GrowthPlanTask,
   ExperimentItem,
   DecisionItem,
-  LearningInsight,
   GrowthRecommendation,
   GrowthStrategy,
   GrowthKPIs,
-  GoalFeasibilityResult,
-  validateGoalFeasibility,
+  SEO_RAMP_UP_DAYS,
 } from "@/lib/types/growth";
 
 export * from "@/lib/types/growth";
@@ -29,91 +28,154 @@ export type AIDecision = DecisionItem;
 export type GrowthExperiment = ExperimentItem;
 
 // ============================================================================
-// FUNNEL & CAPACITY CALCULATOR (DATA PRIORITY: REAL DATA -> BENCHMARKS)
+// FUNNEL & CAPACITY CALCULATOR
+//
+// Two modes:
+//   measured  — derived from this workspace's own tracked clicks and confirmed
+//               leads (needs a minimum sample, see metrics.ts)
+//   benchmark — conservative organic industry constants, clearly labelled
+// Nothing here is ever fabricated from a post id or any other placeholder.
 // ============================================================================
+
+/** Conservative organic benchmarks, used only until real data exists. */
+export const ORGANIC_BENCHMARKS = {
+  /** Impressions → link/profile click. */
+  engagementCTR: 0.048,
+  /** Click → lead. */
+  organicCVR: 0.021,
+  /** Reach per organic post (estimate — platform APIs do not report this). */
+  avgImpressionsPerPost: 2450,
+};
+
+const QUALIFICATION_RATES: Record<string, number> = {
+  QUALIFIED_LEADS: 0.35,
+  LEADS: 1.0,
+  WEBSITE_INQUIRIES: 0.8,
+  CONTACT_FORM: 0.9,
+  WHATSAPP: 0.85,
+  BOOKINGS: 0.5,
+  CUSTOM: 0.7,
+};
 
 export function calculateLeadFunnel(params: {
   targetLeads: number;
   leadType: string;
   timeframeDays: number;
-  historicalPosts?: any[];
   connectedPlatformCount?: number;
-}): FunnelCalculation {
-  const { targetLeads, leadType, timeframeDays, historicalPosts = [] } = params;
-
-  // Derive historical metrics if available (data priority 1..4)
-  const analyzedPosts = historicalPosts.length;
-  const isBenchmarkFallback = analyzedPosts < 5;
-
-  let totalImpressions = 0;
-  let totalClicks = 0;
-  let totalLeads = 0;
-
-  historicalPosts.forEach((post) => {
-    const hash = (post.id || "0")
-      .split("")
-      .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-    const imp = post.impressions || (1800 + ((hash * 13) % 4500));
-    const clk = post.clicks || Math.round(imp * 0.045);
-    const ld = post.leadsGenerated || Math.max(1, Math.round(clk * 0.12));
-    totalImpressions += imp;
-    totalClicks += clk;
-    totalLeads += ld;
-  });
-
-  // Calculate actual rates or fallback to conservative industry organic benchmarks
-  const qualificationRateMap: Record<string, number> = {
-    QUALIFIED_LEADS: 0.35,
-    LEADS: 1.0,
-    WEBSITE_INQUIRIES: 0.8,
-    CONTACT_FORM: 0.9,
-    WHATSAPP: 0.85,
-    BOOKINGS: 0.5,
-    CUSTOM: 0.7,
+  leadSources?: LeadSource[];
+  articlesPerWeek?: number;
+  /** Real counts from LinkClick / LeadEvent / PublishLog. */
+  measured?: {
+    clicks: number;
+    leads: number;
+    posts: number;
+    isMeasured: boolean;
   };
+}): FunnelCalculation {
+  const { targetLeads, leadType, timeframeDays } = params;
+  const leadSources: LeadSource[] =
+    params.leadSources && params.leadSources.length ? params.leadSources : ["SOCIAL"];
+  const measured = params.measured;
+  const isMeasured = Boolean(measured?.isMeasured && measured.clicks > 0 && measured.posts > 0);
 
-  const qualRate = qualificationRateMap[leadType] || 0.5;
-
-  // Real or Benchmark Organic CVR (Clicks -> Conversions)
-  const organicCVR = !isBenchmarkFallback && totalClicks > 0
-    ? Math.max(0.01, Math.min(0.08, totalLeads / totalClicks))
-    : 0.021; // 2.1% benchmark organic lead capture
-
-  // Real or Benchmark CTR (Impressions -> Clicks / Profile visits)
-  const engagementCTR = !isBenchmarkFallback && totalImpressions > 0
-    ? Math.max(0.02, Math.min(0.12, totalClicks / totalImpressions))
-    : 0.048; // 4.8% benchmark profile visit CTR
-
-  // Avg impressions per post
-  const avgImpressionsPerPost = !isBenchmarkFallback && analyzedPosts > 0
-    ? Math.round(totalImpressions / analyzedPosts)
-    : 2450;
-
-  // Mathematical Funnel Flow
-  const requiredConversions = Math.ceil(targetLeads / (leadType === "QUALIFIED_LEADS" ? qualRate : 1.0));
-  const requiredProfileVisits = Math.ceil(requiredConversions / organicCVR);
-  const requiredImpressions = Math.ceil(requiredProfileVisits / engagementCTR);
-  const requiredTotalPosts = Math.max(1, Math.ceil(requiredImpressions / avgImpressionsPerPost));
+  const qualRate = QUALIFICATION_RATES[leadType] ?? 0.5;
   const weeks = Math.max(1, timeframeDays / 7);
-  const requiredPostsPerWeek = Math.max(1, Math.round(requiredTotalPosts / weeks));
+
+  let organicCVR: number;
+  let clicksPerPost: number | undefined;
+  let leadsPerClick: number | undefined;
+  let requiredConversions: number;
+  let requiredProfileVisits: number;
+  let requiredTotalPosts: number;
+  let avgImpressionsPerPost: number;
+
+  if (isMeasured && measured) {
+    // Real rates. LeadEvent already stores the goal's lead type, so no
+    // qualification factor is applied on top of a measured lead.
+    leadsPerClick = Math.max(0.002, Math.min(0.5, measured.leads / measured.clicks));
+    clicksPerPost = Math.max(0.1, Math.min(500, measured.clicks / measured.posts));
+    organicCVR = leadsPerClick;
+
+    requiredConversions = targetLeads;
+    requiredProfileVisits = Math.ceil(targetLeads / leadsPerClick);
+    requiredTotalPosts = Math.max(1, Math.ceil(requiredProfileVisits / clicksPerPost));
+    avgImpressionsPerPost = ORGANIC_BENCHMARKS.avgImpressionsPerPost; // still an estimate
+  } else {
+    organicCVR = ORGANIC_BENCHMARKS.organicCVR;
+    requiredConversions = Math.ceil(
+      targetLeads / (leadType === "QUALIFIED_LEADS" ? qualRate : 1.0)
+    );
+    requiredProfileVisits = Math.ceil(requiredConversions / organicCVR);
+    avgImpressionsPerPost = ORGANIC_BENCHMARKS.avgImpressionsPerPost;
+    requiredTotalPosts = Math.max(
+      1,
+      Math.ceil(
+        Math.ceil(requiredProfileVisits / ORGANIC_BENCHMARKS.engagementCTR) / avgImpressionsPerPost
+      )
+    );
+  }
+
+  const engagementCTR = ORGANIC_BENCHMARKS.engagementCTR;
+  const requiredImpressions = Math.ceil(requiredProfileVisits / engagementCTR);
+
+  // ── split the workload between social posts and SEO articles ──────────────
+  const useSocial = leadSources.includes("SOCIAL");
+  const useWebsite = leadSources.includes("WEBSITE");
+
+  // Website only contributes once articles can rank, so it never reduces the
+  // social workload inside the ramp-up period.
+  const websiteEffectiveDays = useWebsite ? Math.max(0, timeframeDays - SEO_RAMP_UP_DAYS) : 0;
+  const websiteShare =
+    useWebsite && useSocial
+      ? Math.min(0.4, websiteEffectiveDays / Math.max(1, timeframeDays))
+      : useWebsite && !useSocial
+        ? 1
+        : 0;
+
+  const socialPosts = useSocial ? Math.max(1, Math.round(requiredTotalPosts * (1 - websiteShare))) : 0;
+  const requiredPostsPerWeek = useSocial ? Math.max(1, Math.round(socialPosts / weeks)) : 0;
+  const requiredPostsPerDay = useSocial
+    ? Number(Math.max(0, socialPosts / timeframeDays).toFixed(2))
+    : 0;
+
+  const requiredArticlesPerWeek = useWebsite
+    ? Math.max(1, params.articlesPerWeek || (websiteShare > 0.25 ? 3 : 2))
+    : 0;
+
   const requiredDailyPace = Number((targetLeads / timeframeDays).toFixed(2));
 
-  const assumptions = [
-    `Lead Type: ${leadType.replace(/_/g, " ")} with ${(qualRate * 100).toFixed(0)}% qualification factor`,
-    `Organic Conversion Rate: ${(organicCVR * 100).toFixed(1)}% (Profile Visits → Lead Conversion)`,
-    `Engagement / Click Rate: ${(engagementCTR * 100).toFixed(1)}% (Impressions → Profile Visits)`,
-    `Estimated Reach Velocity: ~${avgImpressionsPerPost.toLocaleString()} impressions / post`,
-    `Production Requirement: ~${requiredPostsPerWeek} posts/week across target channels`,
-  ];
+  const assumptions: string[] = [];
+  if (isMeasured && measured) {
+    assumptions.push(
+      `Measured from your data: ${measured.leads} confirmed leads from ${measured.clicks} tracked clicks (${(leadsPerClick! * 100).toFixed(1)}% click → lead)`,
+      `Measured reach per post: ${clicksPerPost!.toFixed(1)} tracked clicks per published post`,
+      `Production requirement: ~${requiredPostsPerWeek} posts/week to reach ${targetLeads} ${leadType.replace(/_/g, " ").toLowerCase()}`
+    );
+  } else {
+    assumptions.push(
+      `Lead type: ${leadType.replace(/_/g, " ")} with a ${(qualRate * 100).toFixed(0)}% qualification factor`,
+      `Benchmark click → lead rate: ${(organicCVR * 100).toFixed(1)}% (replaced by your own rate after ${20} tracked clicks)`,
+      `Benchmark impression → click rate: ${(engagementCTR * 100).toFixed(1)}%`,
+      `Estimated reach: ~${avgImpressionsPerPost.toLocaleString()} impressions/post (estimate — platforms do not report organic reach here)`,
+      `Production requirement: ~${requiredPostsPerWeek} posts/week across selected channels`
+    );
+  }
+  if (useWebsite) {
+    assumptions.push(
+      websiteEffectiveDays > 0
+        ? `Website channel: ${requiredArticlesPerWeek} SEO articles/week; search traffic counts from day ${SEO_RAMP_UP_DAYS} onward (${websiteEffectiveDays} effective days)`
+        : `Website channel: articles will be published, but a ${timeframeDays}-day window is shorter than the ~${SEO_RAMP_UP_DAYS}-day indexing ramp, so social carries this goal`
+    );
+  }
 
-  const dataSourceSummary = isBenchmarkFallback
-    ? "Limited historical data (< 5 analyzed posts) — projection uses verified organic benchmark models."
-    : `Calculated from ${analyzedPosts} published workspace posts and historical conversion data.`;
+  const dataSourceSummary = isMeasured
+    ? `Calculated from your real tracked data: ${measured!.clicks} clicks, ${measured!.leads} confirmed leads across ${measured!.posts} published items.`
+    : `Not enough tracked data yet (${measured?.clicks || 0} clicks, ${measured?.leads || 0} confirmed leads) — showing conservative organic benchmarks. These switch to your own numbers automatically.`;
 
   return {
     targetLeads,
     leadType,
-    qualificationRate: qualRate,
+    qualificationRate: isMeasured ? 1 : qualRate,
     requiredConversions,
     organicCVR,
     requiredProfileVisits,
@@ -123,14 +185,24 @@ export function calculateLeadFunnel(params: {
     requiredTotalPosts,
     requiredPostsPerWeek,
     requiredDailyPace,
-    isBenchmarkFallback,
+    isBenchmarkFallback: !isMeasured,
     assumptions,
     dataSourceSummary,
+
+    isMeasured,
+    measuredClicks: measured?.clicks || 0,
+    measuredLeads: measured?.leads || 0,
+    measuredPosts: measured?.posts || 0,
+    leadsPerClick,
+    clicksPerPost,
+    requiredPostsPerDay,
+    requiredArticlesPerWeek,
+    leadSources,
   };
 }
 
 // ============================================================================
-// KPI CALCULATOR & PACE MONITOR
+// KPI CALCULATOR & PACE MONITOR — counted rows only
 // ============================================================================
 
 export function computeGrowthKPIs(
@@ -140,28 +212,21 @@ export function computeGrowthKPIs(
     timeframeDays: number;
     leadType?: string;
   },
-  posts: any[] = []
+  metrics?: Partial<GrowthMetrics> | null
 ): GrowthKPIs {
-  const targetLeads = goal.leadTarget || 150;
-  const timeframeDays = goal.timeframeDays || 60;
+  const targetLeads = Math.max(1, goal.leadTarget || 0);
+  const timeframeDays = Math.max(1, goal.timeframeDays || 0);
   const start = new Date(goal.startDate || Date.now());
   const now = new Date();
 
   const elapsedMs = Math.max(0, now.getTime() - start.getTime());
-  const daysElapsed = Math.max(1, Math.floor(elapsedMs / (1000 * 60 * 60 * 24)));
+  const daysElapsed = Math.max(1, Math.floor(elapsedMs / (1000 * 60 * 60 * 24)) + 1);
   const daysLeft = Math.max(0, timeframeDays - daysElapsed);
 
-  // Compute achieved leads from published posts within the timeframe
-  let achievedLeads = 0;
-  posts.forEach((p) => {
-    if (p.status === "PUBLISHED" || p.status === "APPROVED" || p.status === "SCHEDULED") {
-      const hash = (p.id || "0").split("").reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
-      const imp = p.impressions || (1800 + ((hash * 13) % 4500));
-      const clk = p.clicks || Math.round(imp * 0.045);
-      const ld = p.leadsGenerated || Math.max(1, Math.round(clk * 0.12));
-      achievedLeads += ld;
-    }
-  });
+  const achievedLeads = metrics?.leads || 0;
+  const clicks = metrics?.clicks || 0;
+  const postsPublished = metrics?.postsPublished || 0;
+  const articlesPublished = metrics?.articlesPublished || 0;
 
   const remainingLeads = Math.max(0, targetLeads - achievedLeads);
   const currentPace = Number((achievedLeads / daysElapsed).toFixed(2));
@@ -169,27 +234,34 @@ export function computeGrowthKPIs(
   const projectedResult = Math.round(currentPace * timeframeDays);
   const progressPercentage = Math.min(100, Math.round((achievedLeads / targetLeads) * 100));
 
-  // Determine Truthful Goal Status
+  const totalPublished = postsPublished + articlesPublished;
+
   let status: GoalStatus = "INSUFFICIENT_DATA";
   let statusReason = "";
 
   if (achievedLeads >= targetLeads) {
     status = "GOAL_ACHIEVED";
-    statusReason = `Goal achieved! Total of ${achievedLeads} leads captured ahead of schedule.`;
-  } else if (daysElapsed < 3 && posts.length < 3) {
+    statusReason = `Goal achieved — ${achievedLeads} confirmed leads recorded.`;
+  } else if (totalPublished === 0) {
     status = "INSUFFICIENT_DATA";
-    statusReason = `Early phase (Day ${daysElapsed}/${timeframeDays}) — collecting organic traction data.`;
-  } else if (currentPace >= requiredPace * 0.95) {
+    statusReason = "Nothing published yet — build the plan and let autopilot publish the first posts.";
+  } else if (clicks === 0) {
+    status = "INSUFFICIENT_DATA";
+    statusReason = `${totalPublished} item${totalPublished === 1 ? "" : "s"} published, no tracked clicks yet. Clicks appear as soon as someone opens a post link.`;
+  } else if (achievedLeads === 0) {
+    status = "NEEDS_OPTIMIZATION";
+    statusReason = `${clicks} real click${clicks === 1 ? "" : "s"} measured but no lead confirmed yet. Check that your CTA link goes to a page that captures contacts.`;
+  } else if (requiredPace === 0 || currentPace >= requiredPace * 0.95) {
     status = "ON_TRACK";
-    statusReason = `Pacing steadily at ${currentPace} leads/day (Target: ${requiredPace}/day).`;
+    statusReason = `Pacing at ${currentPace} leads/day (needs ${requiredPace}/day for the remaining ${daysLeft} days).`;
   } else if (currentPace >= requiredPace * 0.7) {
     status = "NEEDS_OPTIMIZATION";
     const gap = Math.round((1 - currentPace / requiredPace) * 100);
-    statusReason = `Lead pace is ${gap}% below target. AI recommends increasing high-converting post volume.`;
+    statusReason = `Lead pace is ${gap}% below what the remaining ${daysLeft} days need.`;
   } else {
     status = "BEHIND_TARGET";
     const gap = Math.round((1 - currentPace / requiredPace) * 100);
-    statusReason = `Behind target by ${gap}%. Active recovery strategy required to reach ${targetLeads} leads in ${daysLeft} days.`;
+    statusReason = `Behind target by ${gap}% — ${remainingLeads} leads still needed in ${daysLeft} days.`;
   }
 
   return {
@@ -197,7 +269,7 @@ export function computeGrowthKPIs(
     achievedLeads,
     remainingLeads,
     daysTotal: timeframeDays,
-    daysElapsed,
+    daysElapsed: Math.min(daysElapsed, timeframeDays),
     daysLeft,
     currentPace,
     requiredPace,
@@ -205,11 +277,23 @@ export function computeGrowthKPIs(
     progressPercentage,
     status,
     statusReason,
+
+    clicks,
+    uniqueClicks: metrics?.uniqueClicks || 0,
+    socialLeads: metrics?.socialLeads || 0,
+    websiteLeads: metrics?.websiteLeads || 0,
+    manualLeads: metrics?.manualLeads || 0,
+    postsPublished,
+    articlesPublished,
+    publishFailures: metrics?.publishFailures || 0,
+    estimatedImpressions: postsPublished * ORGANIC_BENCHMARKS.avgImpressionsPerPost,
   };
 }
 
 // ============================================================================
-// AGENTIC STRATEGY BUILDER (BRAND DNA + TRENDS + COMPETITORS + CAPABILITIES)
+// AGENTIC STRATEGY BUILDER
+// Brand DNA + live grounded research + real capabilities + measured funnel.
+// Every stage that can run at the same time does (Promise.all).
 // ============================================================================
 
 export interface GenerateStrategyInput {
@@ -219,416 +303,747 @@ export interface GenerateStrategyInput {
   leadType: LeadType;
   timeframeDays: number;
   targetPlatforms: string[];
+  leadSources?: LeadSource[];
+  articlesPerWeek?: number;
+  ctaDestinations?: Record<string, string> | null;
   customGuidance?: string;
+  signal?: AbortSignal;
   onProgress?: (step: string, status?: "running" | "done" | "info") => void;
+}
+
+interface BrandContext {
+  name: string;
+  industry: string;
+  website: string;
+  tone: string;
+  targetAudience: string;
+  missionVision: string;
+  writingStyle: string;
+  forbiddenWords: string[];
+  hasBrandDNA: boolean;
+}
+
+function buildBrandContext(workspace: any): BrandContext {
+  const dna = workspace?.brandDNA;
+  return {
+    name: (workspace?.name || "").trim(),
+    industry: (workspace?.industry || "").trim(),
+    website: (workspace?.website || "").trim(),
+    tone: (dna?.tone || "").trim(),
+    targetAudience: (dna?.targetAudience || "").trim(),
+    missionVision: (dna?.missionVision || "").trim(),
+    writingStyle: (dna?.writingStyle || "").trim(),
+    forbiddenWords: Array.isArray(dna?.forbiddenWords) ? dna.forbiddenWords : [],
+    hasBrandDNA: Boolean(dna),
+  };
+}
+
+function brandBlock(brand: BrandContext): string {
+  const lines = [
+    brand.name && `Business name: ${brand.name}`,
+    brand.industry && `Industry / what they do: ${brand.industry}`,
+    brand.website && `Website: ${brand.website}`,
+    brand.targetAudience && `Target audience: ${brand.targetAudience}`,
+    brand.missionVision && `Mission: ${brand.missionVision}`,
+    brand.tone && `Brand tone: ${brand.tone}`,
+    brand.writingStyle && `Writing style: ${brand.writingStyle}`,
+    brand.forbiddenWords.length > 0 && `Never use these words: ${brand.forbiddenWords.join(", ")}`,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function safeArray<T>(value: any): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function abortIfCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    const err = new Error("Strategy generation stopped by user");
+    err.name = "AbortError";
+    throw err;
+  }
+}
+
+/** Supported formats for a platform, read from the real capability registry. */
+function platformFormats(platformKey: string): { formats: string[]; mediaTypes: string[] } {
+  const formats: string[] = [];
+  const mediaTypes: string[] = [];
+  Object.keys(PLATFORM_CAPABILITIES).forEach((capKey) => {
+    if (capKey.startsWith(`${platformKey}:`)) {
+      const cap = PLATFORM_CAPABILITIES[capKey];
+      formats.push(cap.format);
+      if (!mediaTypes.includes(cap.mediaType)) mediaTypes.push(cap.mediaType);
+    }
+  });
+  return { formats, mediaTypes };
 }
 
 export async function generateGrowthStrategy(
   input: GenerateStrategyInput
 ): Promise<GrowthStrategy> {
-  const { workspaceId, leadTarget, leadType, timeframeDays, targetPlatforms, onProgress } = input;
+  const {
+    workspaceId,
+    leadTarget,
+    leadType,
+    timeframeDays,
+    targetPlatforms,
+    customGuidance,
+    signal,
+    onProgress,
+  } = input;
 
-  // 1. READ BRAND DNA
-  onProgress?.("Reading Brand DNA and business positioning...", "running");
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    include: { brandDNA: true, socialAccounts: true, competitors: true, posts: { take: 30, orderBy: { createdAt: "desc" } } },
-  });
+  const leadSources: LeadSource[] =
+    input.leadSources && input.leadSources.length ? input.leadSources : ["SOCIAL"];
+  const useSocial = leadSources.includes("SOCIAL");
+  const useWebsite = leadSources.includes("WEBSITE");
+  const warnings: string[] = [];
 
-  const brand = {
-    name: workspace?.name || "SMB Robotics",
-    industry: workspace?.industry || "Embedded Systems & AI Robotics",
-    website: workspace?.website || "https://smbrobotic.com",
-    tone: workspace?.brandDNA?.tone || "Professional, Authoritative, Engineering-driven",
-    targetAudience: workspace?.brandDNA?.targetAudience || "Hardware Engineers, Automation Decision Makers, CTOs",
-    missionVision: workspace?.brandDNA?.missionVision || "Building reliable intelligent embedded hardware and robotics solutions.",
-    writingStyle: workspace?.brandDNA?.writingStyle || "Technical clarity, direct insights, zero buzzwords",
-  };
-  onProgress?.("Brand DNA profile loaded successfully.", "done");
+  // ── STAGE 1: read everything we know about the business (parallel) ─────────
+  onProgress?.("Reading Brand DNA, connected accounts and measured results...", "running");
 
-  // 2. ANALYZE HISTORICAL PERFORMANCE
-  onProgress?.("Analyzing historical posts, CTR and conversion data...", "running");
-  const historicalPosts = workspace?.posts || [];
+  const [workspace, metrics] = await Promise.all([
+    prisma.workspace
+      .findUnique({
+        where: { id: workspaceId },
+        include: {
+          brandDNA: true,
+          socialAccounts: true,
+          competitors: true,
+        },
+      })
+      .catch(() => null),
+    getGrowthMetrics(workspaceId, new Date(Date.now() - 90 * 86400000)),
+  ]);
+
+  abortIfCancelled(signal);
+
+  const brand = buildBrandContext(workspace);
+  const connectedPlatforms = (workspace?.socialAccounts || []).map((a: any) =>
+    String(a.platform).toLowerCase()
+  );
+
+  // We refuse to invent a business. Without a name or industry there is nothing
+  // honest to build a lead strategy on.
+  if (!brand.name && !brand.industry) {
+    onProgress?.("No Brand DNA found — cannot build a strategy without your business details.", "info");
+    return {
+      targetLeads: leadTarget,
+      leadType,
+      timeframeDays,
+      startDate: new Date().toISOString(),
+      needsBrandDNA: true,
+      leadSources,
+      funnel: calculateLeadFunnel({
+        targetLeads: leadTarget,
+        leadType,
+        timeframeDays,
+        leadSources,
+        articlesPerWeek: input.articlesPerWeek,
+        measured: {
+          clicks: metrics.lifetimeClicks,
+          leads: metrics.lifetimeLeads,
+          posts: metrics.lifetimePosts,
+          isMeasured: metrics.isMeasured,
+        },
+      }),
+      platformStrategies: [],
+      contentPillars: [],
+      todayPlan: [],
+      weeklyPlan: [],
+      decisions: [],
+      recommendations: [],
+      experiments: [],
+      learningInsights: [],
+      warnings: [
+        "Add your business name, industry and Brand DNA first — the AI will not guess your business.",
+      ],
+    };
+  }
+
+  onProgress?.(
+    brand.hasBrandDNA
+      ? "Brand DNA loaded."
+      : "Workspace details loaded (Brand DNA is empty — add it for sharper copy).",
+    "done"
+  );
+  if (!brand.hasBrandDNA) {
+    warnings.push("Brand DNA is empty. Tone and audience are inferred from your industry only.");
+  }
+
+  // ── STAGE 2: funnel from measured data ────────────────────────────────────
   const funnel = calculateLeadFunnel({
     targetLeads: leadTarget,
     leadType,
     timeframeDays,
-    historicalPosts,
-    connectedPlatformCount: workspace?.socialAccounts.length || 0,
+    connectedPlatformCount: connectedPlatforms.length,
+    leadSources,
+    articlesPerWeek: input.articlesPerWeek,
+    measured: {
+      clicks: metrics.lifetimeClicks,
+      leads: metrics.lifetimeLeads,
+      posts: metrics.lifetimePosts,
+      isMeasured: metrics.isMeasured,
+    },
   });
-  onProgress?.(`Funnel computed: ${funnel.requiredImpressions.toLocaleString()} impressions needed across ${funnel.requiredPostsPerWeek} posts/week.`, "done");
 
-  // 3. RESEARCH REAL-TIME TRENDS (GOOGLE SEARCH GROUNDING)
-  onProgress?.(`Conducting live Google Search for ${brand.industry} market trends...`, "running");
-  let trendSourcesCount = 0;
+  onProgress?.(
+    funnel.isMeasured
+      ? `Funnel from your own data: ${funnel.requiredPostsPerWeek} posts/week needed for ${leadTarget} leads.`
+      : `Funnel from organic benchmarks: ${funnel.requiredPostsPerWeek} posts/week needed (switches to your data after ~20 tracked clicks).`,
+    "done"
+  );
 
-  try {
-    const trendQuery = `Current top trending content topics, pain points, and buyer questions for ${brand.industry} ${new Date().getFullYear()}`;
-    const trendRes = await vertexProvider.generateWithGrounding(trendQuery, {
-      modelName: MODELS.TREND_RESEARCHER,
-      temperature: 0.3,
-    });
-    if (trendRes?.text) {
-      trendSourcesCount = trendRes.sources?.length || 0;
-    }
-  } catch (err) {
-    console.warn("[GrowthEngine] Trend search fallback:", err);
-  }
-  onProgress?.(`Identified ${trendSourcesCount > 0 ? trendSourcesCount : 3} verified market trend opportunities.`, "done");
+  abortIfCancelled(signal);
 
-  // 4. RESEARCH COMPETITORS (GOOGLE GROUNDED + REDIS CACHED)
-  onProgress?.("Analyzing competitive positioning and differentiation...", "running");
-  const compCacheKey = `growth:competitors:${Buffer.from(brand.industry).toString("base64").slice(0, 36)}`;
-  let competitorInsights = await cacheGet<string>(compCacheKey);
+  // ── STAGE 3: live research + generation, all in parallel ──────────────────
+  onProgress?.("Researching live trends, competitors and keyword demand in parallel...", "running");
 
-  if (!competitorInsights) {
+  const researchTopic = brand.industry || brand.name;
+  const year = new Date().getFullYear();
+
+  const trendsPromise = (async (): Promise<{ text: string; sources: any[] }> => {
     try {
-      const compQuery = `Leading competitors, top social media strategies, and content gaps in ${brand.industry} ${new Date().getFullYear()}`;
-      const compRes = await vertexProvider.generateWithGrounding(compQuery, {
-        modelName: MODELS.COMPETITOR_ANALYST,
-        temperature: 0.3,
-      });
-      competitorInsights = (compRes.text || "").slice(0, 1000);
-      if (competitorInsights) {
-        await cacheSet(compCacheKey, competitorInsights, 86400); // 24h cache
-      }
+      const res = await vertexProvider.generateWithGrounding(
+        `What are buyers in "${researchTopic}" actively searching, asking and complaining about right now (${year})? List concrete pain points, buying triggers and questions. Be specific to this industry, no generic marketing advice.`,
+        { modelName: MODELS.TREND_RESEARCHER, temperature: 0.3 }
+      );
+      return { text: (res?.text || "").slice(0, 3000), sources: safeArray(res?.sources) };
     } catch (err) {
-      competitorInsights = "Competitors focus on generic product announcements; huge gap exists for in-depth engineering breakdowns and customer case studies.";
+      console.warn("[GrowthEngine] trend grounding failed:", err);
+      return { text: "", sources: [] };
     }
+  })();
+
+  const competitorCacheKey = `growth:competitors:v2:${Buffer.from(researchTopic).toString("base64").slice(0, 40)}`;
+  const competitorPromise = (async (): Promise<string> => {
+    const cached = await cacheGet<string>(competitorCacheKey).catch(() => null);
+    if (cached) return cached;
+    try {
+      const named = (workspace?.competitors || []).map((c: any) => c.name).filter(Boolean);
+      const res = await vertexProvider.generateWithGrounding(
+        `Analyse how the leading players in "${researchTopic}" market on social media in ${year}${named.length ? ` (specifically: ${named.join(", ")})` : ""}. What content are they publishing, and what content gap is left open? Be concrete.`,
+        { modelName: MODELS.COMPETITOR_ANALYST, temperature: 0.3 }
+      );
+      const text = (res?.text || "").slice(0, 2000);
+      if (text) await cacheSet(competitorCacheKey, text, 86400).catch(() => null);
+      return text;
+    } catch (err) {
+      console.warn("[GrowthEngine] competitor grounding failed:", err);
+      return "";
+    }
+  })();
+
+  const keywordPromise = (async (): Promise<
+    { keyword: string; searchIntent: string; title: string; why: string }[]
+  > => {
+    if (!useWebsite) return [];
+    try {
+      const { fetchLiveTrendingNews } = await import("@/actions/trends");
+      const trending = await fetchLiveTrendingNews(researchTopic, 8).catch(() => null);
+      const headlines = safeArray<any>(trending?.trends)
+        .map((t) => t.title)
+        .filter(Boolean)
+        .slice(0, 8);
+
+      const res = await vertexProvider.generateJSON(
+        [
+          {
+            role: "user",
+            content: `You are an SEO strategist. Pick article keywords that will bring BUYERS (not just readers) to this business's website.
+
+${brandBlock(brand)}
+
+Live headlines in this space right now:
+${headlines.length ? headlines.map((h, i) => `${i + 1}. ${h}`).join("\n") : "(none available)"}
+
+Rules:
+- Every keyword must be something a potential customer of THIS business would search.
+- Mix 2 trending/timely keywords with commercial-intent keywords.
+- Long-tail (3-6 words) so a new site can realistically rank.
+- No keyword about a topic this business does not serve.
+
+Return JSON only:
+{"keywords":[{"keyword":"...","searchIntent":"informational|commercial|transactional","title":"proposed article title","why":"why this brings leads for this business"}]}
+Return between ${Math.max(2, input.articlesPerWeek || 2)} and 8 keywords.`,
+          },
+        ],
+        { modelName: MODELS.TREND_RESEARCHER, temperature: 0.4 }
+      );
+
+      return safeArray<any>(res?.keywords)
+        .filter((k) => k?.keyword)
+        .map((k) => ({
+          keyword: String(k.keyword).slice(0, 120),
+          searchIntent: String(k.searchIntent || "informational"),
+          title: String(k.title || k.keyword).slice(0, 160),
+          why: String(k.why || "").slice(0, 300),
+        }));
+    } catch (err) {
+      console.warn("[GrowthEngine] keyword research failed:", err);
+      return [];
+    }
+  })();
+
+  const [trendRes, competitorInsights, articleKeywords] = await Promise.all([
+    trendsPromise,
+    competitorPromise,
+    keywordPromise,
+  ]);
+
+  abortIfCancelled(signal);
+  onProgress?.(
+    `Research done — ${trendRes.sources.length} live sources${useWebsite ? `, ${articleKeywords.length} keyword opportunities` : ""}.`,
+    "done"
+  );
+
+  const researchBlock = [
+    trendRes.text && `LIVE MARKET RESEARCH:\n${trendRes.text}`,
+    competitorInsights && `COMPETITOR LANDSCAPE:\n${competitorInsights}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  // ── STAGE 4: pillars + platform roles + growth intelligence, in parallel ──
+  onProgress?.("Generating content pillars, channel roles and growth intelligence in parallel...", "running");
+
+  const capabilityBlock = targetPlatforms
+    .map((pl) => {
+      const key = pl.toLowerCase();
+      const { formats } = platformFormats(key);
+      const spec = getBestTimeSpec(key);
+      return `- ${pl}: formats [${(formats.length ? formats : ["Feed"]).join(", ")}], best window ${spec.label} (${spec.reason}), caption link clickable: ${isCaptionLinkClickable(key) ? "yes" : "no (bio link only)"}, connected: ${connectedPlatforms.includes(key) ? "yes" : "no"}`;
+    })
+    .join("\n");
+
+  const goalBlock = `LEAD GOAL: ${leadTarget} ${leadType.replace(/_/g, " ").toLowerCase()} in ${timeframeDays} days (${funnel.requiredDailyPace}/day).
+FUNNEL REQUIREMENT: ~${funnel.requiredPostsPerWeek} social posts/week${useWebsite ? ` plus ${funnel.requiredArticlesPerWeek} SEO articles/week` : ""}.
+DATA BASIS: ${funnel.dataSourceSummary}
+LEAD SOURCES: ${leadSources.join(" + ")}`;
+
+  const pillarsPromise = (async (): Promise<ContentPillar[]> => {
+    try {
+      const res = await vertexProvider.generateJSON(
+        [
+          {
+            role: "user",
+            content: `You are a lead-generation content strategist. Design the content pillars that will actually produce leads for this specific business.
+
+${brandBlock(brand)}
+
+${goalBlock}
+
+${researchBlock || "(no external research available — use the business details only)"}
+
+AVAILABLE CHANNELS:
+${capabilityBlock}
+
+Rules:
+- 3 to 5 pillars. Allocation percentages must sum to 100.
+- Each pillar must map to a real buying stage and a real reason it generates leads for THIS business.
+- Every CTA must use the exact placeholder ${LINK_PLACEHOLDER} where the link goes (a tracked link is substituted later). Never write a literal URL.
+- exampleHook must be specific to this business, not a template.
+- Only use platforms from the available channel list.
+
+Return JSON only:
+{"pillars":[{"name":"...","purpose":"...","audienceStage":"Top of Funnel (Awareness)|Middle of Funnel (Consideration)|Bottom of Funnel (Decision)","allocationPercentage":30,"targetPlatforms":["..."],"recommendedFormats":["..."],"cta":"... ${LINK_PLACEHOLDER}","leadGenerationRole":"...","exampleHook":"...","targetPainPoints":["..."]}]}`,
+          },
+        ],
+        { modelName: MODELS.ORCHESTRATOR, temperature: 0.5 }
+      );
+
+      const pillars = safeArray<any>(res?.pillars)
+        .filter((p) => p?.name)
+        .slice(0, 5)
+        .map((p, i) => ({
+          id: `pillar-${i + 1}-${String(p.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32)}`,
+          name: String(p.name).slice(0, 90),
+          purpose: String(p.purpose || "").slice(0, 400),
+          audienceStage: String(p.audienceStage || "Middle of Funnel (Consideration)"),
+          allocationPercentage: Number(p.allocationPercentage) || 0,
+          targetPlatforms: safeArray<string>(p.targetPlatforms).filter((x) =>
+            targetPlatforms.some((tp) => tp.toLowerCase() === String(x).toLowerCase())
+          ),
+          recommendedFormats: safeArray<string>(p.recommendedFormats),
+          cta: String(p.cta || `Learn more: ${LINK_PLACEHOLDER}`),
+          leadGenerationRole: String(p.leadGenerationRole || "").slice(0, 300),
+          exampleHook: String(p.exampleHook || "").slice(0, 250),
+          targetPainPoints: safeArray<string>(p.targetPainPoints),
+        })) as ContentPillar[];
+
+      // Normalise allocation to exactly 100
+      const total = pillars.reduce((s, p) => s + (p.allocationPercentage || 0), 0);
+      if (pillars.length && (total < 95 || total > 105)) {
+        const even = Math.floor(100 / pillars.length);
+        pillars.forEach((p, i) => {
+          p.allocationPercentage = i === pillars.length - 1 ? 100 - even * (pillars.length - 1) : even;
+        });
+      }
+
+      return pillars;
+    } catch (err) {
+      console.warn("[GrowthEngine] pillar generation failed:", err);
+      return [];
+    }
+  })();
+
+  const platformPromise = (async (): Promise<PlatformStrategyItem[]> => {
+    try {
+      const res = await vertexProvider.generateJSON(
+        [
+          {
+            role: "user",
+            content: `You are a channel strategist. Allocate this business's weekly posting budget across its channels to maximise leads.
+
+${brandBlock(brand)}
+
+${goalBlock}
+
+${researchBlock || ""}
+
+CHANNELS (use exactly these names):
+${capabilityBlock}
+
+Rules:
+- postsPerWeek across all channels should total roughly ${funnel.requiredPostsPerWeek}.
+- Give more volume to the channel where THIS business's buyers actually are — justify it from the business details, not generic platform trivia.
+- role and reason must reference this specific business/audience.
+- funnelStage: AWARENESS | CONSIDERATION | CONVERSION | RETENTION.
+
+Return JSON only:
+{"platforms":[{"platform":"...","role":"...","leadPotential":"HIGH|MEDIUM|LOW","priority":"HIGH|MEDIUM|LOW","postsPerWeek":3,"funnelStage":"CONVERSION","reason":"...","primaryCTA":"..."}]}`,
+          },
+        ],
+        { modelName: MODELS.ORCHESTRATOR, temperature: 0.4 }
+      );
+      return safeArray<any>(res?.platforms);
+    } catch (err) {
+      console.warn("[GrowthEngine] platform strategy generation failed:", err);
+      return [];
+    }
+  })();
+
+  const intelPromise = (async () => {
+    try {
+      const res = await vertexProvider.generateJSON(
+        [
+          {
+            role: "user",
+            content: `You are the growth analyst for this business. Explain the decisions behind this plan and what to test next. Ground everything in the numbers given — never invent a metric.
+
+${brandBlock(brand)}
+
+${goalBlock}
+
+MEASURED SO FAR (last 90 days): ${metrics.lifetimePosts} items published, ${metrics.lifetimeClicks} tracked link clicks, ${metrics.lifetimeLeads} confirmed leads.
+${researchBlock || ""}
+
+Rules:
+- If a number is not in the data above, do NOT state a number. Say what will be measured instead.
+- decisions = what this plan changes and why. recommendations = what the user could do next.
+- experiments = concrete A/B tests for hooks, CTAs, formats or timing.
+- insights = what the data so far actually shows (say "not enough data yet" when it does not).
+
+Return JSON only:
+{"decisions":[{"title":"...","action":"...","reason":"...","data":"...","expectedImpact":"..."}],
+ "recommendations":[{"title":"...","description":"...","why":"...","data":"...","expectedImpact":"...","type":"OPPORTUNITY|OPTIMIZATION|WARNING|CADENCE_CHANGE|CHANNEL_SHIFT|CTA_REFINEMENT","actionType":"INCREASE_CADENCE|PAUSE_PLATFORM|SHIFT_PILLAR|UPDATE_CTA|CUSTOM"}],
+ "experiments":[{"name":"...","type":"HOOK|CTA|FORMAT|POSTING_TIME|PILLAR","hypothesis":"...","metric":"..."}],
+ "insights":[{"observation":"...","conclusion":"...","nextAction":"..."}]}`,
+          },
+        ],
+        { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.4 }
+      );
+      return res || {};
+    } catch (err) {
+      console.warn("[GrowthEngine] growth intelligence generation failed:", err);
+      return {};
+    }
+  })();
+
+  const [generatedPillars, generatedPlatforms, intel] = await Promise.all([
+    pillarsPromise,
+    platformPromise,
+    intelPromise,
+  ]);
+
+  abortIfCancelled(signal);
+
+  const contentPillars: ContentPillar[] = generatedPillars;
+  if (contentPillars.length === 0) {
+    warnings.push(
+      "Content pillars could not be generated right now (AI service error). Press Rebuild Plan to try again."
+    );
   }
-  onProgress?.("Competitor analysis completed.", "done");
+  onProgress?.(`${contentPillars.length} content pillars ready.`, "done");
 
-  // 5. EVALUATE PLATFORM STRATEGIES (GROUNDED IN platformCapabilities.ts)
-  onProgress?.("Evaluating platform capabilities and allocating organic channels...", "running");
-  const connectedPlatforms = (workspace?.socialAccounts || []).map((a) => a.platform.toLowerCase());
-
-  const platformRoleMap: Record<string, { role: string; leadPotential: "HIGH" | "MEDIUM" | "LOW"; priority: "HIGH" | "MEDIUM" | "LOW"; defaultFreq: number; reason: string }> = {
-    linkedin: {
-      role: "Primary B2B Lead Engine & Authority",
-      leadPotential: "HIGH",
-      priority: "HIGH",
-      defaultFreq: 4,
-      reason: "Generates 3.2× higher qualified lead conversion rate among technical decision makers and CTOs.",
-    },
-    instagram: {
-      role: "Visual Proof & Product Demos",
-      leadPotential: "MEDIUM",
-      priority: "HIGH",
-      defaultFreq: 4,
-      reason: "High organic reach via Reels and technical carousels; strong brand trust builder.",
-    },
-    x: {
-      role: "Real-time Industry Insights & Threads",
-      leadPotential: "MEDIUM",
-      priority: "MEDIUM",
-      defaultFreq: 5,
-      reason: "Instant distribution for engineering threads and direct links to diagnostic tools.",
-    },
-    tiktok: {
-      role: "High-Reach Video Hooks & Lab Teardowns",
-      leadPotential: "MEDIUM",
-      priority: "MEDIUM",
-      defaultFreq: 3,
-      reason: "Uncapped viral discovery for short 9:16 laboratory prototypes and hardware demos.",
-    },
-    youtube: {
-      role: "Evergreen Search Authority & Longform",
-      leadPotential: "HIGH",
-      priority: "MEDIUM",
-      defaultFreq: 2,
-      reason: "Long-term organic compound search traffic from in-depth technical walkthroughs.",
-    },
-    facebook: {
-      role: "Community Building & Case Studies",
-      leadPotential: "LOW",
-      priority: "LOW",
-      defaultFreq: 2,
-      reason: "Effective for retargeting and community proof posts.",
-    },
-    pinterest: {
-      role: "Infographic Diagrams & Pin Backlinks",
-      leadPotential: "LOW",
-      priority: "LOW",
-      defaultFreq: 3,
-      reason: "Long-tail visual discovery for circuit diagrams and architecture blueprints.",
-    },
-  };
-
+  // ── merge generated channel roles with real capability data ───────────────
   const platformStrategies: PlatformStrategyItem[] = targetPlatforms.map((pl) => {
     const key = pl.toLowerCase();
+    const gen =
+      generatedPlatforms.find((g: any) => String(g?.platform || "").toLowerCase() === key) || {};
     const isConnected = connectedPlatforms.includes(key);
-    const meta = platformRoleMap[key] || {
-      role: "Organic Reach & Engagement",
-      leadPotential: "MEDIUM",
-      priority: "MEDIUM",
-      defaultFreq: 3,
-      reason: "Builds omnichannel awareness and directs audience to core landing pages.",
-    };
+    const { formats, mediaTypes } = platformFormats(key);
+    const spec = getBestTimeSpec(key);
 
-    // Find official supported formats from capabilities
-    const formats: string[] = [];
-    const mediaTypes: string[] = [];
-    Object.keys(PLATFORM_CAPABILITIES).forEach((capKey) => {
-      if (capKey.startsWith(`${key}:`)) {
-        const cap = PLATFORM_CAPABILITIES[capKey];
-        formats.push(cap.format);
-        if (!mediaTypes.includes(cap.mediaType)) mediaTypes.push(cap.mediaType);
-      }
-    });
+    const postsPerWeek = Math.max(
+      1,
+      Math.min(14, Number((gen as any).postsPerWeek) || Math.ceil(funnel.requiredPostsPerWeek / Math.max(1, targetPlatforms.length)))
+    );
 
     const isDirect = key !== "pinterest";
     const capabilityNotice = isDirect
       ? isConnected
-        ? "Connected & ready for API direct publishing."
-        : "Account not connected — posts will save as approved drafts."
-      : "Pinterest uses manual export workflow by official API design.";
+        ? `Connected — autopilot publishes directly at ${spec.label}.`
+        : "Account not connected — posts are created and held as approved drafts until you connect it."
+      : "Pinterest uses a manual export workflow by official API design.";
 
     return {
       platform: pl,
-      role: meta.role,
-      leadPotential: meta.leadPotential,
-      recommendedFrequency: `${meta.defaultFreq} posts/week`,
-      postsPerWeek: meta.defaultFreq,
-      priority: meta.priority,
-      confidence: isConnected ? 94 : 85,
-      supportedFormats: formats.length > 0 ? formats : ["Feed", "Reel", "Story"],
-      supportedMedia: mediaTypes.length > 0 ? mediaTypes : ["image", "video"],
+      role: String((gen as any).role || "").slice(0, 160) || `Organic lead channel for ${brand.name || "your business"}`,
+      leadPotential: (["HIGH", "MEDIUM", "LOW"].includes((gen as any).leadPotential)
+        ? (gen as any).leadPotential
+        : "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
+      recommendedFrequency: `${postsPerWeek} posts/week`,
+      postsPerWeek,
+      priority: (["HIGH", "MEDIUM", "LOW"].includes((gen as any).priority)
+        ? (gen as any).priority
+        : "MEDIUM") as "HIGH" | "MEDIUM" | "LOW",
+      confidence: isConnected ? 90 : 70,
+      supportedFormats: formats.length > 0 ? formats : ["Feed"],
+      supportedMedia: mediaTypes.length > 0 ? mediaTypes : ["image"],
       capabilityNotice,
-      status: "ACTIVE",
-      attributionData: {
-        clicks: Math.round((funnel.requiredProfileVisits * meta.defaultFreq) / 15),
-        leads: Math.round((leadTarget * meta.defaultFreq) / 15),
-        conversionRate: meta.leadPotential === "HIGH" ? "3.8%" : "1.9%",
-      },
-      reason: meta.reason,
+      status: isConnected || !isDirect ? "ACTIVE" : "UNAVAILABLE",
+      recommendedFormats: safeArray<string>((gen as any).recommendedFormats),
+      primaryCTA: (gen as any).primaryCTA ? String((gen as any).primaryCTA) : undefined,
+      funnelStage: (["AWARENESS", "CONSIDERATION", "CONVERSION", "RETENTION"].includes(
+        (gen as any).funnelStage
+      )
+        ? (gen as any).funnelStage
+        : undefined) as any,
+      reason: String((gen as any).reason || "").slice(0, 400) || `Selected because you chose ${pl} for this goal.`,
     };
   });
 
-  // 6. DYNAMIC CONTENT PILLARS (TAILORED TO BRAND DNA & FUNNEL)
-  onProgress?.("Formulating dynamic content pillars and CTA architecture...", "running");
-  const contentPillars: ContentPillar[] = [
-    {
-      id: "pillar-case-studies",
-      name: "Case Studies & Client ROI Proof",
-      purpose: "Demonstrate concrete measurable outcomes and eliminate buyer skepticism.",
-      audienceStage: "Bottom of Funnel (Decision/Conversion)",
-      allocationPercentage: 30,
-      targetPlatforms: ["LinkedIn", "Facebook", "X"],
-      recommendedFormats: ["Document", "Feed", "Thread"],
-      cta: `Explore how ${brand.name} can streamline your hardware pipeline: ${brand.website}`,
-      leadGenerationRole: "Highest conversion rate (3.4× benchmark); triggers direct consultation bookings.",
-      exampleHook: `How our client cut firmware testing cycles by 84% in 90 days.`,
-    },
-    {
-      id: "pillar-problem-solution",
-      name: "Engineering Bottlenecks & Solutions",
-      purpose: "Educate prospects on common industry pitfalls and position our framework as the standard.",
-      audienceStage: "Middle of Funnel (Consideration)",
-      allocationPercentage: 25,
-      targetPlatforms: ["Instagram", "LinkedIn", "TikTok"],
-      recommendedFormats: ["Carousel", "Reel", "Document"],
-      cta: `Read the complete technical breakdown on our website: ${brand.website}`,
-      leadGenerationRole: "Builds high-intent consideration; generates website inquiries and diagnostic downloads.",
-      exampleHook: `3 subtle circuit layout flaws that cause intermittent sensor failure at scale.`,
-    },
-    {
-      id: "pillar-authority",
-      name: "Technical Authority & Deep Dives",
-      purpose: "Establish dominant thought leadership and technical credibility in the domain.",
-      audienceStage: "Top of Funnel (Awareness)",
-      allocationPercentage: 25,
-      targetPlatforms: ["LinkedIn", "X", "YouTube"],
-      recommendedFormats: ["Post", "Thread", "Video"],
-      cta: `Follow ${brand.name} for weekly embedded engineering insights.`,
-      leadGenerationRole: "Expands organic top-of-funnel reach and attracts enterprise decision makers.",
-      exampleHook: `The state of real-time embedded control in 2026: What's changing.`,
-    },
-    {
-      id: "pillar-product-demos",
-      name: "Live Demos & Lab Testing in Action",
-      purpose: "Show visual proof of system performance, build quality, and real latency metrics.",
-      audienceStage: "Middle of Funnel (Consideration)",
-      allocationPercentage: 20,
-      targetPlatforms: ["Instagram", "TikTok", "YouTube"],
-      recommendedFormats: ["Reel", "Shorts", "Video Pin"],
-      cta: `Request a custom hardware benchmark for your team: ${brand.website}`,
-      leadGenerationRole: "High engagement virality; converts viewers into demo and quote inquiries.",
-      exampleHook: `Testing our custom robotic actuator under 100kg stress test. Watch what happens.`,
-    },
-  ];
+  // ── STAGE 5: the actual 7-day calendar (needs pillars + channel weights) ──
+  onProgress?.("Building the 7-day publishing calendar...", "running");
 
-  // 7. TODAY'S GROWTH PLAN & 7-DAY CALENDAR GENERATION
-  onProgress?.("Constructing today's AI production tasks and 7-day calendar...", "running");
+  const activePlatforms = platformStrategies
+    .filter((p) => p.status === "ACTIVE")
+    .map((p) => p.platform);
+  const schedulablePlatforms = (useSocial ? (activePlatforms.length ? activePlatforms : targetPlatforms) : []).slice(0, 7);
 
-  const todayPlan: GrowthPlanTask[] = [
-    {
-      id: `task-today-1-${Date.now()}`,
-      date: new Date().toISOString(),
-      time: "09:00 AM",
-      day: "Today",
-      platform: targetPlatforms.includes("LinkedIn") ? "LinkedIn" : targetPlatforms[0] || "LinkedIn",
-      format: "Document",
-      topic: `${brand.industry}: Executive Framework for High-Velocity Lead Growth`,
-      hook: `🚨 Why 80% of teams in ${brand.industry} struggle to scale organic lead velocity (and how to fix it).`,
-      cta: `Download our complete engineering audit guide: ${brand.website}`,
-      leadGoalRole: "Primary B2B Conversion Post",
-      status: "DRAFT",
-      reason: "Prioritized for morning executive window; LinkedIn documents yield 3.1× higher qualified lead engagement.",
-      mediaType: "document",
-    },
-    {
-      id: `task-today-2-${Date.now()}`,
-      date: new Date().toISOString(),
-      time: "01:30 PM",
-      day: "Today",
-      platform: targetPlatforms.includes("Instagram") ? "Instagram" : targetPlatforms[1] || "Instagram",
-      format: "Reel",
-      topic: `Behind the Scenes: Precision Diagnostic Teardown in ${brand.industry}`,
-      hook: `Stop making this critical testing error in production hardware! 🛑⚙️`,
-      cta: `Link in bio for full teardown specs (${brand.website})`,
-      leadGoalRole: "Top-of-Funnel Reach & Trust",
-      status: "DRAFT",
-      reason: "Afternoon mobile peak; short-form video maximizes discovery across non-followers.",
-      mediaType: "video",
-    },
-    {
-      id: `task-today-3-${Date.now()}`,
-      date: new Date().toISOString(),
-      time: "06:00 PM",
-      day: "Today",
-      platform: targetPlatforms.includes("X") ? "X" : targetPlatforms[2] || "X",
-      format: "Post",
-      topic: `5 Rules for Scaling Reliable Systems in ${brand.industry}`,
-      hook: `Most teams overcomplicate their systems. Here is our 5-point minimalist blueprint: 🧵👇`,
-      cta: `Discover more at ${brand.website}`,
-      leadGoalRole: "Authority & Profile Traffic",
-      status: "DRAFT",
-      reason: "Evening technical discussion peak; threads drive high click-through to primary links.",
-      mediaType: "image",
-    },
-  ];
+  let weeklyPlan: GrowthPlanTask[] = [];
 
-  // Generate 7-day schedule
-  const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const weeklyPlan: GrowthPlanTask[] = [];
+  if (useSocial && contentPillars.length > 0 && schedulablePlatforms.length > 0) {
+    try {
+      const res = await vertexProvider.generateJSON(
+        [
+          {
+            role: "user",
+            content: `Create the next 7 days of lead-generating posts for this business.
 
-  for (let i = 0; i < 7; i++) {
-    const taskDate = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
-    const dayName = i === 0 ? "Today" : i === 1 ? "Tomorrow" : daysOfWeek[taskDate.getDay()];
-    const targetPl = targetPlatforms[i % targetPlatforms.length] || "LinkedIn";
-    const pillar = contentPillars[i % contentPillars.length];
-    const isVideo = targetPl === "TikTok" || (targetPl === "Instagram" && i % 2 === 1);
-    const format = isVideo ? "Reel" : targetPl === "LinkedIn" ? "Document" : "Feed";
+${brandBlock(brand)}
 
-    weeklyPlan.push({
-      id: `task-week-${i}-${Date.now()}`,
-      date: taskDate.toISOString(),
-      time: i % 2 === 0 ? "09:00 AM" : "05:30 PM",
-      day: dayName,
-      platform: targetPl,
-      format,
-      topic: `${pillar.name}: ${brand.name} Strategy Breakdown`,
-      hook: pillar.exampleHook || `Discover how ${brand.name} helps achieve consistent results.`,
-      cta: pillar.cta || "Book a strategy consultation",
-      leadGoalRole: pillar.leadGenerationRole,
-      status: "DRAFT",
-      reason: `Aligned with ${pillar.name} (${pillar.allocationPercentage}% pillar quota) to maintain consistent pipeline pacing.`,
-      mediaType: isVideo ? "video" : "image",
+${goalBlock}
+
+CONTENT PILLARS (respect the allocation %):
+${contentPillars
+  .map(
+    (p) =>
+      `- ${p.name} (${p.allocationPercentage}%, ${p.audienceStage}) — ${p.purpose} | formats: ${(p.recommendedFormats || []).join(", ") || "any"}`
+  )
+  .join("\n")}
+
+CHANNEL BUDGET (posts per week):
+${platformStrategies
+  .filter((p) => schedulablePlatforms.includes(p.platform))
+  .map((p) => `- ${p.platform}: ${p.postsPerWeek}/week, formats [${(p.supportedFormats || []).join(", ")}]`)
+  .join("\n")}
+
+${researchBlock || ""}
+
+Rules:
+- dayOffset 0 = today, up to 6.
+- Total tasks must match the channel budget (about ${funnel.requiredPostsPerWeek} for the week).
+- Use only the listed platforms, and only formats listed for that platform.
+- Every topic and hook must be specific to THIS business. No generic marketing filler.
+- Every cta must contain the exact placeholder ${LINK_PLACEHOLDER} (a tracked link replaces it).
+- reason = why this post, this platform, this day, for the lead goal.
+- mediaType: image | video | carousel | document | text.
+
+Return JSON only:
+{"tasks":[{"dayOffset":0,"platform":"...","format":"...","pillarName":"...","topic":"...","hook":"...","cta":"... ${LINK_PLACEHOLDER}","leadGoalRole":"...","reason":"...","mediaType":"image"}]}`,
+          },
+        ],
+        { modelName: MODELS.CONTENT_CREATOR, temperature: 0.6 }
+      );
+
+      const now = Date.now();
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+      weeklyPlan = safeArray<any>(res?.tasks)
+        .filter((t) => t?.platform && t?.topic)
+        .slice(0, 30)
+        .map((t, i) => {
+          const platform =
+            schedulablePlatforms.find((p) => p.toLowerCase() === String(t.platform).toLowerCase()) ||
+            schedulablePlatforms[i % schedulablePlatforms.length];
+          const offset = Math.max(0, Math.min(6, Number(t.dayOffset) || 0));
+          const date = new Date(now + offset * 86400000);
+          const spec = getBestTimeSpec(platform.toLowerCase());
+          date.setHours(spec.hour, spec.minute, 0, 0);
+          const pillar = contentPillars.find(
+            (p) => p.name.toLowerCase() === String(t.pillarName || "").toLowerCase()
+          );
+
+          return {
+            id: `task-${offset}-${i}-${now}`,
+            date: date.toISOString(),
+            time: spec.label,
+            day: offset === 0 ? "Today" : offset === 1 ? "Tomorrow" : dayNames[date.getDay()],
+            platform,
+            format: String(t.format || "Feed"),
+            topic: String(t.topic).slice(0, 220),
+            hook: String(t.hook || "").slice(0, 300),
+            cta: String(t.cta || pillar?.cta || `${LINK_PLACEHOLDER}`),
+            leadGoalRole: String(t.leadGoalRole || pillar?.leadGenerationRole || "Lead generation").slice(0, 200),
+            status: "DRAFT" as const,
+            reason: String(t.reason || "").slice(0, 400),
+            mediaType: (["image", "video", "carousel", "document", "text"].includes(t.mediaType)
+              ? t.mediaType
+              : "image") as any,
+            channel: "SOCIAL" as const,
+            pillarId: pillar?.id,
+          };
+        });
+    } catch (err) {
+      console.warn("[GrowthEngine] calendar generation failed:", err);
+      warnings.push("The 7-day calendar could not be generated right now. Press Rebuild Plan to retry.");
+    }
+  }
+
+  // ── article tasks from the researched keywords ────────────────────────────
+  if (useWebsite && articleKeywords.length > 0) {
+    const perWeek = Math.max(1, funnel.requiredArticlesPerWeek || 2);
+    const spacing = Math.max(1, Math.floor(7 / perWeek));
+    const now = Date.now();
+
+    articleKeywords.slice(0, perWeek).forEach((kw, i) => {
+      const date = new Date(now + i * spacing * 86400000);
+      date.setHours(10, 0, 0, 0);
+      weeklyPlan.push({
+        id: `task-article-${i}-${now}`,
+        date: date.toISOString(),
+        time: "10:00 AM",
+        day: i === 0 ? "Today" : new Date(date).toLocaleDateString("en-US", { weekday: "long" }),
+        platform: "Website",
+        format: "SEO Article",
+        topic: kw.title,
+        hook: kw.why || `Targets the search "${kw.keyword}"`,
+        cta: `Read more and get in touch: ${LINK_PLACEHOLDER}`,
+        leadGoalRole: "Search-intent lead capture (compounding)",
+        status: "DRAFT",
+        reason:
+          kw.why ||
+          `Long-tail keyword with ${kw.searchIntent} intent — reachable for a newer site and relevant to your offer.`,
+        mediaType: "text",
+        channel: "WEBSITE",
+        keyword: kw.keyword,
+        searchIntent: kw.searchIntent,
+      });
     });
   }
 
-  // 8. EXPLAINABLE AI DECISIONS LOG
-  const decisions: AIDecision[] = [
-    {
-      id: `dec-${Date.now()}-1`,
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      title: "Elevated LinkedIn & Case Study Content Ratio",
-      action: "Increased LinkedIn allocation to 4 posts/week with focus on PDF slide decks.",
-      reason: `Historical and benchmark data shows LinkedIn case studies generate 3.4× higher qualified lead conversion in ${brand.industry}.`,
-      data: "LinkedIn CVR: 3.8% vs general social baseline 1.9%",
-      expectedImpact: "+38% increase in qualified lead capture rate.",
+  weeklyPlan.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+
+  const todayKey = new Date().toDateString();
+  const todayPlan = weeklyPlan.filter(
+    (t) => new Date(t.date || 0).toDateString() === todayKey
+  );
+
+  onProgress?.(
+    `Calendar ready — ${weeklyPlan.length} items this week, ${todayPlan.length} for today.`,
+    "done"
+  );
+
+  // ── map generated intelligence into typed shapes ──────────────────────────
+  const stamp = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const decisions: DecisionItem[] = safeArray<any>((intel as any).decisions)
+    .filter((d) => d?.action || d?.title)
+    .slice(0, 6)
+    .map((d, i) => ({
+      id: `dec-${Date.now()}-${i}`,
+      date: stamp,
+      title: d.title ? String(d.title).slice(0, 140) : undefined,
+      action: String(d.action || d.title).slice(0, 400),
+      reason: String(d.reason || "").slice(0, 500),
+      data: d.data ? String(d.data).slice(0, 300) : undefined,
+      expectedImpact: String(d.expectedImpact || "").slice(0, 300),
       status: "APPLIED",
-    },
-    {
-      id: `dec-${Date.now()}-2`,
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      title: "Optimized CTA Architecture for Direct Inquiries",
-      action: "Replaced vague 'Learn More' CTAs with direct value-first diagnostic and consultation links.",
-      reason: "High-intent lead goals require specific destination CTAs tailored to executive decision makers.",
-      data: "Specific diagnostic CTAs improve link CTR by 42%.",
-      expectedImpact: `Direct funnel velocity toward ${leadTarget} ${leadType.replace(/_/g, " ")}.`,
-      status: "APPLIED",
-    },
-  ];
+    }));
 
-  // 9. AI RECOMMENDATIONS WITH "WHY?"
-  const recommendations: GrowthRecommendation[] = [
-    {
-      id: "rec-case-study-boost",
-      type: "OPPORTUNITY",
-      title: "Scale Case Study Slide Decks on LinkedIn",
-      description: "Technical case study breakdowns consistently generate the highest lead velocity in your industry.",
-      why: "Decision makers in your industry favor transparent data proof and architecture teardowns over generic promotional posts.",
-      data: "Case studies drive 4.1× higher bookmark/re-share rates.",
-      expectedImpact: "Estimated +18 qualified leads per 30-day cycle.",
-      actionType: "SHIFT_PILLAR",
+  const recommendations: GrowthRecommendation[] = safeArray<any>((intel as any).recommendations)
+    .filter((r) => r?.title)
+    .slice(0, 6)
+    .map((r, i) => ({
+      id: `rec-${Date.now()}-${i}`,
+      title: String(r.title).slice(0, 140),
+      description: String(r.description || "").slice(0, 400),
+      why: String(r.why || "").slice(0, 400),
+      data: r.data ? String(r.data).slice(0, 300) : undefined,
+      expectedImpact: String(r.expectedImpact || "").slice(0, 300),
+      type: (r.type || "OPPORTUNITY") as GrowthRecommendation["type"],
+      actionType: (r.actionType || "CUSTOM") as GrowthRecommendation["actionType"],
       applied: false,
-    },
-    {
-      id: "rec-reel-cta-polish",
-      type: "OPTIMIZATION",
-      title: "Strengthen Video Reel Verbal & Visual CTAs",
-      description: "Ensure short-form video hooks display the primary destination link in the first 3 seconds.",
-      why: "Mobile video audiences drop off rapidly; early CTA retention increases profile visit conversion.",
-      data: "Early visual badges boost profile visit CTR by 28%.",
-      expectedImpact: "Higher visitor capture from viral reach.",
-      actionType: "UPDATE_CTA",
-      applied: false,
-    },
-  ];
+    }));
 
-  // 10. GROWTH EXPERIMENTS
-  const experiments: GrowthExperiment[] = [
-    {
-      id: "exp-hook-style",
-      name: "Problem-First vs Result-First Hooks",
-      type: "HOOK",
-      hypothesis: "Leading with a specific hardware testing failure yields 35% higher comment velocity than leading with a positive achievement.",
-      status: "RUNNING",
-      metric: "Qualified Leads & CTR",
-      sampleSize: 12,
-    },
-    {
-      id: "exp-format-cvr",
-      name: "PDF Slide Deck vs Single Infographic Card",
-      type: "FORMAT",
-      hypothesis: "Multi-page PDF documents generate 2.5× longer dwell time and higher conversion on LinkedIn.",
-      status: "RUNNING",
-      metric: "Profile Visits & Inquiries",
-      sampleSize: 8,
-    },
-  ];
+  const experiments: ExperimentItem[] = safeArray<any>((intel as any).experiments)
+    .filter((e) => e?.name && e?.hypothesis)
+    .slice(0, 6)
+    .map((e, i) => ({
+      id: `exp-${Date.now()}-${i}`,
+      name: String(e.name).slice(0, 140),
+      type: (["HOOK", "CTA", "FORMAT", "POSTING_TIME", "PILLAR"].includes(e.type) ? e.type : "HOOK") as any,
+      hypothesis: String(e.hypothesis).slice(0, 400),
+      status: "PLANNED",
+      metric: String(e.metric || "Confirmed leads").slice(0, 120),
+      sampleSize: 0,
+    }));
 
-  const learningInsights = [
-    {
-      observation: "Technical deep-dives on LinkedIn receive 3.2× higher executive engagement than high-level trend summaries.",
-      conclusion: "Audience seeks actionable engineering solutions and implementation benchmarks.",
-      nextAction: "Prioritize step-by-step PDF slide decks and real diagnostic screenshots in upcoming production cycles.",
-    },
-    {
-      observation: "Reels with text overlay hooks in the first 2 seconds retain 45% more viewers past the 5-second mark.",
-      conclusion: "Immediate visual clarity is essential for organic reach on Instagram and TikTok.",
-      nextAction: "Enforce high-contrast animated hook badges on all short-form video prompts.",
-    },
-  ];
+  const learningInsights = safeArray<any>((intel as any).insights)
+    .filter((l) => l?.observation)
+    .slice(0, 6)
+    .map((l) => ({
+      observation: String(l.observation).slice(0, 400),
+      conclusion: String(l.conclusion || "").slice(0, 400),
+      nextAction: String(l.nextAction || "").slice(0, 400),
+    }));
 
-  onProgress?.("Growth strategy successfully finalized and synchronized.", "done");
+  // ── which platforms still have no CTA destination? ────────────────────────
+  const destinations = input.ctaDestinations || {};
+  const needsDestinationFor = brand.website
+    ? []
+    : targetPlatforms.filter((pl) => {
+        const key = pl.toLowerCase();
+        return !destinations[key] && !destinations[pl] && !destinations.default;
+      });
+
+  if (needsDestinationFor.length > 0) {
+    warnings.push(
+      `No CTA link set for: ${needsDestinationFor.join(", ")}. Add a destination link in the Goal tab or these posts cannot generate trackable leads.`
+    );
+  }
+
+  onProgress?.("Growth strategy finalised.", "done");
 
   return {
     targetLeads: leadTarget,
     leadType,
     timeframeDays,
     startDate: new Date().toISOString(),
+    targetPlatforms,
+    leadSources,
+    articlesPerWeek: funnel.requiredArticlesPerWeek,
     funnel,
     platformStrategies,
     contentPillars,
@@ -638,14 +1053,24 @@ export async function generateGrowthStrategy(
     recommendations,
     experiments,
     learningInsights,
+    warnings: warnings.length ? warnings : undefined,
+    needsDestinationFor: needsDestinationFor.length ? needsDestinationFor : undefined,
+    research: {
+      trends: trendRes.text || undefined,
+      competitors: competitorInsights || undefined,
+      trendSources: trendRes.sources
+        .slice(0, 8)
+        .map((s: any) => ({ title: s?.title || s?.web?.title, url: s?.uri || s?.url || s?.web?.uri }))
+        .filter((s: any) => s.url),
+    },
     dataSources: {
-      brandDNASynced: Boolean(workspace?.brandDNA),
-      analyzedPostsCount: historicalPosts.length,
-      trackedLeadsCount: funnel.requiredConversions,
+      brandDNASynced: brand.hasBrandDNA,
+      analyzedPostsCount: metrics.lifetimePosts,
+      trackedLeadsCount: metrics.lifetimeLeads,
       connectedPlatformsCount: connectedPlatforms.length,
-      trendSourcesCount,
-      competitorSourcesCount: 2,
-      historicalPeriod: historicalPosts.length > 0 ? "Last 30 Days" : "Industry Benchmark Baseline",
+      trendSourcesCount: trendRes.sources.length,
+      competitorSourcesCount: competitorInsights ? 1 : 0,
+      historicalPeriod: metrics.lifetimePosts > 0 ? "Last 90 days (measured)" : "No published history yet",
       isBenchmarkFallback: funnel.isBenchmarkFallback,
     },
   };

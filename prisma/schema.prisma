@@ -35,6 +35,17 @@ model Workspace {
   hashtagGroups   HashtagGroup[]
   memories        Memory[]
   growthGoal      GrowthGoal?
+  wordpressSite   WordPressSite?
+  trackedLinks    TrackedLink[]
+  linkClicks      LinkClick[]
+  leadEvents      LeadEvent[]
+  publishLogs     PublishLog[]
+
+  // Website lead-capture tag (one site per workspace)
+  trackingKey        String?   @unique
+  trackingDomain     String?
+  trackingVerifiedAt DateTime?
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -255,16 +266,28 @@ model GrowthGoal {
   id                   String       @id @default(uuid())
   workspaceId          String       @unique
   workspace            Workspace    @relation(fields: [workspaceId], references: [id])
-  leadTarget           Int          @default(150)
+  leadTarget           Int
   leadType             String       @default("QUALIFIED_LEADS")
   customLeadTypeName   String?
-  timeframeDays        Int          @default(60)
+  timeframeDays        Int
   startDate            DateTime     @default(now())
-  targetPlatforms      String[]     @default(["LinkedIn", "Instagram", "X", "TikTok"])
+  targetPlatforms      String[]     @default([])
   pausedPlatforms      String[]     @default([])
+
+  // Where leads are expected from: "SOCIAL" and/or "WEBSITE"
+  leadSources          String[]     @default(["SOCIAL"])
+  // Per-platform real CTA destinations, e.g. { "default": "https://…", "linkedin": "https://…" }
+  ctaDestinations      Json?
+  dailyPostCap         Int?
+  articlesPerWeek      Int?
+  // Minutes an autopilot post waits before going live, so the user can still delete it
+  graceMinutes         Int          @default(15)
+  lastPlanRunAt        DateTime?
+  lastPlanError        String?      @db.Text
+
   status               String       @default("INSUFFICIENT_DATA")
   statusReason         String?      @db.Text
-  autopilotMode        String       @default("ASSISTED")
+  autopilotMode        String       @default("AUTOPILOT")
   autopilotPermissions Json?
   isAutopilotPaused    Boolean      @default(false)
   isPublishingPaused   Boolean      @default(false)
@@ -275,6 +298,131 @@ model GrowthGoal {
   lastAuditedAt        DateTime?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// LEAD MEASUREMENT — real, measured data only
+// ---------------------------------------------------------------------------
+
+/// One short link per AI-generated post/article CTA. Clicks that arrive through
+/// it are real clicks from social media, not estimates.
+model TrackedLink {
+  id          String      @id @default(uuid())
+  code        String      @unique
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id])
+  postId      String?
+  goalId      String?
+  channel     String      @default("SOCIAL")
+  platform    String
+  destination String
+  pillar      String?
+  clickCount  Int         @default(0)
+  leadCount   Int         @default(0)
+  clicks      LinkClick[]
+  leads       LeadEvent[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId])
+  @@index([postId])
+}
+
+model LinkClick {
+  id            String      @id @default(uuid())
+  trackedLinkId String
+  trackedLink   TrackedLink @relation(fields: [trackedLinkId], references: [id], onDelete: Cascade)
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id])
+  platform      String
+  referrer      String?
+  country       String?
+  device        String?
+  /// sha256(ip + salt) — used only to flag repeat clicks, no raw IP stored
+  ipHash        String?
+  isUnique      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+
+  @@index([trackedLinkId])
+  @@index([workspaceId, createdAt])
+}
+
+model LeadEvent {
+  id            String       @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id])
+  trackedLinkId String?
+  trackedLink   TrackedLink? @relation(fields: [trackedLinkId], references: [id])
+  postId        String?
+  platform      String?
+  /// MANUAL | WEBSITE_TAG | LINK_CLICK_CONFIRMED
+  source        String       @default("MANUAL")
+  /// SOCIAL | WEBSITE
+  channel       String       @default("SOCIAL")
+  /// form_submit | whatsapp | mailto | tel | custom
+  action        String?
+  leadType      String       @default("QUALIFIED_LEADS")
+  contactName   String?
+  contactInfo   String?
+  value         Float?
+  note          String?      @db.Text
+  /// NEW | CONFIRMED | QUALIFIED | WON | LOST
+  status        String       @default("CONFIRMED")
+  occurredAt    DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([workspaceId, occurredAt])
+  @@index([postId])
+}
+
+/// Slim permanent publish receipt. Heavy Post rows are purged after 3 days but
+/// this row (and its live link) is kept, so history never disappears.
+model PublishLog {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  postId        String?
+  goalId        String?
+  trackedLinkId String?
+  /// SOCIAL | WEBSITE
+  channel       String    @default("SOCIAL")
+  platform      String
+  format        String?
+  /// PUBLISHED | FAILED
+  status        String
+  liveUrl       String?
+  mediaUrl      String?
+  mediaType     String?
+  excerpt       String    @db.VarChar(240)
+  topic         String?
+  keyword       String?
+  error         String?   @db.Text
+  publishedAt   DateTime  @default(now())
+
+  @@index([workspaceId, publishedAt])
+  @@index([postId])
+}
+
+model WordPressSite {
+  id                String    @id @default(uuid())
+  workspaceId       String    @unique
+  workspace         Workspace @relation(fields: [workspaceId], references: [id])
+  siteUrl           String
+  username          String
+  /// Encrypted when APP_ENCRYPTION_KEY is set. Never returned to the client.
+  appPassword       String
+  defaultStatus     String    @default("publish")
+  defaultCategoryId Int?
+  defaultAuthorId   Int?
+  postType          String    @default("posts")
+  enableYoastSeo    Boolean   @default(true)
+  lastVerifiedAt    DateTime?
+  lastError         String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([workspaceId])
 }

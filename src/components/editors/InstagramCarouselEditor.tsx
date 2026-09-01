@@ -36,6 +36,7 @@ import {
   canRemoveDeckSlide,
   nextActiveSlideIndex,
 } from "./deckSlides";
+import { DECK_MEDIA_FIT, mediaPreviewFrame, resolvePreviewRatio } from "./mediaPreviewFrame";
 
 export interface CarouselSlideItem {
   slideNumber: number;
@@ -159,6 +160,28 @@ export default function InstagramCarouselEditor({
   const currentIdx = Math.min(Math.max(0, activeSlideIndex), effectiveSlides.length - 1);
   const activeSlide = effectiveSlides[currentIdx] || effectiveSlides[0];
   const hasCaption = Boolean(caption && caption.trim().length > 0);
+
+  // Slides carry typeset headlines and body copy, so the preview is shown at the real
+  // publish ratio and at full width — a 220px card made that copy illegible.
+  const previewFrame = mediaPreviewFrame(
+    resolvePreviewRatio(slideAspectRatio, capability.defaultAspectRatio)
+  );
+
+  const resolveSlideAspectRatio = () => {
+    const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
+    return slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
+      ? slideAspectRatio
+      : capability.defaultAspectRatio;
+  };
+
+  const renderActiveSlideMedia = () => {
+    onRenderSlideMedia({
+      aspectRatio: resolveSlideAspectRatio(),
+      style: slideStyle,
+      quality: slideQuality,
+      imageModel: "gemini-3-pro-image",
+    });
+  };
 
   const handleUpdateActiveSlide = (field: keyof CarouselSlideItem, value: any) => {
     const updated = [...effectiveSlides];
@@ -312,11 +335,14 @@ export default function InstagramCarouselEditor({
         </div>
       </div>
 
-      {/* ACTIVE SLIDE EDITOR (LEFT PREVIEW + RIGHT CONTENT) */}
+      {/* ACTIVE SLIDE PREVIEW (LEFT) + POST COPY & ONE-CLICK GENERATE (RIGHT) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-        {/* LEFT COLUMN: ACTIVE SLIDE VISUAL CARD */}
-        <div className="xl:col-span-5 space-y-3.5">
-          <div className="relative rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center min-h-[260px] max-w-[220px] mx-auto aspect-[4/5] overflow-hidden group shadow-2xs">
+        {/* LEFT COLUMN: ACTIVE SLIDE VISUAL AT FULL PUBLISH SIZE */}
+        <div className="xl:col-span-7 space-y-3.5">
+          <div
+            className="relative w-full mx-auto rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs"
+            style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
+          >
             {isRenderingSlideMedia ? (
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
@@ -329,6 +355,7 @@ export default function InstagramCarouselEditor({
               <div className="relative w-full h-full rounded-xl overflow-hidden">
                 <ContentMediaRenderer
                   url={activeSlide.imageUrl}
+                  className={DECK_MEDIA_FIT}
                   isVertical={false}
                   showRemoveButton={false}
                   showDownloadButton={false}
@@ -344,29 +371,17 @@ export default function InstagramCarouselEditor({
               </div>
             ) : renderError ? (
               <div className="text-center p-4 space-y-2.5">
-                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <AlertCircle className="h-8 w-8 text-destructive mx-auto" />
                 <div className="space-y-0.5">
-                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-xs font-bold text-destructive">Generation failed</p>
                   <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
                 </div>
                 <Button
                   type="button"
                   size="sm"
                   disabled={!activeSlide.visualPrompt.trim()}
-                  onClick={() => {
-                    const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
-                    const safeAspectRatio =
-                      slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
-                        ? slideAspectRatio
-                        : capability.defaultAspectRatio;
-                    onRenderSlideMedia({
-                      aspectRatio: safeAspectRatio,
-                      style: slideStyle,
-                      quality: slideQuality,
-                      imageModel: "gemini-3-pro-image",
-                    });
-                  }}
-                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                  onClick={renderActiveSlideMedia}
+                  className="h-7 text-[11px] bg-destructive text-white hover:bg-destructive/90 font-bold"
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
@@ -434,6 +449,172 @@ export default function InstagramCarouselEditor({
               <Download className="h-4 w-4" /> Save Slide {currentIdx + 1} Image (.png)
             </Button>
           )}
+        </div>
+
+        {/* RIGHT COLUMN: SHARED POST COPY + THE ONE ACTION THAT BUILDS THE WHOLE POST */}
+        <div className="xl:col-span-5 space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                {capability.label || "Post"} Caption (Shared)
+              </label>
+              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+            </div>
+            <Textarea
+              rows={6}
+              value={caption}
+              onChange={(e) => onCaptionChange(e.target.value)}
+              placeholder="Write your comprehensive carousel caption, breakdown, and call to action..."
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+            />
+            {onAIRefine && (
+              <CaptionRefineActions
+                formatKey={formatKey}
+                caption={caption}
+                onRefine={onAIRefine}
+                isRefining={isRefiningCaption}
+                refiningAction={refiningAction}
+              />
+            )}
+          </div>
+
+          {/* HASHTAGS & LOCATION */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                  <Hash className="h-3.5 w-3.5 text-secondary" /> Hashtags
+                </label>
+                {onGenerateField && (<button type="button" onClick={() => {
+                  if (generatingField === "hashtags") {
+                    cancelAIAction("field", `${formatKey}:hashtags`);
+                  } else {
+                    onGenerateField("hashtags");
+                  }
+                }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                  generatingField === "hashtags"
+                    ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                    : "bg-secondary/10 text-secondary hover:bg-secondary/20"
+                } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
+                  </button>)}
+              </div>
+              <Input
+                value={hashtags.join(" ")}
+                onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
+                placeholder="#marketing #robotics #ai #growth"
+                className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5 text-secondary" /> Add Location
+              </label>
+              <Input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. San Francisco, California"
+                className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
+              />
+            </div>
+          </div>
+
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
+          {onAnalyzeMedia && (
+            <AnalyzeMediaAIButton
+              formatKey={formatKey}
+              onClick={onAnalyzeMedia}
+              isAnalyzing={isAnalyzingMedia}
+              hasMedia={hasUserMedia}
+            />
+          )}
+
+          {/*
+            THE post action. One press writes the storyboard + caption + hashtags and
+            then designs every slide graphic, so the carousel comes out publish-ready.
+          */}
+          <div className="pt-1 space-y-1.5">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                if (isGeneratingAI) {
+                  cancelAIAction("copy", formatKey);
+                  return;
+                }
+                onGenerateCarouselAI();
+              }}
+              title={isGeneratingAI ? "Stop carousel generation" : undefined}
+              className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
+                isGeneratingAI
+                  ? "bg-destructive text-white hover:bg-destructive/90"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              }`}
+            >
+              {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel...") : "Generate Complete Carousel Post with AI"}</span>
+            </Button>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Writes the caption and hashtags, then designs all {effectiveSlides.length} slide graphics.
+              Every selected platform that shares this format gets the same post.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* SLIDE COPY, IMAGE SETTINGS & PROMPT — under the preview they change */}
+      <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3.5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5 items-start">
+          {/* SLIDE COPY — this text is typeset into the slide graphic */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Slide {currentIdx + 1} Step Header
+              </label>
+              <Input
+                value={activeSlide.title}
+                onChange={(e) => handleUpdateActiveSlide("title", e.target.value)}
+                placeholder={`e.g. 0${currentIdx + 1} // The Core Framework`}
+                className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Slide {currentIdx + 1} Body Copy (Rendered on visual overlay)
+              </label>
+              <Textarea
+                rows={3}
+                value={activeSlide.body}
+                onChange={(e) => handleUpdateActiveSlide("body", e.target.value)}
+                placeholder="Write 1-2 high-value, crisp sentences for this carousel slide..."
+                className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
+              />
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (isRegeneratingSlide) {
+                  cancelAIAction("slide", `${formatKey}:${currentIdx}`);
+                  return;
+                }
+                onRegenerateSlideAI(currentIdx);
+              }}
+              title={isRegeneratingSlide ? "Stop regenerating this slide" : undefined}
+              className={`w-full h-8.5 text-xs font-bold gap-1.5 transition-colors ${
+                isRegeneratingSlide
+                  ? "border-destructive/30 text-destructive hover:bg-destructive/10"
+                  : "border-secondary/30 text-secondary hover:bg-secondary/10"
+              }`}
+            >
+              {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              <span>{isRegeneratingSlide ? `Stop Regenerating Slide ${currentIdx + 1}` : `Regenerate Slide ${currentIdx + 1} Copy & Visual`}</span>
+            </Button>
+          </div>
 
           {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
@@ -445,7 +626,7 @@ export default function InstagramCarouselEditor({
 
             <div className="space-y-2.5">
 
-              {/* 2. Aspect Ratio */}
+              {/* Aspect Ratio */}
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                   Aspect Ratio
@@ -463,7 +644,7 @@ export default function InstagramCarouselEditor({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* 3. Visual Style */}
+                {/* Visual Style */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                     Visual Style
@@ -483,7 +664,7 @@ export default function InstagramCarouselEditor({
                   </select>
                 </div>
 
-                {/* 4. Quality */}
+                {/* Quality */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                     Quality
@@ -501,276 +682,110 @@ export default function InstagramCarouselEditor({
               </div>
             </div>
           </div>
-
-          {/* UNIFIED SLIDE PROMPT CONTROLS */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
-            <div className="flex items-center justify-between flex-wrap gap-1.5">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Slide Prompt
-              </label>
-              <div className="flex items-center gap-3">
-                {onCaptionToPrompt && (
-                  <button
-                    type="button"
-                    disabled={!isGeneratingPromptFromScript && !hasCaption}
-                    onClick={() => {
-                      if (isGeneratingPromptFromScript) {
-                        cancelAIAction("script", formatKey);
-                      } else {
-                        onCaptionToPrompt();
-                      }
-                    }}
-                    title={isGeneratingPromptFromScript ? "Stop generating slide prompt" : hasCaption ? "Generate slide prompt from current caption" : "Please enter a caption first"}
-                    className={`text-[11px] font-semibold transition-colors ${
-                      isGeneratingPromptFromScript
-                        ? "text-red-500 hover:text-red-600 cursor-pointer"
-                        : hasCaption
-                        ? "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
-                        : "text-slate-400 cursor-not-allowed opacity-60"
-                    }`}
-                  >
-                    {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt from Caption"}
-                  </button>
-                )}
-                {onEnhancePrompt && (
-                  <button
-                    type="button"
-                    disabled={!isEnhancingPrompt && (!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim())}
-                    onClick={() => {
-                      if (isEnhancingPrompt) {
-                        cancelAIAction("enhance", formatKey);
-                      } else {
-                        onEnhancePrompt();
-                      }
-                    }}
-                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                      isEnhancingPrompt
-                        ? "text-red-500 hover:text-red-600 cursor-pointer"
-                        : !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
-                          ? "text-slate-400 cursor-not-allowed opacity-50"
-                          : "text-purple-600 hover:text-purple-700 hover:underline cursor-pointer"
-                    }`}
-                  >
-                    {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
-                  </button>
-                )}
-                {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
-                  <button
-                    type="button"
-                    onClick={onRestoreOriginalPrompt}
-                    title={originalPrompt}
-                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
-                  >
-                    ↩ Original
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <Textarea
-              rows={3}
-              value={activeSlide.visualPrompt}
-              onChange={(e) => handleUpdateActiveSlide("visualPrompt", e.target.value)}
-              placeholder="Describe image aesthetic, subject placement, and color palette for this slide..."
-              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
-            />
-
-            <Button
-              type="button"
-              size="sm"
-              disabled={!isRenderingSlideMedia && !activeSlide.visualPrompt.trim()}
-              onClick={isRenderingSlideMedia ? (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
-                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
-                }));
-              } : () => {
-                const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
-                const safeAspectRatio =
-                  slideAspectRatio !== "auto" && supportedRatios.includes(slideAspectRatio as any)
-                    ? slideAspectRatio
-                    : capability.defaultAspectRatio;
-                onRenderSlideMedia({
-                  aspectRatio: safeAspectRatio,
-                  style: slideStyle,
-                  quality: slideQuality,
-                  imageModel: "gemini-3-pro-image",
-                });
-              }}
-              className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
-                isRenderingSlideMedia 
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
-                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
-              }`}
-            >
-              {isRenderingSlideMedia ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Stop Generation</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>{`Generate Slide ${currentIdx + 1} Visual`}</span>
-                </>
-              )}
-            </Button>
-          </div>
         </div>
 
-        {/* RIGHT: SLIDE CONTENT FIELDS */}
-        <div className="xl:col-span-7 space-y-3.5">
-          <div className="space-y-1">
+        {/* UNIFIED SLIDE PROMPT CONTROLS */}
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-1.5">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Slide {currentIdx + 1} Step Header
+              Slide {currentIdx + 1} Prompt
             </label>
-            <Input
-              value={activeSlide.title}
-              onChange={(e) => handleUpdateActiveSlide("title", e.target.value)}
-              placeholder={`e.g. 0${currentIdx + 1} // The Core Framework`}
-              className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Slide {currentIdx + 1} Body Copy (Rendered on visual overlay)
-            </label>
-            <Textarea
-              rows={3}
-              value={activeSlide.body}
-              onChange={(e) => handleUpdateActiveSlide("body", e.target.value)}
-              placeholder="Write 1-2 high-value, crisp sentences for this carousel slide..."
-              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
-            />
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (isRegeneratingSlide) {
-                cancelAIAction("slide", `${formatKey}:${currentIdx}`);
-                return;
-              }
-              onRegenerateSlideAI(currentIdx);
-            }}
-            title={isRegeneratingSlide ? "Stop regenerating this slide" : undefined}
-            className={`w-full h-8.5 text-xs font-bold gap-1.5 transition-colors ${
-              isRegeneratingSlide
-                ? "border-red-300 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                : "border-pink-200 dark:border-pink-900/50 text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/30"
-            }`}
-          >
-            {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>{isRegeneratingSlide ? `Stop Regenerating Slide ${currentIdx + 1}` : `Regenerate Slide ${currentIdx + 1} Copy & Visual`}</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* SHARED POST CAPTION & HASHTAGS */}
-      <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Instagram Post Caption (Shared)
-            </label>
-            <CharacterCounter current={caption.length} max={capability.captionLimit} />
-          </div>
-          <Textarea
-            rows={4}
-            value={caption}
-            onChange={(e) => onCaptionChange(e.target.value)}
-            placeholder="Write your comprehensive carousel caption, breakdown, and call to action..."
-            className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
-          />
-          {onAIRefine && (
-            <CaptionRefineActions
-              formatKey={formatKey}
-              caption={caption}
-              onRefine={onAIRefine}
-              isRefining={isRefiningCaption}
-              refiningAction={refiningAction}
-            />
-          )}
-        </div>
-
-        {/* HASHTAGS & LOCATION */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Hashtags
-            </label>
-                  {onGenerateField && (<button type="button" onClick={() => {
-                    if (generatingField === "hashtags") {
-                      cancelAIAction("field", `${formatKey}:hashtags`);
+            <div className="flex items-center gap-3">
+              {onCaptionToPrompt && (
+                <button
+                  type="button"
+                  disabled={!isGeneratingPromptFromScript && !hasCaption}
+                  onClick={() => {
+                    if (isGeneratingPromptFromScript) {
+                      cancelAIAction("script", formatKey);
                     } else {
-                      onGenerateField("hashtags");
+                      onCaptionToPrompt();
                     }
-                  }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
-                    generatingField === "hashtags"
-                      ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
-                      : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
-                  } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
-                      {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
-                    </button>)}
-            <Input
-              value={hashtags.join(" ")}
-              onChange={(e) => onHashtagsChange(e.target.value.split(" ").filter(Boolean))}
-              placeholder="#marketing #robotics #ai #growth"
-              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
-            />
+                  }}
+                  title={isGeneratingPromptFromScript ? "Stop generating slide prompt" : hasCaption ? "Generate slide prompt from current caption" : "Please enter a caption first"}
+                  className={`text-[11px] font-semibold transition-colors ${
+                    isGeneratingPromptFromScript
+                      ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                      : hasCaption
+                      ? "text-primary hover:underline cursor-pointer"
+                      : "text-slate-400 cursor-not-allowed opacity-60"
+                  }`}
+                >
+                  {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt from Caption"}
+                </button>
+              )}
+              {onEnhancePrompt && (
+                <button
+                  type="button"
+                  disabled={!isEnhancingPrompt && (!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim())}
+                  onClick={() => {
+                    if (isEnhancingPrompt) {
+                      cancelAIAction("enhance", formatKey);
+                    } else {
+                      onEnhancePrompt();
+                    }
+                  }}
+                  className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    isEnhancingPrompt
+                      ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                      : !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
+                        ? "text-slate-400 cursor-not-allowed opacity-50"
+                        : "text-secondary hover:underline cursor-pointer"
+                  }`}
+                >
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
+                </button>
+              )}
+              {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
+                <button
+                  type="button"
+                  onClick={onRestoreOriginalPrompt}
+                  title={originalPrompt}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                >
+                  ↩ Original
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Add Location
-            </label>
-            <Input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. San Francisco, California"
-              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
-            />
-          </div>
-        </div>
+          <Textarea
+            rows={3}
+            value={activeSlide.visualPrompt}
+            onChange={(e) => handleUpdateActiveSlide("visualPrompt", e.target.value)}
+            placeholder="Describe image aesthetic, subject placement, and color palette for this slide..."
+            className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
+          />
 
-        {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
-        {onAnalyzeMedia && (
-          <div className="pt-1">
-            <AnalyzeMediaAIButton
-              formatKey={formatKey}
-              onClick={onAnalyzeMedia}
-              isAnalyzing={isAnalyzingMedia}
-              hasMedia={hasUserMedia}
-            />
-          </div>
-        )}
-
-        {/* AUTO-GENERATE FULL CAROUSEL BUTTON */}
-        <div className="pt-1">
           <Button
             type="button"
             size="sm"
-            onClick={() => {
-              if (isGeneratingAI) {
-                cancelAIAction("copy", formatKey);
-                return;
-              }
-              onGenerateCarouselAI();
-            }}
-            title={isGeneratingAI ? "Stop carousel generation" : undefined}
-            className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-              isGeneratingAI
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
-                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+            disabled={!isRenderingSlideMedia && !activeSlide.visualPrompt.trim()}
+            onClick={isRenderingSlideMedia ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              window.dispatchEvent(new CustomEvent("cancel-render-media", {
+                detail: { formatKey: `${capability.platform}-${capability.format}` }
+              }));
+            } : renderActiveSlideMedia}
+            className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+              isRenderingSlideMedia
+              ? "bg-destructive text-white hover:bg-destructive/90"
+              : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
             }`}
           >
-            {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel...") : "Generate Carousel Slides, Captions & Prompts with AI"}</span>
+            {isRenderingSlideMedia ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Stop Generation</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>{`Generate Slide ${currentIdx + 1} Visual`}</span>
+              </>
+            )}
           </Button>
         </div>
       </div>
