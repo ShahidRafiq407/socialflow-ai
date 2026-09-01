@@ -46,6 +46,7 @@ import {
   editPost,
   retryPost,
 } from "@/actions/content";
+import { isMediaVideoUrl } from "@/lib/media/urls";
 
 export interface PostProps {
   id: string;
@@ -193,6 +194,21 @@ export function PostCard({ post }: { post: PostProps }) {
 
   const meta = getPlatformMetadata(post.platform, post.format, post.mediaType);
   const PlatformIcon = meta.icon;
+
+  // Resolve preview media: imageUrl first, then mediaHistory fallback (some
+  // publish paths persist media only in mediaHistory).
+  const mediaHistoryUrls: string[] = Array.isArray(
+    post.mediaHistory?.mediaUrls
+  )
+    ? post.mediaHistory.mediaUrls.filter(
+        (u: unknown) => typeof u === "string" && (u as string).length > 0
+      )
+    : [];
+  const displayMedia =
+    post.imageUrl && /^(https?:|data:|\/)/i.test(post.imageUrl)
+      ? post.imageUrl
+      : mediaHistoryUrls[0] || null;
+  const isVideo = isMediaVideoUrl(displayMedia, post.mediaType || undefined);
 
   const handleApprove = () => {
     setLoadingAction("approve");
@@ -472,14 +488,24 @@ export function PostCard({ post }: { post: PostProps }) {
         {/* STATUS-SPECIFIC BANNER */}
         {renderStatusBanner()}
 
-        {/* OPTIONAL IMAGE PREVIEW */}
-        {post.imageUrl && (
+        {/* MEDIA PREVIEW (image or video) */}
+        {displayMedia && (
           <div className="w-full overflow-hidden border-b bg-slate-900/10 relative">
-            <img
-              src={post.imageUrl}
-              alt="AI Generated Asset"
-              className="w-full aspect-video object-cover transition-transform hover:scale-105 duration-300"
-            />
+            {isVideo ? (
+              <video
+                src={displayMedia}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full aspect-video object-cover bg-slate-900"
+              />
+            ) : (
+              <img
+                src={displayMedia}
+                alt="AI Generated Asset"
+                className="w-full aspect-video object-cover transition-transform hover:scale-105 duration-300"
+              />
+            )}
             <div className="absolute bottom-2 right-2">
               <Badge className="bg-slate-900/80 text-white text-[10px] backdrop-blur-xs">
                 {meta.formatTag}

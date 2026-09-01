@@ -346,6 +346,23 @@ export async function dispatchDueScheduledPosts() {
     const workspaceIds = workspaces.map((w) => w.id);
     if (workspaceIds.length === 0) return { success: true, dispatched: 0 };
 
+    // Published posts are kept only as a short-lived receipt (1 hour) —
+    // purge them here on every dispatch tick so removal happens promptly
+    // while the dashboard is open, without waiting for the daily cron.
+    const publishedCutoff = new Date(Date.now() - 60 * 60 * 1000);
+    await prisma.post
+      .deleteMany({
+        where: {
+          workspaceId: { in: workspaceIds },
+          status: { in: ['PUBLISHED', 'published'] },
+          OR: [
+            { publishedAt: { lt: publishedCutoff } },
+            { publishedAt: null, createdAt: { lt: publishedCutoff } },
+          ],
+        },
+      })
+      .catch(() => {});
+
     const due = await prisma.post.findMany({
       where: {
         workspaceId: { in: workspaceIds },

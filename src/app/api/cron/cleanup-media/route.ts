@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 const RETENTION_HOURS = 24;
 const FAILED_RETENTION_DAYS = 7;
-const PUBLISHED_RETENTION_DAYS = 30;
+const PUBLISHED_RETENTION_HOURS = 1;
 
 /**
  * Auto-Cleanup Cron Job — runs every 6 hours via Vercel Cron
@@ -16,9 +16,9 @@ const PUBLISHED_RETENTION_DAYS = 30;
  *
  * 1. Supabase Storage: Deletes media files older than 24 hours
  * 2. Neon DB - MediaAsset: Deletes asset records older than 24 hours
- * 3. Neon DB - Posts: Deletes PUBLISHED posts older than 30 days and FAILED
- *    posts older than 7 days (the Content Library keeps them as history /
- *    retryable items during that window).
+ * 3. Neon DB - Posts: Deletes PUBLISHED posts 1 hour after they go live
+ *    (the library keeps them only as a short-lived receipt) and FAILED
+ *    posts after 7 days.
  *
  * NEVER deletes: Users, Workspaces, Brand DNA, Settings, Integrations,
  * drafts, scheduled, in-review, or rejected posts.
@@ -96,12 +96,12 @@ export async function GET(req: NextRequest) {
     }
 
     // =====================================================================
-    // 2. Delete old PUBLISHED posts (30-day history) and FAILED posts
-    //    (7-day retry window). Drafts, scheduled, in-review and rejected
-    //    posts are always kept.
+    // 2. Delete PUBLISHED posts 1 hour after they go live (short-lived
+    //    receipt only — saves DB space) and FAILED posts after 7 days.
+    //    Drafts, scheduled, in-review and rejected posts are always kept.
     // =====================================================================
     const publishedCutoff = new Date(
-      Date.now() - PUBLISHED_RETENTION_DAYS * 24 * 60 * 60 * 1000
+      Date.now() - PUBLISHED_RETENTION_HOURS * 60 * 60 * 1000
     );
     const failedCutoff = new Date(
       Date.now() - FAILED_RETENTION_DAYS * 24 * 60 * 60 * 1000
@@ -110,14 +110,15 @@ export async function GET(req: NextRequest) {
     const oldPosts = await prisma.post.deleteMany({
       where: {
         OR: [
-          { createdAt: { lt: publishedCutoff }, status: { in: ['PUBLISHED', 'published'] } },
+          { publishedAt: { lt: publishedCutoff }, status: { in: ['PUBLISHED', 'published'] } },
+          { publishedAt: null, createdAt: { lt: publishedCutoff }, status: { in: ['PUBLISHED', 'published'] } },
           { createdAt: { lt: failedCutoff }, status: { in: ['FAILED', 'failed'] } },
         ],
       },
     });
     results.posts = {
       deleted: oldPosts.count,
-      note: 'Published posts kept for 30 days, failed posts for 7 days. Drafts, scheduled, in-review and rejected posts are always kept.',
+      note: 'Published posts kept for 1 hour, failed posts for 7 days. Drafts, scheduled, in-review and rejected posts are always kept.',
     };
 
     // =====================================================================

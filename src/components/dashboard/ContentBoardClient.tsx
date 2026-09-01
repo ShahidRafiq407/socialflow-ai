@@ -126,8 +126,8 @@ export function ContentBoardClient({
         };
       case "PUBLISHED":
         return {
-          title: "No published history yet",
-          body: "Once your posts go live, they stay listed here for 30 days with links to the live content.",
+          title: "No published posts yet",
+          body: "Once your posts go live, they appear here with links to the live content — kept for 1 hour before being auto-cleaned to save space.",
         };
       case "FAILED":
         return {

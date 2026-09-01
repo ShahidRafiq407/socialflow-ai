@@ -21,9 +21,9 @@ export default async function ContentLibraryPage() {
   const workspaceName = workspace?.name || "SMB Robotics";
 
   // Content Library = everything the user owns: drafts, needs-review,
-  // scheduled, published history, failed (retryable) and rejected. Only the
-  // transient PUBLISHING state is hidden. Published posts are kept for 30
-  // days by the cleanup cron.
+  // scheduled, published (kept 1 hour as a receipt, then auto-cleaned by
+  // the dispatcher/cron), failed (retryable) and rejected. Only the
+  // transient PUBLISHING state is hidden.
   const posts = await Promise.race([
     prisma.post.findMany({
       where: {
