@@ -37,6 +37,7 @@ model Workspace {
   growthGoal      GrowthGoal?
   wordpressSite   WordPressSite?
   connections     UserConnection[]
+  mcpServers      McpServerConnection[]
   trackedLinks    TrackedLink[]
   linkClicks      LinkClick[]
   leadEvents      LeadEvent[]
@@ -448,6 +449,31 @@ model UserConnection {
   updatedAt      DateTime  @updatedAt
 
   @@unique([workspaceId, providerKey])
+  @@index([workspaceId])
+}
+
+// User-added external MCP (Model Context Protocol) servers. The URL plus any
+// auth headers are stored (headers encrypted with APP_ENCRYPTION_KEY) and the
+// discovered tool list is cached so chat requests stay fast. Connections are
+// opened per request (serverless-friendly Streamable HTTP).
+model McpServerConnection {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  name           String
+  url            String
+  /// Encrypted JSON header map when APP_ENCRYPTION_KEY is set.
+  headers        String?   @db.Text
+  enabled        Boolean   @default(true)
+  /// Snapshot of tools discovered at the last successful verify:
+  /// { tools: [{ name, description, inputSchema }], discoveredAt }
+  toolCache      Json?
+  lastVerifiedAt DateTime?
+  lastError      String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([workspaceId, name])
   @@index([workspaceId])
 }
 

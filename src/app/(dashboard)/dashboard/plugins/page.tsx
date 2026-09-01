@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import PluginsHQ from "@/components/dashboard/PluginsHQ";
 import { getWordPressSite } from "@/actions/wordpressSite";
 import { listConnections } from "@/actions/connections";
+import { listMcpServers } from "@/actions/mcpServers";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +23,18 @@ export default async function PluginsPage() {
     redirect("/onboarding");
   }
 
-  const [wpSite, connections] = await Promise.all([
+  const [wpSite, connections, mcpServers] = await Promise.all([
     getWordPressSite(workspace.id),
     listConnections(workspace.id),
+    listMcpServers(workspace.id),
   ]);
 
   return (
-    <PluginsHQ workspaceId={workspace.id} wpSite={wpSite} connections={connections} />
+    <PluginsHQ
+      workspaceId={workspace.id}
+      wpSite={wpSite}
+      connections={connections}
+      mcpServers={mcpServers}
+    />
   );
 }

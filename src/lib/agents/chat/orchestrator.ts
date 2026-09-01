@@ -1,5 +1,6 @@
 import { vertexProvider, MODELS } from "../llm";
-import { getTool, describeTools, ToolContext } from "./tools";
+import { getTool, describeTools, ToolContext, ToolDef } from "./tools";
+import { getWorkspaceMcpTools } from "@/lib/mcp/tools";
 import { recallMemories, saveMemory, MemoryFact } from "../memory";
 import { getWorkspaceBrandDNA } from "@/actions/brand";
 
@@ -39,7 +40,8 @@ export interface BrainResult {
 
 async function planActions(
   prompt: string,
-  context: string
+  context: string,
+  mcpTools: ToolDef[] = []
 ): Promise<{ reasoning: string; actions: { tool: string; args: any }[] }> {
   const now = new Date();
   const currentDateStr = now.toLocaleDateString("en-US", {
@@ -51,13 +53,23 @@ async function planActions(
   const currentIso = now.toISOString();
   const currentYear = now.getFullYear();
 
+  const toolsBlock =
+    mcpTools.length > 0
+      ? `${describeTools()}\n${describeMcpTools(mcpTools)}`
+      : describeTools();
+
+  const mcpRules =
+    mcpTools.length > 0
+      ? `\n\n8. EXTERNAL MCP TOOLS:\n   - Tools whose name starts with "mcp__" come from MCP servers the user connected in the Plugins tab.\n   - Each is a real, verified external capability (e.g. document search, GitHub, data lookups). Prefer them whenever the request matches their description.\n   - Pass only the parameters declared in the tool's input schema. Unknown/extra parameters will be rejected by the server.\n   - If an mcp__ tool returns an error, report it honestly — do not fabricate a result.`
+      : "";
+
   const sys = `You are the Marketing Brain orchestrator — the central natural-language AI controller of an elite marketing SaaS platform.
 CURRENT DATE: ${currentDateStr} (ISO: ${currentIso}, Year: ${currentYear}).
 
 You have FULL natural-language control over the entire workspace: Content Library, Calendar, Brand DNA, Competitor Intelligence, Real-time Trends, AI Media Generation (Images & Videos), Analytics, and Multi-platform Publishing.
 
 AVAILABLE TOOLS:
-${describeTools()}
+${toolsBlock}
 
 ${context}
 
@@ -115,8 +127,9 @@ ORCHESTRATION & PLANNING RULES:
    - Write professional README.md content yourself (project title, description, features, tech stack, setup, usage) — the file content is passed as plain text in the files array.
    - If github_status reports not connected, tell the user exactly how to connect: Plugins tab (dashboard/plugins) → GitHub → Personal Access Token with Contents + Administration permissions.
    - Never claim a repo was created or files were pushed unless the tool result confirms it (repo URL / per-file success).
+${mcpRules}
 
-8. RETURN FORMAT:
+${mcpTools.length > 0 ? 9 : 8}. RETURN FORMAT:
    - Return ONLY valid JSON (no markdown fences) in this exact shape:
    { "reasoning": "short explanation of the plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
 
@@ -135,6 +148,19 @@ ORCHESTRATION & PLANNING RULES:
       .filter((a: any) => a && typeof a.tool === "string")
       .map((a: any) => ({ tool: a.tool, args: a.args || {} })),
   };
+}
+
+/** Compact MCP tool list for the planner prompt, with input schemas. */
+function describeMcpTools(mcpTools: ToolDef[]): string {
+  return mcpTools
+    .map((t) => {
+      const props =
+        t.parameters && t.parameters.type === "object" && t.parameters.properties
+          ? ` params: ${JSON.stringify(t.parameters.properties).slice(0, 400)}`
+          : "";
+      return `- ${t.name}: ${t.description}${props}`;
+    })
+    .join("\n");
 }
 
 /**
@@ -209,6 +235,12 @@ function generateSuggestions(
       "Push a project README for another repo",
       "List my recently updated repositories"
     );
+  } else if (Array.from(toolsUsed).some((t) => t.startsWith("mcp__"))) {
+    suggestions.push(
+      "Use that MCP result to draft a social media post",
+      "Try another tool from the same MCP server",
+      "Add more MCP servers in the Plugins tab"
+    );
   } else if (toolsUsed.has("get_workspace_state") || toolsUsed.has("get_content_library")) {
     suggestions.push(
       "Create today's social media content",
@@ -254,6 +286,12 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
   // Pass cached brandDNA into ToolContext so tools never re-fetch it unnecessarily
   const ctx: ToolContext = { workspaceId, userId, brandDNA: brand, uploadedFiles };
 
+  // Load external MCP tools (workspace connectors). A broken/unreachable MCP
+  // server degrades to an empty list — chat must keep working.
+  onEvent?.({ type: "mcp_load" });
+  const mcpTools = await getWorkspaceMcpTools(workspaceId).catch(() => [] as ToolDef[]);
+  onEvent?.({ type: "mcp_load_done", count: mcpTools.length });
+
   const historyBlock = history
     .slice(-10)
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
@@ -286,14 +324,14 @@ export async function runBrain(input: BrainInput): Promise<BrainResult> {
         `dependent step(s). Do NOT repeat a tool that already succeeded unless re-running ` +
         `is explicitly required by an unresolved dependency.`
       : context;
-    const plan = await planActions(prompt, planCtx);
+    const plan = await planActions(prompt, planCtx, mcpTools);
     onEvent?.({ type: "reasoning", text: plan.reasoning || `Planning step ${iter + 1}` });
 
     if (!plan.actions || plan.actions.length === 0) break;
 
     const settled = await Promise.allSettled(
       plan.actions.map(async (action) => {
-        const tool = getTool(action.tool);
+        const tool = getTool(action.tool) || mcpTools.find((t) => t.name === action.tool);
         if (!tool) return { tool: action.tool, args: action.args, result: { error: "Unknown tool" } };
         onEvent?.({ type: "tool_start", tool: action.tool, args: action.args });
         const toolCtx: ToolContext = {
@@ -396,6 +434,7 @@ FORMATTING & QUALITY RULES:
    - NEVER claim an action completed unless the tool result confirms it.
    - If a tool encountered an error, explicitly tell the user what failed and why (e.g. "Image generation failed: API timeout. The caption draft was saved.").
    - Never show fake success for failed actions.
+   - Results from tools whose name starts with "mcp__" come from the user's own connected MCP servers. Present them as real external data, and if one failed, say which server/tool failed and the reason.
 
 5. Grounded Live Trend Research Reporting:
    - Base all trend and news claims strictly on the verified search tool results for ${currentYear}.

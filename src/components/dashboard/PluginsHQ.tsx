@@ -9,6 +9,7 @@ import {
   Cloud,
   Zap,
   ShoppingCart,
+  Server as ServerIcon,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
@@ -27,8 +28,11 @@ import { fetchLiveTrendingNews, TrendItem } from "@/actions/trends";
 import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS, ConnectorCategory } from "@/lib/connectors/registry";
 import type { WordPressSiteView } from "@/actions/wordpressSite";
 import type { ConnectorView } from "@/actions/connections";
+import type { McpServerView } from "@/actions/mcpServers";
 import { ConnectWordPressModal } from "./plugins/ConnectWordPressModal";
 import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
+import { AddMcpServerModal } from "./plugins/AddMcpServerModal";
+import { McpServerCard } from "./plugins/McpServerCard";
 
 const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
   dev: GitBranch,
@@ -48,16 +52,19 @@ interface PluginsHQProps {
   workspaceId: string;
   wpSite: WordPressSiteView;
   connections: ConnectorView[];
+  mcpServers: McpServerView[];
 }
 
-export default function PluginsHQ({ workspaceId, wpSite, connections }: PluginsHQProps) {
+export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers }: PluginsHQProps) {
   const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
   const [wpSiteState, setWpSiteState] = useState<WordPressSiteView>(wpSite);
   const [connectionsState, setConnectionsState] = useState<ConnectorView[]>(connections);
+  const [mcpServersState, setMcpServersState] = useState<McpServerView[]>(mcpServers);
 
   const [showWpModal, setShowWpModal] = useState(false);
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
+  const [showAddMcpModal, setShowAddMcpModal] = useState(false);
 
   // Live Google News Trend & Competitor Spy State
   const [spyMode, setSpyMode] = useState<"trend" | "competitor">("trend");
@@ -163,6 +170,13 @@ export default function PluginsHQ({ workspaceId, wpSite, connections }: PluginsH
             >
               <Globe className="h-4 w-4" />
               Configure WordPress
+            </button>
+            <button
+              onClick={() => setShowAddMcpModal(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 transition-all"
+            >
+              <ServerIcon className="h-4 w-4" />
+              Add MCP Server
             </button>
             <button
               onClick={() => {
@@ -308,6 +322,61 @@ export default function PluginsHQ({ workspaceId, wpSite, connections }: PluginsH
                 </div>
               );
             })}
+          </div>
+
+          {/* MCP Servers — user-added external tool servers */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                MCP Servers — bring your own tools
+              </h3>
+              <button
+                onClick={() => setShowAddMcpModal(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 transition-all"
+              >
+                <ServerIcon className="h-3.5 w-3.5" />
+                Add MCP Server
+              </button>
+            </div>
+
+            {mcpServersState.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-violet-400/40 bg-violet-500/5 p-6">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Connect any MCP server and your AI CEO can use its tools
+                </p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                  Add any service that speaks the Model Context Protocol — docs search, GitHub,
+                  Notion, databases, HeyGen-style generators, or your own custom server. We verify
+                  the connection and discover its tools; the AI CEO can then call them straight from
+                  chat.
+                </p>
+                <button
+                  onClick={() => setShowAddMcpModal(true)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-500 transition-all"
+                >
+                  <ServerIcon className="h-3.5 w-3.5" />
+                  Add your first MCP server
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {mcpServersState.map((server) => (
+                  <McpServerCard
+                    key={server.id}
+                    workspaceId={workspaceId}
+                    server={server}
+                    onUpdated={(updated) =>
+                      setMcpServersState((prev) =>
+                        prev.map((s) => (s.id === updated.id ? updated : s))
+                      )
+                    }
+                    onDeleted={(id) =>
+                      setMcpServersState((prev) => prev.filter((s) => s.id !== id))
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Planned connectors — honest, no fake states */}
@@ -598,6 +667,15 @@ export default function PluginsHQ({ workspaceId, wpSite, connections }: PluginsH
           connection={getConnection(activeConnector.key)}
           onClose={() => setActiveConnectorKey(null)}
           onUpdate={(view) => updateConnection(activeConnector.key, view)}
+        />
+      )}
+
+      {/* Add MCP Server Modal */}
+      {showAddMcpModal && (
+        <AddMcpServerModal
+          workspaceId={workspaceId}
+          onClose={() => setShowAddMcpModal(false)}
+          onAdded={(server) => setMcpServersState((prev) => [server, ...prev])}
         />
       )}
     </div>

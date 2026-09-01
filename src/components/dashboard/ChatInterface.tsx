@@ -48,6 +48,8 @@ import {
   Layers,
   Clock,
   ArrowRight,
+  Plug,
+  GitBranch,
 } from "lucide-react";
 
 interface ChatMsg {
@@ -128,6 +130,10 @@ const TOOL_LABELS: Record<string, string> = {
   update_lead_goal: "Updating organic lead goal",
   recalculate_growth_strategy: "Recalculating growth strategy",
   explain_growth_strategy: "Analyzing strategy decisions",
+  github_status: "Checking GitHub connection",
+  github_list_repos: "Listing GitHub repositories",
+  github_create_repo: "Creating GitHub repository",
+  github_push_files: "Pushing files to GitHub",
 };
 
 const IGNORED_DIRS =
@@ -952,6 +958,14 @@ function LiveStep({ icon, label, status = "running", detail, progress }: {
 
 /* ── Tool step label with argument details ── */
 function toolStepLabel(tool?: string, args?: any): string {
+  if (tool && tool.startsWith("mcp__")) {
+    // mcp__<server>__<tool> → "MCP <server>: <tool>"
+    const parts = tool.split("__");
+    const server = parts[1] || "server";
+    const mcpTool = parts.slice(2).join("__") || "tool";
+    const detail = args?.query ? ` → "${args.query}"` : "";
+    return `MCP ${server}: ${mcpTool}${detail}`;
+  }
   const base = TOOL_LABELS[tool || ""] || tool || "Working";
   let detail = "";
   if (args?.query) detail = ` → "${args.query}"`;
@@ -968,6 +982,8 @@ function toolStepLabel(tool?: string, args?: any): string {
 
 /* ── Tool-specific icon ── */
 function toolIcon(tool?: string): React.ReactNode {
+  if (tool?.startsWith("mcp__")) return <Plug className="h-3 w-3" />;
+  if (tool?.startsWith("github_")) return <GitBranch className="h-3 w-3" />;
   switch (tool) {
     case "search_web": return <Globe className="h-3 w-3" />;
     case "fetch_serp": return <Search className="h-3 w-3" />;
