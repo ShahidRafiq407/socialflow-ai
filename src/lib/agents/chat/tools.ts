@@ -1526,6 +1526,123 @@ INSTRUCTIONS:
       };
     },
   },
+
+  // ---------------- EXTERNAL CONNECTORS (GITHUB) ----------------
+  {
+    name: "github_status",
+    description:
+      "Check whether a GitHub account is connected to this workspace and return the connected username. ALWAYS call this first before any other github_* tool — if it reports not connected, tell the user to connect a Personal Access Token in the Plugins tab (dashboard/plugins).",
+    parameters: { type: "object", properties: {} },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "github");
+      if (!conn || !conn.credentials.personalAccessToken) {
+        return {
+          connected: false,
+          error:
+            "GitHub is not connected. Ask the user to open Plugins (dashboard/plugins), connect GitHub with a Personal Access Token (Contents + Administration permissions), then retry.",
+        };
+      }
+      const { getGitHubAccount } = await import("@/lib/connectors/github");
+      const res = await getGitHubAccount(conn.credentials.personalAccessToken);
+      return res.success
+        ? { connected: true, username: res.account?.login, profileUrl: res.account?.htmlUrl }
+        : { connected: false, error: res.error };
+    },
+  },
+  {
+    name: "github_list_repos",
+    description:
+      "List the user's GitHub repositories (most recently updated first) — name, visibility, description, default branch, and URL.",
+    parameters: {
+      type: "object",
+      properties: { limit: { type: "number", description: "max repos to return (default 20)" } },
+    },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "github");
+      if (!conn?.credentials.personalAccessToken) {
+        return { error: "GitHub is not connected. Ask the user to connect it in the Plugins tab." };
+      }
+      const { listGitHubRepos } = await import("@/lib/connectors/github");
+      return listGitHubRepos(conn.credentials.personalAccessToken, args.limit || 20);
+    },
+  },
+  {
+    name: "github_create_repo",
+    description:
+      "Create a NEW repository on the connected GitHub account. Returns the repo URL. Use together with github_push_files to publish a project: create the repo, then push its files.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Repository name (spaces become hyphens)" },
+        description: { type: "string", description: "Short repo description" },
+        isPrivate: { type: "boolean", description: "Create as private repo (default false)" },
+      },
+      required: ["name"],
+    },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "github");
+      if (!conn?.credentials.personalAccessToken) {
+        return { error: "GitHub is not connected. Ask the user to connect it in the Plugins tab." };
+      }
+      const { createGitHubRepo } = await import("@/lib/connectors/github");
+      return createGitHubRepo(conn.credentials.personalAccessToken, {
+        name: args.name,
+        description: args.description,
+        isPrivate: args.isPrivate === true,
+      });
+    },
+  },
+  {
+    name: "github_push_files",
+    description:
+      "Push files (e.g. README.md, source code, configs) to an existing GitHub repository on the default branch, creating or updating each file. Use after github_create_repo, or with an existing repo (owner defaults to the connected account). Max 30 files per push.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "GitHub account/organization owner (defaults to the connected account)" },
+        repo: { type: "string", description: "Repository name" },
+        message: { type: "string", description: "Commit message" },
+        files: {
+          type: "array",
+          description: "Files to push",
+          items: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "File path in the repo, e.g. README.md" },
+              content: { type: "string", description: "Full file content (text)" },
+            },
+            required: ["path", "content"],
+          },
+        },
+      },
+      required: ["repo", "files"],
+    },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "github");
+      if (!conn?.credentials.personalAccessToken) {
+        return { error: "GitHub is not connected. Ask the user to connect it in the Plugins tab." };
+      }
+      if (!Array.isArray(args.files) || args.files.length === 0) {
+        return { error: "No files provided." };
+      }
+      const owner = (args.owner || conn.accountLabel || "").trim();
+      if (!owner) {
+        return { error: "Repository owner could not be determined — pass the 'owner' argument." };
+      }
+      const { pushFilesToGitHub } = await import("@/lib/connectors/github");
+      return pushFilesToGitHub(conn.credentials.personalAccessToken, {
+        owner,
+        repo: args.repo,
+        message: args.message,
+        branch: args.branch,
+        files: args.files,
+      });
+    },
+  },
 ];
 
 export function getTool(name: string): ToolDef | undefined {

@@ -4,82 +4,110 @@ import React, { useState, useTransition } from "react";
 import {
   Plug,
   Globe,
-  ShoppingCart,
   Video,
   Image as ImageIcon,
   Cloud,
   Zap,
-  Newspaper,
+  ShoppingCart,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
   Sparkles,
   Search,
   RefreshCw,
-  Send,
-  Lock,
-  ArrowRight,
-  Sliders,
-  FileText,
-  TrendingUp,
   GitBranch,
-  Code2,
-  Terminal,
+  TrendingUp,
+  Clock,
+  Copy,
+  Check,
+  Loader2,
+  ArrowRight,
 } from "lucide-react";
 import { fetchLiveTrendingNews, TrendItem } from "@/actions/trends";
+import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS, ConnectorCategory } from "@/lib/connectors/registry";
+import type { WordPressSiteView } from "@/actions/wordpressSite";
+import type { ConnectorView } from "@/actions/connections";
+import { ConnectWordPressModal } from "./plugins/ConnectWordPressModal";
+import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
 
-interface WPConfig {
-  siteUrl: string;
-  username: string;
-  appPassword: string;
-  defaultStatus: "draft" | "publish";
-  enableYoastSeo: boolean;
-  isConnected: boolean;
+const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
+  dev: GitBranch,
+  media: Video,
+  ecommerce: ShoppingCart,
+  automation: Zap,
+};
+
+const PLANNED_CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
+  dev: GitBranch,
+  media: ImageIcon,
+  ecommerce: ShoppingCart,
+  automation: Zap,
+};
+
+interface PluginsHQProps {
+  workspaceId: string;
+  wpSite: WordPressSiteView;
+  connections: ConnectorView[];
 }
 
-export default function PluginsHQ() {
-  const [activeTab, setActiveTab] = useState<"cms" | "connectors" | "trends">("cms");
+export default function PluginsHQ({ workspaceId, wpSite, connections }: PluginsHQProps) {
+  const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
-  // WordPress Modal & State
+  const [wpSiteState, setWpSiteState] = useState<WordPressSiteView>(wpSite);
+  const [connectionsState, setConnectionsState] = useState<ConnectorView[]>(connections);
+
   const [showWpModal, setShowWpModal] = useState(false);
-  const [wpConfig, setWpConfig] = useState<WPConfig>({
-    siteUrl: "https://smbrobotic.com",
-    username: "admin",
-    appPassword: "",
-    defaultStatus: "draft",
-    enableYoastSeo: true,
-    isConnected: true, // Show as connected by default for demo
-  });
-  const [testingWp, setTestingWp] = useState(false);
-  const [wpTestMsg, setWpTestMsg] = useState<string | null>(null);
+  const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
 
   // Live Google News Trend & Competitor Spy State
   const [spyMode, setSpyMode] = useState<"trend" | "competitor">("trend");
-  const [trendQuery, setTrendQuery] = useState("AI Robotics B2B Marketing SaaS");
-  const [competitorQuery, setCompetitorQuery] = useState("Boston Dynamics Arduino Raspberry Pi");
+  const [trendQuery, setTrendQuery] = useState("");
+  const [competitorQuery, setCompetitorQuery] = useState("");
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [isFetchingTrends, startTransition] = useTransition();
   const [trendError, setTrendError] = useState<string | null>(null);
+  const [copiedTrendId, setCopiedTrendId] = useState<string | null>(null);
 
-  const handleTestWpConnection = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setTestingWp(true);
-    setWpTestMsg(null);
-    setTimeout(() => {
-      setTestingWp(false);
-      setWpConfig((prev) => ({ ...prev, isConnected: true }));
-      setWpTestMsg("✅ Connected successfully to WordPress REST API v2! Admin permissions verified.");
-    }, 1200);
+  const getConnection = (key: string) => connectionsState.find((c) => c.providerKey === key);
+  const updateConnection = (key: string, view: ConnectorView | undefined) => {
+    setConnectionsState((prev) => {
+      const rest = prev.filter((c) => c.providerKey !== key);
+      if (!view) return rest;
+      // listConnections returns all registry connectors; keep full set
+      const registryKeys = CONNECTOR_REGISTRY.map((c) => c.key);
+      const merged = registryKeys.map((k) => {
+        if (k === key) return view;
+        const existing = prev.find((c) => c.providerKey === k);
+        return (
+          existing || {
+            providerKey: k,
+            status: "pending",
+            accountLabel: null,
+            hasCredentials: false,
+            lastVerifiedAt: null,
+            lastError: null,
+          }
+        );
+      });
+      return merged;
+    });
   };
 
   const handleScanTrends = (modeOverride?: "trend" | "competitor") => {
     const currentMode = modeOverride || spyMode;
+    const query = currentMode === "competitor" ? competitorQuery.trim() : trendQuery.trim();
+    if (!query) {
+      setTrendError(
+        currentMode === "competitor"
+          ? "Enter a competitor brand or product name first."
+          : "Enter a topic to scan first."
+      );
+      return;
+    }
     startTransition(async () => {
       setTrendError(null);
       const queryToScan =
-        currentMode === "competitor"
-          ? `${competitorQuery} new OR launch OR feature OR release`
-          : trendQuery;
+        currentMode === "competitor" ? `${query} new OR launch OR feature OR release` : query;
       const res = await fetchLiveTrendingNews(queryToScan, 8);
       if (res.success && res.trends) {
         setTrends(res.trends);
@@ -88,6 +116,25 @@ export default function PluginsHQ() {
       }
     });
   };
+
+  const handleCopyTrendPrompt = async (item: TrendItem) => {
+    const prompt =
+      spyMode === "competitor"
+        ? `Write a competitive counter-post about "${item.title}" (source: ${item.source}, ${item.pubDate}). Compare our positioning against this news with factual citations, and draft it for my top social platform.`
+        : `Write a thought-leadership social media post based on this trending news: "${item.title}" (source: ${item.source}, ${item.pubDate}). Include a strong hook and a clear call to action.`;
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopiedTrendId(item.id);
+      setTimeout(() => setCopiedTrendId(null), 2500);
+    } catch {
+      setTrendError("Could not copy to clipboard. Copy the headline manually and paste it in AI Chat.");
+    }
+  };
+
+  const activeConnector = activeConnectorKey
+    ? CONNECTOR_REGISTRY.find((c) => c.key === activeConnectorKey)
+    : null;
 
   return (
     <div className="space-y-8 pb-12">
@@ -98,13 +145,15 @@ export default function PluginsHQ() {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-4 py-1.5 text-xs font-semibold text-indigo-300 ring-1 ring-inset ring-indigo-400/30 mb-4">
               <Plug className="h-3.5 w-3.5" />
-              SMB Robotics Enterprise Plugins & AI Connectors Hub
+              Plugins & AI Connectors
             </div>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-              Connect Your CMS, AI Studio & Live Internet Engine
+              Connect Your CMS, Dev Tools & Live Internet Engine
             </h1>
             <p className="mt-2 max-w-2xl text-slate-300 text-sm sm:text-base">
-              Supercharge your AI CEO with direct WordPress blog publishing, WooCommerce product launches, HeyGen AI video production, and real-time Google News trend scanning.
+              Connect the services your AI CEO can actually act on — WordPress publishing, GitHub
+              project pushes, and real-time Google News trend scanning. Everything here reflects a
+              real, verified connection.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -118,12 +167,14 @@ export default function PluginsHQ() {
             <button
               onClick={() => {
                 setActiveTab("trends");
-                handleScanTrends();
+                if (trends.length === 0 && (trendQuery.trim() || competitorQuery.trim())) {
+                  handleScanTrends();
+                }
               }}
               className="inline-flex items-center gap-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 ring-1 ring-slate-600 transition-all"
             >
-              <Newspaper className="h-4 w-4 text-emerald-400" />
-              Live News Engine (Free)
+              <TrendingUp className="h-4 w-4 text-emerald-400" />
+              Live News Engine
             </button>
           </div>
         </div>
@@ -131,17 +182,6 @@ export default function PluginsHQ() {
 
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setActiveTab("cms")}
-          className={`flex items-center gap-2 border-b-2 px-6 py-3 text-sm font-semibold transition-all ${
-            activeTab === "cms"
-              ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
-              : "border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-          }`}
-        >
-          <Globe className="h-4 w-4" />
-          CMS & E-Commerce Plugins
-        </button>
         <button
           onClick={() => setActiveTab("connectors")}
           className={`flex items-center gap-2 border-b-2 px-6 py-3 text-sm font-semibold transition-all ${
@@ -151,13 +191,10 @@ export default function PluginsHQ() {
           }`}
         >
           <Plug className="h-4 w-4" />
-          AI Production Connectors
+          Connections
         </button>
         <button
-          onClick={() => {
-            setActiveTab("trends");
-            if (trends.length === 0) handleScanTrends();
-          }}
+          onClick={() => setActiveTab("trends")}
           className={`flex items-center gap-2 border-b-2 px-6 py-3 text-sm font-semibold transition-all ${
             activeTab === "trends"
               ? "border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
@@ -165,18 +202,18 @@ export default function PluginsHQ() {
           }`}
         >
           <TrendingUp className="h-4 w-4 text-emerald-500" />
-          Real-Time Google News Engine
+          Real-Time News Engine
           <span className="ml-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-            FREE FOREVER
+            FREE
           </span>
         </button>
       </div>
 
-      {/* TAB 1: CMS & E-COMMERCE PLUGINS */}
-      {activeTab === "cms" && (
+      {/* TAB 1: CONNECTIONS */}
+      {activeTab === "connectors" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* WordPress CMS Pro Card */}
+            {/* WordPress Card — real state */}
             <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -188,147 +225,167 @@ export default function PluginsHQ() {
                     <p className="text-xs text-slate-500 dark:text-slate-400">Blog Article & SEO Publisher</p>
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-3 w-3" /> Connected
-                </span>
+                {wpSiteState.connected ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="h-3 w-3" /> Connected
+                  </span>
+                ) : wpSiteState.lastError ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-400">
+                    <AlertCircle className="h-3 w-3" /> Failed
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                    Not connected
+                  </span>
+                )}
               </div>
               <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                AI CEO writes 1500-2500 word pro SEO articles, FAQ schema, H2/H3 headings, and auto-publishes to your WordPress blog with Yoast/RankMath meta tags.
+                AI CEO writes SEO articles with FAQ schema and H2/H3 headings, and publishes them
+                straight to your WordPress blog with Yoast/RankMath meta tags.
               </p>
               <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">{wpConfig.siteUrl}</span>
+                <span className="text-xs font-medium text-slate-500 truncate max-w-[55%]">
+                  {wpSiteState.connected ? wpSiteState.siteUrl : "Not connected"}
+                </span>
                 <button
                   onClick={() => setShowWpModal(true)}
                   className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
                 >
-                  Configure & \u2192
+                  {wpSiteState.connected ? "Manage →" : "Connect →"}
                 </button>
               </div>
             </div>
 
-            {/* WooCommerce Card */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                    <ShoppingCart className="h-6 w-6" />
+            {/* Registry-driven connector cards */}
+            {CONNECTOR_REGISTRY.map((connector) => {
+              const conn = getConnection(connector.key);
+              const Icon = CATEGORY_ICONS[connector.category] || Plug;
+              const isConnected = conn?.status === "connected";
+              const isFailed = conn?.status === "failed" && conn?.hasCredentials;
+              return (
+                <div
+                  key={connector.key}
+                  className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-slate-800">
+                        <Icon className="h-6 w-6 text-emerald-400" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-900 dark:text-white">{connector.name}</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{connector.tagline}</p>
+                      </div>
+                    </div>
+                    {isConnected ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="h-3 w-3" /> Connected
+                      </span>
+                    ) : isFailed ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-400">
+                        <AlertCircle className="h-3 w-3" /> Failed
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                        Not connected
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">WooCommerce</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">E-Commerce Product Launcher</p>
+                  <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
+                    {connector.description}
+                  </p>
+                  <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
+                    <span className="text-xs font-medium text-slate-500 truncate max-w-[55%]">
+                      {isConnected && conn?.accountLabel ? `@${conn.accountLabel}` : "Not connected"}
+                    </span>
+                    <button
+                      onClick={() => setActiveConnectorKey(connector.key)}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                    >
+                      {isConnected ? "Manage →" : "Connect →"}
+                    </button>
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                  Ready
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                &ldquo;CEO bhai, yeh LiDAR sensor product live kar do.&rdquo; AI generates SEO product description, price, SKUs, and publishes to your WooCommerce store.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">REST API v3 Ready</span>
-                <button
-                  onClick={() => setShowWpModal(true)}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                >
-                  Link Store \u2192
-                </button>
-              </div>
-            </div>
+              );
+            })}
+          </div>
 
-            {/* Shopify Card */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <ShoppingCart className="h-6 w-6" />
+          {/* Planned connectors — honest, no fake states */}
+          <div>
+            <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+              Planned connectors
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {PLANNED_CONNECTORS.map((planned) => {
+                const Icon = PLANNED_CATEGORY_ICONS[planned.category] || Cloud;
+                return (
+                  <div
+                    key={planned.key}
+                    className="relative rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-6"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 opacity-70">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-700 dark:text-slate-300">{planned.name}</h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">{planned.tagline}</p>
+                        </div>
+                      </div>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        <Clock className="h-3 w-3" /> Planned
+                      </span>
+                    </div>
+                    <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                      {planned.description}
+                    </p>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Shopify</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Store Automation Connector</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Available
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                Connect your international Shopify store to auto-generate promotional TikTok videos, promo tweets, and SEO product copy.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">GraphQL / REST API</span>
-                <button
-                  onClick={() => alert("Shopify integration can be activated anytime!")}
-                  className="text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400"
-                >
-                  Connect \u2192
-                </button>
-              </div>
-            </div>
-            {/* GitHub / Local Repo Pro Card */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-slate-800">
-                    <GitBranch className="h-6 w-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">GitHub / Local Repo Pro</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Embedded Systems & Developer Bridge</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-3 w-3" /> Ready
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                Developer apna local project folder link karein ya GitHub repo den. AI CEO auto-scans circuit wiring diagrams (Mermaid flowchart LR), pin configurations, and generates a stunning SMB Robotics README.md without Contributing/Project Structure sections.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">Local FS / Git Pro</span>
-                <button
-                  onClick={() =>
-                    alert(
-                      "GitHub / Local Repo link ready! Go to 'Automate Task' tab and give your local project folder path to AI CEO."
-                    )
-                  }
-                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-500 dark:text-emerald-400"
-                >
-                  Link Repo \u2192
-                </button>
-              </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* WordPress & GitHub Action Showcase Box */}
+          {/* Real capability showcase */}
           <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-6">
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-indigo-500" />
-              What You Can Say to Your AI CEO with WordPress, WooCommerce & GitHub Connected:
+              What You Can Ask Your AI CEO Once Connected:
             </h3>
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase">Pro Article Publisher</p>
+                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase">
+                  Pro Article Publisher
+                </p>
                 <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;CEO, write a 2000-word SEO article on 'Embedded Robotics in 2026' with FAQ schema and publish it to my WordPress blog.&rdquo;
+                  &ldquo;Write a 2000-word SEO article with FAQ schema and publish it to my WordPress
+                  blog.&rdquo;
                 </p>
               </div>
               <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase">Product Launch Helper</p>
+                <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase">
+                  GitHub Project Publisher
+                </p>
                 <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;CEO bhai, yeh LiDAR sensor product $199 price ke sath WooCommerce par live kar do aur SEO tags laga do.&rdquo;
+                  &ldquo;Create a GitHub repo called my-project and push a professional README.md for
+                  it.&rdquo;
                 </p>
               </div>
               <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">Page & Post Doctor</p>
+                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                  Repo Explorer
+                </p>
                 <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;Mere 'About Us' page par phone number update kar do aur SEO meta description improve kar do.&rdquo;
+                  &ldquo;List my most recently updated GitHub repositories.&rdquo;
                 </p>
               </div>
               <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase">GitHub README & Circuit Pro</p>
+                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase">
+                  Trend-Powered Content
+                </p>
                 <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;CEO, mera local folder scan karo. A-to-Z pin configuration aur Mermaid flowchart LR circuit wiring diagram ke sath SMB Robotics README.md likho.&rdquo;
+                  &ldquo;Scan live news in my industry and draft a thought-leadership post from the top
+                  story.&rdquo;
                 </p>
               </div>
             </div>
@@ -336,172 +393,21 @@ export default function PluginsHQ() {
         </div>
       )}
 
-      {/* TAB 2: AI PRODUCTION CONNECTORS */}
-      {activeTab === "connectors" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Veo 3 Video Engine (Primary) */}
-            <div className="relative rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <Video className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Veo 3 Video Engine</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Cinematic Video & Shorts Primary Engine</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-3 w-3" /> Active Primary
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                AI CEO generates Full HD cinematic product reels, YouTube Shorts, & TikTok demos via Google Veo 3 without extra avatar rendering costs.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">100% Integrated</span>
-                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Default Engine</span>
-              </div>
-            </div>
-
-            {/* HeyGen / ElevenLabs (Standby) */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all opacity-80">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-pink-500/10 text-pink-600 dark:text-pink-400">
-                    <Video className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">HeyGen AI Studio</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">AI Avatar Video Generation</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  Standby / Paused
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                HeyGen avatar generation is currently paused in favor of Google Veo 3. You can enable API key anytime to activate avatar studio.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">Standby Mode</span>
-                <button
-                  onClick={() => alert("HeyGen is on Standby. Google Veo 3 is currently active for all video generation!")}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                >
-                  Config API \u2192
-                </button>
-              </div>
-            </div>
-
-            {/* Canva / Figma */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                    <ImageIcon className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Canva / Figma</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Visual Graphics & Carousel Bridge</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Available
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                Bridge your Canva workspace so AI-designed LinkedIn carousels and YouTube thumbnails flow seamlessly into your posting calendar.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">OAuth 2.0 Bridge</span>
-                <button
-                  onClick={() => alert("Canva OAuth bridge can be connected anytime!")}
-                  className="text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400"
-                >
-                  Link \u2192
-                </button>
-              </div>
-            </div>
-
-            {/* Google Drive / Dropbox */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                    <Cloud className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Google Drive / Cloud Vault</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">RAW Media Asset Reader</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  Active
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                Connect your Drive folder. AI automatically scans your RAW video clips and product photos to generate viral social media reels.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">Google Cloud API</span>
-                <button
-                  onClick={() => alert("Google Drive asset vault connected!")}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                >
-                  Manage Vault \u2192
-                </button>
-              </div>
-            </div>
-
-            {/* Zapier / Make.com */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
-                    <Zap className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">Zapier / Make.com</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">5,000+ Apps Automation Bridge</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Webhook Ready
-                </span>
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                Receive instant webhooks from Shopify, HubSpot, Stripe, or custom IoT sensors to trigger automated social media posts.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500">Webhook / REST</span>
-                <button
-                  onClick={() => alert("Zapier Webhook URL ready for automation triggers!")}
-                  className="text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400"
-                >
-                  Get Webhook \u2192
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: REAL-TIME GOOGLE NEWS TREND ENGINE (100% FREE) */}
+      {/* TAB 2: REAL-TIME GOOGLE NEWS ENGINE */}
       {activeTab === "trends" && (
         <div className="space-y-6">
           {/* Engine Banner */}
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 className="h-4 w-4" /> 100% Free Unlimited Real-Time Engine Active
+                <CheckCircle2 className="h-4 w-4" /> Free Unlimited Real-Time Engine
               </div>
               <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                Google News Real-Time Live RSS Search Engine
+                Google News Real-Time Live RSS Search
               </h3>
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                No API keys or quotas required. Your Trend Agent reads live breaking news across any keyword or category to draft factual thought-leadership posts.
+                No API keys or quotas required. Scan live breaking news across any keyword or
+                competitor, then hand the story to your AI CEO.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -516,7 +422,7 @@ export default function PluginsHQ() {
             <button
               onClick={() => {
                 setSpyMode("trend");
-                handleScanTrends("trend");
+                if (trendQuery.trim()) handleScanTrends("trend");
               }}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
                 spyMode === "trend"
@@ -524,12 +430,12 @@ export default function PluginsHQ() {
                   : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
               }`}
             >
-              📡 Mode 1: Live Industry Trend Scout
+              Mode 1: Live Industry Trend Scout
             </button>
             <button
               onClick={() => {
                 setSpyMode("competitor");
-                handleScanTrends("competitor");
+                if (competitorQuery.trim()) handleScanTrends("competitor");
               }}
               className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
                 spyMode === "competitor"
@@ -537,7 +443,7 @@ export default function PluginsHQ() {
                   : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
               }`}
             >
-              🕵️‍♂️ Mode 2: Real-Time Competitor Spy Radar
+              Mode 2: Real-Time Competitor Spy Radar
             </button>
           </div>
 
@@ -545,23 +451,28 @@ export default function PluginsHQ() {
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              {spyMode === "trend" ? (
-                <input
-                  type="text"
-                  value={trendQuery}
-                  onChange={(e) => setTrendQuery(e.target.value)}
-                  placeholder="Type any trend topic (e.g. AI Robotics, B2B Marketing, Embedded Systems, LiDAR)..."
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-12 pr-4 py-3.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={competitorQuery}
-                  onChange={(e) => setCompetitorQuery(e.target.value)}
-                  placeholder="Type competitor brand(s) (e.g. Boston Dynamics, Arduino, Raspberry Pi, OpenAI)..."
-                  className="w-full rounded-xl border border-emerald-500/50 bg-white dark:bg-slate-900 pl-12 pr-4 py-3.5 text-sm text-slate-900 dark:text-white focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              )}
+              <input
+                type="text"
+                value={spyMode === "trend" ? trendQuery : competitorQuery}
+                onChange={(e) =>
+                  spyMode === "trend"
+                    ? setTrendQuery(e.target.value)
+                    : setCompetitorQuery(e.target.value)
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleScanTrends();
+                }}
+                placeholder={
+                  spyMode === "trend"
+                    ? "Type any trend topic (e.g. AI marketing, B2B SaaS, e-commerce)..."
+                    : "Type competitor brand(s) (e.g. OpenAI, Notion, HubSpot)..."
+                }
+                className={`w-full rounded-xl border bg-white dark:bg-slate-900 pl-12 pr-4 py-3.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 ${
+                  spyMode === "competitor"
+                    ? "border-emerald-500/50 focus:border-emerald-500 focus:ring-emerald-500/20"
+                    : "border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20"
+                }`}
+              />
             </div>
             <button
               onClick={() => handleScanTrends()}
@@ -572,7 +483,11 @@ export default function PluginsHQ() {
                   : "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"
               }`}
             >
-              <RefreshCw className={`h-4 w-4 ${isFetchingTrends ? "animate-spin" : ""}`} />
+              {isFetchingTrends ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
               {isFetchingTrends
                 ? "Scanning Google News..."
                 : spyMode === "competitor"
@@ -583,189 +498,107 @@ export default function PluginsHQ() {
 
           {/* Error Message */}
           {trendError && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+            <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               {trendError}
             </div>
           )}
 
           {/* Trend Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {trends.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center rounded-full bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                      {item.category}
-                    </span>
-                    <span className="text-xs font-medium text-slate-400">{item.pubDate}</span>
+          {trends.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {trends.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center rounded-full bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                        {item.category}
+                      </span>
+                      <span className="text-xs font-medium text-slate-400">{item.pubDate}</span>
+                    </div>
+                    <h4 className="mt-3 text-base font-bold text-slate-900 dark:text-white leading-snug">
+                      {item.title}
+                    </h4>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
+                      {item.snippet}
+                    </p>
                   </div>
-                  <h4 className="mt-3 text-base font-bold text-slate-900 dark:text-white leading-snug">
-                    {item.title}
-                  </h4>
-                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
-                    {item.snippet}
-                  </p>
-                </div>
 
-                <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400"
-                  >
-                    <span>Source: {item.source}</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
+                  <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <a
+                      href={item.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400"
+                    >
+                      <span>Source: {item.source}</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
 
-                  <button
-                    onClick={() =>
-                      alert(
-                        spyMode === "competitor"
-                          ? `🚨 Alerted AI CEO! Creating a competitive counter-post comparing SMB Robotics against "${item.title}" with factual Google News citations!`
-                          : `✨ Sent "${item.title}" to AI CEO! He is drafting a thought-leadership LinkedIn & X post right now.`
-                      )
-                    }
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-                      spyMode === "competitor"
-                        ? "bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400"
-                        : "bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400"
-                    }`}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {spyMode === "competitor" ? "Draft Rival Counter-Post" : "Draft LinkedIn/X Post"}
-                  </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleCopyTrendPrompt(item)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                          spyMode === "competitor"
+                            ? "bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 text-emerald-600 dark:text-emerald-400"
+                            : "bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400"
+                        }`}
+                        title="Copy an AI CEO prompt for this story, then paste it in AI Chat"
+                      >
+                        {copiedTrendId === item.id ? (
+                          <Check className="h-3.5 w-3.5" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                        {copiedTrendId === item.id ? "Copied!" : "Copy AI prompt"}
+                      </button>
+                      <a
+                        href="/dashboard/chat"
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400"
+                        title="Open AI Chat"
+                      >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+
+          {trends.length === 0 && !isFetchingTrends && !trendError && (
+            <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-10 text-center">
+              <TrendingUp className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+              <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
+                Enter a topic above and scan live Google News to see breaking stories here.
+              </p>
+            </div>
+          )}
         </div>
       )}
 
       {/* WordPress Configuration Modal */}
       {showWpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
-          <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                  <Globe className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white">WordPress & WooCommerce Connection</h3>
-                  <p className="text-xs text-slate-500">Secure REST API v2 Application Password setup</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowWpModal(false)}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                \u2715
-              </button>
-            </div>
+        <ConnectWordPressModal
+          workspaceId={workspaceId}
+          site={wpSiteState}
+          onClose={() => setShowWpModal(false)}
+          onUpdate={setWpSiteState}
+        />
+      )}
 
-            <form onSubmit={handleTestWpConnection} className="mt-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  WordPress Website URL
-                </label>
-                <input
-                  type="url"
-                  required
-                  value={wpConfig.siteUrl}
-                  onChange={(e) => setWpConfig({ ...wpConfig, siteUrl: e.target.value })}
-                  placeholder="https://smbrobotic.com"
-                  className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Admin Username
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={wpConfig.username}
-                    onChange={(e) => setWpConfig({ ...wpConfig, username: e.target.value })}
-                    placeholder="admin"
-                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Default Post Status
-                  </label>
-                  <select
-                    value={wpConfig.defaultStatus}
-                    onChange={(e: any) => setWpConfig({ ...wpConfig, defaultStatus: e.target.value })}
-                    className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                  >
-                    <option value="draft">Save as Draft (Recommended)</option>
-                    <option value="publish">Publish Immediately</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  WordPress Application Password (WordPress 5.6+)
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={wpConfig.appPassword}
-                  onChange={(e) => setWpConfig({ ...wpConfig, appPassword: e.target.value })}
-                  placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
-                  className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-indigo-500 focus:outline-none"
-                />
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  In WordPress WP-Admin \u2192 Users \u2192 Profile \u2192 scroll down to &ldquo;Application Passwords&rdquo; to generate a secure REST API token.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3">
-                <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-white">Enable Yoast / RankMath SEO Optimization</p>
-                  <p className="text-[11px] text-slate-500">AI auto-assigns SEO title, slug, and meta description</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={wpConfig.enableYoastSeo}
-                  onChange={(e) => setWpConfig({ ...wpConfig, enableYoastSeo: e.target.checked })}
-                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                />
-              </div>
-
-              {wpTestMsg && (
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                  {wpTestMsg}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowWpModal(false)}
-                  className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-400"
-                >
-                  Close
-                </button>
-                <button
-                  type="submit"
-                  disabled={testingWp}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 disabled:opacity-60 transition-all"
-                >
-                  {testingWp ? "Testing REST API..." : "Test Connection & Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Generic Connector Modal */}
+      {activeConnector && (
+        <ConnectConnectorModal
+          workspaceId={workspaceId}
+          connector={activeConnector}
+          connection={getConnection(activeConnector.key)}
+          onClose={() => setActiveConnectorKey(null)}
+          onUpdate={(view) => updateConnection(activeConnector.key, view)}
+        />
       )}
     </div>
   );

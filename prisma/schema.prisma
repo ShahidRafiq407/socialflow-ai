@@ -36,6 +36,7 @@ model Workspace {
   memories        Memory[]
   growthGoal      GrowthGoal?
   wordpressSite   WordPressSite?
+  connections     UserConnection[]
   trackedLinks    TrackedLink[]
   linkClicks      LinkClick[]
   leadEvents      LeadEvent[]
@@ -424,6 +425,29 @@ model WordPressSite {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  @@index([workspaceId])
+}
+
+// Generic external connector credentials (GitHub, HeyGen, Canva, MCP servers,
+// ...). Credentials are stored as an encrypted JSON blob (APP_ENCRYPTION_KEY)
+// and never sent to the browser — reads only report `hasCredentials`.
+model UserConnection {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  providerKey    String
+  authType       String    @default("api_key")
+  /// Encrypted JSON credentials map. Never returned to the client.
+  credentials    String?   @db.Text
+  accountLabel   String?
+  status         String    @default("pending")
+  lastVerifiedAt DateTime?
+  lastError      String?   @db.Text
+  meta           Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([workspaceId, providerKey])
   @@index([workspaceId])
 }
 

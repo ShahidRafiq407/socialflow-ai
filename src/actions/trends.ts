@@ -14,15 +14,19 @@ export interface TrendItem {
 }
 
 /**
- * 100% FREE Real-Time Google News RSS Fetcher for SMB Robotics Trend Agent
+ * 100% FREE Real-Time Google News RSS Fetcher for the Trend Agent.
  * No API Key or quota limit required. Scans live breaking news across any keyword.
  */
 export async function fetchLiveTrendingNews(
-  query: string = "AI Robotics B2B Marketing SaaS",
+  query: string,
   limit: number = 8
 ): Promise<{ success: boolean; trends: TrendItem[]; query: string; error?: string }> {
   try {
-    const encodedQuery = encodeURIComponent(query);
+    const trimmedQuery = (query || "").trim();
+    if (!trimmedQuery) {
+      return { success: false, trends: [], query, error: "Enter a topic or competitor to scan." };
+    }
+    const encodedQuery = encodeURIComponent(trimmedQuery);
     const cacheKey = `trends:${encodedQuery}:${limit}`;
 
     // 1. Try to get from Upstash Redis Cache first (valid for 1 hour)

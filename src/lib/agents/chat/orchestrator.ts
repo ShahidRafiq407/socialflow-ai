@@ -109,9 +109,16 @@ ORCHESTRATION & PLANNING RULES:
    - When the user asks to recalculate or refocus the growth plan (e.g. "Focus more on LinkedIn"), use recalculate_growth_strategy.
    - When the user asks "Why are we posting 5 times a week on Instagram?" or "Why did you choose this platform/format?", use explain_growth_strategy.
 
-7. RETURN FORMAT:
+7. EXTERNAL CONNECTORS (GITHUB):
+   - When the user wants to publish a project/files to GitHub, push a README, or list their repositories, ALWAYS call github_status FIRST to check the connection.
+   - "Create a repo and push my project" = github_create_repo, then github_push_files with the generated files (dependent steps: create repo first, observe its URL, then push).
+   - Write professional README.md content yourself (project title, description, features, tech stack, setup, usage) — the file content is passed as plain text in the files array.
+   - If github_status reports not connected, tell the user exactly how to connect: Plugins tab (dashboard/plugins) → GitHub → Personal Access Token with Contents + Administration permissions.
+   - Never claim a repo was created or files were pushed unless the tool result confirms it (repo URL / per-file success).
+
+8. RETURN FORMAT:
    - Return ONLY valid JSON (no markdown fences) in this exact shape:
-{ "reasoning": "short explanation of the plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
+   { "reasoning": "short explanation of the plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
 
   const res = await vertexProvider.generateJSON(
     [
@@ -195,6 +202,12 @@ function generateSuggestions(
       "Create a new product launch campaign",
       "Generate 3 more posts for the active campaign",
       "Schedule all approved campaign posts"
+    );
+  } else if (toolsUsed.has("github_create_repo") || toolsUsed.has("github_push_files")) {
+    suggestions.push(
+      "Open the new repository on GitHub",
+      "Push a project README for another repo",
+      "List my recently updated repositories"
     );
   } else if (toolsUsed.has("get_workspace_state") || toolsUsed.has("get_content_library")) {
     suggestions.push(
@@ -367,7 +380,7 @@ FORMATTING & QUALITY RULES:
    - Strictly format tables with markdown pipe syntax:
      | Day | Platform | Content Pillar & Hook | Full Post Caption (English) | Suggested Visual / Format | Call to Action |
      |:---|:---|:---|:---|:---|:---|
-     | **Day 1** | LinkedIn | AIoT & Edge Automation | *Ready-to-post English caption...* | 16:9 Architecture diagram | smbrobotic.com |
+      | **Day 1** | LinkedIn | AIoT & Edge Automation | *Ready-to-post English caption...* | 16:9 Architecture diagram | yourwebsite.com |
    - Never output raw bullet walls with messy asterisks for multi-day plans.
 
 2. Social Media Posts & Copywriting:
