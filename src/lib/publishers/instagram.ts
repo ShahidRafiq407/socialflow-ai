@@ -269,6 +269,24 @@ export async function publishToInstagram(post: any, account: any): Promise<Publi
       }
     } catch {}
 
+    // First comment — posted right after the media goes live
+    // (requires instagram_manage_comments; best-effort, never fails the post).
+    const firstComment = String(post.settings?.firstComment || '').trim();
+    if (firstComment && mediaId) {
+      try {
+        await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: accessToken,
+            message: firstComment.slice(0, 1000),
+          }),
+        });
+      } catch (commentErr) {
+        console.warn('[Instagram Publisher] First comment failed:', commentErr);
+      }
+    }
+
     // Apply optional engagement settings
     const settings = post.settings || {};
     if (settings.igHideLikeViews === true || settings.igDisableComments === true) {

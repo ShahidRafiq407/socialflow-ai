@@ -50,6 +50,7 @@ export interface PlatformCapability {
   titleLimit?: number;
   captionLimit: number;
   descriptionLimit?: number;
+  altTextLimit?: number;
   firstCommentLimit: number;
   hashtagLimit: number;
 
@@ -87,7 +88,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDestinationUrl: false,
     supportsBoard: false,
     supportsTaggedTopics: false,
-    supportsAltText: true,
+    // Instagram Graph API has no alt_text parameter on container creation —
+    // alt text can only be set inside the Instagram app after publishing.
+    supportsAltText: false,
     supportsProductTags: true,
     supportsStorySettings: false,
     supportsPrivacySettings: false,
@@ -123,7 +126,8 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDestinationUrl: false,
     supportsBoard: false,
     supportsTaggedTopics: false,
-    supportsAltText: true,
+    // Instagram Graph API has no alt_text parameter on container creation.
+    supportsAltText: false,
     supportsProductTags: true,
     supportsStorySettings: false,
     supportsPrivacySettings: false,
@@ -189,7 +193,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     minMedia: 1,
     supportsTitle: false,
     supportsDescription: false,
-    supportsCaption: true,
+    // STORIES containers in the Instagram Graph API do not accept a caption.
+    // Text on stories must be burned into the image/video itself.
+    supportsCaption: false,
     supportsFirstComment: false,
     supportsHashtags: false,
     supportsDestinationUrl: false,
@@ -245,6 +251,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDocumentExport: false,
     titleLimit: 100,
     descriptionLimit: 500,
+    altTextLimit: 500,
     captionLimit: 500,
     firstCommentLimit: 0,
     hashtagLimit: 20,
@@ -284,6 +291,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDocumentExport: false,
     titleLimit: 100,
     descriptionLimit: 500,
+    altTextLimit: 500,
     captionLimit: 500,
     firstCommentLimit: 0,
     hashtagLimit: 20,
@@ -323,6 +331,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDocumentExport: false,
     titleLimit: 100,
     descriptionLimit: 500,
+    altTextLimit: 500,
     captionLimit: 500,
     firstCommentLimit: 0,
     hashtagLimit: 20,
@@ -362,6 +371,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDocumentExport: false,
     titleLimit: 100,
     descriptionLimit: 500,
+    altTextLimit: 500,
     captionLimit: 500,
     firstCommentLimit: 0,
     hashtagLimit: 20,
@@ -497,7 +507,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportedAspectRatios: ["9:16", "16:9", "1:1"],
     maxMedia: 1,
     minMedia: 1,
-    supportsTitle: false,
+    // LinkedIn video uploads support a media title + description (alt text)
+    // via the digitalmedia asset metadata on /v2/ugcPosts.
+    supportsTitle: true,
     supportsDescription: false,
     supportsCaption: true,
     supportsFirstComment: true,
@@ -513,7 +525,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsAIModifiedDisclosure: false,
     supportsMultiSlide: false,
     supportsDocumentExport: false,
-    titleLimit: 100,
+    titleLimit: 200,
     captionLimit: 3000,
     firstCommentLimit: 1250,
     hashtagLimit: 10,
@@ -546,7 +558,8 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDestinationUrl: false,
     supportsBoard: false,
     supportsTaggedTopics: false,
-    supportsAltText: true,
+    // Facebook Graph API /photos and /feed have no alt_text parameter on publish.
+    supportsAltText: false,
     supportsProductTags: false,
     supportsStorySettings: false,
     supportsPrivacySettings: false,
@@ -582,7 +595,8 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsDestinationUrl: false,
     supportsBoard: false,
     supportsTaggedTopics: false,
-    supportsAltText: true,
+    // Facebook Graph API has no alt_text parameter on publish.
+    supportsAltText: false,
     supportsProductTags: false,
     supportsStorySettings: false,
     supportsPrivacySettings: false,
@@ -720,8 +734,9 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     mediaType: "carousel",
     defaultAspectRatio: "9:16",
     supportedAspectRatios: ["9:16", "1:1"],
-    maxMedia: 10,
-    minMedia: 2,
+    // TikTok Content Posting API accepts 1-35 photos per photo post.
+    maxMedia: 35,
+    minMedia: 1,
     supportsTitle: false,
     supportsDescription: false,
     supportsCaption: true,
@@ -738,7 +753,10 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsAIModifiedDisclosure: true,
     supportsMultiSlide: true,
     supportsDocumentExport: false,
-    captionLimit: 2200,
+    // Photo posts: title max 90 UTF-16 runes, description max 4000 (official docs).
+    titleLimit: 90,
+    descriptionLimit: 4000,
+    captionLimit: 4000,
     firstCommentLimit: 0,
     hashtagLimit: 10,
     publishingMode: "api_direct",
@@ -765,7 +783,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsTitle: true,
     supportsDescription: true,
     supportsCaption: false,
-    supportsFirstComment: true,
+    supportsFirstComment: false,
     supportsHashtags: true,
     supportsDestinationUrl: false,
     supportsBoard: false,
@@ -803,7 +821,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsTitle: true,
     supportsDescription: true,
     supportsCaption: false,
-    supportsFirstComment: true,
+    supportsFirstComment: false,
     supportsHashtags: true,
     supportsDestinationUrl: false,
     supportsBoard: false,
@@ -859,6 +877,7 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsMultiSlide: false,
     supportsDocumentExport: false,
     captionLimit: 280,
+    altTextLimit: 1000,
     firstCommentLimit: 280,
     hashtagLimit: 5,
     publishingMode: "api_direct",

@@ -251,6 +251,23 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       ? `https://www.facebook.com/${targetPageId}/videos/${rawPostId}`
       : `https://www.facebook.com/${rawPostId}`;
 
+    // First comment — posted right after the feed post goes live (best-effort).
+    const firstComment = String(post.settings?.firstComment || '').trim();
+    if (firstComment && rawPostId) {
+      try {
+        await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${rawPostId}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: targetAccessToken,
+            message: firstComment.slice(0, 8000),
+          }),
+        });
+      } catch (commentErr) {
+        console.warn('[Facebook Publisher] First comment failed:', commentErr);
+      }
+    }
+
     return {
       success: true,
       platformPostId: rawPostId,

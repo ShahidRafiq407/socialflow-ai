@@ -48,6 +48,8 @@ interface PinterestIdeaPinEditorProps {
   onDestinationUrlChange: (val: string) => void;
   board: string;
   onBoardChange: (val: string) => void;
+  /** Real boards from the connected Pinterest account. */
+  boards?: { id: string; name: string }[];
   taggedTopics: string[];
   onTaggedTopicsChange: (topics: string[]) => void;
   pages: IdeaPinPage[];
@@ -83,6 +85,7 @@ export default function PinterestIdeaPinEditor({
   destinationUrl,
   onDestinationUrlChange,
   board,
+  boards,
   onBoardChange,
   taggedTopics,
   onTaggedTopicsChange,
@@ -222,15 +225,29 @@ export default function PinterestIdeaPinEditor({
         <div className="space-y-1">
           <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Board & Link</label>
           <div className="flex gap-2">
-            <select
-              value={board}
-              onChange={(e) => onBoardChange(e.target.value)}
-              className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium flex-1"
-            >
-              <option value="Smart Robotics & AI">Smart Robotics & AI</option>
-              <option value="Tech Inspiration">Tech Inspiration</option>
-              <option value="Tutorials & Guides">Tutorials & Guides</option>
-            </select>
+            {boards && boards.length > 0 ? (
+              <select
+                value={board}
+                onChange={(e) => onBoardChange(e.target.value)}
+                className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium flex-1"
+              >
+                {boards.map((b) => (
+                  <option key={b.id} value={b.name}>
+                    {b.name}
+                  </option>
+                ))}
+                {board && !boards.some((b) => b.name === board) && (
+                  <option value={board}>{board}</option>
+                )}
+              </select>
+            ) : (
+              <Input
+                value={board}
+                onChange={(e) => onBoardChange(e.target.value)}
+                placeholder="Exact board name from Pinterest"
+                className="h-9 text-xs bg-white dark:bg-slate-900 flex-1"
+              />
+            )}
             <Input
               value={destinationUrl}
               onChange={(e) => onDestinationUrlChange(e.target.value)}

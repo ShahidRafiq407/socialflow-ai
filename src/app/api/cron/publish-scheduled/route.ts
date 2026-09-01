@@ -8,6 +8,9 @@ import {
   removeFromScheduleQueue,
 } from '@/lib/redis';
 
+// Video publishing can take minutes — give the cron worker enough runway.
+export const maxDuration = 300;
+
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get('authorization');

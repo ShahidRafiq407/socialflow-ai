@@ -751,21 +751,31 @@ export default function StandardSocialEditor({
 
         {/* RIGHT: CAPTION, HASHTAGS, ALT TEXT */}
         <div className="xl:col-span-7 space-y-3.5">
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Post Caption
-              </label>
-              <CharacterCounter current={caption.length} max={capability.captionLimit} />
+          {capability.supportsCaption ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Post Caption
+                </label>
+                <CharacterCounter current={caption.length} max={capability.captionLimit} />
+              </div>
+              <Textarea
+                rows={4}
+                value={caption}
+                onChange={(e) => onCaptionChange(e.target.value)}
+                placeholder="Type or paste your post caption here..."
+                className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
+              />
             </div>
-            <Textarea
-              rows={4}
-              value={caption}
-              onChange={(e) => onCaptionChange(e.target.value)}
-              placeholder="Type or paste your post caption here..."
-              className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
-            />
-          </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-2.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                {capability.platform === "instagram" && capability.format === "Story"
+                  ? "Instagram Stories cannot carry a caption via the publishing API — add text overlays directly on the story visual instead."
+                  : "This format does not support a caption on the platform."}
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {capability.supportsHashtags && (

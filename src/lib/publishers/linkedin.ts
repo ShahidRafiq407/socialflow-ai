@@ -273,6 +273,7 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
       });
 
       if (restResult.success && restResult.postUrn) {
+        await postLinkedInFirstComment(personUrn, accessToken, restResult.postUrn, settings.firstComment);
         return {
           success: true,
           platformPostId: restResult.postUrn,
@@ -290,6 +291,9 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
       };
     }
 
+    // First comment — posted right after the share goes live (best-effort).
+    await postLinkedInFirstComment(personUrn, accessToken, data.id, settings.firstComment);
+
     return {
       success: true,
       platformPostId: data.id,
@@ -302,6 +306,44 @@ export async function publishToLinkedIn(post: any, account: any): Promise<Publis
       error: error.message || 'Unknown error publishing to LinkedIn',
       platform: 'LINKEDIN',
     };
+  }
+}
+
+/**
+ * First comment — POST /v2/socialActions/{urn}/comments, posted right after
+ * the share goes live. Best-effort: never fails the publish itself.
+ */
+async function postLinkedInFirstComment(
+  personUrn: string,
+  accessToken: string,
+  postUrn: string | undefined,
+  firstComment: unknown
+): Promise<void> {
+  const commentText = String(firstComment || '').trim();
+  if (!commentText || !postUrn) return;
+  try {
+    const encodedUrn = encodeURIComponent(postUrn);
+    const res = await fetch(`https://api.linkedin.com/v2/socialActions/${encodedUrn}/comments`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        actor: `urn:li:person:${personUrn}`,
+        object: postUrn,
+        message: {
+          text: commentText.slice(0, 1250),
+        },
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.warn(`[LinkedIn Publisher] First comment failed (${res.status}):`, errBody.slice(0, 300));
+    }
+  } catch (err) {
+    console.warn('[LinkedIn Publisher] First comment error:', err);
   }
 }
 

@@ -1,6 +1,9 @@
 "use server";
 
-
+// NOTE: maxDuration cannot be exported from a "use server" file (only async
+// functions are allowed). The execution window is raised to 300s in the root
+// layout and the publish cron route instead — video uploads legitimately take
+// minutes.
 
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
@@ -188,13 +191,25 @@ export async function publishToPlatform(post: any, account: any) {
     data: { status: 'PUBLISHING' },
   });
 
+  // Video uploads legitimately take minutes (media download → platform
+  // upload → processing polls). Images are fast. The old fixed 30s race
+  // killed almost every video publish with a misleading timeout error.
+  const formatLower = String(post.format || '').toLowerCase();
+  const isVideoPost =
+    post.mediaType === 'video' ||
+    formatLower.includes('video') ||
+    formatLower.includes('reel') ||
+    formatLower.includes('short') ||
+    String(post.imageUrl || '').toLowerCase().endsWith('.mp4');
+  const timeoutMs = isVideoPost ? 300000 : 90000;
+
   try {
     const result = await Promise.race([
       publishToPlatformProvider(post, account),
       new Promise<any>((_, reject) =>
         setTimeout(
-          () => reject(new Error("Publishing timed out after 30 seconds. The social platform may be slow or your media URL may not be publicly accessible.")),
-          30000
+          () => reject(new Error(`Publishing timed out after ${Math.round(timeoutMs / 1000)} seconds. The social platform may be slow or your media URL may not be publicly accessible. Check the post status on the platform itself — it may still appear there shortly.`)),
+          timeoutMs
         )
       ),
     ]);

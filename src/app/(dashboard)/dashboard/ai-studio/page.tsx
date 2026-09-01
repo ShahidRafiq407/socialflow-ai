@@ -1098,7 +1098,7 @@ export default function AIStudioPage() {
   const currentTitle = titleDict[currentFormatKey] || currentGenerated?.title || "";
   const currentDescription = descriptionDict[currentFormatKey] || "";
   const currentDestinationUrl = destinationUrlDict[currentFormatKey] || "";
-  const currentBoard = boardDict[currentFormatKey] || "Smart Robotics & AI";
+  const currentBoard = boardDict[currentFormatKey] || "";
   const currentTaggedTopics = taggedTopicsDict[currentFormatKey] || [];
   const currentAltText = altTextDict[currentFormatKey] || "";
   // NOTE: currentMediaItems (with per-asset media resolution) is derived further below,
@@ -2835,12 +2835,25 @@ export default function AIStudioPage() {
     setPublishLoading(true);
     try {
       const cleanMediaUrls = await Promise.all((post.mediaUrls || []).map((u) => ensureCleanMediaUrl(u)));
+      const draftKey = `${post.platform}-${post.format}`;
       const res = await apiSaveDraft({
         platform: post.platform,
         content: post.caption,
         imageUrl: cleanMediaUrls[0] || "",
         format: post.format,
         hashtags: post.hashtags,
+        settings: {
+          ...(publishSettingsDict[draftKey] || {}),
+          contentTitle: titleDict[draftKey] || undefined,
+          contentDescription: descriptionDict[draftKey] || undefined,
+          altText: altTextDict[draftKey] || undefined,
+          firstComment: post.firstComment || undefined,
+          destinationUrl:
+            destinationUrlDict[draftKey] ||
+            publishSettingsDict[draftKey]?.destinationUrl ||
+            undefined,
+          pinterestBoardName: boardDict[draftKey] || undefined,
+        },
         mediaType: post.mediaType,
         source: post.source,
         campaignTopic,
@@ -3031,8 +3044,22 @@ export default function AIStudioPage() {
   const validatePostsLimits = (posts: ReturnType<typeof collectCampaignPosts>) => {
     for (const post of posts) {
       const cap = getPlatformCapability(post.platform, post.format);
+      const key = `${post.platform}-${post.format}`;
       if (cap.captionLimit && post.data.caption && post.data.caption.length > cap.captionLimit) {
         return `Caption for ${cap.platform} ${cap.label} exceeds the ${cap.captionLimit} character limit. Please shorten it before publishing.`;
+      }
+      const title = titleDict[key] || "";
+      if (cap.titleLimit && title && title.length > cap.titleLimit) {
+        return `Title for ${cap.platform} ${cap.label} exceeds the ${cap.titleLimit} character limit. Please shorten it before publishing.`;
+      }
+      const description = descriptionDict[key] || "";
+      if (cap.descriptionLimit && description && description.length > cap.descriptionLimit) {
+        return `Description for ${cap.platform} ${cap.label} exceeds the ${cap.descriptionLimit} character limit. Please shorten it before publishing.`;
+      }
+      const altText = altTextDict[key] || "";
+      const altTextLimit = cap.altTextLimit || (cap.supportsAltText ? 500 : 0);
+      if (altTextLimit && altText && altText.length > altTextLimit) {
+        return `Alt text for ${cap.platform} ${cap.label} exceeds the ${altTextLimit} character limit. Please shorten it before publishing.`;
       }
     }
     return null;
@@ -3123,6 +3150,17 @@ export default function AIStudioPage() {
                 ...(publishSettingsDict[`${platform}-${format}`] || {}),
                 contentTitle: titleDict[`${platform}-${format}`] || undefined,
                 contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+                // Alt text — sent for platforms whose API supports it
+                // (Pinterest alt_text, LinkedIn media description, X media metadata).
+                altText: altTextDict[`${platform}-${format}`] || undefined,
+                // First comment — publisher posts it right after the media goes live.
+                firstComment: currentFirstComment || undefined,
+                // Editor-level destination URL / board fall back to the settings-tab values.
+                destinationUrl:
+                  destinationUrlDict[`${platform}-${format}`] ||
+                  publishSettingsDict[`${platform}-${format}`]?.destinationUrl ||
+                  undefined,
+                pinterestBoardName: boardDict[`${platform}-${format}`] || undefined,
               },
               mediaType: computedMediaType,
               source: "ai_campaign",
@@ -3217,6 +3255,17 @@ export default function AIStudioPage() {
                 ...(publishSettingsDict[`${platform}-${format}`] || {}),
                 contentTitle: titleDict[`${platform}-${format}`] || undefined,
                 contentDescription: descriptionDict[`${platform}-${format}`] || undefined,
+                // Alt text — sent for platforms whose API supports it
+                // (Pinterest alt_text, LinkedIn media description, X media metadata).
+                altText: altTextDict[`${platform}-${format}`] || undefined,
+                // First comment — publisher posts it right after the media goes live.
+                firstComment: currentFirstComment || undefined,
+                // Editor-level destination URL / board fall back to the settings-tab values.
+                destinationUrl:
+                  destinationUrlDict[`${platform}-${format}`] ||
+                  publishSettingsDict[`${platform}-${format}`]?.destinationUrl ||
+                  undefined,
+                pinterestBoardName: boardDict[`${platform}-${format}`] || undefined,
               },
               mediaType: computedMediaType,
               source: "ai_campaign",
@@ -4086,6 +4135,9 @@ export default function AIStudioPage() {
                   onRestoreOriginalPrompt={handleRestoreOriginalPrompt}
                   onGenerateField={handleGenerateFieldAI}
                   generatingField={currentGeneratingField}
+                  pinterestBoards={pinterestBoards}
+                  pinterestAiModified={currentPublishSettings.pinterestAiModified === true}
+                  onPinterestAiModifiedChange={(val) => updatePublishSetting("pinterestAiModified", val)}
                 />
 
                 {/* ---------------------------------------------------------------------------- */}
@@ -4814,7 +4866,8 @@ export default function AIStudioPage() {
             </div>
             <p className="text-xs text-slate-500 mb-3">
               The AI Scheduler analyzed audience activity for every selected platform. Each post is
-              queued at its platform&apos;s peak engagement window and publishes automatically:
+              queued at its platform&apos;s next true audience-peak window — the exact day and time
+              its audience is most active — and publishes automatically:
             </p>
             <div className="flex items-center gap-1.5 mb-3 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50">
               <Clock className="h-3.5 w-3.5 text-indigo-500" />

@@ -46,6 +46,11 @@ interface PinterestPinEditorProps {
   onTaggedTopicsChange: (topics: string[]) => void;
   altText: string;
   onAltTextChange: (val: string) => void;
+  /** Real boards from the connected Pinterest account (rendered in the Board dropdown). */
+  boards?: { id: string; name: string }[];
+  /** AI-modified disclosure — synced to the Pin create API via ai_disclosures. */
+  aiModified?: boolean;
+  onAiModifiedChange?: (val: boolean) => void;
   displayImageUrl: string | null;
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
@@ -94,6 +99,9 @@ export default function PinterestPinEditor({
   onTaggedTopicsChange,
   altText,
   onAltTextChange,
+  boards,
+  aiModified,
+  onAiModifiedChange,
   displayImageUrl,
   onRemoveMedia,
   onOpenUpload,
@@ -128,53 +136,10 @@ export default function PinterestPinEditor({
   const [pinQuality, setPinQuality] = useState<string>("studio_4k");
 
   // Pinterest Native Form State
-  const [topicInput, setTopicInput] = useState("");
-  const [publishLater, setPublishLater] = useState(false);
-  const [isAiModified, setIsAiModified] = useState(true);
-  const [includesAiPerson, setIncludesAiPerson] = useState(false);
   const [moreOptionsOpen, setMoreOptionsOpen] = useState(true);
-  const [allowComments, setAllowComments] = useState(true);
-  const [showSimilarProducts, setShowSimilarProducts] = useState(true);
-
-  // Tag Products State
-  const [taggedProducts, setTaggedProducts] = useState<Array<{ id: string; name: string; price: string; url: string }>>([]);
-  const [isTagProductDialogOpen, setIsTagProductDialogOpen] = useState(false);
-  const [newProductName, setNewProductName] = useState("");
-  const [newProductPrice, setNewProductPrice] = useState("");
-  const [newProductUrl, setNewProductUrl] = useState("");
-
-  const handleAddProduct = () => {
-    if (!newProductName.trim()) return;
-    const newProd = {
-      id: `prod_${Date.now()}`,
-      name: newProductName.trim(),
-      price: newProductPrice.trim(),
-      url: newProductUrl.trim() || destinationUrl || "https://smbrobotic.com",
-    };
-    setTaggedProducts((prev) => [...prev, newProd]);
-    setNewProductName("");
-    setNewProductPrice("");
-    setNewProductUrl("");
-    setIsTagProductDialogOpen(false);
-  };
-
-  const handleRemoveProduct = (id: string) => {
-    setTaggedProducts((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  const handleAddTopic = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && topicInput.trim()) {
-      e.preventDefault();
-      if (!taggedTopics.includes(topicInput.trim())) {
-        onTaggedTopicsChange([...taggedTopics, topicInput.trim()]);
-      }
-      setTopicInput("");
-    }
-  };
-
-  const handleRemoveTopic = (topic: string) => {
-    onTaggedTopicsChange(taggedTopics.filter((t) => t !== topic));
-  };
+  // AI-modified disclosure — local mirror of the aiModified prop so the toggle
+  // stays responsive; changes propagate up via onAiModifiedChange.
+  const [isAiModified, setIsAiModified] = useState<boolean>(aiModified ?? true);
 
   const handleGeneratePin = () => {
     if (isVideo) {
@@ -672,118 +637,49 @@ export default function PinterestPinEditor({
             </div>
           </div>
 
-          {/* BOARD SELECTOR */}
+          {/* BOARD SELECTOR — real boards from the connected Pinterest account.
+              The publisher resolves the board NAME to a board ID via /v5/boards. */}
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Board</label>
-            <div className="relative">
-              <select
+            {boards && boards.length > 0 ? (
+              <div className="relative">
+                <select
+                  value={board}
+                  onChange={(e) => onBoardChange(e.target.value)}
+                  className="w-full h-8.5 px-2.5 pr-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 appearance-none focus:ring-1 focus:ring-red-500"
+                >
+                  {boards.map((b) => (
+                    <option key={b.id} value={b.name}>
+                      {b.name}
+                    </option>
+                  ))}
+                  {/* Keep the currently typed board selectable even if it is not in the list yet */}
+                  {board && !boards.some((b) => b.name === board) && (
+                    <option value={board}>{board}</option>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              </div>
+            ) : (
+              <Input
                 value={board}
                 onChange={(e) => onBoardChange(e.target.value)}
-                className="w-full h-8.5 px-2.5 pr-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200 appearance-none focus:ring-1 focus:ring-red-500"
-              >
-                <option value="Smart Robotics & AI">Smart Robotics & AI</option>
-                <option value="Tech Inspiration">Tech Inspiration</option>
-                <option value="DIY Electronics">DIY Electronics</option>
-                <option value="Digital Marketing Strategies">Digital Marketing Strategies</option>
-              </select>
-              <ChevronDown className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* TAGGED TOPICS */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                Tagged topics ({taggedTopics.length})
-              </label>
-              <span className="text-[10px] text-slate-400">Press Enter to add tag</span>
-            </div>
-            <Input
-              value={topicInput}
-              onChange={(e) => setTopicInput(e.target.value)}
-              onKeyDown={handleAddTopic}
-              placeholder="Search for a tag (e.g. Robotics, Artificial Intelligence, Automation)"
-              className="h-10 text-xs sm:text-sm rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
-            />
-            <p className="text-[11px] text-slate-400">Don't worry, people won't see your tags</p>
-
-            {taggedTopics.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {taggedTopics.map((topic, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-1 rounded-full"
-                  >
-                    <span>{topic}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTopic(topic)}
-                      className="hover:text-red-500 ml-0.5"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
+                placeholder="Type the exact board name from your Pinterest account"
+                className="h-8.5 text-xs rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+              />
             )}
+            <p className="text-[11px] text-slate-400">
+              Boards are matched by name against your connected Pinterest account (exact spelling).
+            </p>
           </div>
 
-          {/* TAG PRODUCTS */}
-          <div className="pt-1 space-y-2">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">Tag Products</label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsTagProductDialogOpen(true)}
-              className="h-8 text-xs font-semibold gap-1.5 rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50"
-            >
-              <ShoppingBag className="h-3.5 w-3.5 text-red-600" />
-              <span>Add products</span>
-            </Button>
+          {/* NOTE: "Tagged topics", "Tag products", comment toggles and
+              "show similar products" were removed — the Pinterest v5 Create Pin
+              API does not accept them, so they could never sync to the real
+              platform. Only fields the real API accepts are shown here. */}
 
-            {taggedProducts.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {taggedProducts.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-300 px-2.5 py-1 rounded-lg text-xs font-medium"
-                  >
-                    <ShoppingBag className="h-3 w-3 text-red-600 shrink-0" />
-                    <span className="font-bold">{prod.name}</span>
-                    {prod.price && <span className="text-[11px] text-red-600 dark:text-red-400 font-mono">({prod.price})</span>}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveProduct(prod.id)}
-                      className="hover:text-red-700 ml-1 text-slate-400 hover:text-red-600"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* TOGGLES: PUBLISH LATER & AI MODIFIED (MATCHES SCREENSHOT) */}
+          {/* TOGGLES: AI MODIFIED DISCLOSURE (synced via ai_disclosures on the Pin create API) */}
           <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-            {/* PUBLISH AT A LATER DATE */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Publish at a later date</span>
-              <button
-                type="button"
-                onClick={() => setPublishLater(!publishLater)}
-                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
-                  publishLater ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
-                }`}
-              >
-                <div
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    publishLater ? "translate-x-5" : "translate-x-0"
-                  }`}
-                />
-              </button>
-            </div>
 
             {/* MARK AS AI-MODIFIED */}
             <div className="space-y-1.5">
@@ -794,7 +690,11 @@ export default function PinterestPinEditor({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setIsAiModified(!isAiModified)}
+                  onClick={() => {
+                    const next = !isAiModified;
+                    setIsAiModified(next);
+                    onAiModifiedChange?.(next);
+                  }}
                   className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
                     isAiModified ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
                   }`}
@@ -806,25 +706,10 @@ export default function PinterestPinEditor({
                   />
                 </button>
               </div>
-
-              {isAiModified && (
-                <div className="pl-6 pt-1 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="ai-person"
-                    checked={includesAiPerson}
-                    onChange={(e) => setIncludesAiPerson(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-slate-300 text-red-600 focus:ring-red-500"
-                  />
-                  <label htmlFor="ai-person" className="text-xs text-slate-500 dark:text-slate-400">
-                    This Pin includes an AI-generated person
-                  </label>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* MORE OPTIONS (COLLAPSIBLE - MATCHES SCREENSHOT) */}
+          {/* MORE OPTIONS (COLLAPSIBLE) — only settings the real API accepts */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
             <button
               type="button"
@@ -837,47 +722,6 @@ export default function PinterestPinEditor({
 
             {moreOptionsOpen && (
               <div className="space-y-4 pt-1">
-                {/* ALLOW COMMENTS */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-700 dark:text-slate-300">Allow people to comment</span>
-                  <button
-                    type="button"
-                    onClick={() => setAllowComments(!allowComments)}
-                    className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
-                      allowComments ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
-                    }`}
-                  >
-                    <div
-                      className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                        allowComments ? "translate-x-5" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* SHOW SIMILAR PRODUCTS */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-700 dark:text-slate-300">Show similar products</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowSimilarProducts(!showSimilarProducts)}
-                      className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
-                        showSimilarProducts ? "bg-red-600" : "bg-slate-200 dark:bg-slate-700"
-                      }`}
-                    >
-                      <div
-                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                          showSimilarProducts ? "translate-x-5" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    People can shop products similar to what's shown in this Pin using visual search.
-                  </p>
-                </div>
-
                 {/* ALT TEXT */}
                 <div className="space-y-1 pt-1">
                   <div className="flex items-center gap-1.5">
@@ -900,110 +744,10 @@ export default function PinterestPinEditor({
                   </p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-      {/* TAG PRODUCTS MODAL */}
-      {isTagProductDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4 text-red-600" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Tag Product to Pin</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsTagProductDialogOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Title / Name</label>
-                <Input
-                  value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
-                  placeholder="e.g. Smart Robotic Gripper Kit"
-                  className="h-9 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Price (optional)</label>
-                  <Input
-                    value={newProductPrice}
-                    onChange={(e) => setNewProductPrice(e.target.value)}
-                    placeholder="e.g. $49.99"
-                    className="h-9 text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product URL</label>
-                  <Input
-                    value={newProductUrl}
-                    onChange={(e) => setNewProductUrl(e.target.value)}
-                    placeholder="https://smbrobotic.com/..."
-                    className="h-9 text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* QUICK PRESET PICKS */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-                <span className="text-[11px] font-semibold text-slate-400">Quick Pick Sample Products:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { name: "Pro Starter Kit", price: "$99", url: "https://example.com/starter" },
-                    { name: "Premium Plan", price: "$149", url: "https://example.com/premium" },
-                    { name: "Enterprise Solution", price: "$299", url: "https://example.com/enterprise" },
-                    { name: "Digital Guide Bundle", price: "$49", url: "https://example.com/guide" },
-                  ].map((p, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setNewProductName(p.name);
-                        setNewProductPrice(p.price);
-                        setNewProductUrl(p.url);
-                      }}
-                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-600 transition-colors"
-                    >
-                      + {p.name} ({p.price})
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsTagProductDialogOpen(false)}
-                className="h-8 text-xs"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={!newProductName.trim()}
-                onClick={handleAddProduct}
-                className="h-8 text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
-              >
-                Add Tag
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+             )}
+           </div>
+         </div>
+       </div>
     </div>
   );
 }

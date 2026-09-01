@@ -4,6 +4,10 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { themeInitScript } from "@/components/marketing/theme-toggle";
 import "./globals.css";
 
+// Long execution window — publishing server actions (video uploads, platform
+// processing polls) legitimately take minutes. Applies to all segments below.
+export const maxDuration = 300;
+
 export const metadata: Metadata = {
   title: "PostloomAI — Marketing on Autopilot",
   description:

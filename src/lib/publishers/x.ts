@@ -21,10 +21,10 @@ function splitIntoChunks(text: string, limit: number): string[] {
 }
 
 /**
- * Best-effort single-image upload via X API v2 media upload
- * (INIT → APPEND → FINALIZE). Requires the media.write OAuth scope on the
- * X developer app — if it is missing the upload fails here and the tweet
- * still goes out as text-only.
+ * Best-effort single-image upload via the X API v2 media upload endpoint
+ * (POST https://api.x.com/2/media/upload — base64 JSON body).
+ * Requires the media.write OAuth scope on the X developer app — if it is
+ * missing the upload fails here and the tweet still goes out as text-only.
  */
 async function uploadXImage(accessToken: string, imageUrl: string): Promise<string | null> {
   try {
@@ -89,51 +89,57 @@ async function uploadXImage(accessToken: string, imageUrl: string): Promise<stri
       buffer = Buffer.from(await imgRes.arrayBuffer());
     }
 
-    const apiBase = 'https://upload.twitter.com/1.1/media/upload.json';
-
-    // INIT
-    const initForm = new FormData();
-    initForm.append('command', 'INIT');
-    initForm.append('media_type', mimeType);
-    initForm.append('media_category', 'tweet_image');
-    initForm.append('total_bytes', String(buffer.length));
-    const initRes = await fetch(apiBase, {
+    // X API v2 simple upload — JSON body with base64-encoded media.
+    const uploadRes = await fetch('https://api.x.com/2/media/upload', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: initForm,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        media: buffer.toString('base64'),
+        media_category: 'tweet_image',
+      }),
     });
-    const initData = await initRes.json().catch(() => ({}));
-    const mediaId = initData?.media_id_string || initData?.media_id;
-    if (!initRes.ok || !mediaId) return null;
 
-    // APPEND (single chunk — images are well under the 5MB chunk cap)
-    const appendForm = new FormData();
-    appendForm.append('command', 'APPEND');
-    appendForm.append('media_id', mediaId);
-    appendForm.append('segment_index', '0');
-    appendForm.append('media', new Blob([new Uint8Array(buffer)], { type: mimeType }), 'image');
-    const appendRes = await fetch(apiBase, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: appendForm,
-    });
-    if (!appendRes.ok) return null;
-
-    // FINALIZE
-    const finForm = new FormData();
-    finForm.append('command', 'FINALIZE');
-    finForm.append('media_id', mediaId);
-    const finRes = await fetch(apiBase, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: finForm,
-    });
-    if (!finRes.ok) return null;
-
-    return mediaId;
+    const uploadData = await uploadRes.json().catch(() => ({}));
+    const mediaId = uploadData?.data?.id || uploadData?.media_id_string || uploadData?.media_id;
+    if (!uploadRes.ok || !mediaId) {
+      console.warn('[X Publisher] v2 media upload failed:', uploadRes.status, JSON.stringify(uploadData).slice(0, 300));
+      return null;
+    }
+    return String(mediaId);
   } catch (err) {
     console.warn('[X Publisher] Media upload failed — posting text-only:', err);
     return null;
+  }
+}
+
+/**
+ * Attach alt text to an uploaded image via POST /2/media/metadata
+ * (max 1000 chars, media.write scope). Best-effort — never blocks the tweet.
+ */
+async function attachXAltText(accessToken: string, mediaId: string, altText: string): Promise<void> {
+  try {
+    const res = await fetch('https://api.x.com/2/media/metadata', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: mediaId,
+        metadata: {
+          alt_text: { text: altText.slice(0, 1000) },
+        },
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.warn('[X Publisher] Alt text metadata failed:', res.status, errBody.slice(0, 200));
+    }
+  } catch (err) {
+    console.warn('[X Publisher] Alt text metadata error:', err);
   }
 }
 
@@ -149,20 +155,31 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
     const format = String(post.format || 'Post').toLowerCase();
     const settings = post.settings || {};
 
-    const replySetting =
+    const reply_setting =
       settings.xReplySetting === 'following' || settings.xReplySetting === 'mentioned'
         ? settings.xReplySetting
         : undefined;
+
+    // Full tweet text = caption + hashtags (X has no separate hashtag field;
+    // they are part of the post text). Hashtags were previously dropped here.
+    const hashtagString = Array.isArray(post.hashtags)
+      ? post.hashtags.map((h: string) => (h.startsWith('#') ? h : `#${h}`)).join(' ')
+      : '';
+    const fullText = [content || '', hashtagString].filter(Boolean).join('\n\n').trim();
 
     // Best-effort media: attach the first image when the X app has media.write
     let mediaId: string | null = null;
     if (imageUrl && format !== 'thread') {
       mediaId = await uploadXImage(accessToken, imageUrl);
+      // Attach alt text to the uploaded image (accessibility, max 1000 chars).
+      if (mediaId && settings.altText && String(settings.altText).trim()) {
+        await attachXAltText(accessToken, mediaId, String(settings.altText).trim());
+      }
     }
 
     const buildTweetBody = (text: string, inReplyTo?: string): any => {
       const body: any = { text: text.slice(0, X_TWEET_LIMIT) };
-      if (replySetting) body.reply_settings = replySetting;
+      if (reply_setting) body.reply_settings = reply_setting;
       if (settings.xMarkSensitive === true) body.possibly_sensitive = true;
       if (mediaId) body.media = { media_ids: [mediaId] };
       if (inReplyTo) body.reply = { in_reply_to_tweet_id: inReplyTo };
@@ -171,7 +188,7 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
 
     // Thread: split the caption into up to 6 chained tweets
     if (format === 'thread') {
-      const chunks = splitIntoChunks(content || '', X_TWEET_LIMIT).slice(0, MAX_THREAD_TWEETS);
+      const chunks = splitIntoChunks(fullText, X_TWEET_LIMIT).slice(0, MAX_THREAD_TWEETS);
       if (chunks.length === 0) {
         return { success: false, error: 'X Thread needs a caption with content.', platform: 'X' };
       }
@@ -217,7 +234,7 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildTweetBody(content || '')),
+      body: JSON.stringify(buildTweetBody(fullText)),
     });
 
     const data = await response.json().catch(() => ({}));
@@ -233,6 +250,27 @@ export async function publishToX(post: any, account: any): Promise<PublishResult
     }
 
     const tweetId = data.data.id;
+
+    // First comment — posted as a reply to the tweet (best-effort, never fails the post).
+    const firstComment = String(settings.firstComment || '').trim();
+    if (firstComment) {
+      try {
+        await fetch('https://api.twitter.com/2/tweets', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: firstComment.slice(0, X_TWEET_LIMIT),
+            reply: { in_reply_to_tweet_id: tweetId },
+          }),
+        });
+      } catch (commentErr) {
+        console.warn('[X Publisher] First comment reply failed:', commentErr);
+      }
+    }
+
     return {
       success: true,
       platformPostId: tweetId,

@@ -106,6 +106,11 @@ export interface PlatformEditorRouterProps {
   // Field-level AI generation (generates ONLY the requested field)
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+
+  // Pinterest-specific: real boards + AI-modified disclosure (syncs via ai_disclosures)
+  pinterestBoards?: { id: string; name: string }[];
+  pinterestAiModified?: boolean;
+  onPinterestAiModifiedChange?: (val: boolean) => void;
 }
 
 export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
@@ -124,12 +129,15 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onDescriptionChange={props.onDescriptionChange}
         destinationUrl={props.destinationUrl}
         onDestinationUrlChange={props.onDestinationUrlChange}
-        board={props.board || "Smart Robotics & AI"}
+        board={props.board || ""}
         onBoardChange={props.onBoardChange}
         taggedTopics={props.taggedTopics || []}
         onTaggedTopicsChange={props.onTaggedTopicsChange}
         altText={props.altText}
         onAltTextChange={props.onAltTextChange}
+        boards={props.pinterestBoards}
+        aiModified={props.pinterestAiModified}
+        onAiModifiedChange={props.onPinterestAiModifiedChange}
         displayImageUrl={props.displayImageUrl}
         onRemoveMedia={props.onRemoveMedia}
         onOpenUpload={props.onOpenUpload}
@@ -175,8 +183,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onDescriptionChange={props.onDescriptionChange}
         destinationUrl={props.destinationUrl}
         onDestinationUrlChange={props.onDestinationUrlChange}
-        board={props.board || "Smart Robotics & AI"}
+        board={props.board || ""}
         onBoardChange={props.onBoardChange}
+        boards={props.pinterestBoards}
         taggedTopics={props.taggedTopics || []}
         onTaggedTopicsChange={props.onTaggedTopicsChange}
         pages={ideaPages}

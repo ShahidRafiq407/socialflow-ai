@@ -1,11 +1,12 @@
 import { PublishResult } from './index';
-import { toPublicMediaUrl } from '@/lib/media/urls';
+import { toPublicMediaUrl, collectMediaUrls } from '@/lib/media/urls';
 
 /**
  * REAL TikTok publisher — Content Posting API v2 (Direct Post).
  *
- * Flow: POST /v2/post/publish/video/init/ with PULL_FROM_URL source — TikTok's
- * servers download the video from our public URL themselves.
+ * Videos:  POST /v2/post/publish/video/init/ with FILE_UPLOAD source.
+ * Photos:  POST /v2/post/publish/content/init/ with PULL_FROM_URL source
+ *          (media_type PHOTO — Photo Mode / carousel, 1-35 images).
  *
  * Settings tab mapping (post.settings):
  *   tiktokPrivacy            → privacy_level (PUBLIC_TO_EVERYONE / MUTUAL_FOLLOW_FRIENDS / SELF_ONLY)
@@ -80,6 +81,131 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
       if (refreshedToken) accessToken = refreshedToken;
     }
 
+    const settings = post.settings || {};
+    const format = String(post.format || "").toLowerCase();
+    const mediaUrls = collectMediaUrls(post);
+
+    // ------------------------------------------------------------------
+    // PHOTO MODE (Photo Mode / carousel) — Content Posting API
+    // POST /v2/post/publish/content/init/ with media_type PHOTO.
+    // TikTok pulls the images from publicly accessible URLs.
+    // Limits (official docs): 1-35 photos, title ≤ 90, description ≤ 4000.
+    // ------------------------------------------------------------------
+    const firstUrl = mediaUrls[0] || "";
+    const isPhotoMode =
+      format === "photo" ||
+      format.includes("photo") ||
+      (post.mediaType !== "video" &&
+        !format.includes("reel") &&
+        !firstUrl.startsWith("data:video/") &&
+        /\.(png|jpe?g|webp)(\?|$)/i.test(firstUrl) &&
+        !/\.(mp4|mov|webm)(\?|$)/i.test(firstUrl));
+
+    if (isPhotoMode) {
+      const imageUrls = mediaUrls
+        .map((u: string, i: number) => toPublicMediaUrl(u, post.id, i))
+        .filter((u: string) => /^https?:\/\//i.test(u))
+        .slice(0, 35);
+
+      if (imageUrls.length === 0) {
+        return {
+          success: false,
+          error:
+            "TikTok Photo Mode requires publicly hosted image URLs. Re-add the images from the library so they are uploaded to storage, then try again.",
+          platform: "TIKTOK",
+        };
+      }
+
+      const privacyMap: Record<string, string> = {
+        everyone: "PUBLIC_TO_EVERYONE",
+        friends: "MUTUAL_FOLLOW_FRIENDS",
+        private: "SELF_ONLY",
+      };
+      let targetPrivacy = privacyMap[settings.tiktokPrivacy] || "PUBLIC_TO_EVERYONE";
+
+      // Respect the privacy options the creator/account actually allows.
+      try {
+        const creatorRes = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json; charset=UTF-8",
+          },
+        });
+        if (creatorRes.ok) {
+          const creatorData = await creatorRes.json();
+          const allowedOptions: string[] = creatorData?.data?.privacy_level_options || [];
+          if (allowedOptions.length > 0 && !allowedOptions.includes(targetPrivacy)) {
+            targetPrivacy = allowedOptions.includes("PUBLIC_TO_EVERYONE")
+              ? "PUBLIC_TO_EVERYONE"
+              : allowedOptions.includes("MUTUAL_FOLLOW_FRIENDS")
+              ? "MUTUAL_FOLLOW_FRIENDS"
+              : allowedOptions[0];
+          }
+        }
+      } catch (creatorErr) {
+        console.warn("[TikTok Publisher] creator_info query failed (photo):", creatorErr);
+      }
+
+      const hashtags = Array.isArray(post.hashtags) ? post.hashtags : [];
+      const photoTitle = String(
+        settings.contentTitle || (post.content || "").split("\n")[0] || ""
+      )
+        .slice(0, 90)
+        .trim();
+      const photoDescription = [post.content || "", hashtags.join(" ")]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 4000)
+        .trim();
+
+      const photoRes = await fetch("https://open.tiktokapis.com/v2/post/publish/content/init/", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json; charset=UTF-8",
+        },
+        body: JSON.stringify({
+          post_info: {
+            title: photoTitle,
+            description: photoDescription,
+            privacy_level: targetPrivacy,
+            disable_comment: settings.tiktokDisableComments === true,
+          },
+          source_info: {
+            source: "PULL_FROM_URL",
+            photo_cover_index: 0,
+            photo_images: imageUrls,
+          },
+          post_mode: "DIRECT_POST",
+          media_type: "PHOTO",
+        }),
+      });
+
+      const photoData = await photoRes.json().catch(() => ({}));
+      const photoError = photoData?.error;
+
+      if (!photoRes.ok || (photoError && photoError.code && photoError.code !== "ok")) {
+        const code = String(photoError?.code || "");
+        const message = String(photoError?.message || "");
+        console.error("[TikTok Publisher] Photo post error — code:", code, "message:", message, "HTTP:", photoRes.status);
+        return {
+          success: false,
+          error: `TikTok photo post failed: ${message || code || `HTTP ${photoRes.status}`}`,
+          platform: "TIKTOK",
+        };
+      }
+
+      return {
+        success: true,
+        platformPostId: photoData?.data?.publish_id,
+        platform: "TIKTOK",
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // VIDEO MODE — existing FILE_UPLOAD flow
+    // ------------------------------------------------------------------
     const rawVideoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
     if (!rawVideoUrl) {
       return { success: false, error: "TikTok posts require a video", platform: "TIKTOK" };
@@ -100,7 +226,6 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
     }
     const videoSize = videoBuffer.byteLength;
 
-    const settings = post.settings || {};
     const privacyMap: Record<string, string> = {
       everyone: "PUBLIC_TO_EVERYONE",
       friends: "MUTUAL_FOLLOW_FRIENDS",

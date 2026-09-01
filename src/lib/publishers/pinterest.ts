@@ -87,11 +87,18 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
                     imageUrl.toLowerCase().includes('.mov');
 
     // Step 1: Resolve Board ID
-    let boardId = settings.pinterestBoard || account.boardId;
+    // Accepted inputs (in priority order):
+    //   1. settings.pinterestBoard — a numeric board ID from the settings tab dropdown
+    //   2. settings.pinterestBoardName — board NAME from the editor's board field
+    //   3. account.boardId
+    //   4. First board on the account, or a newly created default board
+    let boardId = settings.pinterestBoard || settings.pinterestBoardName || account.boardId;
 
-    if (!boardId) {
+    // If the stored value is a board NAME (not a numeric ID), resolve it to an ID.
+    if (boardId && !/^\d+$/.test(String(boardId).trim())) {
+      const boardName = String(boardId).trim().toLowerCase();
       try {
-        const boardsRes = await fetch('https://api.pinterest.com/v5/boards?page_size=10', {
+        const boardsRes = await fetch('https://api.pinterest.com/v5/boards?page_size=50', {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -99,36 +106,41 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
 
         if (boardsRes.ok) {
           const boardsData = await boardsRes.json();
-          if (boardsData.items && boardsData.items.length > 0) {
+          const matched = (boardsData.items || []).find(
+            (b: any) => String(b.name || '').trim().toLowerCase() === boardName
+          );
+          if (matched?.id) {
+            boardId = matched.id;
+          } else if (boardsData.items && boardsData.items.length > 0) {
             boardId = boardsData.items[0].id;
           }
         }
       } catch {}
-
-      // If still no board, try auto-creating a default board
-      if (!boardId) {
-        try {
-          const createBoardRes = await fetch('https://api.pinterest.com/v5/boards', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: 'AI Marketing Pins',
-              description: 'Created by SMB Robotics Marketing AI',
-              privacy: 'PUBLIC',
-            }),
-          });
-          if (createBoardRes.ok) {
-            const newBoard = await createBoardRes.json();
-            boardId = newBoard.id;
-          }
-        } catch {}
-      }
     }
 
-    if (!boardId) {
+    // If still no board (empty account), auto-create a default board.
+    if (!boardId || !/^\d+$/.test(String(boardId).trim())) {
+      try {
+        const createBoardRes = await fetch('https://api.pinterest.com/v5/boards', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: 'AI Marketing Pins',
+            description: 'Created by SMB Robotics Marketing AI',
+            privacy: 'PUBLIC',
+          }),
+        });
+        if (createBoardRes.ok) {
+          const newBoard = await createBoardRes.json();
+          boardId = newBoard.id;
+        }
+      } catch {}
+    }
+
+    if (!boardId || !/^\d+$/.test(String(boardId).trim())) {
       return {
         success: false,
         error: 'No Pinterest board found. Please create at least 1 board (e.g. "SMB Robotics") on Pinterest.com, or reconnect Pinterest in Integrations.',
@@ -183,14 +195,35 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
       };
     }
 
-    const title = String(settings.contentTitle || post.campaignTopic || content?.slice(0, 100) || 'New Pin')
+    // Pinterest API v5 Create Pin field limits (official docs):
+    //   title       ≤ 100 chars
+    //   description ≤ 800 chars (organic composer caps at 500)
+    //   alt_text    ≤ 500 chars
+    //   link        ≤ 2048 chars
+    const title = String(
+      settings.contentTitle ||
+      post.campaignTopic ||
+      content?.slice(0, 100) ||
+      'New Pin'
+    )
       .slice(0, 100)
       .trim();
 
-    const description = [content, Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '']
+    // The description shown on the pin. The Pinterest editor's "Description"
+    // field is stored in settings.contentDescription — it MUST take priority,
+    // falling back to the caption. Hashtags ride along in the description
+    // (Pinterest has no separate hashtag field).
+    const description = [
+      settings.contentDescription || content || '',
+      Array.isArray(post.hashtags) ? post.hashtags.join(' ') : '',
+    ]
       .filter(Boolean)
       .join('\n\n')
       .slice(0, 800)
+      .trim();
+
+    const altText = String(settings.altText || '')
+      .slice(0, 500)
       .trim();
 
     const pinPayload: any = {
@@ -200,8 +233,19 @@ export async function publishToPinterest(post: any, account: any): Promise<Publi
       media_source,
     };
 
+    // Alt text — accessibility text that shows on the pin (API supports ≤ 500 chars).
+    if (altText) {
+      pinPayload.alt_text = altText;
+    }
+
+    // AI-modified disclosure — Pinterest v5 Create Pin accepts
+    // ai_disclosures.values: ["AI_MODIFIED"].
+    if (settings.pinterestAiModified === true) {
+      pinPayload.ai_disclosures = { values: ['AI_MODIFIED'] };
+    }
+
     if (settings.destinationUrl || settings.pinterestLink) {
-      pinPayload.link = settings.destinationUrl || settings.pinterestLink;
+      pinPayload.link = String(settings.destinationUrl || settings.pinterestLink).slice(0, 2048);
     }
 
     // Step 3: Create Pin via Pinterest API v5

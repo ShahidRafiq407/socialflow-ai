@@ -69,6 +69,12 @@ export function normalizeAiBestTime(raw: any, platformId: string): BestTimeSpec 
 }
 
 // Next upcoming slot for an explicit spec (always at least 30 minutes out).
+// ONLY true audience-peak days are ever suggested:
+//   1. TODAY at the peak time — when today is a peak day and the slot is
+//      still at least 30 minutes ahead.
+//   2. Otherwise the NEXT day included in spec.days — even when that is a few
+//      days away. Low-activity days (e.g. Sunday for LinkedIn) are never
+//      suggested just because they are closer.
 export function getNextBestTimeFromSpec(spec: BestTimeSpec, from: Date = new Date()): Date {
   const earliest = new Date(from.getTime() + 30 * 60 * 1000);
 
@@ -81,14 +87,15 @@ export function getNextBestTimeFromSpec(spec: BestTimeSpec, from: Date = new Dat
     }
   }
 
-  // Fallback: same slot tomorrow even if the weekday isn't preferred
+  // Defensive fallback (unreachable when spec.days is valid): same slot tomorrow.
   const fallback = new Date(earliest);
   fallback.setDate(earliest.getDate() + 1);
   fallback.setHours(spec.hour, spec.minute, 0, 0);
   return fallback;
 }
 
-// Next upcoming best-time slot for a platform (>= 30 minutes from now).
+// Next best-time slot for a platform — today if the peak is still ahead,
+// otherwise the next true audience-peak day (>= 30 minutes lead time).
 export function getNextBestTime(platformId: string, from: Date = new Date()): Date {
   return getNextBestTimeFromSpec(getBestTimeSpec(platformId), from);
 }
