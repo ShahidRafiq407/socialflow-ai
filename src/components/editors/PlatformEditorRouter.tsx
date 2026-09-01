@@ -106,6 +106,9 @@ export interface PlatformEditorRouterProps {
   // Field-level AI generation (generates ONLY the requested field)
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  // AI analysis of the attached (uploaded) media → generates matching text
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 
   // Pinterest-specific: real boards + AI-modified disclosure (syncs via ai_disclosures)
   pinterestBoards?: { id: string; name: string }[];
@@ -158,6 +161,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         renderError={props.renderError}
         onCaptionToPrompt={props.onCaptionToPrompt}
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
       />
     );
   }
@@ -220,6 +225,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
         renderError={props.renderError}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
       />
     );
   }
@@ -261,6 +268,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isRenderingSlideMedia={props.isRenderingMedia}
         onCaptionToPrompt={props.onCaptionToPrompt}
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
         renderError={props.renderError}
@@ -315,6 +324,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
         isExportingPDF={props.isExportingPDF}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
       />
     );
   }
@@ -362,6 +373,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         generationStage={props.generationStage}
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
       />
     );
   }
@@ -414,6 +427,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onDurationChange={props.onDurationChange || (() => {})}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
+        onAnalyzeMedia={props.onAnalyzeMedia}
+        isAnalyzingMedia={props.isAnalyzingMedia}
       />
     );
   }
@@ -461,6 +476,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       renderError={props.renderError}
       onGenerateField={props.onGenerateField}
       generatingField={props.generatingField}
+      onAnalyzeMedia={props.onAnalyzeMedia}
+      isAnalyzingMedia={props.isAnalyzingMedia}
     />
   );
 }

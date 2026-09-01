@@ -18,7 +18,8 @@ import {
   Sliders,
   Check,
   Settings2,
-  AlertCircle
+  AlertCircle,
+  Square
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,8 @@ import CharacterCounter from "@/components/CharacterCounter";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import XGuidelinesBanner from "./XGuidelinesBanner";
+import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface MultiMediaItem {
   id: string;
@@ -77,6 +80,9 @@ interface MultiMediaEditorProps {
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  // AI analysis of the attached (uploaded) media
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 }
 
 export default function MultiMediaEditor({
@@ -111,11 +117,14 @@ export default function MultiMediaEditor({
   onReorderCards,
   onGenerateField,
   generatingField = null,
+  onAnalyzeMedia,
+  isAnalyzingMedia = false,
 }: MultiMediaEditorProps) {
   const [tagInput, setTagInput] = useState("");
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
+  const formatKey = `${capability.platform}-${capability.format}`;
   // X Thread = sequence of connected posts: label slots "Post 2/5" (Phase 13 numbering);
   // other multi-photo platforms keep the plain "Asset N" wording.
   const isThreadFormat = capability.formatKey === "x_thread";
@@ -193,12 +202,23 @@ export default function MultiMediaEditor({
               type="button"
               variant="outline"
               size="sm"
-              disabled={isGeneratingAllMedia}
-              onClick={onGenerateAllMediaAI}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              disabled={!isGeneratingAllMedia && mediaItems.length === 0}
+              onClick={() => {
+                if (isGeneratingAllMedia) {
+                  cancelAIAction("copy", formatKey);
+                  return;
+                }
+                onGenerateAllMediaAI();
+              }}
+              title={isGeneratingAllMedia ? "Stop generating all assets" : "Regenerate all assets with AI"}
+              className={`h-7 px-2.5 text-[11px] font-bold gap-1 transition-colors ${
+                isGeneratingAllMedia
+                  ? "bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                  : "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              }`}
             >
               {isGeneratingAllMedia ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3 text-slate-600" />}
-              <span>Regenerate All Assets</span>
+              <span>{isGeneratingAllMedia ? "Stop Generating" : "Regenerate All Assets"}</span>
             </Button>
           </div>
           <div className="flex items-center gap-2">
@@ -424,28 +444,45 @@ export default function MultiMediaEditor({
                 {onCaptionToPrompt && (
                   <button
                     type="button"
-                    disabled={isGeneratingPromptFromScript}
-                    onClick={onCaptionToPrompt}
-                    className="text-[11px] font-semibold flex items-center gap-1 text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    disabled={!isGeneratingPromptFromScript && !caption.trim()}
+                    onClick={() => {
+                      if (isGeneratingPromptFromScript) {
+                        cancelAIAction("script", formatKey);
+                      } else {
+                        onCaptionToPrompt();
+                      }
+                    }}
+                    title={isGeneratingPromptFromScript ? "Stop generating prompt from caption" : "Generate media prompt from current caption"}
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                      isGeneratingPromptFromScript
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
+                        : "text-amber-600 hover:text-amber-700 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    }`}
                   >
                     {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-                    <span>Auto Prompt from Caption</span>
+                    <span>{isGeneratingPromptFromScript ? "Stop" : "Auto Prompt from Caption"}</span>
                   </button>
                 )}
                 <button
                   type="button"
-                  disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
-                  onClick={onEnhancePrompt}
+                  disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
+                  onClick={() => {
+                    if (isEnhancingPrompt) {
+                      cancelAIAction("enhance", formatKey);
+                    } else {
+                      onEnhancePrompt();
+                    }
+                  }}
                   className={`text-[11px] font-bold flex items-center gap-1 transition-all ${
                     isEnhancingPrompt
-                      ? "text-blue-600 cursor-wait"
+                      ? "text-red-500 hover:text-red-600 cursor-pointer"
                       : !prompt || !prompt.trim()
                         ? "text-slate-400 cursor-not-allowed opacity-50"
                         : "text-blue-600 hover:underline cursor-pointer"
                   }`}
                 >
                   {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                  <span>Enhance Prompt ✨</span>
+                  <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                 </button>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
                   <button
@@ -540,8 +577,18 @@ export default function MultiMediaEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
               <Hash className="h-3.5 w-3.5 text-blue-600" /> Hashtags
             </label>
-            {onGenerateField && (<button type="button" onClick={() => onGenerateField("hashtags")} disabled={generatingField === "hashtags"} title="Generate Hashtags with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-                    {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+            {onGenerateField && (<button type="button" onClick={() => {
+              if (generatingField === "hashtags") {
+                cancelAIAction("field", `${formatKey}:hashtags`);
+              } else {
+                onGenerateField("hashtags");
+              }
+            }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+              generatingField === "hashtags"
+                ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100"
+            } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
                   </button>)}
           </div>
           <Input
@@ -552,17 +599,39 @@ export default function MultiMediaEditor({
           />
         </div>
 
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {onAnalyzeMedia && (
+          <div className="pt-1">
+            <AnalyzeMediaAIButton
+              formatKey={formatKey}
+              onClick={onAnalyzeMedia}
+              isAnalyzing={isAnalyzingMedia}
+              hasMedia={Boolean(activeMedia.url)}
+            />
+          </div>
+        )}
+
         {/* AUTO-GENERATE CAPTION BUTTON */}
         <div className="pt-1">
           <Button
             type="button"
             size="sm"
             disabled={isGeneratingCopy}
-            onClick={onGenerateCopyAI}
-            className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
+            onClick={() => {
+              if (isGeneratingCopy) {
+                cancelAIAction("copy", formatKey);
+                return;
+              }
+              onGenerateCopyAI();
+            }}
+            className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+              isGeneratingCopy
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+            }`}
           >
             {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Generate Captions, Hashtags & Media Prompts with AI</span>
+            <span>{isGeneratingCopy ? "Stop Generating" : "Generate Captions, Hashtags & Media Prompts with AI"}</span>
           </Button>
         </div>
       </div>

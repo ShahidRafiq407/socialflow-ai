@@ -16,7 +16,8 @@ import {
   Download,
   CheckCircle2,
   Briefcase,
-  Hash
+  Hash,
+  Square
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
+import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface DocumentSlide {
   slideNumber: number;
@@ -62,6 +65,9 @@ interface LinkedInDocumentEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
+  // AI analysis of the attached (uploaded) media
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 }
 
 export default function LinkedInDocumentEditor({
@@ -92,9 +98,12 @@ export default function LinkedInDocumentEditor({
   onRestoreOriginalPrompt,
   onCaptionToPrompt,
   isGeneratingPromptFromScript = false,
+  onAnalyzeMedia,
+  isAnalyzingMedia = false,
 }: LinkedInDocumentEditorProps) {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const [slideCustomPrompt, setSlideCustomPrompt] = useState("");
+  const formatKey = `${capability.platform}-${capability.format}`;
 
   const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -165,8 +174,18 @@ export default function LinkedInDocumentEditor({
             Document Title
           </label>
           {onGenerateField && (
-            <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-              {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+            <button type="button" onClick={() => {
+              if (generatingField === "title") {
+                cancelAIAction("field", `${formatKey}:title`);
+              } else {
+                onGenerateField("title");
+              }
+            }} disabled={generatingField !== null && generatingField !== "title"} title={generatingField === "title" ? "Stop generating title" : "Generate Title with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+              generatingField === "title"
+                ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+            } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
+              {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
             </button>
           )}
         </div>
@@ -358,14 +377,22 @@ export default function LinkedInDocumentEditor({
               size="sm"
               disabled={isRegeneratingSlide || !slideCustomPrompt.trim()}
               onClick={() => {
+                if (isRegeneratingSlide) {
+                  cancelAIAction("slide", `${formatKey}:${activeSlideIndex}`);
+                  return;
+                }
                 onRegenerateSlideAI(activeSlideIndex, slideCustomPrompt);
                 setSlideCustomPrompt("");
               }}
-              className="w-full h-8 text-xs font-bold gap-1.5 border-blue-200 dark:border-blue-900/50 text-[#0A66C2] hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed"
-              title={!slideCustomPrompt.trim() ? "Type instructions above to enable slide regeneration" : `Regenerate Slide ${activeSlideIndex + 1}`}
+              className={`w-full h-8 text-xs font-bold gap-1.5 transition-colors ${
+                isRegeneratingSlide
+                  ? "border-red-300 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                  : "border-blue-200 dark:border-blue-900/50 text-[#0A66C2] hover:bg-blue-50 dark:hover:bg-blue-950/30 disabled:opacity-40 disabled:cursor-not-allowed"
+              }`}
+              title={isRegeneratingSlide ? "Stop regenerating this slide" : !slideCustomPrompt.trim() ? "Type instructions above to enable slide regeneration" : `Regenerate Slide ${activeSlideIndex + 1}`}
             >
               {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              <span>Regenerate Slide {activeSlideIndex + 1} with AI</span>
+              <span>{isRegeneratingSlide ? `Stop Regenerating Slide ${activeSlideIndex + 1}` : `Regenerate Slide ${activeSlideIndex + 1} with AI`}</span>
             </Button>
           </div>
         </div>
@@ -442,17 +469,40 @@ export default function LinkedInDocumentEditor({
           />
         </div>
 
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {onAnalyzeMedia && (
+          <div className="pt-1">
+            <AnalyzeMediaAIButton
+              formatKey={formatKey}
+              onClick={onAnalyzeMedia}
+              isAnalyzing={isAnalyzingMedia}
+              hasMedia={Boolean(activeSlide.imageUrl)}
+            />
+          </div>
+        )}
+
         {/* AUTO-GENERATE DOCUMENT BUTTON */}
         <div className="pt-1">
           <Button
             type="button"
             size="sm"
             disabled={isGeneratingAI}
-            onClick={onGenerateDocumentAI}
-            className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
+            onClick={() => {
+              if (isGeneratingAI) {
+                cancelAIAction("copy", formatKey);
+                return;
+              }
+              onGenerateDocumentAI();
+            }}
+            title={isGeneratingAI ? "Stop document generation" : undefined}
+            className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+              isGeneratingAI
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+            }`}
           >
             {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            <span>Generate Document Slides & Post Copy with AI</span>
+            <span>{isGeneratingAI ? "Stop Generating" : "Generate Document Slides & Post Copy with AI"}</span>
           </Button>
         </div>
       </div>

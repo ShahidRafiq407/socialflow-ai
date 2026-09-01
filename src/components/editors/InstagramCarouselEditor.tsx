@@ -16,7 +16,8 @@ import {
   MapPin,
   Download,
   Settings2,
-  AlertCircle
+  AlertCircle,
+  Square
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,8 @@ import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
+import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface CarouselSlideItem {
   slideNumber: number;
@@ -81,6 +84,9 @@ interface InstagramCarouselEditorProps {
   isEnhancingPrompt?: boolean;
   originalPrompt?: string | null;
   onRestoreOriginalPrompt?: () => void;
+  // AI analysis of the attached (uploaded) media
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 }
 
 export default function InstagramCarouselEditor({
@@ -115,12 +121,15 @@ export default function InstagramCarouselEditor({
   isEnhancingPrompt = false,
   originalPrompt,
   onRestoreOriginalPrompt,
+  onAnalyzeMedia,
+  isAnalyzingMedia = false,
 }: InstagramCarouselEditorProps) {
   const [slideStyle, setSlideStyle] = useState("photorealistic");
   const [slideQuality, setSlideQuality] = useState("studio_4k");
   const [slideAspectRatio, setSlideAspectRatio] = useState("auto");
   const [location, setLocation] = useState("");
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
+  const formatKey = `${capability.platform}-${capability.format}`;
 
   const effectiveSlides = slides.length > 0 ? slides : [
     { slideNumber: 1, title: "Cover Slide", body: "Hook your audience with a compelling headline", visualPrompt: "Clean minimal cover graphic" },
@@ -463,33 +472,47 @@ export default function InstagramCarouselEditor({
                 {onCaptionToPrompt && (
                   <button
                     type="button"
-                    disabled={isGeneratingPromptFromScript || !hasCaption}
-                    onClick={onCaptionToPrompt}
-                    title={hasCaption ? "Generate slide prompt from current caption" : "Please enter a caption first"}
+                    disabled={!isGeneratingPromptFromScript && !hasCaption}
+                    onClick={() => {
+                      if (isGeneratingPromptFromScript) {
+                        cancelAIAction("script", formatKey);
+                      } else {
+                        onCaptionToPrompt();
+                      }
+                    }}
+                    title={isGeneratingPromptFromScript ? "Stop generating slide prompt" : hasCaption ? "Generate slide prompt from current caption" : "Please enter a caption first"}
                     className={`text-[11px] font-semibold transition-colors ${
-                      hasCaption
+                      isGeneratingPromptFromScript
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
+                        : hasCaption
                         ? "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                         : "text-slate-400 cursor-not-allowed opacity-60"
                     }`}
                   >
-                    {isGeneratingPromptFromScript ? "Generating..." : "Auto-Prompt from Caption"}
+                    {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt from Caption"}
                   </button>
                 )}
                 {onEnhancePrompt && (
                   <button
                     type="button"
-                    disabled={isEnhancingPrompt || !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()}
-                    onClick={onEnhancePrompt}
+                    disabled={!isEnhancingPrompt && (!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim())}
+                    onClick={() => {
+                      if (isEnhancingPrompt) {
+                        cancelAIAction("enhance", formatKey);
+                      } else {
+                        onEnhancePrompt();
+                      }
+                    }}
                     className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
                       isEnhancingPrompt
-                        ? "text-purple-600 cursor-wait"
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
                         : !activeSlide.visualPrompt || !activeSlide.visualPrompt.trim()
                           ? "text-slate-400 cursor-not-allowed opacity-50"
                           : "text-purple-600 hover:text-purple-700 hover:underline cursor-pointer"
                     }`}
                   >
                     {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    <span>Enhance Prompt ✨</span>
+                    <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                   </button>
                 )}
                 {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
@@ -589,11 +612,22 @@ export default function InstagramCarouselEditor({
             variant="outline"
             size="sm"
             disabled={isRegeneratingSlide}
-            onClick={() => onRegenerateSlideAI(currentIdx)}
-            className="w-full h-8.5 text-xs font-bold gap-1.5 border-pink-200 dark:border-pink-900/50 text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/30"
+            onClick={() => {
+              if (isRegeneratingSlide) {
+                cancelAIAction("slide", `${formatKey}:${currentIdx}`);
+                return;
+              }
+              onRegenerateSlideAI(currentIdx);
+            }}
+            title={isRegeneratingSlide ? "Stop regenerating this slide" : undefined}
+            className={`w-full h-8.5 text-xs font-bold gap-1.5 transition-colors ${
+              isRegeneratingSlide
+                ? "border-red-300 dark:border-red-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                : "border-pink-200 dark:border-pink-900/50 text-pink-600 hover:bg-pink-50 dark:hover:bg-pink-950/30"
+            }`}
           >
             {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            <span>Regenerate Slide {currentIdx + 1} Copy & Visual</span>
+            <span>{isRegeneratingSlide ? `Stop Regenerating Slide ${currentIdx + 1}` : `Regenerate Slide ${currentIdx + 1} Copy & Visual`}</span>
           </Button>
         </div>
       </div>
@@ -622,8 +656,18 @@ export default function InstagramCarouselEditor({
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
               Hashtags
             </label>
-                  {onGenerateField && (<button type="button" onClick={() => onGenerateField("hashtags")} disabled={generatingField === "hashtags"} title="Generate Hashtags with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-                      {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                  {onGenerateField && (<button type="button" onClick={() => {
+                    if (generatingField === "hashtags") {
+                      cancelAIAction("field", `${formatKey}:hashtags`);
+                    } else {
+                      onGenerateField("hashtags");
+                    }
+                  }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                    generatingField === "hashtags"
+                      ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                      : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                  } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                      {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
                     </button>)}
             <Input
               value={hashtags.join(" ")}
@@ -646,14 +690,37 @@ export default function InstagramCarouselEditor({
           </div>
         </div>
 
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {onAnalyzeMedia && (
+          <div className="pt-1">
+            <AnalyzeMediaAIButton
+              formatKey={formatKey}
+              onClick={onAnalyzeMedia}
+              isAnalyzing={isAnalyzingMedia}
+              hasMedia={Boolean(activeSlide.imageUrl)}
+            />
+          </div>
+        )}
+
         {/* AUTO-GENERATE FULL CAROUSEL BUTTON */}
         <div className="pt-1">
           <Button
             type="button"
             size="sm"
             disabled={isGeneratingAI}
-            onClick={onGenerateCarouselAI}
-            className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
+            onClick={() => {
+              if (isGeneratingAI) {
+                cancelAIAction("copy", formatKey);
+                return;
+              }
+              onGenerateCarouselAI();
+            }}
+            title={isGeneratingAI ? "Stop carousel generation" : undefined}
+            className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+              isGeneratingAI
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+            }`}
           >
             {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel...") : "Generate Carousel Slides, Captions & Prompts with AI"}</span>

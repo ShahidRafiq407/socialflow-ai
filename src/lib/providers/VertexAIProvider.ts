@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type Part } from "@google/genai";
 
 export class VertexAIProvider {
   public ai: GoogleGenAI;
@@ -137,6 +137,51 @@ export class VertexAIProvider {
 
     const cleanErr = lastError?.message || (typeof lastError === "string" ? lastError : "Vertex AI model response error.");
     throw new Error(`Vertex AI Provider: ${cleanErr}`);
+  }
+
+  /**
+   * Generate text from multimodal parts (inline images / video frames + text)
+   * with the same retry + model-fallback behaviour as generateText.
+   */
+  async generateVisionText(
+    parts: Part[],
+    options: { modelName?: string; temperature?: number } = {}
+  ): Promise<string> {
+    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
+    let lastError: unknown = null;
+
+    for (const modelName of candidateModels) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`[Vertex AI Vision] Executing generateVisionText with model: ${modelName} (attempt ${attempt + 1}, ${parts.length} parts)`);
+          const response = await this.ai.models.generateContent({
+            model: modelName,
+            contents: [{ role: "user", parts }],
+            config: {
+              temperature: options.temperature ?? 0.4,
+            },
+          });
+
+          if (response.text) {
+            console.log(`[Vertex AI Vision] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
+            return response.text;
+          }
+        } catch (err) {
+          lastError = err;
+          const isRateLimit = this.isRateLimitOrTransientError(err);
+          console.warn(`[Vertex AI Vision] ❌ Model ${modelName} failed (attempt ${attempt + 1}, is429: ${isRateLimit}):`, err instanceof Error ? err.message : err);
+
+          if (isRateLimit && attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          break;
+        }
+      }
+    }
+
+    const cleanErr = (lastError as Error)?.message || (typeof lastError === "string" ? lastError : "Vertex AI vision response error.");
+    throw new Error(`Vertex AI Provider Vision: ${cleanErr}`);
   }
 
   /**

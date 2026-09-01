@@ -596,6 +596,52 @@ export default function AIStudioPage() {
     return () => window.removeEventListener("cancel-render-media", handleCancelRender);
   }, []);
 
+  // AbortControllers for AI TEXT actions (copy, fields, enhance, script, analyze, slide)
+  // keyed by `${scope}:${key}` — see src/lib/aiActionEvents.ts
+  const aiAbortControllersRef = useRef<Record<string, AbortController>>({});
+  // Cooperative stop flag for the slide-batch loop (checked between slides)
+  const cancelAllSlidesRef = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const handleCancelAIAction = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { scope?: string; key?: string } | undefined;
+      const scope = detail?.scope;
+      const key = detail?.key;
+      if (!scope || !key) return;
+
+      // 1. Abort the matching in-flight AI text request
+      const controllerKey = `${scope}:${key}`;
+      const controller = aiAbortControllersRef.current[controllerKey];
+      if (controller) {
+        controller.abort();
+        delete aiAbortControllersRef.current[controllerKey];
+      }
+
+      // 2. "copy" and "slide" scopes also stop the full-carousel pipeline: the
+      //    slide-batch loop AND any in-flight media render for the same format.
+      //    Slide keys look like `${platform}-${format}:${slideIdx}` — strip the
+      //    index to recover the bare format key.
+      if (scope === "copy" || scope === "slide") {
+        const formatKey = String(key).split(":")[0];
+        cancelAllSlidesRef.current[formatKey] = true;
+        const mediaController = abortControllersRef.current[formatKey];
+        if (mediaController) {
+          mediaController.abort();
+          delete abortControllersRef.current[formatKey];
+        }
+        if (formatKey !== key) {
+          const slideController = aiAbortControllersRef.current[`slide:${key}`];
+          if (slideController) {
+            slideController.abort();
+            delete aiAbortControllersRef.current[`slide:${key}`];
+          }
+        }
+      }
+    };
+    window.addEventListener("cancel-ai-action", handleCancelAIAction);
+    return () => window.removeEventListener("cancel-ai-action", handleCancelAIAction);
+  }, []);
+
   // Verification & live link modal for Publish, Schedule, and Draft actions
   const [statusModalData, setStatusModalData] = useState<{
     isOpen: boolean;
@@ -1191,18 +1237,24 @@ export default function AIStudioPage() {
   // ============================================================================
   // REAL MULTI-AGENT PLATFORM COPY GENERATOR (PARALLEL & TAB-ISOLATED)
   // ============================================================================
-  const handleGeneratePlatformCopyAI = async () => {
+  const handleGeneratePlatformCopyAI = async (): Promise<boolean> => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
     const targetPrompt = customPromptDict[targetKey] || "";
     const targetTopic = campaignTopic || targetPrompt || currentTitle || currentCaption || "Exciting new innovations and strategic insights";
 
+    // Reset the cooperative slide-batch stop flag for this format
+    cancelAllSlidesRef.current[targetKey] = false;
+
     setGeneratingCopyKeys(prev => ({ ...prev, [targetKey]: true }));
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`copy:${targetKey}`] = controller;
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "generate-platform-copy",
           platform: targetPlatform,
@@ -1215,7 +1267,7 @@ export default function AIStudioPage() {
       const data = await res.json();
       if (isUpgradeSignal(data)) {
         handleUpgradeRequired(data.message);
-        return;
+        return false;
       }
       if (data.success && data.data) {
         const item = data.data;
@@ -1280,22 +1332,32 @@ export default function AIStudioPage() {
         });
       }
     } catch (e) {
+      if ((e as Error)?.name === "AbortError") {
+        // User pressed Stop — silently end the copy generation
+        return false;
+      }
       console.error("Platform copy AI generation error:", e);
+      return false;
     } finally {
+      delete aiAbortControllersRef.current[`copy:${targetKey}`];
       setGeneratingCopyKeys(prev => {
         const next = { ...prev };
         delete next[targetKey];
         return next;
       });
     }
+    return true;
   };
 
   const handleRegenerateSlideAI = async (slideIdx: number, customSlidePrompt?: string) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
+    const slideControllerKey = `${targetFormatKey}:${slideIdx}`;
 
     setRenderingMediaKeys(prev => ({ ...prev, [targetFormatKey]: true }));
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`slide:${slideControllerKey}`] = controller;
     try {
       if (targetPlatform === "linkedin" && (targetFormat === "Document" || targetFormat === "Carousel")) {
         const currentSlides = displayOverlayTexts;
@@ -1303,6 +1365,7 @@ export default function AIStudioPage() {
         const res = await fetch("/api/ai-studio", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             step: "regenerate-slide",
             platform: targetPlatform,
@@ -1354,8 +1417,13 @@ export default function AIStudioPage() {
         await handleRenderMedia();
       }
     } catch (err) {
-      console.error("Slide regeneration error:", err);
+      if ((err as Error)?.name === "AbortError") {
+        // User pressed Stop on this slide's regeneration
+      } else {
+        console.error("Slide regeneration error:", err);
+      }
     } finally {
+      delete aiAbortControllersRef.current[`slide:${slideControllerKey}`];
       setRenderingMediaKeys(prev => {
         const next = { ...prev };
         delete next[targetFormatKey];
@@ -1374,6 +1442,7 @@ export default function AIStudioPage() {
 
     setEnhancingPromptKeys(prev => ({ ...prev, [targetKey]: true }));
     const controller = new AbortController();
+    aiAbortControllersRef.current[`enhance:${targetKey}`] = controller;
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
@@ -1428,9 +1497,12 @@ export default function AIStudioPage() {
       }
     } catch (e: any) {
       clearTimeout(timeoutId);
-      console.error("Enhance prompt error:", e);
+      if (e?.name !== "AbortError") {
+        console.error("Enhance prompt error:", e);
+      }
     } finally {
       clearTimeout(timeoutId);
+      delete aiAbortControllersRef.current[`enhance:${targetKey}`];
       setEnhancingPromptKeys(prev => {
         const next = { ...prev };
         delete next[targetKey];
@@ -1451,10 +1523,13 @@ export default function AIStudioPage() {
     const context = field === "hashtags" || field === "altText" ? currentCaption || "" : "";
 
     setGeneratingFieldKeys(prev => ({ ...prev, [fieldKey]: true }));
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`field:${fieldKey}`] = controller;
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "generate-field",
           platform: activePlatformTab,
@@ -1490,8 +1565,11 @@ export default function AIStudioPage() {
         }
       }
     } catch (e) {
-      console.error(`Field generation (${field}) error:`, e);
+      if ((e as Error)?.name !== "AbortError") {
+        console.error(`Field generation (${field}) error:`, e);
+      }
     } finally {
+      delete aiAbortControllersRef.current[`field:${fieldKey}`];
       setGeneratingFieldKeys(prev => {
         const next = { ...prev };
         delete next[fieldKey];
@@ -1520,10 +1598,13 @@ export default function AIStudioPage() {
     }
 
     setScriptPromptKeys(prev => ({ ...prev, [targetKey]: true }));
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`script:${targetKey}`] = controller;
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "auto-prompt-from-script",
           caption: targetCaption,
@@ -1560,9 +1641,191 @@ export default function AIStudioPage() {
         }
       }
     } catch (err) {
-      console.error("Auto prompt from script error:", err);
+      if ((err as Error)?.name !== "AbortError") {
+        console.error("Auto prompt from script error:", err);
+      }
     } finally {
+      delete aiAbortControllersRef.current[`script:${targetKey}`];
       setScriptPromptKeys(prev => {
+        const next = { ...prev };
+        delete next[targetKey];
+        return next;
+      });
+    }
+  };
+
+  // ============================================================================
+  // AI MEDIA ANALYSIS — analyze an uploaded/generated image or video and
+  // generate matching text (caption, hashtags, title, description, alt text)
+  // ============================================================================
+  const [analyzingMediaKeys, setAnalyzingMediaKeys] = useState<Record<string, boolean>>({});
+
+  // Extract up to 4 frames from a video client-side (canvas snapshots) so the
+  // vision model can "see" the video without shipping the whole file. Falls
+  // back gracefully: CORS-blocked or undecodable videos simply yield no frames
+  // and the backend then tries to fetch the video URL directly.
+  const extractVideoFrames = (videoUrl: string, maxFrames = 4): Promise<string[]> => {
+    return new Promise((resolve) => {
+      const frames: string[] = [];
+      let settled = false;
+      const finish = (result: string[]) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(guard);
+        resolve(result);
+      };
+      const guard = window.setTimeout(() => finish(frames), 20000);
+
+      const attempt = (useCors: boolean) => {
+        const video = document.createElement("video");
+        if (useCors) video.crossOrigin = "anonymous";
+        video.muted = true;
+        video.preload = "auto";
+        video.src = videoUrl;
+
+        video.onerror = () => {
+          video.removeAttribute("src");
+          if (useCors) {
+            // CORS-attempt failed — retry without crossOrigin (blob:/data:/same-origin still work)
+            attempt(false);
+          } else {
+            finish(frames);
+          }
+        };
+
+        video.onloadedmetadata = async () => {
+          const duration = video.duration;
+          if (!duration || !isFinite(duration) || duration <= 0) {
+            finish(frames);
+            return;
+          }
+          const stamps = [duration * 0.05, duration * 0.3, duration * 0.55, duration * 0.8].slice(0, maxFrames);
+          for (const t of stamps) {
+            if (settled) break;
+            const seekOk = await new Promise<boolean>((res) => {
+              const onSeeked = () => {
+                video.removeEventListener("seeked", onSeeked);
+                res(true);
+              };
+              const seekTimeout = window.setTimeout(() => {
+                video.removeEventListener("seeked", onSeeked);
+                res(false);
+              }, 4000);
+              video.addEventListener("seeked", onSeeked, { once: true });
+              try {
+                video.currentTime = Math.min(Math.max(t, 0.05), Math.max(duration - 0.05, 0.05));
+              } catch {
+                clearTimeout(seekTimeout);
+                video.removeEventListener("seeked", onSeeked);
+                res(false);
+              }
+            });
+            if (!seekOk) continue;
+            try {
+              const canvas = document.createElement("canvas");
+              const targetW = 480;
+              const ratio = video.videoHeight && video.videoWidth ? video.videoHeight / video.videoWidth : 9 / 16;
+              canvas.width = targetW;
+              canvas.height = Math.max(1, Math.round(targetW * ratio));
+              const ctx = canvas.getContext("2d");
+              if (!ctx) continue;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              frames.push(canvas.toDataURL("image/jpeg", 0.72));
+            } catch {
+              // Tainted canvas (no CORS) — skip this frame; backend falls back to direct fetch
+            }
+          }
+          video.removeAttribute("src");
+          finish(frames);
+        };
+      };
+
+      attempt(true);
+    });
+  };
+
+  const handleAnalyzeMediaAI = async () => {
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetKey = `${targetPlatform}-${targetFormat}`;
+    const mediaUrl = displayImageUrl;
+    if (!mediaUrl) {
+      setPublishResult({ success: false, message: "Upload or generate an image/video first — AI needs media to analyze." });
+      setTimeout(() => setPublishResult(null), 4000);
+      return;
+    }
+
+    const isVideo = customMedia?.type === "video" || isVideoUrl(mediaUrl);
+
+    // Show loading state while frames are extracted too
+    setAnalyzingMediaKeys(prev => ({ ...prev, [targetKey]: true }));
+    let frames: string[] = [];
+    if (isVideo) {
+      frames = await extractVideoFrames(mediaUrl, 4);
+    }
+
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`analyze:${targetKey}`] = controller;
+    try {
+      const res = await fetch("/api/ai-studio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          step: "analyze-media",
+          platform: targetPlatform,
+          format: targetFormat,
+          mediaType: isVideo ? "video" : "image",
+          mediaUrl: mediaUrl.startsWith("data:") || mediaUrl.startsWith("blob:") ? undefined : mediaUrl,
+          imageDataUrl: !isVideo && mediaUrl.startsWith("data:") ? mediaUrl : undefined,
+          frames: isVideo ? frames : undefined,
+          topic: campaignTopic,
+        }),
+      });
+      const data = await res.json();
+      if (isUpgradeSignal(data)) {
+        handleUpgradeRequired(data.message);
+        return;
+      }
+      if (data.success && data.data) {
+        const item = data.data;
+        const capability = getPlatformCapability(targetPlatform, targetFormat);
+        // Apply ONLY fields this format actually publishes
+        if (item.caption && (capability.supportsCaption || capability.supportsDescription)) {
+          if (capability.supportsCaption) {
+            updateCaption(String(item.caption));
+          } else {
+            setDescriptionDict(prev => ({ ...prev, [targetKey]: String(item.caption) }));
+          }
+        }
+        if (item.hashtags && capability.supportsHashtags) {
+          setGeneratedContents(prev => ({
+            ...prev,
+            [targetPlatform]: {
+              ...prev[targetPlatform],
+              [targetFormat]: {
+                ...(prev[targetPlatform]?.[targetFormat] || {}),
+                hashtags: normalizeHashtags(item.hashtags),
+              },
+            },
+          }));
+        }
+        if (item.title && capability.supportsTitle) setTitleDict(prev => ({ ...prev, [targetKey]: item.title }));
+        if (item.description && capability.supportsDescription) setDescriptionDict(prev => ({ ...prev, [targetKey]: item.description }));
+        if (item.altText && capability.supportsAltText) setAltTextDict(prev => ({ ...prev, [targetKey]: item.altText }));
+      } else if (data.error) {
+        setPublishResult({ success: false, message: `Media analysis failed: ${data.error}` });
+        setTimeout(() => setPublishResult(null), 5000);
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") {
+        console.error("Media analysis error:", e);
+        setPublishResult({ success: false, message: "Media analysis failed. Please try again." });
+        setTimeout(() => setPublishResult(null), 4000);
+      }
+    } finally {
+      delete aiAbortControllersRef.current[`analyze:${targetKey}`];
+      setAnalyzingMediaKeys(prev => {
         const next = { ...prev };
         delete next[targetKey];
         return next;
@@ -2428,24 +2691,39 @@ export default function AIStudioPage() {
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
 
+    // Fresh batch run: clear the cooperative stop flag
+    cancelAllSlidesRef.current[targetFormatKey] = false;
+
     setRenderingAllSlidesKeys(prev => ({ ...prev, [targetFormatKey]: true }));
     setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
     setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Initializing storyboard slide batch generation..." }));
 
     const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
+    let stoppedByUser = false;
 
     try {
       for (let i = 0; i < slideCount; i++) {
+        // User pressed Stop on the full-carousel generation
+        if (cancelAllSlidesRef.current[targetFormatKey]) {
+          stoppedByUser = true;
+          break;
+        }
+
         const slideKey = `${targetPlatform}-${targetFormat}-${i}`;
         const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Generating visual for Slide ${i + 1} of ${slideCount}...` }));
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: Math.round(((i) / slideCount) * 100) }));
 
         try {
+          // Register the per-slide fetch so Stop can abort the in-flight slide too
+          const slideController = new AbortController();
+          abortControllersRef.current[targetFormatKey] = slideController;
+
           const res = await fetch("/api/ai-studio", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: slideController.signal,
             body: JSON.stringify({
               step: "generate-media",
               platform: targetPlatform,
@@ -2468,14 +2746,26 @@ export default function AIStudioPage() {
             setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
           }
         } catch (err) {
+          if ((err as Error)?.name === "AbortError") {
+            stoppedByUser = true;
+            break;
+          }
           console.error(`Failed to generate slide ${i + 1}:`, err);
+        } finally {
+          delete abortControllersRef.current[targetFormatKey];
         }
       }
 
-      setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
-      setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "All slides generated!" }));
-      setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+      if (stoppedByUser) {
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Generation stopped by user." }));
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
+      } else {
+        setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "All slides generated!" }));
+        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+      }
     } finally {
+      delete abortControllersRef.current[targetFormatKey];
       setRenderingAllSlidesKeys(prev => {
         const next = { ...prev };
         delete next[targetFormatKey];
@@ -4261,12 +4551,15 @@ export default function AIStudioPage() {
                   onRegenerateSlideAI={handleRegenerateSlideAI}
                   isRegeneratingSlide={Boolean(renderingMediaKeys[currentFormatKey])}
                   onGenerateFullCarouselAI={async () => {
-                    await handleGeneratePlatformCopyAI();
-                    if (currentMediaType === "image" && activePlatformTab !== "linkedin") {
+                    const copyCompleted = await handleGeneratePlatformCopyAI();
+                    // If the user stopped the copy phase, do not start the slide batch
+                    if (copyCompleted && currentMediaType === "image" && activePlatformTab !== "linkedin") {
                       await handleRenderAllSlides();
                     }
                   }}
                   isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
+                  onAnalyzeMedia={handleAnalyzeMediaAI}
+                  isAnalyzingMedia={Boolean(analyzingMediaKeys[currentFormatKey])}
                   onExportPDF={() => {
                     window.print();
                   }}

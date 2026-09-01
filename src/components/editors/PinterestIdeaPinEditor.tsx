@@ -18,7 +18,8 @@ import {
   ShoppingBag,
   X,
   Check,
-  AlertCircle
+  AlertCircle,
+  Square
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,8 @@ import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
+import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface IdeaPinPage {
   pageNumber: number;
@@ -74,6 +77,9 @@ interface PinterestIdeaPinEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  // AI analysis of the attached (uploaded) media
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 }
 
 export default function PinterestIdeaPinEditor({
@@ -111,11 +117,14 @@ export default function PinterestIdeaPinEditor({
   onRestoreOriginalPrompt,
   onGenerateField,
   generatingField = null,
+  onAnalyzeMedia,
+  isAnalyzingMedia = false,
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
   const [pageAspectRatio, setPageAspectRatio] = useState<string>("auto");
   const [pageStyle, setPageStyle] = useState<string>("photorealistic");
   const [pageQuality, setPageQuality] = useState<string>("studio_4k");
+  const formatKey = `${capability.platform}-${capability.format}`;
 
   // Tag Products State
   const [taggedProducts, setTaggedProducts] = useState<Array<{ id: string; name: string; price: string; url: string }>>([]);
@@ -210,8 +219,18 @@ export default function PinterestIdeaPinEditor({
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Idea Pin Title</label>
             {onGenerateField && (
-              <button type="button" onClick={() => onGenerateField("title")} disabled={generatingField === "title"} title="Generate Title with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-                {generatingField === "title" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+              <button type="button" onClick={() => {
+                if (generatingField === "title") {
+                  cancelAIAction("field", `${formatKey}:title`);
+                } else {
+                  onGenerateField("title");
+                }
+              }} disabled={generatingField !== null && generatingField !== "title"} title={generatingField === "title" ? "Stop generating title" : "Generate Title with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                generatingField === "title"
+                  ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                  : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+              } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
               </button>
             )}
           </div>
@@ -524,28 +543,45 @@ export default function PinterestIdeaPinEditor({
                 {onCaptionToPrompt && (
                   <button
                     type="button"
-                    disabled={isGeneratingPromptFromScript}
-                    onClick={onCaptionToPrompt}
-                    className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                    disabled={!isGeneratingPromptFromScript}
+                    onClick={() => {
+                      if (isGeneratingPromptFromScript) {
+                        cancelAIAction("script", formatKey);
+                      } else {
+                        onCaptionToPrompt();
+                      }
+                    }}
+                    title={isGeneratingPromptFromScript ? "Stop generating prompt" : "Generate media prompt from current text"}
+                    className={`text-[11px] font-semibold transition-colors ${
+                      isGeneratingPromptFromScript
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
+                        : "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+                    }`}
                   >
-                    {isGeneratingPromptFromScript ? "Generating..." : "Auto-Prompt"}
+                    {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt"}
                   </button>
                 )}
                 {onEnhancePrompt && (
                   <button
                     type="button"
-                    disabled={isEnhancingPrompt || !activePage.visualPrompt || !activePage.visualPrompt.trim()}
-                    onClick={onEnhancePrompt}
+                    disabled={!isEnhancingPrompt && (!activePage.visualPrompt || !activePage.visualPrompt.trim())}
+                    onClick={() => {
+                      if (isEnhancingPrompt) {
+                        cancelAIAction("enhance", formatKey);
+                      } else {
+                        onEnhancePrompt();
+                      }
+                    }}
                     className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
                       isEnhancingPrompt
-                        ? "text-pink-600 cursor-wait"
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
                         : !activePage.visualPrompt || !activePage.visualPrompt.trim()
                           ? "text-slate-400 cursor-not-allowed opacity-50"
                           : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
                     }`}
                   >
                     {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    <span>Enhance Prompt ✨</span>
+                    <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                   </button>
                 )}
                 {originalPrompt && originalPrompt !== activePage.visualPrompt && onRestoreOriginalPrompt && (
@@ -575,9 +611,7 @@ export default function PinterestIdeaPinEditor({
               onClick={isRegeneratingPage ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-ai-action", {
-                  detail: { scope: "slide", key: `${capability.platform}-${capability.format}` }
-                }));
+                cancelAIAction("slide", `${formatKey}:${currentIdx}`);
               } : () => onRegeneratePageAI(currentIdx)}
               className={`w-full h-8 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
                 isRegeneratingPage
@@ -636,6 +670,18 @@ export default function PinterestIdeaPinEditor({
             )}
           </div>
 
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+          {onAnalyzeMedia && (
+            <div className="pt-1">
+              <AnalyzeMediaAIButton
+                formatKey={formatKey}
+                onClick={onAnalyzeMedia}
+                isAnalyzing={isAnalyzingMedia}
+                hasMedia={Boolean(activePage.mediaUrl)}
+              />
+            </div>
+          )}
+
           {/* AUTO-GENERATE FULL IDEA PIN BUTTON */}
           <div className="pt-1">
             <Button
@@ -644,9 +690,7 @@ export default function PinterestIdeaPinEditor({
               onClick={isGeneratingAI ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-ai-action", {
-                  detail: { scope: "copy", key: `${capability.platform}-${capability.format}` }
-                }));
+                cancelAIAction("copy", formatKey);
               } : onGenerateIdeaPinAI}
               className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
                 isGeneratingAI

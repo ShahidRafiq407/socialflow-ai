@@ -11,6 +11,7 @@ import {
   AlertCircle,
   RefreshCw,
   Download,
+  Square,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,8 @@ import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMediaRenderer";
+import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import { cancelAIAction } from "@/lib/aiActionEvents";
 
 interface StandardSocialEditorProps {
   capability: PlatformCapability;
@@ -73,6 +76,9 @@ interface StandardSocialEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
+  // AI analysis of the attached (uploaded) media
+  onAnalyzeMedia?: () => void;
+  isAnalyzingMedia?: boolean;
 }
 
 export default function StandardSocialEditor({
@@ -115,11 +121,21 @@ export default function StandardSocialEditor({
   onRestoreOriginalPrompt,
   onGenerateField,
   generatingField = null,
+  onAnalyzeMedia,
+  isAnalyzingMedia = false,
 }: StandardSocialEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
   const isSquare = capability.defaultAspectRatio === "1:1";
   const isFourFive = capability.defaultAspectRatio === "4:5";
   const hasCaption = Boolean(caption && caption.trim().length > 0);
+  const formatKey = `${capability.platform}-${capability.format}`;
+  // Formats that publish no text at all (e.g. Instagram Story) get no caption/copy generation
+  const supportsAnyTextField =
+    capability.supportsCaption ||
+    capability.supportsHashtags ||
+    capability.supportsAltText ||
+    capability.supportsTitle ||
+    capability.supportsDescription;
 
   // Model settings for image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
@@ -647,18 +663,26 @@ export default function StandardSocialEditor({
                 {onCaptionToPrompt && (
                   <button
                     type="button"
-                    disabled={isGeneratingPromptFromScript || !hasCaption}
-                    onClick={onCaptionToPrompt}
-                    title={hasCaption ? "Generate media prompt from current caption" : "Please enter a caption first"}
+                    disabled={!isGeneratingPromptFromScript && !hasCaption}
+                    onClick={() => {
+                      if (isGeneratingPromptFromScript) {
+                        cancelAIAction("script", formatKey);
+                      } else {
+                        onCaptionToPrompt();
+                      }
+                    }}
+                    title={isGeneratingPromptFromScript ? "Stop generating prompt from caption" : hasCaption ? "Generate media prompt from current caption" : "Please enter a caption first"}
                     className={`text-[11px] font-semibold transition-colors ${
-                      hasCaption
+                      isGeneratingPromptFromScript
+                        ? "text-red-500 hover:text-red-600 cursor-pointer"
+                        : hasCaption
                         ? "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
                         : "text-slate-400 cursor-not-allowed opacity-60"
                     }`}
                   >
                     {isGeneratingPromptFromScript ? (
-                    <span className="flex items-center gap-1 text-indigo-600">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Generating...
+                    <span className="flex items-center gap-1 text-red-500">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Stop
                     </span>
                   ) : (
                     "Auto-Prompt from Caption"
@@ -667,11 +691,17 @@ export default function StandardSocialEditor({
                 )}
                 <button
                 type="button"
-                disabled={isEnhancingPrompt || !prompt || !prompt.trim()}
-                onClick={onEnhancePrompt}
+                disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
+                onClick={() => {
+                  if (isEnhancingPrompt) {
+                    cancelAIAction("enhance", formatKey);
+                  } else {
+                    onEnhancePrompt();
+                  }
+                }}
                 className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
                   isEnhancingPrompt
-                    ? "text-pink-400 cursor-wait opacity-80"
+                    ? "text-red-500 hover:text-red-600 cursor-pointer"
                     : !prompt || !prompt.trim()
                     ? "text-slate-400 cursor-not-allowed opacity-50"
                     : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
@@ -680,7 +710,7 @@ export default function StandardSocialEditor({
                 {isEnhancingPrompt ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin text-pink-500" />
-                    <span>Enhancing Prompt...</span>
+                    <span>Stop Enhancing</span>
                   </>
                 ) : (
                   <span>Enhance Prompt ✨</span>
@@ -784,8 +814,18 @@ export default function StandardSocialEditor({
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
                     Hashtags
                   </label>
-                  {onGenerateField && (<button type="button" onClick={() => onGenerateField("hashtags")} disabled={generatingField === "hashtags"} title="Generate Hashtags with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-                    {generatingField === "hashtags" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                  {onGenerateField && (<button type="button" onClick={() => {
+                    if (generatingField === "hashtags") {
+                      cancelAIAction("field", `${formatKey}:hashtags`);
+                    } else {
+                      onGenerateField("hashtags");
+                    }
+                  }} disabled={generatingField !== null && generatingField !== "hashtags"} title={generatingField === "hashtags" ? "Stop generating hashtags" : "Generate Hashtags with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                    generatingField === "hashtags"
+                      ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                      : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                  } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
                   </button>)}
                 </div>
                 <Input
@@ -819,8 +859,18 @@ export default function StandardSocialEditor({
                   Accessibility Alt Text
                 </label>
                 {onGenerateField && (
-                  <button type="button" onClick={() => onGenerateField("altText")} disabled={generatingField === "altText"} title="Generate Alt Text with AI" className="text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-50 transition-colors">
-                    {generatingField === "altText" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI
+                  <button type="button" onClick={() => {
+                    if (generatingField === "altText") {
+                      cancelAIAction("field", `${formatKey}:altText`);
+                    } else {
+                      onGenerateField("altText");
+                    }
+                  }} disabled={generatingField !== null && generatingField !== "altText"} title={generatingField === "altText" ? "Stop generating alt text" : "Generate Alt Text with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                    generatingField === "altText"
+                      ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                      : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                  } ${generatingField !== null && generatingField !== "altText" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {generatingField === "altText" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "altText" ? "Stop" : "AI"}
                   </button>
                 )}
               </div>
@@ -833,17 +883,46 @@ export default function StandardSocialEditor({
             </div>
           )}
 
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+          {onAnalyzeMedia && (
+            <div className="pt-1">
+              <AnalyzeMediaAIButton
+                formatKey={formatKey}
+                onClick={onAnalyzeMedia}
+                isAnalyzing={isAnalyzingMedia}
+                hasMedia={Boolean(displayImageUrl)}
+                disabled={!supportsAnyTextField}
+                disabledReason={
+                  !supportsAnyTextField
+                    ? "This format publishes no caption or text fields — add text overlays directly on the story visual instead."
+                    : undefined
+                }
+              />
+            </div>
+          )}
+
           {/* AUTO-GENERATE CAPTION BUTTON */}
           <div className="pt-1">
             <Button
               type="button"
               size="sm"
-              disabled={isGeneratingCopy}
-              onClick={onGenerateCopyAI}
-              className="w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white shadow-2xs rounded-lg whitespace-normal"
+              disabled={isGeneratingCopy || !supportsAnyTextField}
+              onClick={() => {
+                if (isGeneratingCopy) {
+                  cancelAIAction("copy", formatKey);
+                  return;
+                }
+                onGenerateCopyAI();
+              }}
+              title={!supportsAnyTextField ? "This format cannot publish a caption — text must be burned into the visual itself" : undefined}
+              className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+                isGeneratingCopy
+                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
+              }`}
             >
               {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>Generate Caption, Hashtags & Image Prompt with AI</span>
+              <span>{isGeneratingCopy ? "Stop Generating" : "Generate Caption, Hashtags & Image Prompt with AI"}</span>
             </Button>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
 import { llm, vertexProvider, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import type { Part } from "@google/genai";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
       step === "ai-field-generate" ||
       step === "enhance-prompt" ||
       step === "auto-prompt-from-script" ||
+      step === "analyze-media" ||
       step === "refine-caption";
     if (isGatedAIStep) {
       const gate = await checkAIAccess(workspace.id);
@@ -662,6 +664,148 @@ Return ONLY the prompt string.`;
           status: "failed",
           error: err.message || "Media synthesis failed on backend provider.",
         }, { status: 500 });
+      }
+    }
+
+    // =========================================================================
+    // STEP: Analyze Uploaded Media (image / video) with the vision model and
+    // generate matching platform-native text (caption, hashtags, alt text...)
+    // =========================================================================
+    if (step === "analyze-media") {
+      const { platform, format, mediaType, mediaUrl, imageDataUrl, frames, topic } = body;
+      const capability = getPlatformCapability(platform, format);
+      const isVideo = mediaType === "video";
+
+      // ---- Build multimodal parts -------------------------------------------
+      const parts: Part[] = [];
+      const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+      const MAX_INLINE_VIDEO_BYTES = 15 * 1024 * 1024;
+
+      const dataUrlMatch = (u: unknown) => {
+        if (typeof u !== "string") return null;
+        const m = u.match(/^data:([^;]+);base64,(.+)$/);
+        return m ? { mimeType: m[1], data: m[2] } : null;
+      };
+
+      const fetchAsInline = async (url: string, maxBytes: number) => {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) return null;
+          const contentType = (resp.headers.get("content-type") || "").split(";")[0].trim();
+          const buf = Buffer.from(await resp.arrayBuffer());
+          if (buf.length === 0 || buf.length > maxBytes) return null;
+          return { mimeType: contentType || (isVideo ? "video/mp4" : "image/jpeg"), data: buf.toString("base64") };
+        } catch {
+          return null;
+        }
+      };
+
+      if (isVideo) {
+        // 1. Prefer client-extracted frames (works for blob:/data:/CORS-blocked videos)
+        if (Array.isArray(frames) && frames.length > 0) {
+          for (const frame of frames.slice(0, 5)) {
+            const inline = dataUrlMatch(frame);
+            if (inline) parts.push({ inlineData: inline });
+          }
+        }
+        // 2. Fall back to fetching the video itself (capped at 15MB inline)
+        if (parts.length === 0 && typeof mediaUrl === "string" && mediaUrl.startsWith("http")) {
+          const inline = await fetchAsInline(mediaUrl, MAX_INLINE_VIDEO_BYTES);
+          if (inline) parts.push({ inlineData: inline });
+        }
+        // 3. data: video URL passed directly
+        if (parts.length === 0) {
+          const inline = dataUrlMatch(mediaUrl);
+          if (inline) parts.push({ inlineData: inline });
+        }
+      } else {
+        // Image: data URL direct, or fetch from http(s) URL (capped at 8MB)
+        const inline = dataUrlMatch(imageDataUrl) || dataUrlMatch(mediaUrl) ||
+          (typeof mediaUrl === "string" && mediaUrl.startsWith("http") ? await fetchAsInline(mediaUrl, MAX_INLINE_IMAGE_BYTES) : null);
+        if (inline) parts.push({ inlineData: inline });
+      }
+
+      if (parts.length === 0) {
+        return NextResponse.json(
+          {
+            error: isVideo
+              ? "The video could not be analyzed (too large or blocked for AI access). Try a smaller video or an image instead."
+              : "The image could not be loaded for analysis. Try re-uploading it.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const mediaDescription = isVideo
+        ? Array.isArray(frames) && frames.length > 0
+          ? "the sequence of video frames provided (key moments of the video, in order)"
+          : "the attached video"
+        : "the attached image";
+
+      const analysisPrompt = `You are a world-class social media analyst and copywriter with expert visual comprehension.
+Carefully analyze ${mediaDescription} — identify the exact subject, products, setting, colors, mood, action, people, text visible in the visual, and the overall story it tells.
+
+BRAND DNA:
+- Company: ${brandDNA.name}
+- Industry: ${brandDNA.industry}
+- Tone: ${brandDNA.tone}
+- Target Audience: ${brandDNA.targetAudience}
+${topic ? `CAMPAIGN CONTEXT: ${String(topic).slice(0, 300)}` : ""}
+
+PLATFORM: ${capability.platform} (${capability.format}) — media type: ${capability.mediaType}
+
+Generate content that MATCHES what is actually shown in the media (zero hallucination — only describe what is visible):
+1. CAPTION: Platform-native copy for ${capability.platform} ${capability.format} that directly references the visual content. Start with a scroll-stopping hook about the subject in the media. STRICT limit: ${capability.captionLimit || 2200} characters. End with one clear CTA.
+${capability.supportsTitle ? `2. TITLE: Concise clickable title under ${capability.titleLimit || 100} characters.` : ""}
+${capability.supportsDescription ? `3. DESCRIPTION: SEO-rich description under ${capability.descriptionLimit || 500} characters.` : ""}
+4. HASHTAGS: 3 to ${Math.min(capability.hashtagLimit || 8, 8)} real hashtags directly relevant to the VISIBLE content. Every entry starts with "#", PascalCase, no spaces, no sentences.
+${capability.supportsAltText ? `5. ALT TEXT: Literal accessibility description of the visual scene (subjects, setting, colors, action) under 500 characters.` : ""}
+6. MEDIA PROMPT: A vivid visual generation prompt that would recreate a similar scene (useful for regenerating this style).
+
+Return ONLY raw JSON with this exact structure:
+{
+  "caption": "...",
+  "title": "...",
+  "description": "...",
+  "hashtags": ["#Tag1", "#Tag2"],
+  "altText": "...",
+  "imagePrompt": "..."
+}`;
+
+      try {
+        parts.push({ text: analysisPrompt });
+        const result = await vertexProvider.generateVisionText(parts, { modelName: MODELS.CONTENT_CREATOR });
+
+        let text = (result || "").replace(/```json/g, "").replace(/```/g, "").trim();
+        const start = text.indexOf("{");
+        const end = text.lastIndexOf("}");
+        if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
+
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          console.error("[AI Studio] analyze-media JSON parse error:", text.slice(0, 500));
+          return NextResponse.json({ error: "Failed to parse media analysis." }, { status: 500 });
+        }
+
+        // Sanitize + clamp exactly like generate-platform-copy
+        parsed.hashtags = normalizeHashtags(parsed.hashtags, { limit: capability.hashtagLimit || 10 });
+        if (typeof parsed.caption === "string" && parsed.caption.length > (capability.captionLimit || 2200)) {
+          parsed.caption = clampText(parsed.caption, capability.captionLimit || 2200);
+        }
+        if (typeof parsed.title === "string" && capability.titleLimit && parsed.title.length > capability.titleLimit) {
+          parsed.title = clampText(parsed.title, capability.titleLimit);
+        }
+        if (typeof parsed.description === "string" && capability.descriptionLimit && parsed.description.length > capability.descriptionLimit) {
+          parsed.description = clampText(parsed.description, capability.descriptionLimit);
+        }
+
+        return NextResponse.json({ success: true, data: parsed });
+      } catch (err) {
+        const message = (err as Error)?.message || "Media analysis failed on the AI provider.";
+        console.error("[AI Studio] analyze-media failed:", message);
+        return NextResponse.json({ error: message }, { status: 500 });
       }
     }
 
