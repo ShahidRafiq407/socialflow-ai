@@ -8,7 +8,8 @@ import { saveWorkspaceBrandDNA, getWorkspaceBrandDNA } from "@/actions/brand";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset } from "../mediaGenerator";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
-import { removeFromScheduleQueue } from "@/lib/redis";
+import { removeFromScheduleQueue, scheduleEnqueue } from "@/lib/redis";
+import { getNextBestTime } from "@/lib/bestPublishTime";
 import { parseAllUploadedFiles } from "./documentParser";
 
 // ============================================================================
@@ -953,7 +954,7 @@ INSTRUCTIONS:
   {
     name: "approve_content",
     description:
-      "Approve a post that is pending approval. Changes status to APPROVED (or SCHEDULED if it has a scheduled date).",
+      "Approve a pending post and schedule it. Keeps an existing future slot, otherwise schedules at the platform's next peak engagement time.",
     parameters: {
       type: "object",
       properties: {
@@ -964,12 +965,24 @@ INSTRUCTIONS:
     execute: async (args, ctx) => {
       const post = await prisma.post.findUnique({ where: { id: args.id } });
       if (!post) return { error: `Post not found: ${args.id}` };
-      const newStatus = post.scheduledFor ? "SCHEDULED" : "APPROVED";
+      const scheduledFor =
+        post.scheduledFor && post.scheduledFor.getTime() > Date.now()
+          ? post.scheduledFor
+          : getNextBestTime(post.platform);
       const updated = await prisma.post.update({
         where: { id: args.id },
-        data: { status: newStatus },
+        data: { status: "SCHEDULED", scheduledFor, publishError: null },
       });
-      return { id: updated.id, platform: updated.platform, status: updated.status, approved: true };
+      if (scheduledFor.getTime() > Date.now()) {
+        try { await scheduleEnqueue(args.id, scheduledFor.getTime()); } catch { /* non-fatal */ }
+      }
+      return {
+        id: updated.id,
+        platform: updated.platform,
+        status: updated.status,
+        scheduledFor: scheduledFor.toISOString(),
+        approved: true,
+      };
     },
   },
   {

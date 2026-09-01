@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
 import { ContentBoardClient } from "@/components/dashboard/ContentBoardClient";
 
-export default async function ContentApprovalBoardPage() {
+export default async function ContentLibraryPage() {
   const { userId } = await auth();
 
   if (!userId) {
@@ -20,32 +20,36 @@ export default async function ContentApprovalBoardPage() {
   const workspaceId = workspace?.id || "default-workspace";
   const workspaceName = workspace?.name || "SMB Robotics";
 
-  // Content Library = working board (drafts, scheduled, review, approved).
-  // PUBLISHED / PUBLISHING posts are intentionally EXCLUDED: publishing does
-  // not "save to library" — only the explicit Save-to-Draft action does. The
-  // publish status modal already links to the live post, and the cleanup cron
-  // prunes published/failed rows after 24h anyway.
+  // Content Library = everything the user owns: drafts, needs-review,
+  // scheduled, published history, failed (retryable) and rejected. Only the
+  // transient PUBLISHING state is hidden. Published posts are kept for 30
+  // days by the cleanup cron.
   const posts = await Promise.race([
     prisma.post.findMany({
       where: {
         workspaceId,
-        status: { notIn: ["PUBLISHED", "PUBLISHING"] },
+        status: { notIn: ["PUBLISHING"] },
       },
       orderBy: { createdAt: "desc" },
     }),
     new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
   ]).catch(() => []);
 
+  // Urgency-first ordering for the "All" view: what needs action now sits on
+  // top, the published history sinks to the bottom.
   const statusPriority: Record<string, number> = {
     PENDING_APPROVAL: 0,
-    APPROVED: 1,
-    REJECTED: 2,
-    PUBLISHED: 3,
+    APPROVED: 0,
+    FAILED: 1,
+    SCHEDULED: 2,
+    DRAFT: 3,
+    REJECTED: 4,
+    PUBLISHED: 5,
   };
 
   const sortedPosts = [...posts].sort((a: any, b: any) => {
     const priorityDiff =
-      (statusPriority[a.status] ?? 4) - (statusPriority[b.status] ?? 4);
+      (statusPriority[a.status] ?? 6) - (statusPriority[b.status] ?? 6);
     if (priorityDiff !== 0) return priorityDiff;
     const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime();
     const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime();
@@ -53,7 +57,7 @@ export default async function ContentApprovalBoardPage() {
   });
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-4rem)] w-full max-w-6xl mx-auto p-4 md:p-8">
+    <div className="flex flex-col min-h-[calc(100vh-4rem)] w-full max-w-7xl mx-auto p-4 md:p-6">
       <ContentBoardClient
         initialPosts={sortedPosts}
         workspaceName={workspaceName}
