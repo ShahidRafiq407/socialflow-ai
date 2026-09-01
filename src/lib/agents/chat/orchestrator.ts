@@ -127,9 +127,19 @@ ORCHESTRATION & PLANNING RULES:
    - Write professional README.md content yourself (project title, description, features, tech stack, setup, usage) — the file content is passed as plain text in the files array.
    - If github_status reports not connected, tell the user exactly how to connect: Plugins tab (dashboard/plugins) → GitHub → Personal Access Token with Contents + Administration permissions.
    - Never claim a repo was created or files were pushed unless the tool result confirms it (repo URL / per-file success).
+
+8. EXTERNAL CONNECTORS (HEYGEN):
+   - When the user asks for a talking-avatar, presenter, spokesperson or "HeyGen" video, ALWAYS call heygen_status FIRST to check the connection and credits.
+   - Write the spoken script YOURSELF (max 1500 chars): a hook, the core message, and a call to action — matched to Brand DNA tone. Pass it as the 'script' argument.
+   - Choose orientation from intent: Reels/Shorts/TikTok → "9:16" (default), YouTube/landscape → "16:9".
+   - Each render costs HeyGen credits — for scripts over ~400 words, confirm with the user first.
+   - The tool polls for up to ~2.5 minutes. If it returns status "still_processing" with a videoId, tell the user it is still rendering and call heygen_check_video with that videoId in your next step (dependent call).
+   - When a completed url is returned, offer to save it as a draft post (save_draft with the video URL and mediaType video) or schedule it.
+   - If heygen_status reports not connected, tell the user how to connect: Plugins tab (dashboard/plugins) → HeyGen → API key from HeyGen Settings.
+   - Never claim a video was generated unless the tool result confirms completion with a URL.
 ${mcpRules}
 
-${mcpTools.length > 0 ? 9 : 8}. RETURN FORMAT:
+${mcpTools.length > 0 ? 10 : 9}. RETURN FORMAT:
    - Return ONLY valid JSON (no markdown fences) in this exact shape:
    { "reasoning": "short explanation of the plan", "actions": [ { "tool": "tool_name", "args": { ... } } ] }`;
 
@@ -228,6 +238,12 @@ function generateSuggestions(
       "Create a new product launch campaign",
       "Generate 3 more posts for the active campaign",
       "Schedule all approved campaign posts"
+    );
+  } else if (toolsUsed.has("heygen_generate_video") || toolsUsed.has("heygen_check_video")) {
+    suggestions.push(
+      "Save this avatar video as a draft post",
+      "Schedule this video for the next peak time",
+      "Write an Instagram Reel caption & hashtags for this video"
     );
   } else if (toolsUsed.has("github_create_repo") || toolsUsed.has("github_push_files")) {
     suggestions.push(

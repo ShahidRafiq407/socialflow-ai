@@ -82,6 +82,14 @@ async function verifyProvider(
       ? { ok: true, accountLabel: res.account?.login ?? undefined }
       : { ok: false, error: res.error };
   }
+  if (providerKey === "heygen") {
+    const { getHeyGenAccount } = await import("@/lib/connectors/heygen");
+    const res = await getHeyGenAccount(credentials.apiKey);
+    if (!res.success) return { ok: false, error: res.error };
+    const label =
+      res.quota?.remaining != null ? `${res.quota.remaining} credits left` : "verified";
+    return { ok: true, accountLabel: label };
+  }
   return { ok: false, error: `Provider "${providerKey}" has no verification implemented yet.` };
 }
 

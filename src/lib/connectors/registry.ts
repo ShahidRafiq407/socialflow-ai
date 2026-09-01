@@ -58,6 +58,30 @@ export const CONNECTOR_REGISTRY: ConnectorDef[] = [
       "github_push_files",
     ],
   },
+  {
+    key: "heygen",
+    name: "HeyGen",
+    tagline: "AI avatar video generation → saved to Media Assets",
+    description:
+      "Connect an API key and the AI CEO can generate talking-avatar videos with your script, then save them to your Media Assets for use in posts and scheduling. Each render uses HeyGen credits.",
+    category: "media",
+    fields: [
+      {
+        key: "apiKey",
+        label: "HeyGen API Key",
+        type: "password",
+        required: true,
+        placeholder: "your-heygen-api-key",
+        help: "HeyGen → Settings → API Key (Personalize / Apps section). The key is verified against your account quota before saving.",
+        docsUrl: "https://app.heygen.com/settings",
+      },
+    ],
+    chatTools: [
+      "heygen_status",
+      "heygen_generate_video",
+      "heygen_check_video",
+    ],
+  },
 ];
 
 export function getConnector(key: string): ConnectorDef | undefined {
@@ -94,14 +118,6 @@ export const PLANNED_CONNECTORS: PlannedConnectorDef[] = [
     description:
       "Connect a Shopify store to auto-generate promotional videos, tweets and SEO product copy for your catalog.",
     category: "ecommerce",
-  },
-  {
-    key: "heygen",
-    name: "HeyGen",
-    tagline: "AI avatar video generation",
-    description:
-      "Generate AI avatar videos with your own script and voice, saved directly to your Media Assets for scheduling.",
-    category: "media",
   },
   {
     key: "canva",

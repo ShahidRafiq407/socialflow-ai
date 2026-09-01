@@ -1643,7 +1643,300 @@ INSTRUCTIONS:
       });
     },
   },
+
+  // ---------------- EXTERNAL CONNECTORS (HEYGEN) ----------------
+  {
+    name: "heygen_status",
+    description:
+      "Check whether a HeyGen account is connected to this workspace and return the remaining video credits. ALWAYS call this first before heygen_generate_video — if it reports not connected, tell the user to add their HeyGen API key in the Plugins tab (dashboard/plugins).",
+    parameters: { type: "object", properties: {} },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "heygen");
+      if (!conn?.credentials.apiKey) {
+        return {
+          connected: false,
+          error:
+            "HeyGen is not connected. Ask the user to open Plugins (dashboard/plugins), connect HeyGen with an API key (Settings → API Key in HeyGen), then retry.",
+        };
+      }
+      const { getHeyGenAccount } = await import("@/lib/connectors/heygen");
+      const res = await getHeyGenAccount(conn.credentials.apiKey);
+      if (!res.success) return { connected: false, error: res.error };
+      return {
+        connected: true,
+        remainingCredits: res.quota?.remaining ?? null,
+        usedCredits: res.quota?.used ?? null,
+      };
+    },
+  },
+  {
+    name: "heygen_generate_video",
+    description:
+      "Generate a talking-avatar video with HeyGen from a spoken script. The finished video is downloaded and saved to the workspace Media Assets, returning a permanent URL usable in posts, drafts and scheduling. Rendering takes 1-5 minutes: the tool polls while it can and, if still rendering, returns a videoId you can re-check with heygen_check_video. Each render consumes HeyGen credits — check heygen_status first and confirm with the user before large scripts.",
+    parameters: {
+      type: "object",
+      properties: {
+        script: {
+          type: "string",
+          description: "The exact text the avatar will speak (max 1500 characters). Write it yourself — hook, message, call to action.",
+        },
+        avatar: {
+          type: "string",
+          description: "Optional keyword to pick the presenter, e.g. 'female', 'male', 'professional', or an avatar name",
+        },
+        voice: {
+          type: "string",
+          description: "Optional voice keyword, e.g. 'en-US female', 'male', 'British'",
+        },
+        orientation: {
+          type: "string",
+          enum: ["9:16", "16:9"],
+          description: "9:16 for Reels/Shorts/TikTok (default), 16:9 for YouTube/LinkedIn landscape",
+        },
+        backgroundColor: {
+          type: "string",
+          description: "Optional hex color behind the avatar, e.g. '#ffffff'",
+        },
+      },
+      required: ["script"],
+    },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "heygen");
+      if (!conn?.credentials.apiKey) {
+        return { error: "HeyGen is not connected. Ask the user to connect it in the Plugins tab." };
+      }
+      const apiKey = conn.credentials.apiKey;
+      const script = (args.script || "").trim();
+      if (!script) return { error: "No script provided — the avatar needs text to speak." };
+
+      // Billing gate: HeyGen renders cost real credits.
+      const { checkAIAccess } = await import("@/lib/billing/gate");
+      const gate = await checkAIAccess(ctx.workspaceId);
+      if (!gate.allowed) {
+        return { error: gate.message || "AI video generation is not available on the current plan." };
+      }
+
+      ctx.onProgress?.("Loading HeyGen avatars & voices...");
+      const { listHeyGenAvatars, listHeyGenVoices, startHeyGenVideo, getHeyGenVideoStatus, pickAvatar, pickVoice } =
+        await import("@/lib/connectors/heygen");
+
+      const [avatarsRes, voicesRes] = await Promise.all([
+        listHeyGenAvatars(apiKey),
+        listHeyGenVoices(apiKey),
+      ]);
+      if (!avatarsRes.success || !avatarsRes.avatars || avatarsRes.avatars.length === 0) {
+        return { error: avatarsRes.error || "No talking avatars are available on this HeyGen account." };
+      }
+      if (!voicesRes.success || !voicesRes.voices || voicesRes.voices.length === 0) {
+        return { error: voicesRes.error || "No voices are available on this HeyGen account." };
+      }
+
+      const avatar = pickAvatar(avatarsRes.avatars, args.avatar);
+      const voice = pickVoice(voicesRes.voices, args.voice);
+      if (!avatar || !voice) {
+        return { error: "Could not select an avatar/voice for this render." };
+      }
+
+      const orientation = args.orientation === "16:9" ? ("16:9" as const) : ("9:16" as const);
+
+      ctx.onProgress?.(`Starting HeyGen render with avatar "${avatar.name}" (${orientation})...`);
+      const start = await startHeyGenVideo(apiKey, {
+        avatarId: avatar.avatarId,
+        voiceId: voice.voiceId,
+        script,
+        orientation,
+        backgroundColor: args.backgroundColor,
+      });
+      if (!start.success || !start.videoId) {
+        return { error: start.error || "HeyGen did not accept the render request." };
+      }
+      const videoId = start.videoId;
+
+      // Poll up to ~2.5 min inside this tool call; the stream route allows 300s
+      // and chat can continue with heygen_check_video afterwards.
+      const POLL_INTERVAL_MS = 8_000;
+      const MAX_POLL_MS = 150_000;
+      const startedAt = Date.now();
+
+      while (Date.now() - startedAt < MAX_POLL_MS) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const statusRes = await getHeyGenVideoStatus(apiKey, videoId);
+        if (!statusRes.success || !statusRes.info) {
+          return { error: statusRes.error || "Lost track of the HeyGen render status.", videoId };
+        }
+        const info = statusRes.info;
+        if (info.status === "failed") {
+          return { error: info.error || "HeyGen render failed.", videoId };
+        }
+        if (info.status === "completed" && info.videoUrl) {
+          return await saveHeyGenVideoToAssets(apiKey, videoId, info.videoUrl, ctx, {
+            script,
+            avatarName: avatar.name,
+            orientation,
+            thumbnailUrl: info.thumbnailUrl,
+          });
+        }
+        ctx.onProgress?.(`HeyGen render in progress (${Math.round((Date.now() - startedAt) / 1000)}s)...`);
+      }
+
+      return {
+        status: "still_processing",
+        videoId,
+        note:
+          "The render is still running on HeyGen. Call heygen_check_video with this videoId to finish and save it when done.",
+      };
+    },
+  },
+  {
+    name: "heygen_check_video",
+    description:
+      "Check a HeyGen render started earlier (from heygen_generate_video's videoId). If the video is completed, it is downloaded and saved to the workspace Media Assets and the permanent URL is returned. Polls for up to ~2.5 minutes per call; call repeatedly while it reports processing.",
+    parameters: {
+      type: "object",
+      properties: {
+        videoId: { type: "string", description: "The HeyGen video id returned by heygen_generate_video" },
+        script: { type: "string", description: "Optional original script — stored as the asset description" },
+        orientation: { type: "string", enum: ["9:16", "16:9"], description: "Original orientation, for asset metadata" },
+      },
+      required: ["videoId"],
+    },
+    execute: async (args, ctx) => {
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const conn = await getConnectorCredentials(ctx.workspaceId, "heygen");
+      if (!conn?.credentials.apiKey) {
+        return { error: "HeyGen is not connected. Ask the user to connect it in the Plugins tab." };
+      }
+      const apiKey = conn.credentials.apiKey;
+      const videoId = (args.videoId || "").trim();
+      if (!videoId) return { error: "videoId is required." };
+
+      const { getHeyGenVideoStatus } = await import("@/lib/connectors/heygen");
+
+      const POLL_INTERVAL_MS = 8_000;
+      const MAX_POLL_MS = 150_000;
+      const startedAt = Date.now();
+
+      while (true) {
+        const statusRes = await getHeyGenVideoStatus(apiKey, videoId);
+        if (!statusRes.success || !statusRes.info) {
+          return { error: statusRes.error || "Could not read the HeyGen render status.", videoId };
+        }
+        const info = statusRes.info;
+
+        if (info.status === "failed") {
+          return { error: info.error || "HeyGen render failed.", videoId };
+        }
+        if (info.status === "completed" && info.videoUrl) {
+          return await saveHeyGenVideoToAssets(apiKey, videoId, info.videoUrl, ctx, {
+            script: args.script,
+            orientation: args.orientation === "16:9" ? "16:9" : "9:16",
+            thumbnailUrl: info.thumbnailUrl,
+          });
+        }
+        if (Date.now() - startedAt >= MAX_POLL_MS) {
+          return {
+            status: "still_processing",
+            videoId,
+            note: "Still rendering. Call heygen_check_video again with this videoId.",
+          };
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+    },
+  },
 ];
+
+/**
+ * Shared helper for the HeyGen tools: downloads the finished video from
+ * HeyGen's CDN and persists it as a workspace MediaAsset so it survives
+ * HeyGen's temporary URLs and shows up in the workspace media flow.
+ */
+async function saveHeyGenVideoToAssets(
+  apiKey: string,
+  videoId: string,
+  videoUrl: string,
+  ctx: ToolContext,
+  meta: { script?: string; avatarName?: string; orientation?: string; thumbnailUrl?: string }
+): Promise<any> {
+  ctx.onProgress?.("Render complete — downloading the video...");
+
+  let buffer: Buffer | null = null;
+  try {
+    const res = await fetch(videoUrl, {
+      headers: { "X-Api-Key": apiKey },
+    });
+    if (res.ok) {
+      const arrayBuf = await res.arrayBuffer();
+      if (arrayBuf.byteLength > 0) buffer = Buffer.from(arrayBuf);
+    }
+  } catch {
+    // fall through to the raw URL below
+  }
+
+  if (!buffer) {
+    // Could not download (rare) — still save a MediaAsset row pointing at the
+    // CDN URL so the workspace has a record, but flag it clearly.
+    try {
+      const asset = await prisma.mediaAsset.create({
+        data: {
+          url: videoUrl,
+          filename: `heygen-${videoId}.mp4`,
+          contentType: "video/mp4",
+          workspaceId: ctx.workspaceId,
+        },
+      });
+      return {
+        status: "completed",
+        videoId,
+        mediaAssetId: asset.id,
+        url: videoUrl,
+        warning:
+          "The video completed but could not be mirrored to permanent storage — the CDN link may expire. Try re-checking or contact support if the link stops working.",
+        script: meta.script,
+        orientation: meta.orientation,
+      };
+    } catch {
+      return {
+        status: "completed",
+        videoId,
+        url: videoUrl,
+        warning: "Completed, but saving to Media Assets failed.",
+      };
+    }
+  }
+
+  ctx.onProgress?.("Saving video to Media Assets...");
+  try {
+    const { saveMediaBuffer } = await import("@/lib/supabase");
+    const saved = await saveMediaBuffer(
+      buffer,
+      `heygen-${videoId}.mp4`,
+      "video/mp4",
+      ctx.workspaceId
+    );
+    return {
+      status: "completed",
+      videoId,
+      mediaAssetId: (saved as any)?.assetId ?? undefined,
+      url: saved.url,
+      sizeBytes: buffer.length,
+      thumbnailUrl: meta.thumbnailUrl ?? undefined,
+      avatarName: meta.avatarName ?? undefined,
+      script: meta.script ?? undefined,
+      orientation: meta.orientation ?? undefined,
+      note: "Video saved to workspace Media Assets. The url can be attached to a draft/scheduled post.",
+    };
+  } catch (err: any) {
+    return {
+      status: "completed",
+      videoId,
+      url: videoUrl,
+      error: `Video rendered, but saving to Media Assets failed: ${err?.message || err}`,
+    };
+  }
+}
 
 export function getTool(name: string): ToolDef | undefined {
   return TOOLS.find((t) => t.name === name);

@@ -134,6 +134,9 @@ const TOOL_LABELS: Record<string, string> = {
   github_list_repos: "Listing GitHub repositories",
   github_create_repo: "Creating GitHub repository",
   github_push_files: "Pushing files to GitHub",
+  heygen_status: "Checking HeyGen connection",
+  heygen_generate_video: "Generating HeyGen avatar video",
+  heygen_check_video: "Checking HeyGen render status",
 };
 
 const IGNORED_DIRS =
@@ -984,6 +987,7 @@ function toolStepLabel(tool?: string, args?: any): string {
 function toolIcon(tool?: string): React.ReactNode {
   if (tool?.startsWith("mcp__")) return <Plug className="h-3 w-3" />;
   if (tool?.startsWith("github_")) return <GitBranch className="h-3 w-3" />;
+  if (tool?.startsWith("heygen_")) return <VideoIcon className="h-3 w-3" />;
   switch (tool) {
     case "search_web": return <Globe className="h-3 w-3" />;
     case "fetch_serp": return <Search className="h-3 w-3" />;
