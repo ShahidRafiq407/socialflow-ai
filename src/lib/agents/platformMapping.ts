@@ -29,7 +29,7 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
     carousel: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn PDF Carousel Document" },
     "multi-image": { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },
     multi_image: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },
-    document: { mediaType: "image", aspectRatio: "1:1", description: "LinkedIn Document / PDF Carousel" },
+    document: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Document / PDF Carousel" },
     video: { mediaType: "video", aspectRatio: "9:16", description: "LinkedIn Reel / Video" },
     article: { mediaType: "text_only", aspectRatio: "1.91:1", description: "LinkedIn Longform Article" },
   },
@@ -69,7 +69,18 @@ export function getPlatformFormatSpec(platform: string, contentType: string): Pl
     return { mediaType: "video", aspectRatio: "9:16", description: "Vertical Short Video" };
   }
 
-  if (normType.includes("carousel") || normType.includes("idea") || normType.includes("multi")) {
+  // Informational multi-slide formats (carousel / idea pin / multi-image / document)
+  // render as a deck of text-rich designed slides, not one decorative image.
+  if (normType.includes("document")) {
+    return { mediaType: "multi_image", aspectRatio: "1:1", description: "Document / PDF Carousel Pages" };
+  }
+
+  if (
+    normType.includes("carousel") ||
+    normType.includes("idea") ||
+    normType.includes("multi") ||
+    normType.includes("multiple photos")
+  ) {
     return { mediaType: "multi_image", aspectRatio: "9:16", description: "Multi-Slide Visual Post" };
   }
 

@@ -4,9 +4,12 @@ import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
 import {
   generateMediaAsset,
   resolveVisualRequirements,
+  clampDeckSlides,
+  MIN_DECK_SLIDES,
   MediaAssetOutput,
   VisualizerError,
 } from "@/lib/agents/mediaGenerator";
+import { deckFingerprint, isTextRichFormat } from "@/lib/agents/slideDesigner";
 
 export interface AgentEventCallback {
   (event: {
@@ -96,6 +99,83 @@ export interface CampaignState {
     issues: string[];
   };
   errors?: string[];
+}
+
+/**
+ * Text-rich formats (carousel / idea pin / document / multi-image) publish a DECK:
+ * every slide is rendered as a designed infographic with its own headline + insight
+ * typeset onto the graphic. That only works if the storyboard text array and the
+ * background art-direction array line up 1:1, so this normalises whatever the copy
+ * model returned into two equal-length arrays.
+ */
+function normalizeDeck(
+  visualPrompts: string[],
+  slideTexts: { step: number; title: string; body: string; theme: string }[],
+  fallback: { hook: string; caption: string; brandName: string; topic: string }
+): {
+  visualPrompts: string[];
+  slideTexts: { step: number; title: string; body: string; theme: string }[];
+} {
+  const themeFor = (idx: number) => (idx % 2 === 0 ? "gradient-purple" : "gradient-blue");
+
+  // Real copy the model wrote (a title alone is enough — the body can be empty).
+  const texts = slideTexts.filter((s) => (s.title || "").trim() || (s.body || "").trim());
+
+  // Too thin to fill a deck: mine the hook + caption for real sentences so the slides
+  // still teach something instead of repeating one headline on every slide.
+  if (texts.length < MIN_DECK_SLIDES) {
+    const sentences = (fallback.caption || "")
+      .split(/(?<=[.!?])\s+/)
+      .map((s) => s.replace(/#[\w-]+/g, "").trim())
+      .filter((s) => s.length > 12);
+
+    if (texts.length === 0) {
+      texts.push({
+        step: 1,
+        title: fallback.hook || fallback.topic,
+        body: sentences.shift() || "",
+        theme: themeFor(0),
+      });
+    }
+    while (texts.length < 4 && sentences.length > 0) {
+      const s = sentences.shift() as string;
+      const split = s.indexOf(":");
+      const hasLabel = split > 8 && split < 60;
+      texts.push({
+        step: texts.length + 1,
+        title: hasLabel ? s.slice(0, split).trim() : `Key insight ${texts.length}`,
+        body: hasLabel ? s.slice(split + 1).trim() : s,
+        theme: themeFor(texts.length),
+      });
+    }
+    texts.push({
+      step: texts.length + 1,
+      title: "Your next step",
+      body: `Follow ${fallback.brandName} for more on ${fallback.topic}.`,
+      theme: themeFor(texts.length),
+    });
+  }
+
+  // The storyboard length decides the deck size. Padding it out to match a longer
+  // background-prompt array would publish the same headline on two slides.
+  const deckSize = clampDeckSlides(texts.length, 5);
+
+  const outTexts = Array.from({ length: deckSize }, (_, idx) => {
+    const src = texts[idx] || texts[texts.length - 1];
+    return {
+      step: idx + 1,
+      title: (src?.title || "").trim() || `Slide ${idx + 1}`,
+      body: (src?.body || "").trim(),
+      theme: themeFor(idx),
+    };
+  });
+
+  const outPrompts = Array.from(
+    { length: deckSize },
+    (_, idx) => visualPrompts[idx] || visualPrompts[visualPrompts.length - 1] || ""
+  );
+
+  return { visualPrompts: outPrompts, slideTexts: outTexts };
 }
 
 export async function runCampaignGraph(
@@ -214,6 +294,10 @@ export async function runCampaignGraph(
         missionVision: workspace?.brandDNA?.missionVision || "Drive growth through smart digital solutions",
         targetAudience: workspace?.brandDNA?.targetAudience || "Modern Business Decision Makers",
         writingStyle: workspace?.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+        // Drives the palette of text-rich carousel / document slides (slideDesigner).
+        primaryColors: Array.isArray(workspace?.brandDNA?.primaryColors)
+          ? workspace.brandDNA.primaryColors.filter(Boolean)
+          : [],
         hasCustomDNA,
       };
 
@@ -615,11 +699,18 @@ STRICT NEGATIVE CONSTRAINTS (PENALTY FOR USING):
 
 VISUAL PROMPTS:
 Write rich, production-grade visual prompts matching each format's exact aspect ratio.
-IMPORTANT FOR MULTI-IMAGE FORMATS (Idea Pin, Carousel, Document): If the visualType is "multi_image", you MUST provide an array of 3-5 distinct visualPrompts (one for each slide), instead of a single string. E.g. Idea Pins need distinct slide visuals.
+
+MULTI-IMAGE / INFORMATIONAL FORMATS (Carousel, Idea Pin, Document, Multi-Image, Multiple Photos) — MANDATORY:
+These formats are TEACHING assets. Every slide is rendered as a designed infographic with the slide's headline and insight TYPESET ON the graphic, so both arrays below are required and must be the SAME length (4 or 5 entries — never fewer than 3):
+1. "visualPrompts": one entry per slide, describing only the BACKGROUND / SUPPORTING GRAPHIC art direction for that slide (abstract shapes, illustration, iconography, low-contrast imagery, data-visual accents). Keep the area where text will sit calm and low-contrast. Never describe the text itself — the design engine handles typography.
+2. "slideTexts": one entry per slide, the actual words that get rendered onto that slide.
+
+Storyboard arc: slide 1 = hook, middle slides = the problem, the framework and the proof (concrete numbers, steps or benchmarks), final slide = takeaway + CTA.
 
 SLIDE TEXT OVERLAYS (MULTI-IMAGE FORMATS ONLY — MANDATORY):
-For every multi_image format you MUST also provide "slideTexts": an array with EXACTLY one entry per visualPrompt. These auto-fill the storyboard Page Title & Key Insight fields, so they must NEVER be empty. Each entry:
+For every multi_image format you MUST also provide "slideTexts": an array with EXACTLY one entry per visualPrompt. These are both typeset onto the slide graphic AND auto-fill the storyboard Page Title & Key Insight fields, so they must NEVER be empty. Each entry:
 {"title": "3-7 word punchy slide header (step/insight name)", "body": "1-2 sentence key insight or actionable takeaway for that slide"}.
+Keep "title" under 60 characters and "body" under 200 characters so it typesets cleanly on the graphic.
 Slide 1 title = the hook; final slide = CTA (e.g. "Save this & follow for more").
 
 Return strictly JSON format:
@@ -678,12 +769,26 @@ Return strictly JSON format:
 
           // AI-written per-slide Title & Key Insight (auto-fills storyboard fields in the editor)
           const slideTextsArray = Array.isArray(rawItem.slideTexts) ? rawItem.slideTexts : [];
-          const overlayText = slideTextsArray.map((s: any, idx: number) => ({
+          let overlayText = slideTextsArray.map((s: any, idx: number) => ({
             step: idx + 1,
             title: (s?.title || "").toString().trim() || `Slide ${idx + 1}`,
             body: (s?.body || "").toString().trim(),
             theme: idx % 2 === 0 ? "gradient-purple" : "gradient-blue",
           }));
+
+          // Informational deck formats: guarantee one headline+insight per slide and one
+          // background art direction per slide, so every rendered slide carries real text.
+          let deckPrompts: string[] = visualPromptsArray;
+          if (isTextRichFormat(normFmt, reqSpec.assetType)) {
+            const deck = normalizeDeck(visualPromptsArray, overlayText, {
+              hook,
+              caption,
+              brandName: state.brandData.name,
+              topic,
+            });
+            deckPrompts = deck.visualPrompts;
+            overlayText = deck.slideTexts;
+          }
 
           structuredPlatforms[normPlt][normFmt] = {
             platform: normPlt,
@@ -695,8 +800,8 @@ Return strictly JSON format:
             hookVariations: Array.isArray(rawItem.hookVariations) && rawItem.hookVariations.length > 0 ? rawItem.hookVariations : [hook, "The secret to 10x output", "What top brands do differently"],
             visualRequired: reqSpec.assetType !== ("text_only" as any),
             visualType: reqSpec.assetType as any,
-            visualPrompt: visualPromptsArray.join(" | Slide Next: "), // fallback for single string interfaces
-            visualPrompts: visualPromptsArray, // Pass array for multi-slide generation
+            visualPrompt: deckPrompts.join(" | Slide Next: "), // fallback for single string interfaces
+            visualPrompts: deckPrompts, // Pass array for multi-slide generation
             overlayText,
             aspectRatio: reqSpec.aspectRatio,
             wordCount,
@@ -758,7 +863,13 @@ Return strictly JSON format:
     for (const [plt, formats] of Object.entries(state.generatedContent.platforms)) {
       for (const [fmt, item] of Object.entries(formats)) {
         if (item.visualRequired) {
-          const reqSpec = resolveVisualRequirements(plt, fmt);
+          // Size the deck from the storyboard the Content Creator actually wrote, so the
+          // CEO audit checks against the real slide count instead of a hardcoded 3.
+          const desiredSlides = Math.max(
+            item.overlayText?.length || 0,
+            item.visualPrompts?.length || 0
+          );
+          const reqSpec = resolveVisualRequirements(plt, fmt, desiredSlides || undefined);
           mediaTasks.push({ platform: plt, contentType: fmt, item, reqSpec });
         }
       }
@@ -783,7 +894,16 @@ Return strictly JSON format:
     { platform: string; contentType: string; item: ContentOutputItem; reqSpec: any }[]
   >();
   for (const task of mediaTasks) {
-    const bucketKey = `${task.reqSpec.assetType}_${orientationFamily(task.reqSpec.aspectRatio)}`;
+    // Text-rich decks bake each platform's OWN headline/insight copy into the pixels, so
+    // two decks are only interchangeable when their slide text and length match exactly.
+    // Sharing them would publish LinkedIn's words on Instagram — accuracy beats credits.
+    const deckKey =
+      task.reqSpec.assetType === "multi_image"
+        ? `_${task.reqSpec.requiredAssets}_${deckFingerprint(
+            (task.item.overlayText || []).flatMap((s) => [s.title, s.body])
+          )}`
+        : "";
+    const bucketKey = `${task.reqSpec.assetType}_${orientationFamily(task.reqSpec.aspectRatio)}${deckKey}`;
     const bucket = generationBuckets.get(bucketKey) || [];
     bucket.push(task);
     generationBuckets.set(bucketKey, bucket);
@@ -833,6 +953,14 @@ Return strictly JSON format:
         aspectRatio: primaryTask.reqSpec.aspectRatio,
         caption: primaryTask.item.caption,
         topic,
+        // Informational formats: the per-slide headline + insight is TYPESET into the
+        // graphic instead of living only in the editor's form fields.
+        slideTexts: primaryTask.item.overlayText,
+        slideCount: primaryTask.reqSpec.requiredAssets,
+        totalSlides: primaryTask.reqSpec.requiredAssets,
+        brandName: state.brandData?.name,
+        brandColors: state.brandData?.primaryColors,
+        industry: state.brandData?.industry,
         signal,
         onProgress: (msg) => {
           onEvent({

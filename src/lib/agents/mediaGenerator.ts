@@ -1,6 +1,14 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
+import {
+  buildDesignSystemInstruction,
+  buildInfographicSlidePrompt,
+  isDocumentFormat,
+  isTextRichFormat,
+  pickDeckStyle,
+  type SlideTextSpec,
+} from "@/lib/agents/slideDesigner";
 
 export type VisualErrorCode =
   | "VISUALIZER_PROVIDER_ERROR"
@@ -44,6 +52,27 @@ export interface GenerateMediaInput {
   imageModel?: string;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+  /**
+   * Per-slide informational copy (headline + key insight) that MUST be typeset into
+   * the generated graphic for carousels / idea pins / multi-image / document formats.
+   */
+  slideTexts?: SlideTextSpec[];
+  /** How many slides/pages to render. Defaults to the slideTexts/visualPrompts length. */
+  slideCount?: number;
+  /** Index offset when rendering a single slide of a larger deck (editor path). */
+  slideIndexOffset?: number;
+  /** Total deck size when rendering a single slide of a larger deck. */
+  totalSlides?: number;
+  /**
+   * "infographic" forces the text-rich graphic-design pipeline, "photographic" forces
+   * the classic photo pipeline. "auto" (default) decides from the format.
+   */
+  designMode?: "auto" | "infographic" | "photographic";
+  brandName?: string;
+  brandColors?: string[];
+  industry?: string;
+  /** Extra art direction typed by the user in the Carousel Studio. */
+  extraInstructions?: string;
 }
 
 export interface MediaAssetOutput {
@@ -299,7 +328,22 @@ async function generateRealVideo(options: {
   );
 }
 
-export function resolveVisualRequirements(platform: string, contentType: string) {
+/** Hard bounds for a generated deck — every target platform accepts 2-10 slides. */
+export const MIN_DECK_SLIDES = 2;
+export const MAX_DECK_SLIDES = 10;
+export const DEFAULT_DECK_SLIDES = 5;
+
+export function clampDeckSlides(count: number | undefined | null, fallback = DEFAULT_DECK_SLIDES): number {
+  const n = Number(count);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(MAX_DECK_SLIDES, Math.max(MIN_DECK_SLIDES, Math.round(n)));
+}
+
+export function resolveVisualRequirements(
+  platform: string,
+  contentType: string,
+  desiredSlides?: number
+) {
   // Single source of truth: delegate to getPlatformFormatSpec from platformMapping.ts
   const spec = getPlatformFormatSpec(platform, contentType);
 
@@ -311,7 +355,9 @@ export function resolveVisualRequirements(platform: string, contentType: string)
     requiredAssets = 1;
   } else if (spec.mediaType === "multi_image") {
     assetType = "multi_image";
-    requiredAssets = 3;
+    // A deck is only as long as there is real teaching copy for — the caller passes
+    // the actual storyboard length so the CEO audit checks against what was asked for.
+    requiredAssets = clampDeckSlides(desiredSlides, 3);
   } else if (spec.mediaType === "text_only") {
     assetType = "image";
     requiredAssets = 0;
@@ -392,9 +438,40 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   // REAL IMAGE GENERATION (Vertex AI: gemini-3-pro-image / Nano Banana Pro)
   // -------------------------------------------------------------
   const targetImageModel = input.imageModel || MODELS.VISUALIZER || "gemini-3-pro-image";
-  onProgress?.(`[Visualizer] Synthesizing photographic canvas via Nano Banana Pro (${targetImageModel})...`);
 
-  const assetCount = mediaType === "multi_image" ? 3 : 1;
+  // ── TEXT-RICH (INFOGRAPHIC) MODE ──────────────────────────────────────────────
+  // Carousels, Idea Pins, Multi-Image posts and LinkedIn Documents are informational
+  // formats. They must ship with the headline + key insight TYPESET INTO the graphic,
+  // otherwise the published post is a decorative image that teaches nothing.
+  const slideTexts = (input.slideTexts || []).filter(
+    (s) => s && ((s.title || "").trim() || (s.body || "").trim() || (s.points || []).length > 0)
+  );
+  const isDeck = mediaType === "multi_image";
+  const designMode = input.designMode || "auto";
+  const isInfographic =
+    designMode === "infographic" ||
+    (designMode !== "photographic" &&
+      (slideTexts.length > 0 || isDeck) &&
+      isTextRichFormat(contentType, mediaType));
+
+  onProgress?.(
+    isInfographic
+      ? `[Visualizer] Designing text-rich informational ${isDocumentFormat(contentType) ? "document pages" : "slides"} via Nano Banana Pro (${targetImageModel})...`
+      : `[Visualizer] Synthesizing photographic canvas via Nano Banana Pro (${targetImageModel})...`
+  );
+
+  const requestedDeckSlides = Math.max(
+    input.slideCount || 0,
+    input.visualPrompts?.length || 0,
+    slideTexts.length
+  );
+  const assetCount = isDeck ? clampDeckSlides(requestedDeckSlides, 3) : 1;
+
+  // Position inside the overall deck (the editor renders one slide at a time).
+  const slideOffset = Math.max(0, input.slideIndexOffset || 0);
+  const deckTotal = isDeck
+    ? assetCount
+    : Math.max(input.totalSlides || 0, slideOffset + 1, 1);
 
   const validAspectRatios = ["1:1", "9:16", "16:9", "3:4", "4:3"];
   // The image API only accepts these 5 ratios. Platform ratios outside this list 
@@ -431,7 +508,17 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   const styleClause = input.style && styleInstructionMap[input.style] ? styleInstructionMap[input.style] : "";
   const qualityClause = input.quality && qualityInstructionMap[input.quality] ? qualityInstructionMap[input.quality] : "";
 
-  const systemInstructionText = `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
+  // One design system per deck so every slide of the same carousel looks like one deck.
+  const deckStyle = pickDeckStyle(
+    `${input.brandName || ""}|${topic || contentType}|${platform}`
+  );
+
+  const systemInstructionText = isInfographic
+    ? buildDesignSystemInstruction(targetImageAspect, qualityClause)
+    : `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
+
+  // Typesetting several text blocks takes noticeably longer than a plain photo render.
+  const imageTimeoutMs = isInfographic ? 90000 : 40000;
 
   for (let idx = 0; idx < assetCount; idx++) {
     if (input.signal?.aborted) {
@@ -446,10 +533,46 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       ? input.visualPrompts[idx].trim()
       : prompt.trim();
 
-    const clauses = [currentPrompt];
-    if (styleClause) clauses.push(styleClause);
-    if (qualityClause) clauses.push(qualityClause);
-    const slidePrompt = clauses.filter(Boolean).join(", ");
+    let slidePrompt: string;
+    let deckSlideIndex = isDeck ? idx : slideOffset;
+    let deckSlideTotal = Math.max(deckTotal, deckSlideIndex + 1);
+
+    if (isInfographic) {
+      // Absolute position of this render inside the published deck.
+      const deckIndex = isDeck ? idx : slideOffset;
+      const slideText = slideTexts.length > 0
+        ? (slideTexts[isDeck ? idx : Math.min(slideOffset, slideTexts.length - 1)] || slideTexts[0])
+        : undefined;
+
+      slidePrompt = buildInfographicSlidePrompt({
+        platform,
+        contentType,
+        aspectRatio: targetImageAspect,
+        slideIndex: deckIndex,
+        totalSlides: Math.max(deckTotal, deckIndex + 1),
+        slideText,
+        visualPrompt: currentPrompt,
+        topic,
+        brandName: input.brandName,
+        brandColors: input.brandColors,
+        industry: input.industry,
+        extraInstructions: input.extraInstructions,
+        deckStyle,
+        isDocument: isDocumentFormat(contentType),
+      });
+
+      if (qualityClause) slidePrompt += `\n- Output fidelity: ${qualityClause}.`;
+      // The image endpoint ignores `systemInstruction`, so the role directive is
+      // carried inline as the opening line of the brief.
+      slidePrompt = `${systemInstructionText}\n\n${slidePrompt}`;
+      deckSlideIndex = deckIndex;
+      deckSlideTotal = Math.max(deckTotal, deckIndex + 1);
+    } else {
+      const clauses = [currentPrompt];
+      if (styleClause) clauses.push(styleClause);
+      if (qualityClause) clauses.push(qualityClause);
+      slidePrompt = clauses.filter(Boolean).join(", ");
+    }
 
     try {
       const ai = (vertexProvider as any).ai;
@@ -476,11 +599,14 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
           totalAttempts++;
 
           try {
+            const slideNoun = isInfographic
+              ? (isDocumentFormat(contentType) ? "document page" : "designed slide")
+              : "image";
             const statusLabel = assetCount > 1
-              ? `[Visualizer] Generating slide ${idx + 1}/${assetCount} via ${modelName}...`
-              : `[Visualizer] Generating image via ${modelName}...`;
+              ? `[Visualizer] Rendering ${slideNoun} ${idx + 1}/${assetCount} with headline & insight text via ${modelName}...`
+              : `[Visualizer] Generating ${slideNoun} via ${modelName}...`;
             onProgress?.(statusLabel);
-            console.log(`[Visualizer] Generating image on ${modelName} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
+            console.log(`[Visualizer] Generating ${isInfographic ? "text-rich graphic" : "image"} on ${modelName} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
 
             let contentsInput: any = slidePrompt;
             if (input.sourceImage) {
@@ -493,7 +619,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                       data: inline.bytes,
                     },
                   },
-                  { text: `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}` },
+                  {
+                    text: isInfographic
+                      ? `Use this reference image as the visual/brand foundation, then execute the following design brief on top of it:\n\n${slidePrompt}`
+                      : `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}`,
+                  },
                 ];
               }
             }
@@ -510,7 +640,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                 },
               }),
               new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("Image generation timeout after 40s")), 40000)
+                setTimeout(() => reject(new Error(`Image generation timeout after ${imageTimeoutMs / 1000}s`)), imageTimeoutMs)
               )
             ]);
 
@@ -580,7 +710,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               aspect_ratio: targetImageAspect,
             }),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Image interactions.create timeout after 35s")), 35000)
+              setTimeout(() => reject(new Error("Image interactions.create timeout")), Math.max(35000, Math.round(imageTimeoutMs * 0.9)))
             )
           ]);
 
@@ -620,8 +750,8 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         provider: "google_vertex",
         model: modelName,
         createdAt: Date.now(),
-        slideIndex: idx,
-        totalSlides: assetCount,
+        slideIndex: deckSlideIndex,
+        totalSlides: deckSlideTotal,
       });
     } catch (err: any) {
       console.error(`[Visualizer] Slide ${idx + 1} generation failed:`, err);

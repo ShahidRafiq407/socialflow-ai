@@ -601,6 +601,16 @@ export default function AIStudioPage() {
   const aiAbortControllersRef = useRef<Record<string, AbortController>>({});
   // Cooperative stop flag for the slide-batch loop (checked between slides)
   const cancelAllSlidesRef = useRef<Record<string, boolean>>({});
+  // Storyboard the copy agent just wrote, keyed by `${platform}-${format}`.
+  // The slide batch runs immediately after copy generation, before React has
+  // re-rendered, so it reads the deck from here instead of from stale state.
+  const freshDeckRef = useRef<
+    Record<string, { title: string; body: string; visualPrompt: string }[]>
+  >({});
+  // Slide count each stashed deck was written for. The copy model may legitimately
+  // return fewer distinct slides than requested, so this prevents re-pressing Generate
+  // from rewriting a storyboard that is already as long as it is going to get.
+  const deckRequestCountRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const handleCancelAIAction = (e: Event) => {
@@ -1139,6 +1149,9 @@ export default function AIStudioPage() {
   }, [activePlatformTab, currentFormatName]);
 
   const isMultiFormat = currentFormatName === "Carousel" || currentFormatName === "Idea Pin" || currentFormatName === "Document" || currentFormatName === "Multiple Photos" || currentFormatName === "Multi-Image" || currentFormatName === "Thread";
+  // Informational deck formats: every slide has to be published as a designed,
+  // text-rich graphic. Thread is excluded — an X thread is pure text.
+  const isDeckFormat = isMultiFormat && currentFormatName !== "Thread";
   const isHtmlSlideFormat = false;
   const displayPrompts = isMultiFormat ? currentVisualPrompts : currentVisualPrompts.slice(0, 1);
   const displayOverlayTexts = isMultiFormat ? currentOverlayTexts : currentOverlayTexts.slice(0, 1);
@@ -1237,12 +1250,22 @@ export default function AIStudioPage() {
   // ============================================================================
   // REAL MULTI-AGENT PLATFORM COPY GENERATOR (PARALLEL & TAB-ISOLATED)
   // ============================================================================
-  const handleGeneratePlatformCopyAI = async (): Promise<boolean> => {
+  const handleGeneratePlatformCopyAI = async (opts?: {
+    slideCount?: number;
+    slideInstructions?: string;
+  }): Promise<boolean> => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
     const targetPrompt = customPromptDict[targetKey] || "";
     const targetTopic = campaignTopic || targetPrompt || currentTitle || currentCaption || "Exciting new innovations and strategic insights";
+    // Deck formats: how many designed slides the storyboard must cover.
+    const deckSlides = isMultiFormat
+      ? (typeof opts?.slideCount === "number" ? opts.slideCount : carouselSlideCount)
+      : undefined;
+    const deckInstructions = isMultiFormat
+      ? (typeof opts?.slideInstructions === "string" ? opts.slideInstructions : carouselCustomPrompt)
+      : undefined;
 
     // Reset the cooperative slide-batch stop flag for this format
     cancelAllSlidesRef.current[targetKey] = false;
@@ -1262,6 +1285,8 @@ export default function AIStudioPage() {
           topic: targetTopic,
           customPrompt: targetPrompt,
           duration: videoDurationSec,
+          slideCount: deckSlides,
+          slideInstructions: deckInstructions || undefined,
         }),
       });
       const data = await res.json();
@@ -1274,6 +1299,19 @@ export default function AIStudioPage() {
         const currentFamily = getFormatFamily(targetPlatform, targetFormat);
         const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
         const platformsToUpdate = Array.from(new Set([targetPlatform, ...selectedPlatforms]));
+
+        // Hand the just-written storyboard straight to the slide renderer.
+        if (Array.isArray(item.slides) && item.slides.length > 0) {
+          freshDeckRef.current[targetKey] = item.slides.map((s: any) => ({
+            title: String(s?.title || ""),
+            body: String(s?.body || ""),
+            visualPrompt: String(s?.visualPrompt || ""),
+          }));
+          deckRequestCountRef.current[targetKey] = deckSlides || item.slides.length;
+        } else {
+          delete freshDeckRef.current[targetKey];
+          delete deckRequestCountRef.current[targetKey];
+        }
 
         setGeneratedContents(prev => {
           const updated = { ...prev };
@@ -1384,6 +1422,11 @@ export default function AIStudioPage() {
           return;
         }
         if (data.success && data.slide) {
+          const newTitle = data.slide.title || (displayOverlayTexts[slideIdx] as any)?.title || `Slide ${slideIdx + 1}`;
+          const newBody = Array.isArray(data.slide.points)
+            ? data.slide.points.join("\n")
+            : (data.slide.body || "");
+
           setGeneratedContents(prev => {
             const currentPlat = prev[targetPlatform] || {};
             const currentFmt = currentPlat[targetFormat] || {};
@@ -1396,8 +1439,8 @@ export default function AIStudioPage() {
             existingOverlay[slideIdx] = {
               ...existingOverlay[slideIdx],
               step: slideIdx + 1,
-              title: data.slide.title || existingOverlay[slideIdx]?.title || `Slide ${slideIdx + 1}`,
-              body: Array.isArray(data.slide.points) ? data.slide.points.join("\n") : (data.slide.body || ""),
+              title: newTitle,
+              body: newBody,
             };
 
             return {
@@ -1411,10 +1454,19 @@ export default function AIStudioPage() {
               },
             };
           });
+
+          // The slide's words are TYPESET into its graphic, so re-render the page with the
+          // copy that was just written — otherwise the published document keeps the old art.
+          await handleRenderMedia({
+            mediaType: "image",
+            slideIndex: slideIdx,
+            slideText: { title: newTitle, body: newBody },
+          });
         }
       } else {
         setActiveSlideIdx(slideIdx);
-        await handleRenderMedia();
+        // Pass the index explicitly — the state update above is not visible in this tick
+        await handleRenderMedia({ slideIndex: slideIdx });
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") {
@@ -2437,6 +2489,12 @@ export default function AIStudioPage() {
   const generationProgress = generationProgressDict[currentFormatKey] || 0;
   const generationStage = generationStageDict[currentFormatKey] || "";
   const isRenderingMedia = Boolean(renderingMediaKeys[currentFormatKey]);
+  // The media modal's generate button covers three phases for deck formats:
+  // storyboard copy → slide batch → single-slide render.
+  const isDeckBusy =
+    isRenderingMedia ||
+    Boolean(renderingAllSlidesKeys[currentFormatKey]) ||
+    Boolean(generatingCopyKeys[currentFormatKey]);
 
   const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
 
@@ -2451,11 +2509,15 @@ export default function AIStudioPage() {
     style?: string;
     quality?: string;
     imageModel?: string;
+    /** Target a specific deck slide instead of the one currently in view. */
+    slideIndex?: number;
+    /** Informational copy to typeset onto this slide (defaults to the storyboard). */
+    slideText?: { title?: string; body?: string };
   }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
-    const targetSlideIdx = isMultiFormat ? activeSlideIdx : 0;
+    const targetSlideIdx = isMultiFormat ? (options?.slideIndex ?? activeSlideIdx) : 0;
     const targetMediaKey = `${targetPlatform}-${targetFormat}-${targetSlideIdx}`;
     
     const capability = getPlatformCapability(targetPlatform, targetFormat);
@@ -2463,7 +2525,11 @@ export default function AIStudioPage() {
       ? options.mediaType === "video"
       : capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(targetFormat);
 
-    const targetPrompt = options?.prompt || (
+    // Deck slides carry their own background art direction. The format-wide custom
+    // prompt is a single-image field, so preferring it here would give every slide of
+    // the carousel the exact same backdrop.
+    const deckSlidePrompt = isMultiFormat ? (displayPrompts[targetSlideIdx] || "") : "";
+    const targetPrompt = options?.prompt || deckSlidePrompt || (
       customPromptDict[targetFormatKey] !== undefined && customPromptDict[targetFormatKey] !== ""
         ? customPromptDict[targetFormatKey]
         : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`)
@@ -2612,8 +2678,20 @@ export default function AIStudioPage() {
     }
 
     // Real Image Rendering via Backend AI Visualizer (Vertex AI / Nano Banana Pro)
+    // For informational deck formats the ACTIVE slide's headline + insight is sent along
+    // so the model typesets it onto the graphic instead of returning a bare backdrop.
+    const activeSlideText = isMultiFormat
+      ? options?.slideText || (displayOverlayTexts[targetSlideIdx] as any) || null
+      : null;
+    const isDeckSlideRender = isMultiFormat && Boolean(activeSlideText?.title || activeSlideText?.body);
+
     setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
-    setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Synthesizing visual canvas with Nano Banana Pro..." }));
+    setGenerationStageDict(prev => ({
+      ...prev,
+      [targetFormatKey]: isDeckSlideRender
+        ? `Designing text-rich slide ${targetSlideIdx + 1} of ${totalCarouselSlides} with Nano Banana Pro...`
+        : "Synthesizing visual canvas with Nano Banana Pro...",
+    }));
 
     const controller = new AbortController();
     abortControllersRef.current[targetFormatKey] = controller;
@@ -2634,6 +2712,19 @@ export default function AIStudioPage() {
           style: options?.style,
           quality: options?.quality,
           imageModel: options?.imageModel,
+          ...(isDeckSlideRender
+            ? {
+                slideText: {
+                  step: targetSlideIdx + 1,
+                  title: String(activeSlideText?.title || ""),
+                  body: String(activeSlideText?.body || ""),
+                },
+                slideIndex: targetSlideIdx,
+                totalSlides: totalCarouselSlides,
+                designMode: "infographic",
+                extraInstructions: carouselCustomPrompt || undefined,
+              }
+            : {}),
         }),
       });
       const data = await res.json();
@@ -2739,7 +2830,10 @@ export default function AIStudioPage() {
     }
   };
 
-  const handleRenderAllSlides = async () => {
+  const handleRenderAllSlides = async (opts?: {
+    slides?: { title: string; body: string; visualPrompt: string }[];
+    instructions?: string;
+  }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetFormatKey = `${targetPlatform}-${targetFormat}`;
@@ -2751,7 +2845,20 @@ export default function AIStudioPage() {
     setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 0 }));
     setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "Initializing storyboard slide batch generation..." }));
 
-    const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
+    // The storyboard drives everything: each slide's headline + insight is TYPESET into
+    // its graphic, so use the copy that was just written (passed in / stashed in the ref)
+    // rather than the state snapshot this closure captured.
+    const deck =
+      opts?.slides ||
+      freshDeckRef.current[targetFormatKey] ||
+      displayOverlayTexts.map((o: any, i: number) => ({
+        title: String(o?.title || ""),
+        body: String(o?.body || ""),
+        visualPrompt: String(displayPrompts[i] || ""),
+      }));
+
+    const slideCount = isMultiFormat ? Math.max(deck.length, 1) : 1;
+    const deckInstructions = opts?.instructions ?? carouselCustomPrompt;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
     let stoppedByUser = false;
 
@@ -2764,8 +2871,9 @@ export default function AIStudioPage() {
         }
 
         const slideKey = `${targetPlatform}-${targetFormat}-${i}`;
-        const p = displayPrompts[i] || customPrompt || singleImagePrompt || `${campaignTopic} Slide ${i + 1}`;
-        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Generating visual for Slide ${i + 1} of ${slideCount}...` }));
+        const slide = deck[i] || deck[deck.length - 1] || { title: "", body: "", visualPrompt: "" };
+        const p = slide.visualPrompt || displayPrompts[i] || customPrompt || singleImagePrompt || "";
+        setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: `Designing text-rich slide ${i + 1} of ${slideCount}...` }));
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: Math.round(((i) / slideCount) * 100) }));
 
         try {
@@ -2785,6 +2893,12 @@ export default function AIStudioPage() {
               prompt: p,
               aspectRatio: currentAspectRatio,
               topic: campaignTopic,
+              // Bake this slide's informational copy into the graphic
+              slideText: { step: i + 1, title: slide.title, body: slide.body },
+              slideIndex: i,
+              totalSlides: slideCount,
+              designMode: slide.title || slide.body ? "infographic" : "auto",
+              extraInstructions: deckInstructions || undefined,
             }),
           });
           const data = await res.json();
@@ -2796,7 +2910,11 @@ export default function AIStudioPage() {
           if (data.success && data.asset?.url) {
             newRendered[slideKey] = data.asset.url;
             setRenderedImageUrlsDict({ ...newRendered });
+            // A previously cleared slide must become visible again once redesigned
+            setClearedMediaKeys(prev => ({ ...prev, [slideKey]: false }));
             setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+          } else if (data.error) {
+            setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: `Slide ${i + 1}: ${data.error}` }));
           }
         } catch (err) {
           if ((err as Error)?.name === "AbortError") {
@@ -2815,7 +2933,6 @@ export default function AIStudioPage() {
       } else {
         setGenerationProgressDict(prev => ({ ...prev, [targetFormatKey]: 100 }));
         setGenerationStageDict(prev => ({ ...prev, [targetFormatKey]: "All slides generated!" }));
-        setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
       }
     } finally {
       delete abortControllersRef.current[targetFormatKey];
@@ -2825,6 +2942,42 @@ export default function AIStudioPage() {
         return next;
       });
     }
+  };
+
+  /**
+   * Primary action of the AI media modal.
+   *
+   * Informational deck formats (Carousel, Idea Pin, Document, Multi-Image, Multiple
+   * Photos) must render EVERY slide as a designed, text-rich graphic — one decorative
+   * image is not a usable carousel or document. Each slide's headline + insight is what
+   * gets typeset into its graphic, so if no storyboard exists yet (or it is shorter than
+   * the requested slide count) the copy agent writes it first.
+   */
+  const handleGenerateFromMediaModal = async () => {
+    if (!isDeckFormat || currentMediaType === "video") {
+      await handleRenderMedia();
+      return;
+    }
+
+    const existingDeck = (
+      freshDeckRef.current[currentFormatKey] ||
+      displayOverlayTexts.map((o: any, i: number) => ({
+        title: String(o?.title || ""),
+        body: String(o?.body || ""),
+        visualPrompt: String(displayPrompts[i] || ""),
+      }))
+    ).filter((s) => s.title.trim() || s.body.trim());
+
+    if (existingDeck.length < carouselSlideCount && deckRequestCountRef.current[currentFormatKey] !== carouselSlideCount) {
+      const copyCompleted = await handleGeneratePlatformCopyAI({
+        slideCount: carouselSlideCount,
+        slideInstructions: carouselCustomPrompt,
+      });
+      // User stopped the copy phase — do not burn credits on the slide batch
+      if (!copyCompleted) return;
+    }
+
+    await handleRenderAllSlides({ instructions: carouselCustomPrompt });
   };
 
   // MULTI-SLIDE MEDIA URL RESOLVER
@@ -3096,7 +3249,19 @@ export default function AIStudioPage() {
     currentFormatName === "Short Video" ||
     isVideoUrl(displayImageUrl);
   const isSquare = currentFormatName === "Feed";
-  const isCarousel = currentFormatName === "Carousel" || currentFormatName === "Thread" || currentFormatName === "Idea Pin";
+  // Every multi-slide format (Carousel, Idea Pin, Document, Multi-Image, Multiple Photos,
+  // Thread) gets the Graphic Carousel Studio controls — slide count, deck direction and
+  // the batch renderer — because they are all published as multi-slide decks.
+  const isCarousel = isMultiFormat;
+  // Deck vocabulary — a LinkedIn Document is paginated, every other deck is slides.
+  const isPagedDeck = currentFormatName === "Document";
+  const deckNoun = isPagedDeck ? "Pages" : "Slides";
+  const deckStudioLabel = isPagedDeck ? "AI Graphic Document Studio" : "AI Graphic Carousel Studio";
+  const deckActionLabel = isPagedDeck ? "Generate Graphic Document" : "Generate Graphic Carousel";
+  const deckCountLabel = isPagedDeck ? "Number of Document Pages" : "Number of Carousel Slides";
+  const deckInstructionsLabel = isPagedDeck
+    ? "Custom Document Instructions / Topic (Optional)"
+    : "Custom Carousel Instructions / Topic (Optional)";
 
   // REAL content check — whether from multi-agent campaign OR manual editor typing / single media generation / upload
   const hasManualContent =
@@ -4604,10 +4769,16 @@ export default function AIStudioPage() {
                   onRegenerateSlideAI={handleRegenerateSlideAI}
                   isRegeneratingSlide={Boolean(renderingMediaKeys[currentFormatKey])}
                   onGenerateFullCarouselAI={async () => {
-                    const copyCompleted = await handleGeneratePlatformCopyAI();
-                    // If the user stopped the copy phase, do not start the slide batch
-                    if (copyCompleted && currentMediaType === "image" && activePlatformTab !== "linkedin") {
-                      await handleRenderAllSlides();
+                    const copyCompleted = await handleGeneratePlatformCopyAI(
+                      isDeckFormat
+                        ? { slideCount: carouselSlideCount, slideInstructions: carouselCustomPrompt }
+                        : undefined
+                    );
+                    // If the user stopped the copy phase, do not start the slide batch.
+                    // Every deck format (incl. LinkedIn Document / Multi-Image) renders its
+                    // slides as text-rich designed graphics from the storyboard just written.
+                    if (copyCompleted && isDeckFormat) {
+                      await handleRenderAllSlides({ instructions: carouselCustomPrompt });
                     }
                   }}
                   isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
@@ -5435,7 +5606,7 @@ export default function AIStudioPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                    {isCarousel ? "AI Graphic Carousel Studio" : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
+                    {isCarousel ? deckStudioLabel : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
                   </h3>
                   <p className="text-xs text-slate-500">Format: {currentFormatName} ({activePlatformTab.toUpperCase()})</p>
                 </div>
@@ -5450,7 +5621,7 @@ export default function AIStudioPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Number of Carousel Slides
+                    {deckCountLabel}
                   </label>
                   <div className="grid grid-cols-4 gap-2">
                     {[3, 5, 7, 10].map(count => (
@@ -5464,7 +5635,7 @@ export default function AIStudioPage() {
                             : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-primary/50"
                         }`}
                       >
-                        {count} Slides
+                        {count} {deckNoun}
                       </button>
                     ))}
                   </div>
@@ -5472,7 +5643,7 @@ export default function AIStudioPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Custom Carousel Instructions / Topic (Optional)
+                    {deckInstructionsLabel}
                   </label>
                   <Textarea
                     rows={3}
@@ -5481,7 +5652,7 @@ export default function AIStudioPage() {
                     placeholder="e.g. Create 5 slides showing step-by-step how our product solves common customer challenges..."
                     className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically write and design the {deckNoun.toLowerCase()} from your campaign topic.</p>
                 </div>
               </div>
             ) : currentMediaType === "video" ? (
@@ -5686,15 +5857,15 @@ export default function AIStudioPage() {
               <Button variant="outline" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
               <Button
                 size="sm"
-                disabled={isRenderingMedia}
+                disabled={isDeckBusy}
                 onClick={async () => {
-                  await handleRenderMedia();
+                  await handleGenerateFromMediaModal();
                   setActiveMediaModal(null);
                 }}
                 className="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-bold gap-1.5"
               >
-                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
+                {isDeckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{isCarousel ? deckActionLabel : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
               </Button>
             </div>
           </div>
@@ -5893,7 +6064,7 @@ export default function AIStudioPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                    {isCarousel ? "AI Graphic Carousel Studio" : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
+                    {isCarousel ? deckStudioLabel : currentMediaType === "video" ? "AI Video Generator Studio" : "AI Image Generation Studio"}
                   </h3>
                   <p className="text-xs text-slate-500">Format: {currentFormatName} ({activePlatformTab.toUpperCase()})</p>
                 </div>
@@ -5908,7 +6079,7 @@ export default function AIStudioPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Number of Carousel Slides
+                    {deckCountLabel}
                   </label>
                   <div className="grid grid-cols-4 gap-2">
                     {[3, 5, 7, 10].map(count => (
@@ -5922,7 +6093,7 @@ export default function AIStudioPage() {
                             : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-primary/50"
                         }`}
                       >
-                        {count} Slides
+                        {count} {deckNoun}
                       </button>
                     ))}
                   </div>
@@ -5930,7 +6101,7 @@ export default function AIStudioPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Custom Carousel Instructions / Topic (Optional)
+                    {deckInstructionsLabel}
                   </label>
                   <Textarea
                     rows={3}
@@ -5939,7 +6110,7 @@ export default function AIStudioPage() {
                     placeholder="e.g. Create 5 slides showing step-by-step how our product solves common customer challenges..."
                     className="text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically generate slides based on your campaign topic.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">If left blank, AI will automatically write and design the {deckNoun.toLowerCase()} from your campaign topic.</p>
                 </div>
               </div>
             ) : currentMediaType === "video" ? (
@@ -6144,15 +6315,15 @@ export default function AIStudioPage() {
               <Button variant="outline" size="sm" onClick={() => setActiveMediaModal(null)}>Cancel</Button>
               <Button
                 size="sm"
-                disabled={isRenderingMedia}
+                disabled={isDeckBusy}
                 onClick={async () => {
-                  await handleRenderMedia();
+                  await handleGenerateFromMediaModal();
                   setActiveMediaModal(null);
                 }}
                 className="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white font-bold gap-1.5"
               >
-                {isRenderingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                <span>{isCarousel ? "Generate Graphic Carousel" : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
+                {isDeckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{isCarousel ? deckActionLabel : currentMediaType === "video" ? "Generate AI Video" : "Generate AI Image"}</span>
               </Button>
             </div>
           </div>

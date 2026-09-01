@@ -6,7 +6,8 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { Part } from "@google/genai";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { normalizeHashtags } from "@/lib/hashtags";
-import { generateMediaAsset, VisualizerError } from "@/lib/agents/mediaGenerator";
+import { generateMediaAsset, VisualizerError, clampDeckSlides, MIN_DECK_SLIDES, MAX_DECK_SLIDES } from "@/lib/agents/mediaGenerator";
+import { isTextRichFormat, type SlideTextSpec } from "@/lib/agents/slideDesigner";
 import { cacheGet, cacheSet } from "@/lib/redis";
 
 import { checkAIAccess } from "@/lib/billing/gate";
@@ -76,19 +77,29 @@ export async function POST(req: Request) {
       missionVision: workspace.brandDNA?.missionVision || "Drive growth through smart digital solutions",
       targetAudience: workspace.brandDNA?.targetAudience || "Modern Business Decision Makers",
       writingStyle: workspace.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+      // Drives the palette of text-rich carousel / document slides (slideDesigner).
+      primaryColors: Array.isArray(workspace.brandDNA?.primaryColors)
+        ? workspace.brandDNA.primaryColors.filter(Boolean)
+        : [],
     };
 
     // =========================================================================
     // STEP: Generate Platform-Specific Copy & Media Prompt (Multi-Agent)
     // =========================================================================
     if (step === "generate-platform-copy") {
-      const { platform, format, topic, customPrompt, duration } = body;
+      const { platform, format, topic, customPrompt, duration, slideCount, slideInstructions } = body;
       const capability = getPlatformCapability(platform, format);
       const campaignTopic = topic || customPrompt || "Exciting new innovations and strategic insights";
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
+      // Informational deck formats: the storyboard length the user picked in the Studio
+      // decides how many slides get written (and therefore how many get designed).
+      const isDeckFormat = isTextRichFormat(format, capability.mediaType);
+      const targetSlides = isDeckFormat
+        ? Math.min(capability.maxMedia || MAX_DECK_SLIDES, clampDeckSlides(slideCount, 5))
+        : 0;
 
       // Check Redis Cache
-      const copyCacheKey = `aistudio:copy:${platform}:${format}:${Buffer.from(campaignTopic).toString("base64").slice(0, 36)}:${duration || 5}`;
+      const copyCacheKey = `aistudio:copy:${platform}:${format}:${Buffer.from(campaignTopic).toString("base64").slice(0, 36)}:${duration || 5}:${targetSlides}:${Buffer.from(String(slideInstructions || "")).toString("base64").slice(0, 24)}`;
       const cachedCopy = await cacheGet<any>(copyCacheKey);
       if (cachedCopy) {
         console.log(`[AI Studio] Returning Redis cached copy for ${platform} ${format}`);
@@ -184,18 +195,22 @@ STRICT PRO WRITER DIRECTIVES:
    }
 
 3. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), rich Pin Description, SEO Keywords/Tagged Topics, and Alt Text.
-4. If format is Carousel / Idea Pin / Document / Multi-Image:
-   - Must generate a 3 to 5 slide high-value educational teaching infographic storyboard.
-   - Slide 1: High-impact Hook Headline + Sub-hook insight
-   - Slide 2: Core Problem Breakdown / Technical challenge
-   - Slide 3: Deep Strategic Insight / Step-by-step actionable framework
-   - Slide 4: Real-world Implementation / Case benchmark
-   - Slide 5: High-leverage Takeaway / Call to action (CTA)
-   - For each slide:
-     - "step": 1, 2, 3, etc.
-     - "title": Punchy, bold headline (e.g. "The 2026 Robotics Shift", "Why Physical AI Changes Scaling", "Key Architecture Blueprint")
-     - "body": Rich, informative, educational teaching takeaway text (2-3 sentences packed with value, metrics, or actionable advice).
-     - "visualPrompt": Clean aesthetic background description with modern negative space tailored for typography overlay, directly reflecting this specific slide's concept.
+${
+  isDeckFormat
+    ? `4. THIS IS AN INFORMATIONAL DECK FORMAT (${capability.format}) — MANDATORY:
+   - Return EXACTLY ${targetSlides} entries in "slides". Not fewer, not more.
+   - Every slide is rendered as a DESIGNED INFOGRAPHIC: its "title" and "body" are TYPESET ONTO the graphic by the design engine. Write them as finished on-slide copy, not as instructions.
+   - Storyboard arc across the ${targetSlides} slides: slide 1 = hook that earns the swipe, middle slides = the problem, the framework/steps, and the proof (metrics, benchmark, real example), final slide = the takeaway plus a call to action.
+   - For each slide return:
+     - "step": 1, 2, 3, ...
+     - "title": the on-slide headline. Punchy and specific, UNDER 60 CHARACTERS so it typesets cleanly (e.g. "The 2026 Robotics Shift", "Why Physical AI Changes Scaling").
+     - "body": the on-slide teaching text. Concrete and valuable — a metric, a step, or an actionable rule. UNDER 200 CHARACTERS.
+     - "visualPrompt": art direction for that slide's BACKGROUND and supporting graphics only (abstract shapes, subtle texture, a simple diagram or icon motif, on-topic imagery). Keep it low-contrast and calm where text will sit. NEVER describe the words themselves and NEVER ask for text in the image — the design engine handles all typography.
+   - Every slide must teach something different. No repeated headlines, no filler slides.${
+     slideInstructions ? `\n   - EXTRA CLIENT DIRECTION for this deck (follow it): ${String(slideInstructions).slice(0, 500)}` : ""
+   }`
+    : `4. This format is a single visual — return an empty "slides" array.`
+}
 
 5. HASHTAGS (STRICT):
    - Each entry MUST be a real hashtag starting with "#" (e.g. "#Robotics", "#PhysicalAI", "#TechInnovation").
@@ -217,13 +232,15 @@ Return ONLY raw JSON with this EXACT structure:
   "videoPrompt": "${isVideoFormat ? "Complete, production-ready video generation prompt describing subject, scene, action, camera movement, lighting, and 9:16 framing" : ""}",
   "imagePrompt": "${!isVideoFormat ? "Vivid image prompt" : ""}",
   "mediaGenerationPrompt": "Complete prompt for AI media engine",
-  "slides": [
-    {"step": 1, "title": "Slide 1 Hook Headline", "body": "High-impact opening insight and premise.", "visualPrompt": "Vivid clean aesthetic backdrop"},
-    {"step": 2, "title": "Slide 2 Problem Breakdown", "body": "Core technical or business challenge explained clearly.", "visualPrompt": "Vivid clean aesthetic backdrop"},
-    {"step": 3, "title": "Slide 3 Key Actionable Framework", "body": "Actionable steps, benchmarks, or educational takeaway.", "visualPrompt": "Vivid clean aesthetic backdrop"},
-    {"step": 4, "title": "Slide 4 Real-World Case", "body": "Measurable results and implementation strategy.", "visualPrompt": "Vivid clean aesthetic backdrop"},
-    {"step": 5, "title": "Slide 5 Executive Summary & CTA", "body": "Final conclusion with high-converting call to action.", "visualPrompt": "Vivid clean aesthetic backdrop"}
-  ],
+  "slides": ${
+    isDeckFormat
+      ? `[${Array.from(
+          { length: targetSlides },
+          (_, i) =>
+            `\n    {"step": ${i + 1}, "title": "On-slide headline for slide ${i + 1} (under 60 chars)", "body": "On-slide teaching text for slide ${i + 1} (under 200 chars)", "visualPrompt": "Background / supporting-graphic art direction for slide ${i + 1} — no text"}`
+        ).join(",")}\n  ]`
+      : "[]"
+  },
   "bestTime": "9:30 AM"
 }`;
 
@@ -253,6 +270,34 @@ Return ONLY raw JSON with this EXACT structure:
       if (originalHashtags !== JSON.stringify(parsed.hashtags)) {
         console.log(`[AI Studio] Hashtags normalized for ${platform} ${format}: ${originalHashtags} -> ${JSON.stringify(parsed.hashtags)}`);
       }
+
+      // SERVER-SIDE STORYBOARD NORMALIZATION — deck formats render one designed slide
+      // per storyboard entry, so the array must be exactly the requested length with a
+      // headline on every slide. A short/ragged array would otherwise ship blank slides.
+      const normalizeStoryboard = () => {
+        if (!isDeckFormat) return;
+        const raw = Array.isArray(parsed.slides) ? parsed.slides : [];
+        const usable = raw.filter(
+          (s: any) => s && ((s.title || "").toString().trim() || (s.body || "").toString().trim())
+        );
+        // Never duplicate a slide to hit the requested count — a shorter deck of distinct
+        // slides beats one that publishes the same headline twice.
+        const deckLength =
+          usable.length >= MIN_DECK_SLIDES ? Math.min(targetSlides, usable.length) : targetSlides;
+        parsed.slides = Array.from({ length: deckLength }, (_, idx) => {
+          const src = usable[idx] || {};
+          return {
+            step: idx + 1,
+            title: clampText((src.title || "").toString().trim() || `${campaignTopic} — part ${idx + 1}`, 70),
+            body: clampText((src.body || "").toString().trim(), 240),
+            visualPrompt: (src.visualPrompt || "").toString().trim(),
+          };
+        });
+        if (usable.length !== deckLength) {
+          console.log(`[AI Studio] Storyboard normalized for ${platform} ${format}: ${usable.length} -> ${deckLength} slides`);
+        }
+      };
+      normalizeStoryboard();
 
       // 4. CEO Auditor Review (Auto-Audit)
       const auditPrompt = `You are the CEO Auditor. Review this social copy and visual prompt for ${brandDNA.name} on ${capability.platform} (${capability.format}):
@@ -333,6 +378,8 @@ Return the CORRECTED content as JSON with the SAME structure as the original. No
       if (parsed.hashtags) {
         parsed.hashtags = normalizeHashtags(parsed.hashtags, { limit: capability.hashtagLimit || 10 });
       }
+      // ...and a revised storyboard can come back ragged — re-normalize it too.
+      if (ceoRevised) normalizeStoryboard();
 
       const resultPayload = {
         ...parsed,
@@ -567,7 +614,29 @@ Return ONLY the prompt string.`;
     // STEP: Real Media Generation (Visualizer Agent + Validation)
     // =========================================================================
     if (step === "generate-media") {
-      const { platform, format, mediaType, prompt, aspectRatio, duration, topic, videoTask, sourceImage, sourceVideo, style, quality, imageModel } = body;
+      const {
+        platform,
+        format,
+        mediaType,
+        prompt,
+        aspectRatio,
+        duration,
+        topic,
+        videoTask,
+        sourceImage,
+        sourceVideo,
+        style,
+        quality,
+        imageModel,
+        // Informational deck params — the headline/insight that must be TYPESET into
+        // the graphic, plus this slide's position inside the published deck.
+        slideText,
+        slideTexts,
+        slideIndex,
+        totalSlides,
+        designMode,
+        extraInstructions,
+      } = body;
       const capability = getPlatformCapability(platform, format);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
       const targetMediaType = isVideoFormat ? "video" : (mediaType || capability.mediaType || "image");
@@ -578,14 +647,50 @@ Return ONLY the prompt string.`;
         }, { status: 400 });
       }
 
-      if (!prompt || !prompt.trim()) {
+      // ── Deck slide context ────────────────────────────────────────────────────
+      // The editor renders ONE slide per request, so it sends that slide's copy plus
+      // its index; the campaign graph sends the whole deck at once.
+      const normalizeSlide = (s: any): SlideTextSpec | null => {
+        if (!s || typeof s !== "object") return null;
+        const title = (s.title || "").toString().trim();
+        const body_ = (s.body || "").toString().trim();
+        const points = Array.isArray(s.points) ? s.points.filter(Boolean).map(String) : undefined;
+        if (!title && !body_ && !(points && points.length)) return null;
+        return { step: Number(s.step) || undefined, title, body: body_, points };
+      };
+      const deckSlideTexts: SlideTextSpec[] = (
+        Array.isArray(slideTexts) ? slideTexts.map(normalizeSlide) : [normalizeSlide(slideText)]
+      ).filter(Boolean) as SlideTextSpec[];
+      const deckSlideIndex = Math.max(0, Number(slideIndex) || 0);
+      const deckTotalSlides = Math.min(
+        MAX_DECK_SLIDES,
+        Math.max(Number(totalSlides) || 0, deckSlideTexts.length, deckSlideIndex + 1, 1)
+      );
+      const isDeckSlide =
+        designMode === "infographic" ||
+        (designMode !== "photographic" &&
+          deckSlideTexts.length > 0 &&
+          isTextRichFormat(format, capability.mediaType));
+
+      // A designed slide is fully specified by its copy — the background art direction
+      // is optional, so don't reject the request just because it's missing.
+      if ((!prompt || !prompt.trim()) && !isDeckSlide) {
         return NextResponse.json({ error: "Prompt is required for media generation." }, { status: 400 });
       }
+      const effectivePrompt = (prompt || "").trim();
 
       const targetAspect = aspectRatio || capability.defaultAspectRatio || "9:16";
 
-      // Check Redis Cache for identical media prompt & settings (only if no source attachment)
-      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${style || "default"}:${Buffer.from(prompt.trim()).toString("base64").slice(0, 40)}`;
+      // Check Redis Cache for identical media prompt & settings (only if no source attachment).
+      // The slide's copy and position are part of the identity — two slides of the same
+      // deck share a background brief but must never share a rendered image.
+      const slideCacheSeed = isDeckSlide
+        ? `:slide${deckSlideIndex + 1}of${deckTotalSlides}:${Buffer.from(
+            deckSlideTexts.map((s) => `${s.title || ""}|${s.body || ""}`).join("~") +
+              (extraInstructions ? `~${extraInstructions}` : "")
+          ).toString("base64").slice(0, 48)}`
+        : "";
+      const mediaCacheKey = `aistudio:media:${platform}:${format}:${targetMediaType}:${targetAspect}:${videoTask || "auto"}:${style || "default"}:${Buffer.from(effectivePrompt || format).toString("base64").slice(0, 40)}${slideCacheSeed}`;
       if (!sourceImage && !sourceVideo) {
         const cachedMedia = await cacheGet<any>(mediaCacheKey);
         // Skip stale cache entries holding unpublishable data: payloads.
@@ -608,12 +713,12 @@ Return ONLY the prompt string.`;
       }
 
       try {
-        console.log(`[AI Studio] Generating ${targetMediaType} for ${platform} ${format} (Task: ${videoTask || "auto"}) with prompt: "${prompt.slice(0, 60)}..."`);
+        console.log(`[AI Studio] Generating ${isDeckSlide ? `designed slide ${deckSlideIndex + 1}/${deckTotalSlides}` : targetMediaType} for ${platform} ${format} (Task: ${videoTask || "auto"}) with prompt: "${effectivePrompt.slice(0, 60)}..."`);
         const mediaAssets = await generateMediaAsset({
           platform,
           contentType: format,
           mediaType: targetMediaType as any,
-          prompt,
+          prompt: effectivePrompt,
           aspectRatio: targetAspect,
           topic: topic || brandDNA.name,
           videoTask,
@@ -622,6 +727,15 @@ Return ONLY the prompt string.`;
           style,
           quality,
           imageModel,
+          // Text-rich informational slide/page context
+          slideTexts: deckSlideTexts,
+          slideIndexOffset: deckSlideIndex,
+          totalSlides: deckTotalSlides,
+          designMode: isDeckSlide ? "infographic" : designMode === "photographic" ? "photographic" : "auto",
+          extraInstructions: extraInstructions ? String(extraInstructions).slice(0, 600) : undefined,
+          brandName: brandDNA.name,
+          brandColors: brandDNA.primaryColors,
+          industry: brandDNA.industry,
         });
 
         const asset = mediaAssets[0];
@@ -639,6 +753,7 @@ Return ONLY the prompt string.`;
           thumbnailUrl: asset.url,
           prompt: asset.prompt,
           model: asset.model,
+          ...(isDeckSlide ? { slideIndex: deckSlideIndex, totalSlides: deckTotalSlides, textRich: true } : {}),
           settings: {
             aspectRatio: targetAspect,
             duration: isVideoFormat ? `${duration || 5}s` : undefined,
