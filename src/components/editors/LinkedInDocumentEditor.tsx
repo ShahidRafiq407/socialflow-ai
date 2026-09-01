@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface DocumentSlide {
@@ -65,9 +66,15 @@ interface LinkedInDocumentEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onCaptionToPrompt?: () => void;
   isGeneratingPromptFromScript?: boolean;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function LinkedInDocumentEditor({
@@ -100,6 +107,10 @@ export default function LinkedInDocumentEditor({
   isGeneratingPromptFromScript = false,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: LinkedInDocumentEditorProps) {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const [slideCustomPrompt, setSlideCustomPrompt] = useState("");
@@ -375,7 +386,7 @@ export default function LinkedInDocumentEditor({
               type="button"
               variant="outline"
               size="sm"
-              disabled={isRegeneratingSlide || !slideCustomPrompt.trim()}
+              disabled={!isRegeneratingSlide && !slideCustomPrompt.trim()}
               onClick={() => {
                 if (isRegeneratingSlide) {
                   cancelAIAction("slide", `${formatKey}:${activeSlideIndex}`);
@@ -456,6 +467,15 @@ export default function LinkedInDocumentEditor({
           placeholder="Share your executive perspective and introduce the document attached below..."
           className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
         />
+        {onAIRefine && (
+          <CaptionRefineActions
+            formatKey={formatKey}
+            caption={commentary}
+            onRefine={onAIRefine}
+            isRefining={isRefiningCaption}
+            refiningAction={refiningAction}
+          />
+        )}
 
         <div className="space-y-1">
           <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
@@ -469,14 +489,14 @@ export default function LinkedInDocumentEditor({
           />
         </div>
 
-        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
         {onAnalyzeMedia && (
           <div className="pt-1">
             <AnalyzeMediaAIButton
               formatKey={formatKey}
               onClick={onAnalyzeMedia}
               isAnalyzing={isAnalyzingMedia}
-              hasMedia={Boolean(activeSlide.imageUrl)}
+              hasMedia={hasUserMedia}
             />
           </div>
         )}
@@ -486,7 +506,6 @@ export default function LinkedInDocumentEditor({
           <Button
             type="button"
             size="sm"
-            disabled={isGeneratingAI}
             onClick={() => {
               if (isGeneratingAI) {
                 cancelAIAction("copy", formatKey);

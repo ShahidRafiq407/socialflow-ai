@@ -33,6 +33,7 @@ import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 interface PinterestPinEditorProps {
@@ -86,9 +87,15 @@ interface PinterestPinEditorProps {
   isGeneratingPromptFromScript?: boolean;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Description quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function PinterestPinEditor({
@@ -132,6 +139,10 @@ export default function PinterestPinEditor({
   generatingField = null,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: PinterestPinEditorProps) {
   const formatKey = `${capability.platform}-${capability.format}`;
   // Pinterest Image Settings for Image Pins (Google Cloud Nano Banana Pro / gemini-3-pro-image)
@@ -178,7 +189,6 @@ export default function PinterestPinEditor({
         <Button
           type="button"
           size="sm"
-          disabled={isGeneratingCopy}
           onClick={() => {
             if (isGeneratingCopy) {
               cancelAIAction("copy", formatKey);
@@ -615,13 +625,13 @@ export default function PinterestPinEditor({
 
         {/* RIGHT COLUMN: PINTEREST NATIVE FIELDS */}
         <div className="xl:col-span-7 space-y-3.5">
-          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
           {onAnalyzeMedia && (
             <AnalyzeMediaAIButton
               formatKey={formatKey}
               onClick={onAnalyzeMedia}
               isAnalyzing={isAnalyzingMedia}
-              hasMedia={Boolean(displayImageUrl)}
+              hasMedia={hasUserMedia}
             />
           )}
 
@@ -688,6 +698,15 @@ export default function PinterestPinEditor({
               placeholder="Describe your Pin"
               className="w-full text-xs leading-relaxed p-2.5 rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
             />
+            {onAIRefine && (
+              <CaptionRefineActions
+                formatKey={formatKey}
+                caption={description}
+                onRefine={onAIRefine}
+                isRefining={isRefiningCaption}
+                refiningAction={refiningAction}
+              />
+            )}
           </div>
 
           {/* DESTINATION LINK */}

@@ -670,9 +670,16 @@ Return ONLY the prompt string.`;
     // =========================================================================
     // STEP: Analyze Uploaded Media (image / video) with the vision model and
     // generate matching platform-native text (caption, hashtags, alt text...)
+    //
+    // Two-stage pipeline:
+    //   Stage 1 (vision, fast model): perceive the media — transcribe any
+    //   spoken voiceover from the video's AUDIO TRACK (the whole video is sent
+    //   inline for this), or visually describe frames/images.
+    //   Stage 2 (gemini-3.1-pro-preview): an elite human-voice ghostwriter
+    //   turns that perception into a viral, platform-native caption.
     // =========================================================================
     if (step === "analyze-media") {
-      const { platform, format, mediaType, mediaUrl, imageDataUrl, frames, topic } = body;
+      const { platform, format, mediaType, mediaUrl, frames, topic } = body;
       const capability = getPlatformCapability(platform, format);
       const isVideo = mediaType === "video";
 
@@ -700,27 +707,28 @@ Return ONLY the prompt string.`;
         }
       };
 
+      // "audio" = the model can actually hear the video (full file inline)
+      let audioAvailable = false;
       if (isVideo) {
-        // 1. Prefer client-extracted frames (works for blob:/data:/CORS-blocked videos)
-        if (Array.isArray(frames) && frames.length > 0) {
+        // 1. BEST: fetch the whole video — Gemini processes video WITH audio
+        const fetchedVideo =
+          (typeof mediaUrl === "string" && mediaUrl.startsWith("http")
+            ? await fetchAsInline(mediaUrl, MAX_INLINE_VIDEO_BYTES)
+            : null) || dataUrlMatch(mediaUrl);
+        if (fetchedVideo) {
+          parts.push({ inlineData: fetchedVideo });
+          audioAvailable = true;
+        }
+        // 2. FALLBACK: client-extracted frames (visual only — no audio track)
+        if (parts.length === 0 && Array.isArray(frames) && frames.length > 0) {
           for (const frame of frames.slice(0, 5)) {
             const inline = dataUrlMatch(frame);
             if (inline) parts.push({ inlineData: inline });
           }
         }
-        // 2. Fall back to fetching the video itself (capped at 15MB inline)
-        if (parts.length === 0 && typeof mediaUrl === "string" && mediaUrl.startsWith("http")) {
-          const inline = await fetchAsInline(mediaUrl, MAX_INLINE_VIDEO_BYTES);
-          if (inline) parts.push({ inlineData: inline });
-        }
-        // 3. data: video URL passed directly
-        if (parts.length === 0) {
-          const inline = dataUrlMatch(mediaUrl);
-          if (inline) parts.push({ inlineData: inline });
-        }
       } else {
         // Image: data URL direct, or fetch from http(s) URL (capped at 8MB)
-        const inline = dataUrlMatch(imageDataUrl) || dataUrlMatch(mediaUrl) ||
+        const inline = dataUrlMatch(mediaUrl) ||
           (typeof mediaUrl === "string" && mediaUrl.startsWith("http") ? await fetchAsInline(mediaUrl, MAX_INLINE_IMAGE_BYTES) : null);
         if (inline) parts.push({ inlineData: inline });
       }
@@ -736,33 +744,94 @@ Return ONLY the prompt string.`;
         );
       }
 
-      const mediaDescription = isVideo
-        ? Array.isArray(frames) && frames.length > 0
-          ? "the sequence of video frames provided (key moments of the video, in order)"
-          : "the attached video"
-        : "the attached image";
+      // ---- STAGE 1: Perception (fast vision model) ---------------------------
+      const stage1Prompt = `You are a forensic-grade multimedia analyst with perfect visual and auditory comprehension.
+Analyze the attached ${isVideo ? (audioAvailable ? "video (WITH its original audio track)" : "video key frames (in chronological order — no audio available)") : "image"}.
 
-      const analysisPrompt = `You are a world-class social media analyst and copywriter with expert visual comprehension.
-Carefully analyze ${mediaDescription} — identify the exact subject, products, setting, colors, mood, action, people, text visible in the visual, and the overall story it tells.
+${isVideo && audioAvailable
+  ? `AUDIO INSTRUCTIONS (critical):
+- First determine whether the video contains meaningful human speech or voiceover (music-only or silence counts as NO speech).
+- If speech exists, transcribe it as close to verbatim as possible in "transcript" (clean up filler words, keep the speaker's actual phrasing and strongest lines).
+- If no speech, set "hasSpeech": false and "transcript": "".`
+  : ""}
+
+VISUAL INSTRUCTIONS: identify the exact subjects, products, setting, colors, mood, action, people, any visible text/logos, and the story the media tells. ZERO hallucination — only what is actually visible/audible.
+
+Return ONLY raw JSON:
+{
+  "hasSpeech": ${isVideo ? "true/false" : "false"},
+  "transcript": "spoken words, empty string if none",
+  "visualDescription": "detailed factual description of the content: subjects, setting, colors, mood, action, visible text, overall story",
+  "keyElements": ["element 1", "element 2", "element 3"]
+}`;
+
+      let analysis: { hasSpeech?: boolean; transcript?: string; visualDescription?: string; keyElements?: string[] };
+      try {
+        parts.push({ text: stage1Prompt });
+        const stage1 = await vertexProvider.generateVisionText(parts, { modelName: MODELS.TREND_RESEARCHER, temperature: 0.2 });
+
+        let text1 = (stage1 || "").replace(/```json/g, "").replace(/```/g, "").trim();
+        const s1 = text1.indexOf("{");
+        const e1 = text1.lastIndexOf("}");
+        if (s1 !== -1 && e1 !== -1) text1 = text1.slice(s1, e1 + 1);
+        analysis = JSON.parse(text1);
+      } catch (err) {
+        const message = (err as Error)?.message || "Media perception failed.";
+        console.error("[AI Studio] analyze-media stage 1 failed:", message);
+        return NextResponse.json({ error: `Could not analyze the media: ${message}` }, { status: 500 });
+      }
+
+      const transcript = String(analysis.transcript || "").slice(0, 2000);
+      const hasSpeech = Boolean(analysis.hasSpeech) && transcript.trim().length > 0;
+      const visualDescription = String(analysis.visualDescription || "The media could not be visually described.").slice(0, 1500);
+      const keyElements = (Array.isArray(analysis.keyElements) ? analysis.keyElements : [])
+        .filter((k) => typeof k === "string")
+        .slice(0, 8)
+        .join(", ");
+
+      // ---- STAGE 2: Writing (gemini-3.1-pro-preview — the human-voice model) --
+      const hashtagCount = Math.min(capability.hashtagLimit || 8, 8);
+      const stage2Prompt = `You are an elite social media ghostwriter whose captions routinely go viral because they read like a real human wrote them — never like AI output.
+
+SOURCE ANALYSIS (ground truth from the actual media — trust this over everything):
+${hasSpeech
+  ? `SPOKEN TRANSCRIPT (the media's own voice — the caption MUST build on what is actually said):
+"""
+${transcript}
+"""
+${visualDescription ? `VISUAL CONTEXT: ${visualDescription}` : ""}`
+  : isVideo
+  ? `VISUAL CONTENT (no speech in the video — base everything on what is shown):
+"""
+${visualDescription}
+"""`
+  : `IMAGE CONTENT:
+"""
+${visualDescription}
+"""`}
+${keyElements ? `KEY ELEMENTS: ${keyElements}` : ""}
 
 BRAND DNA:
-- Company: ${brandDNA.name}
-- Industry: ${brandDNA.industry}
+- Company: ${brandDNA.name} (${brandDNA.industry})
 - Tone: ${brandDNA.tone}
 - Target Audience: ${brandDNA.targetAudience}
 ${topic ? `CAMPAIGN CONTEXT: ${String(topic).slice(0, 300)}` : ""}
 
-PLATFORM: ${capability.platform} (${capability.format}) — media type: ${capability.mediaType}
+TARGET: ${capability.platform} ${capability.format} (${capability.mediaType})
 
-Generate content that MATCHES what is actually shown in the media (zero hallucination — only describe what is visible):
-1. CAPTION: Platform-native copy for ${capability.platform} ${capability.format} that directly references the visual content. Start with a scroll-stopping hook about the subject in the media. STRICT limit: ${capability.captionLimit || 2200} characters. End with one clear CTA.
-${capability.supportsTitle ? `2. TITLE: Concise clickable title under ${capability.titleLimit || 100} characters.` : ""}
-${capability.supportsDescription ? `3. DESCRIPTION: SEO-rich description under ${capability.descriptionLimit || 500} characters.` : ""}
-4. HASHTAGS: 3 to ${Math.min(capability.hashtagLimit || 8, 8)} real hashtags directly relevant to the VISIBLE content. Every entry starts with "#", PascalCase, no spaces, no sentences.
-${capability.supportsAltText ? `5. ALT TEXT: Literal accessibility description of the visual scene (subjects, setting, colors, action) under 500 characters.` : ""}
-6. MEDIA PROMPT: A vivid visual generation prompt that would recreate a similar scene (useful for regenerating this style).
+CAPTION RULES (follow ALL):
+1. First line = scroll-stopping hook born from the ACTUAL content: ${hasSpeech ? "quote or riff on the strongest spoken line" : "the single most surprising visible detail or takeaway"}.
+2. Write like a real person talking: contractions, short punchy sentences, natural line breaks. Max 1-2 emojis${capability.platform === "linkedin" ? " and ZERO emojis on LinkedIn" : ""}.
+3. Absolutely NO AI-clichés: "In today's world", "unlock", "delve", "game-changer", "elevate", "leverage", hashtag-stuffed sentences.
+4. Deliver the core value in 2-4 tight lines, then ONE clear CTA.
+5. STRICT limit: ${capability.captionLimit || 2200} characters.
+${capability.supportsTitle ? `6. TITLE: clickable curiosity title under ${capability.titleLimit || 100} characters.` : ""}
+${capability.supportsDescription ? `7. DESCRIPTION: SEO-rich, keyword-first description under ${capability.descriptionLimit || 500} characters.` : ""}
+${hashtagCount > 0 ? `8. HASHTAGS: 3 to ${hashtagCount} real hashtags matching the visible content. Each starts with "#", PascalCase, no spaces.` : ""}
+${capability.supportsAltText ? `9. ALT TEXT: literal accessibility description of the scene (subjects, setting, colors, action) under 500 characters.` : ""}
+10. IMAGE PROMPT: a vivid prompt that would recreate a similar scene.
 
-Return ONLY raw JSON with this exact structure:
+Return ONLY raw JSON:
 {
   "caption": "...",
   "title": "...",
@@ -773,21 +842,24 @@ Return ONLY raw JSON with this exact structure:
 }`;
 
       try {
-        parts.push({ text: analysisPrompt });
-        const result = await vertexProvider.generateVisionText(parts, { modelName: MODELS.CONTENT_CREATOR });
+        const stage2 = await llm.invoke([new HumanMessage(stage2Prompt)], { modelName: MODELS.CONTENT_CREATOR, temperature: 0.85 });
 
-        let text = (result || "").replace(/```json/g, "").replace(/```/g, "").trim();
-        const start = text.indexOf("{");
-        const end = text.lastIndexOf("}");
-        if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
+        let text2 = (stage2.content?.toString() || "").replace(/```json/g, "").replace(/```/g, "").trim();
+        const s2 = text2.indexOf("{");
+        const e2 = text2.lastIndexOf("}");
+        if (s2 !== -1 && e2 !== -1) text2 = text2.slice(s2, e2 + 1);
 
         let parsed: Record<string, unknown>;
         try {
-          parsed = JSON.parse(text);
+          parsed = JSON.parse(text2);
         } catch {
-          console.error("[AI Studio] analyze-media JSON parse error:", text.slice(0, 500));
-          return NextResponse.json({ error: "Failed to parse media analysis." }, { status: 500 });
+          console.error("[AI Studio] analyze-media stage 2 JSON parse error:", text2.slice(0, 500));
+          return NextResponse.json({ error: "Failed to parse the generated caption." }, { status: 500 });
         }
+
+        // Enrich the response with what was perceived (client can surface it)
+        (parsed as Record<string, unknown>).analysisSource = hasSpeech ? "transcript" : "visual";
+        if (hasSpeech) (parsed as Record<string, unknown>).transcript = transcript.slice(0, 500);
 
         // Sanitize + clamp exactly like generate-platform-copy
         parsed.hashtags = normalizeHashtags(parsed.hashtags, { limit: capability.hashtagLimit || 10 });
@@ -803,8 +875,8 @@ Return ONLY raw JSON with this exact structure:
 
         return NextResponse.json({ success: true, data: parsed });
       } catch (err) {
-        const message = (err as Error)?.message || "Media analysis failed on the AI provider.";
-        console.error("[AI Studio] analyze-media failed:", message);
+        const message = (err as Error)?.message || "Caption writing failed on the AI provider.";
+        console.error("[AI Studio] analyze-media stage 2 failed:", message);
         return NextResponse.json({ error: message }, { status: 500 });
       }
     }
@@ -937,36 +1009,51 @@ Return ONLY the enhanced prompt string without extra commentary or quotes.`;
     // STEP: Refine Caption
     // =========================================================================
     if (step === "refine-caption") {
-      const { caption, action, platform, brandTone, topic } = body;
+      const { caption, action, platform, format, brandTone, topic } = body;
 
       if (!caption || !action) {
         return NextResponse.json({ error: "Caption and action are required." }, { status: 400 });
       }
 
+      const capability = getPlatformCapability(platform || "instagram", format || "Feed");
+      const captionLimit = capability.captionLimit || 2200;
+
       let refinementInstruction = "";
       if (action === "regenerate") {
-        refinementInstruction = "Write a COMPLETELY NEW caption about the same topic. Different angle, different hook, different structure. Must be viral-quality.";
+        refinementInstruction = "Write a COMPLETELY NEW caption about the same topic. Different angle, different hook, different structure. Must be viral-quality and feel hand-written by a human.";
       } else if (action === "boost-hook") {
         refinementInstruction = "Rewrite ONLY the opening 1-2 lines to be an irresistible scroll-stopping hook. Use proven viral patterns: controversial question, shocking statistic, bold claim, or pattern interrupt. Keep the rest intact.";
       } else if (action === "executive-tone") {
         refinementInstruction = "Rewrite this caption in a C-suite executive voice. Remove all emojis and casual slang. Use data-driven language and strategic thought-leadership positioning.";
       } else if (action === "add-hashtags") {
-        refinementInstruction = "Add 5-10 highly targeted, niche-specific hashtags that will maximize reach. Return full caption with hashtags appended.";
+        refinementInstruction = `Add 5-10 highly targeted, niche-specific hashtags that will maximize reach. Return the full caption with hashtags appended.`;
       } else {
         refinementInstruction = "Refine the caption to make it more engaging.";
       }
 
-      const prompt = `You are a top-tier social media copywriter for ${brandDNA.name}.
+      const prompt = `You are an elite social media ghostwriter for ${brandDNA.name} whose captions go viral because they read like a REAL human wrote them — never like AI output.
 Current Caption:
 """
 ${caption}
 """
-Platform: ${platform || "General"}
+Platform: ${platform || "General"}${format ? ` (${format})` : ""}
+Brand Tone: ${brandTone || brandDNA.tone}${topic ? `\nTopic Context: ${String(topic).slice(0, 200)}` : ""}
 Action: ${refinementInstruction}
+
+RULES:
+- Natural human voice: contractions, short punchy sentences, line breaks where a person would pause.
+- NO AI-clichés ("In today's world", "unlock", "delve", "game-changer", "elevate").
+- Keep the meaning intact (except for a full rewrite).
+- STRICT limit: ${captionLimit} characters.
+
 Return ONLY the refined caption text.`;
 
-      const res = await llm.invoke([new HumanMessage(prompt)], { modelName: MODELS.CONTENT_CREATOR });
-      return NextResponse.json({ success: true, caption: (res.content?.toString() || "").trim() });
+      const res = await llm.invoke([new HumanMessage(prompt)], { modelName: MODELS.CONTENT_CREATOR, temperature: 0.85 });
+      let refined = (res.content?.toString() || "").trim();
+      if (refined.length > captionLimit) {
+        refined = clampText(refined, captionLimit);
+      }
+      return NextResponse.json({ success: true, caption: refined });
     }
 
     return NextResponse.json({ error: "Invalid step." }, { status: 400 });

@@ -81,7 +81,7 @@ interface AIStudioSessionState {
 
   // Media dictionaries (keyed by `${platform}-${format}-${slideIdx}`)
   renderedImageUrlsDict: Record<string, string>;
-  customMediaDict: Record<string, { url: string; type: "image" | "video" }>;
+  customMediaDict: Record<string, { url: string; type: "image" | "video"; name?: string; source?: "upload" | "stock" | "ai" }>;
   clearedMediaKeys: Record<string, boolean>;
   videoAspectDict: Record<string, string>;
 

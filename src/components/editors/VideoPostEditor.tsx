@@ -26,6 +26,7 @@ import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import CharacterCounter from "@/components/CharacterCounter";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { Square } from "lucide-react";
 
@@ -78,9 +79,15 @@ interface VideoPostEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function VideoPostEditor({
@@ -126,6 +133,10 @@ export default function VideoPostEditor({
   generatingField = null,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: VideoPostEditorProps) {
   const hasCaption = Boolean(caption && caption.trim().length > 0);
   const formatKey = `${capability.platform}-${capability.format}`;
@@ -611,6 +622,15 @@ export default function VideoPostEditor({
               placeholder="Start with a 1-second visual hook, deliver core value, and close with CTA..."
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
             />
+            {onAIRefine && (
+              <CaptionRefineActions
+                formatKey={formatKey}
+                caption={caption}
+                onRefine={onAIRefine}
+                isRefining={isRefiningCaption}
+                refiningAction={refiningAction}
+              />
+            )}
           </div>
 
           {/* HASHTAGS & FIRST COMMENT */}
@@ -667,14 +687,14 @@ export default function VideoPostEditor({
             )}
           </div>
 
-          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated video and write matching text */}
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock video and write matching text */}
           {onAnalyzeMedia && (
             <div className="pt-1">
               <AnalyzeMediaAIButton
                 formatKey={formatKey}
                 onClick={onAnalyzeMedia}
                 isAnalyzing={isAnalyzingMedia}
-                hasMedia={Boolean(displayVideoUrl)}
+                hasMedia={hasUserMedia}
               />
             </div>
           )}
@@ -684,7 +704,6 @@ export default function VideoPostEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isGeneratingCopy}
               onClick={() => {
                 if (isGeneratingCopy) {
                   cancelAIAction("copy", formatKey);

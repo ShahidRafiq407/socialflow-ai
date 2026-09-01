@@ -77,9 +77,11 @@ interface PinterestIdeaPinEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
 }
 
 export default function PinterestIdeaPinEditor({
@@ -119,6 +121,7 @@ export default function PinterestIdeaPinEditor({
   generatingField = null,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
   const [pageAspectRatio, setPageAspectRatio] = useState<string>("auto");
@@ -670,14 +673,14 @@ export default function PinterestIdeaPinEditor({
             )}
           </div>
 
-          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
           {onAnalyzeMedia && (
             <div className="pt-1">
               <AnalyzeMediaAIButton
                 formatKey={formatKey}
                 onClick={onAnalyzeMedia}
                 isAnalyzing={isAnalyzingMedia}
-                hasMedia={Boolean(activePage.mediaUrl)}
+                hasMedia={hasUserMedia}
               />
             </div>
           )}

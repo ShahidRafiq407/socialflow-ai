@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Loader2, ScanSearch, Square } from "lucide-react";
+import { Loader2, ScanSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
@@ -10,16 +10,18 @@ interface AnalyzeMediaAIButtonProps {
   formatKey: string;
   onClick: () => void;
   isAnalyzing: boolean;
+  /** TRUE only when the current slot holds confirmed user media (local upload / stock) */
   hasMedia: boolean;
-  /** Hide text generation when the format publishes no text fields at all (e.g. Instagram Story) */
+  /** Disable text generation when the format publishes no text fields at all (e.g. Instagram Story) */
   disabled?: boolean;
   disabledReason?: string;
 }
 
 /**
- * "Analyze Uploaded Media with AI" — sends the attached image/video to the
- * vision model and fills the editor's caption / hashtags / alt text fields
- * with text that matches what is actually shown in the media.
+ * "Analyze Uploaded Media with AI" — hidden until the slot holds confirmed
+ * LOCAL/STOCK media. Sends the image/video to the vision model (videos are
+ * sent with audio for transcription) and fills the editor's caption /
+ * hashtags / alt text fields with text matching the actual media content.
  * While analyzing, the button turns into a Stop control.
  */
 export default function AnalyzeMediaAIButton({
@@ -30,14 +32,15 @@ export default function AnalyzeMediaAIButton({
   disabled = false,
   disabledReason,
 }: AnalyzeMediaAIButtonProps) {
-  const effectiveDisabled = disabled || (!hasMedia && !isAnalyzing);
+  // Hidden unless confirmed user-provided media exists (or analysis is running)
+  if (!hasMedia && !isAnalyzing) return null;
+
+  const effectiveDisabled = disabled;
   const title = isAnalyzing
     ? "Stop media analysis"
     : disabled
     ? disabledReason || "Not available for this format"
-    : hasMedia
-    ? "Let AI analyze the attached image/video and generate a matching caption, hashtags and more"
-    : "Upload or generate an image/video first, then AI can analyze it and write matching text";
+    : "AI analyzes the uploaded image/video (including its voice) and writes a matching caption, hashtags and more";
 
   return (
     <Button
@@ -68,14 +71,9 @@ export default function AnalyzeMediaAIButton({
       ) : (
         <>
           <ScanSearch className="h-3.5 w-3.5" />
-          <span>Analyze Uploaded Media with AI (Caption & More)</span>
+          <span>Analyze Uploaded Media with AI (Caption &amp; More)</span>
         </>
       )}
     </Button>
   );
-}
-
-/** Small stop square icon re-exported for consistency in mini buttons. */
-export function StopIcon() {
-  return <Square className="h-3 w-3 fill-current" />;
 }

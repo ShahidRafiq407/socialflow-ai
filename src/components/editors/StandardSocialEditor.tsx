@@ -23,6 +23,7 @@ import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndic
 import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 interface StandardSocialEditorProps {
@@ -76,9 +77,15 @@ interface StandardSocialEditorProps {
   onRestoreOriginalPrompt?: () => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function StandardSocialEditor({
@@ -123,6 +130,10 @@ export default function StandardSocialEditor({
   generatingField = null,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: StandardSocialEditorProps) {
   const isVertical = capability.defaultAspectRatio === "9:16";
   const isSquare = capability.defaultAspectRatio === "1:1";
@@ -796,6 +807,15 @@ export default function StandardSocialEditor({
                 placeholder="Type or paste your post caption here..."
                 className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
               />
+              {onAIRefine && (
+                <CaptionRefineActions
+                  formatKey={formatKey}
+                  caption={caption}
+                  onRefine={onAIRefine}
+                  isRefining={isRefiningCaption}
+                  refiningAction={refiningAction}
+                />
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-2.5">
@@ -883,14 +903,14 @@ export default function StandardSocialEditor({
             </div>
           )}
 
-          {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
           {onAnalyzeMedia && (
             <div className="pt-1">
               <AnalyzeMediaAIButton
                 formatKey={formatKey}
                 onClick={onAnalyzeMedia}
                 isAnalyzing={isAnalyzingMedia}
-                hasMedia={Boolean(displayImageUrl)}
+                hasMedia={hasUserMedia}
                 disabled={!supportsAnyTextField}
                 disabledReason={
                   !supportsAnyTextField
@@ -906,7 +926,7 @@ export default function StandardSocialEditor({
             <Button
               type="button"
               size="sm"
-              disabled={isGeneratingCopy || !supportsAnyTextField}
+              disabled={!isGeneratingCopy && !supportsAnyTextField}
               onClick={() => {
                 if (isGeneratingCopy) {
                   cancelAIAction("copy", formatKey);

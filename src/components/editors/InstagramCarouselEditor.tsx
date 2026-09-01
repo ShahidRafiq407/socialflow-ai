@@ -28,6 +28,7 @@ import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface CarouselSlideItem {
@@ -84,9 +85,15 @@ interface InstagramCarouselEditorProps {
   isEnhancingPrompt?: boolean;
   originalPrompt?: string | null;
   onRestoreOriginalPrompt?: () => void;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function InstagramCarouselEditor({
@@ -123,6 +130,10 @@ export default function InstagramCarouselEditor({
   onRestoreOriginalPrompt,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: InstagramCarouselEditorProps) {
   const [slideStyle, setSlideStyle] = useState("photorealistic");
   const [slideQuality, setSlideQuality] = useState("studio_4k");
@@ -611,7 +622,6 @@ export default function InstagramCarouselEditor({
             type="button"
             variant="outline"
             size="sm"
-            disabled={isRegeneratingSlide}
             onClick={() => {
               if (isRegeneratingSlide) {
                 cancelAIAction("slide", `${formatKey}:${currentIdx}`);
@@ -648,6 +658,15 @@ export default function InstagramCarouselEditor({
             placeholder="Write your comprehensive carousel caption, breakdown, and call to action..."
             className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
           />
+          {onAIRefine && (
+            <CaptionRefineActions
+              formatKey={formatKey}
+              caption={caption}
+              onRefine={onAIRefine}
+              isRefining={isRefiningCaption}
+              refiningAction={refiningAction}
+            />
+          )}
         </div>
 
         {/* HASHTAGS & LOCATION */}
@@ -690,14 +709,14 @@ export default function InstagramCarouselEditor({
           </div>
         </div>
 
-        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
         {onAnalyzeMedia && (
           <div className="pt-1">
             <AnalyzeMediaAIButton
               formatKey={formatKey}
               onClick={onAnalyzeMedia}
               isAnalyzing={isAnalyzingMedia}
-              hasMedia={Boolean(activeSlide.imageUrl)}
+              hasMedia={hasUserMedia}
             />
           </div>
         )}
@@ -707,7 +726,6 @@ export default function InstagramCarouselEditor({
           <Button
             type="button"
             size="sm"
-            disabled={isGeneratingAI}
             onClick={() => {
               if (isGeneratingAI) {
                 cancelAIAction("copy", formatKey);

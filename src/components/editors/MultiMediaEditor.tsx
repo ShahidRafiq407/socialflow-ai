@@ -31,6 +31,7 @@ import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import XGuidelinesBanner from "./XGuidelinesBanner";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export interface MultiMediaItem {
@@ -80,9 +81,15 @@ interface MultiMediaEditorProps {
   onReorderCards?: (fromIdx: number, toIdx: number) => void;
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media
+  // AI analysis of the attached (uploaded/stock) media
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function MultiMediaEditor({
@@ -119,6 +126,10 @@ export default function MultiMediaEditor({
   generatingField = null,
   onAnalyzeMedia,
   isAnalyzingMedia = false,
+  hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: MultiMediaEditorProps) {
   const [tagInput, setTagInput] = useState("");
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
@@ -570,6 +581,15 @@ export default function MultiMediaEditor({
             placeholder="Write your post caption..."
             className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
           />
+          {onAIRefine && (
+            <CaptionRefineActions
+              formatKey={formatKey}
+              caption={caption}
+              onRefine={onAIRefine}
+              isRefining={isRefiningCaption}
+              refiningAction={refiningAction}
+            />
+          )}
         </div>
 
         <div className="space-y-1">
@@ -599,14 +619,14 @@ export default function MultiMediaEditor({
           />
         </div>
 
-        {/* AI MEDIA ANALYSIS — analyze the uploaded/generated media and write matching text */}
+        {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
         {onAnalyzeMedia && (
           <div className="pt-1">
             <AnalyzeMediaAIButton
               formatKey={formatKey}
               onClick={onAnalyzeMedia}
               isAnalyzing={isAnalyzingMedia}
-              hasMedia={Boolean(activeMedia.url)}
+              hasMedia={hasUserMedia}
             />
           </div>
         )}
@@ -616,7 +636,6 @@ export default function MultiMediaEditor({
           <Button
             type="button"
             size="sm"
-            disabled={isGeneratingCopy}
             onClick={() => {
               if (isGeneratingCopy) {
                 cancelAIAction("copy", formatKey);

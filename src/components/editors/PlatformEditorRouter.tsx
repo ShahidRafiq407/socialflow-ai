@@ -106,9 +106,15 @@ export interface PlatformEditorRouterProps {
   // Field-level AI generation (generates ONLY the requested field)
   onGenerateField?: (field: "title" | "description" | "hashtags" | "altText") => void;
   generatingField?: string | null;
-  // AI analysis of the attached (uploaded) media → generates matching text
+  // AI analysis of the attached (uploaded/stock) media → generates matching text
   onAnalyzeMedia?: () => void;
   isAnalyzingMedia?: boolean;
+  // TRUE only when the current slot holds user-provided media (upload/stock)
+  hasUserMedia?: boolean;
+  // Caption quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 
   // Pinterest-specific: real boards + AI-modified disclosure (syncs via ai_disclosures)
   pinterestBoards?: { id: string; name: string }[];
@@ -163,6 +169,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
       />
     );
   }
@@ -227,6 +237,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         renderError={props.renderError}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
       />
     );
   }
@@ -270,6 +281,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
         generationProgress={props.generationProgress}
         generationStage={props.generationStage}
         renderError={props.renderError}
@@ -326,6 +341,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isExportingPDF={props.isExportingPDF}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
       />
     );
   }
@@ -375,6 +394,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         generatingField={props.generatingField}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
       />
     );
   }
@@ -429,6 +452,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         generationStage={props.generationStage}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
+        hasUserMedia={props.hasUserMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
       />
     );
   }
@@ -478,6 +505,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       generatingField={props.generatingField}
       onAnalyzeMedia={props.onAnalyzeMedia}
       isAnalyzingMedia={props.isAnalyzingMedia}
+      hasUserMedia={props.hasUserMedia}
+      onAIRefine={props.onAIRefine}
+      isRefiningCaption={props.isRefiningCaption}
+      refiningAction={props.refiningAction}
     />
   );
 }

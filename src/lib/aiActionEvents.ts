@@ -11,8 +11,9 @@
  *  - "script"  → auto-prompt-from-caption
  *  - "analyze" → uploaded media analysis
  *  - "slide"   → single slide/page regeneration
+ *  - "refine"  → caption quick actions (rewrite / boost hook / tone / hashtags)
  */
-export type AIActionScope = "copy" | "field" | "enhance" | "script" | "analyze" | "slide";
+export type AIActionScope = "copy" | "field" | "enhance" | "script" | "analyze" | "slide" | "refine";
 
 export function cancelAIAction(scope: AIActionScope, key: string) {
   if (typeof window === "undefined") return;

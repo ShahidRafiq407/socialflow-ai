@@ -1748,14 +1748,17 @@ export default function AIStudioPage() {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
-    const mediaUrl = displayImageUrl;
-    if (!mediaUrl) {
-      setPublishResult({ success: false, message: "Upload or generate an image/video first — AI needs media to analyze." });
+    // Only user-provided media (local upload / stock) is analyzable — the
+    // point is AI writing text for media it has never described before.
+    const media = customMedia;
+    if (!media?.url || !isUserUploadedMedia) {
+      setPublishResult({ success: false, message: "Upload an image/video (or pick stock media) first — then AI can analyze it and write matching text." });
       setTimeout(() => setPublishResult(null), 4000);
       return;
     }
 
-    const isVideo = customMedia?.type === "video" || isVideoUrl(mediaUrl);
+    const isVideo = media.type === "video";
+    const mediaUrl = media.url;
 
     // Show loading state while frames are extracted too
     setAnalyzingMediaKeys(prev => ({ ...prev, [targetKey]: true }));
@@ -1776,8 +1779,7 @@ export default function AIStudioPage() {
           platform: targetPlatform,
           format: targetFormat,
           mediaType: isVideo ? "video" : "image",
-          mediaUrl: mediaUrl.startsWith("data:") || mediaUrl.startsWith("blob:") ? undefined : mediaUrl,
-          imageDataUrl: !isVideo && mediaUrl.startsWith("data:") ? mediaUrl : undefined,
+          mediaUrl: mediaUrl,
           frames: isVideo ? frames : undefined,
           topic: campaignTopic,
         }),
@@ -1813,6 +1815,17 @@ export default function AIStudioPage() {
         if (item.title && capability.supportsTitle) setTitleDict(prev => ({ ...prev, [targetKey]: item.title }));
         if (item.description && capability.supportsDescription) setDescriptionDict(prev => ({ ...prev, [targetKey]: item.description }));
         if (item.altText && capability.supportsAltText) setAltTextDict(prev => ({ ...prev, [targetKey]: item.altText }));
+        // Tell the user WHAT the caption was built from (voice vs visuals)
+        if (item.analysisSource) {
+          setPublishResult({
+            success: true,
+            message:
+              item.analysisSource === "transcript"
+                ? "Caption generated from the video's voiceover transcript. 🎙️"
+                : "Caption generated from visual analysis. 👁️",
+          });
+          setTimeout(() => setPublishResult(null), 4000);
+        }
       } else if (data.error) {
         setPublishResult({ success: false, message: `Media analysis failed: ${data.error}` });
         setTimeout(() => setPublishResult(null), 5000);
@@ -1913,18 +1926,29 @@ export default function AIStudioPage() {
   const [refiningAction, setRefiningAction] = useState<string | null>(null);
 
   const handleAIRefine = async (action: string) => {
-    if (!currentCaption) return;
+    const targetKey = `${activePlatformTab}-${currentFormatName}`;
+    // Pinterest-style formats keep their main text in the description field —
+    // refine whatever text the editor is actually showing for this format.
+    const capability = getPlatformCapability(activePlatformTab, currentFormatName);
+    const usesDescriptionField = capability.supportsDescription && !capability.supportsCaption;
+    const sourceText = (usesDescriptionField ? (descriptionDict[targetKey] ?? currentCaption) : currentCaption) || "";
+    if (!sourceText.trim()) return;
+
     setIsRefining(true);
     setRefiningAction(action);
+    const controller = new AbortController();
+    aiAbortControllersRef.current[`refine:${targetKey}`] = controller;
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           step: "refine-caption",
-          caption: currentCaption,
+          caption: sourceText,
           action,
           platform: activePlatformTab,
+          format: currentFormatName,
           topic: campaignTopic,
           brandTone,
         }),
@@ -1935,11 +1959,18 @@ export default function AIStudioPage() {
         return;
       }
       if (data.success && data.caption) {
-        updateCaption(data.caption);
+        if (usesDescriptionField) {
+          setDescriptionDict(prev => ({ ...prev, [targetKey]: data.caption }));
+        } else {
+          updateCaption(data.caption);
+        }
       }
     } catch (error) {
-      console.error("Refine error:", error);
+      if ((error as Error)?.name !== "AbortError") {
+        console.error("Refine error:", error);
+      }
     } finally {
+      delete aiAbortControllersRef.current[`refine:${targetKey}`];
       setIsRefining(false);
       setRefiningAction(null);
     }
@@ -1972,6 +2003,19 @@ export default function AIStudioPage() {
   const currentMediaKey = `${activePlatformTab}-${currentFormatName}-${activeSlideIdx}`;
   const customMedia = customMediaDict[currentMediaKey] || null;
 
+  // TRUE only when the current slot holds media the USER brought in (local
+  // upload or stock import). AI-generated media is excluded — the analyze
+  // feature exists to write text for media AI has never seen. Legacy/persisted
+  // entries without a source are treated as user media unless they carry the
+  // AI-generated "platform-Format.ext" name pattern.
+  const isUserUploadedMedia = (() => {
+    const m = customMedia;
+    if (!m?.url) return false;
+    if (m.source === "ai") return false;
+    if (m.source === "upload" || m.source === "stock") return true;
+    return !m.name;
+  })();
+
   // clearedMediaKeys is now in the persisted session store
 
   // Restore custom media from IndexedDB on refresh
@@ -1983,12 +2027,17 @@ export default function AIStudioPage() {
     });
   }, []);
 
-  const handleApplyCustomMedia = (url: string, type: "image" | "video", slideIdx = activeSlideIdx) => {
+  const handleApplyCustomMedia = (
+    url: string,
+    type: "image" | "video",
+    slideIdx = activeSlideIdx,
+    source: "upload" | "stock" = "upload"
+  ) => {
     const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
     const targetKey = `${activePlatformTab}-${currentFormatName}-${slideIdx}`;
-    
-    const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name?: string }> = {
-      [targetKey]: { url, type },
+
+    const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name?: string; source?: "upload" | "stock" | "ai" }> = {
+      [targetKey]: { url, type, source },
     };
     const syncClearUpdates: Record<string, boolean> = {
       [targetKey]: false,
@@ -2001,7 +2050,7 @@ export default function AIStudioPage() {
       availableFormats.forEach((otherFmt) => {
         if (getFormatFamily(pId, otherFmt) === currentFamily) {
           const otherKey = `${pId}-${otherFmt}-${slideIdx}`;
-          syncCustomUpdates[otherKey] = { url, type };
+          syncCustomUpdates[otherKey] = { url, type, source };
           syncClearUpdates[otherKey] = false;
         }
       });
@@ -2487,11 +2536,12 @@ export default function AIStudioPage() {
           // ── CROSS-PLATFORM SAME-FORMAT MEDIA SYNC (SAVES CREDITS) ──
           const currentFamily = getFormatFamily(targetPlatform, targetFormat);
           const syncMediaUpdates: Record<string, string> = { [targetMediaKey]: data.asset.url };
-          const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string }> = {
+          const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string; source: "ai" }> = {
             [targetMediaKey]: {
               url: data.asset.url,
               type: "video",
               name: `${targetPlatform}-${targetFormat}.mp4`,
+              source: "ai",
             },
           };
 
@@ -2499,7 +2549,7 @@ export default function AIStudioPage() {
             const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
               ? selectedContentTypes[pId]
               : (getPlatformDef(pId)?.contentTypes || []);
-            
+
             availableFormats.forEach((otherFmt) => {
               if (getFormatFamily(pId, otherFmt) === currentFamily) {
                 const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
@@ -2508,6 +2558,7 @@ export default function AIStudioPage() {
                   url: data.asset.url,
                   type: "video",
                   name: `${pId}-${otherFmt}.mp4`,
+                  source: "ai",
                 };
                 const otherFormatKey = `${pId}-${otherFmt}`;
                 setVideoStatusDict(prev => ({ ...prev, [otherFormatKey]: "completed" }));
@@ -2613,11 +2664,12 @@ export default function AIStudioPage() {
         // ── CROSS-PLATFORM SAME-FORMAT MEDIA SYNC (SAVES CREDITS) ──
         const currentFamily = getFormatFamily(targetPlatform, targetFormat);
         const syncMediaUpdates: Record<string, string> = { [targetMediaKey]: data.asset.url };
-        const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string }> = {
+        const syncCustomUpdates: Record<string, { url: string; type: "image" | "video"; name: string; source: "ai" }> = {
           [targetMediaKey]: {
             url: data.asset.url,
             type: "image",
             name: `${targetPlatform}-${targetFormat}.png`,
+            source: "ai",
           },
         };
         const syncClearErrors: Record<string, null> = { [targetFormatKey]: null };
@@ -2626,7 +2678,7 @@ export default function AIStudioPage() {
           const availableFormats = selectedContentTypes[pId] && selectedContentTypes[pId].length > 0
             ? selectedContentTypes[pId]
             : (getPlatformDef(pId)?.contentTypes || []);
-          
+
           availableFormats.forEach((otherFmt) => {
             if (getFormatFamily(pId, otherFmt) === currentFamily) {
               const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
@@ -2635,6 +2687,7 @@ export default function AIStudioPage() {
                 url: data.asset.url,
                 type: "image",
                 name: `${pId}-${otherFmt}.png`,
+                source: "ai",
               };
               syncClearErrors[`${pId}-${otherFmt}`] = null;
             }
@@ -4560,6 +4613,10 @@ export default function AIStudioPage() {
                   isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
                   onAnalyzeMedia={handleAnalyzeMediaAI}
                   isAnalyzingMedia={Boolean(analyzingMediaKeys[currentFormatKey])}
+                  hasUserMedia={isUserUploadedMedia}
+                  onAIRefine={handleAIRefine}
+                  isRefiningCaption={isRefining}
+                  refiningAction={refiningAction}
                   onExportPDF={() => {
                     window.print();
                   }}
@@ -5729,7 +5786,7 @@ export default function AIStudioPage() {
             if (res.ok) {
               const data = await res.json();
               if (data.url) {
-                handleApplyCustomMedia(data.url, item.type);
+                handleApplyCustomMedia(data.url, item.type, activeSlideIdx, "stock");
                 return;
               }
             }
