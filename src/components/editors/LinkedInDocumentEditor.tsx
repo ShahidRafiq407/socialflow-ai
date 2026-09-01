@@ -28,6 +28,12 @@ import CharacterCounter from "@/components/CharacterCounter";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import {
+  MIN_DECK_SLIDES,
+  SlidesChangeMeta,
+  canRemoveDeckSlide,
+  nextActiveSlideIndex,
+} from "./deckSlides";
 
 export interface DocumentSlide {
   slideNumber: number;
@@ -47,7 +53,7 @@ interface LinkedInDocumentEditorProps {
   hashtags: string[];
   onHashtagsChange: (tags: string[]) => void;
   slides: DocumentSlide[];
-  onSlidesChange: (slides: DocumentSlide[]) => void;
+  onSlidesChange: (slides: DocumentSlide[], meta?: SlidesChangeMeta) => void;
   activeSlideIndex: number;
   onActiveSlideChange: (idx: number) => void;
   onGenerateDocumentAI: () => void;
@@ -167,12 +173,15 @@ export default function LinkedInDocumentEditor({
   };
 
   const handleRemoveSlide = (idx: number) => {
-    if (slides.length <= 2) return;
+    // The guard and the button's enabled state now read the same helper. They used to
+    // disagree (`<= 2` here, `> 1` on the button), so on a two-page document Delete
+    // Slide was clickable and did nothing at all.
+    if (!canRemoveDeckSlide(slides.length)) return;
     const updated = slides
       .filter((_, i) => i !== idx)
       .map((s, i) => ({ ...s, slideNumber: i + 1 }));
-    onSlidesChange(updated);
-    onActiveSlideChange(Math.max(0, activeSlideIndex - 1));
+    onSlidesChange(updated, { removedIndex: idx });
+    onActiveSlideChange(nextActiveSlideIndex(idx, updated.length));
   };
 
   return (
@@ -209,12 +218,15 @@ export default function LinkedInDocumentEditor({
       </div>
 
       {/* SLIDE NAVIGATION STRIP */}
-      <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+      <div className="p-3 bg-primary/5 dark:bg-primary/10 rounded-xl border border-primary/15 dark:border-primary/20 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mr-1">
-              <Layers className="h-3.5 w-3.5 text-[#0A66C2]" />
-              Document Slides ({slides.length} Pages)
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5 mr-1">
+              <Layers className="h-3.5 w-3.5 text-primary" />
+              Document Pages
+              <span className="px-1.5 py-0.5 rounded-md bg-secondary/10 text-secondary text-[10px] font-bold tracking-normal normal-case">
+                {slides.length} pages
+              </span>
             </span>
             <input
               type="file"
@@ -228,10 +240,10 @@ export default function LinkedInDocumentEditor({
               variant="outline"
               size="sm"
               onClick={() => pdfInputRef.current?.click()}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-primary/25 text-slate-700 dark:text-slate-200 hover:bg-primary/10 hover:border-primary/50"
               title="Upload an existing PDF document"
             >
-              <Upload className="h-3 w-3 text-slate-600 dark:text-slate-400" />
+              <Upload className="h-3 w-3 text-primary" />
               <span>Upload PDF</span>
             </Button>
             <Button
@@ -240,22 +252,22 @@ export default function LinkedInDocumentEditor({
               size="sm"
               onClick={onExportPDF}
               disabled={isExportingPDF}
-              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800"
+              className="h-7 px-2.5 text-[11px] font-bold gap-1 border-primary/25 text-slate-700 dark:text-slate-200 hover:bg-primary/10 hover:border-primary/50"
             >
-              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 text-slate-600 dark:text-slate-400" />}
+              {isExportingPDF ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 text-primary" />}
               <span>Export PDF</span>
             </Button>
           </div>
-          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
-            Active: Slide {activeSlideIndex + 1} of {slides.length}
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1">
+            Active: Page {activeSlideIndex + 1} of {slides.length}
             {onReorderCards && slides.length > 1 && (
               <>
                 <button
                   type="button"
                   disabled={activeSlideIndex === 0}
                   onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex - 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-[#0A66C2] hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
-                  title="Move Slide Left"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
+                  title="Move Page Left"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
@@ -263,8 +275,8 @@ export default function LinkedInDocumentEditor({
                   type="button"
                   disabled={activeSlideIndex === slides.length - 1}
                   onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex + 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-[#0A66C2] hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
-                  title="Move Slide Right"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
+                  title="Move Page Right"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
@@ -278,7 +290,8 @@ export default function LinkedInDocumentEditor({
             type="button"
             disabled={activeSlideIndex === 0}
             onClick={() => onActiveSlideChange(Math.max(0, activeSlideIndex - 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title="Previous Page"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -290,11 +303,11 @@ export default function LinkedInDocumentEditor({
               onClick={() => onActiveSlideChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 activeSlideIndex === idx
-                  ? "bg-[#0A66C2] text-white shadow-xs ring-2 ring-blue-400/30"
-                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
+                  ? "bg-primary text-primary-foreground shadow-xs ring-2 ring-primary/25"
+                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-primary hover:border-primary/40"
               }`}
             >
-              <span>Slide {idx + 1}</span>
+              <span>Page {idx + 1}</span>
               <span className="text-[9px] opacity-70 uppercase font-mono">({s.type})</span>
             </button>
           ))}
@@ -303,7 +316,8 @@ export default function LinkedInDocumentEditor({
             type="button"
             disabled={activeSlideIndex >= slides.length - 1}
             onClick={() => onActiveSlideChange(Math.min(slides.length - 1, activeSlideIndex + 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title="Next Page"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -312,23 +326,28 @@ export default function LinkedInDocumentEditor({
             <button
               type="button"
               onClick={handleAddSlide}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-[#0A66C2] flex items-center gap-1 shrink-0"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-secondary/40 text-secondary hover:bg-secondary/10 hover:border-secondary flex items-center gap-1 shrink-0 transition-colors"
+              title="Add Page"
             >
-              <Plus className="h-3.5 w-3.5" /> Add Slide
+              <Plus className="h-3.5 w-3.5" /> Add Page
             </button>
           )}
 
-          {slides.length > 1 && (
-            <button
-              type="button"
-              onClick={() => handleRemoveSlide(activeSlideIndex)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 hover:bg-red-100 flex items-center gap-1 ml-auto shrink-0 transition-colors"
-              title={`Delete Slide ${activeSlideIndex + 1}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>Delete Slide {activeSlideIndex + 1}</span>
-            </button>
-          )}
+          {/* Disabled rather than hidden at the floor — see the Instagram editor. */}
+          <button
+            type="button"
+            disabled={!canRemoveDeckSlide(slides.length)}
+            onClick={() => handleRemoveSlide(activeSlideIndex)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20 disabled:opacity-40 disabled:hover:bg-destructive/10 disabled:cursor-not-allowed flex items-center gap-1 ml-auto shrink-0 transition-colors"
+            title={
+              canRemoveDeckSlide(slides.length)
+                ? `Delete Page ${activeSlideIndex + 1}`
+                : `A document needs at least ${MIN_DECK_SLIDES} pages`
+            }
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete Page {activeSlideIndex + 1}</span>
+          </button>
         </div>
       </div>
 

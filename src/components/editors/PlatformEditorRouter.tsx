@@ -9,6 +9,7 @@ import LinkedInDocumentEditor, { DocumentSlide } from "./LinkedInDocumentEditor"
 import MultiMediaEditor, { MultiMediaItem } from "./MultiMediaEditor";
 import VideoPostEditor from "./VideoPostEditor";
 import StandardSocialEditor from "./StandardSocialEditor";
+import { SlidesChangeMeta } from "./deckSlides";
 
 export interface PlatformEditorRouterProps {
   platform: string;
@@ -67,7 +68,11 @@ export interface PlatformEditorRouterProps {
 
   // Multi-Slide Carousel / Idea Pin / Document state
   slides: CarouselSlideItem[];
-  onSlidesChange: (slides: CarouselSlideItem[]) => void;
+  /**
+   * `meta.removedIndex` is set when the change came from deleting a slide, so the
+   * page can shift the per-slide rendered media down with it.
+   */
+  onSlidesChange: (slides: CarouselSlideItem[], meta?: SlidesChangeMeta) => void;
   activeSlideIndex: number;
   onActiveSlideChange: (idx: number) => void;
 
@@ -204,7 +209,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         taggedTopics={props.taggedTopics || []}
         onTaggedTopicsChange={props.onTaggedTopicsChange}
         pages={ideaPages}
-        onPagesChange={(pages) => {
+        onPagesChange={(pages, meta) => {
           props.onSlidesChange(
             pages.map((p) => ({
               slideNumber: p.pageNumber,
@@ -212,7 +217,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
               body: p.body,
               visualPrompt: p.visualPrompt,
               imageUrl: p.mediaUrl,
-            }))
+            })),
+            meta
           );
         }}
         activePageIndex={props.activeSlideIndex}
@@ -314,7 +320,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         hashtags={props.hashtags}
         onHashtagsChange={props.onHashtagsChange}
         slides={docSlides}
-        onSlidesChange={(newSlides) => {
+        onSlidesChange={(newSlides, meta) => {
           props.onSlidesChange(
             newSlides.map((s) => ({
               slideNumber: s.slideNumber,
@@ -324,7 +330,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
               imageUrl: s.imageUrl,
               type: s.type,
               theme: s.type,
-            }))
+            })),
+            meta
           );
         }}
         activeSlideIndex={props.activeSlideIndex}

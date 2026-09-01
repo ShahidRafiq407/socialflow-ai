@@ -194,6 +194,7 @@ import PlatformEditorRouter from "@/components/editors/PlatformEditorRouter";
 import AITrendSuggestions, { TrendSuggestionItem } from "@/components/editors/AITrendSuggestions";
 import { CarouselSlideItem } from "@/components/editors/InstagramCarouselEditor";
 import { MultiMediaItem } from "@/components/editors/MultiMediaEditor";
+import { MIN_DECK_SLIDES } from "@/components/editors/deckSlides";
 import { getPlatformCapability, PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 
 // ============================================================================
@@ -1158,8 +1159,15 @@ export default function AIStudioPage() {
   const singleImagePrompt = currentGenerated?.imagePrompt || currentVisualPrompts[0] || "";
   const aiGeneratedImageUrls = currentGenerated?.imageUrls && currentGenerated.imageUrls.length > 0 ? currentGenerated.imageUrls : null;
 
+  // Deck length is whatever the storyboard currently says. There is deliberately NO
+  // hard floor once a real deck exists: a floor of 3 here used to re-create the slide
+  // the user had just deleted, so Delete Slide looked completely broken on 3-slide
+  // decks. The 3-slide skeleton only applies before anything has been written.
+  const storyboardSlideCount = Math.max(displayPrompts.length, displayOverlayTexts.length);
   const totalCarouselSlides = isMultiFormat
-    ? Math.max(displayPrompts.length, displayOverlayTexts.length, aiGeneratedImageUrls?.length || 0, 3)
+    ? storyboardSlideCount >= MIN_DECK_SLIDES
+      ? storyboardSlideCount
+      : Math.max(storyboardSlideCount, aiGeneratedImageUrls?.length || 0, 3)
     : 1;
 
   const currentMediaType = getMediaType(currentFormatName);
@@ -4698,7 +4706,9 @@ export default function AIStudioPage() {
                   onRenderAI={(opts) => handleRenderMedia(opts)}
                   isRenderingMedia={Boolean(renderingMediaKeys[currentFormatKey])}
                   slides={(() => {
-                    const slideCount = isMultiFormat ? Math.max(displayOverlayTexts.length, displayPrompts.length, 3) : 1;
+                    // Must agree with displayImageUrls, so both come off the same count —
+                    // a second independent floor here is what kept the deleted slide alive.
+                    const slideCount = isMultiFormat ? totalCarouselSlides : 1;
                     const items = [];
                     for (let idx = 0; idx < slideCount; idx++) {
                       items.push({
@@ -4713,7 +4723,7 @@ export default function AIStudioPage() {
                     }
                     return items;
                   })()}
-                  onSlidesChange={(newSlides) => {
+                  onSlidesChange={(newSlides, meta) => {
                     setGeneratedContents((prev) => ({
                       ...prev,
                       [activePlatformTab]: {
@@ -4731,6 +4741,12 @@ export default function AIStudioPage() {
                         },
                       },
                     }));
+                    // A deleted slide has to take its rendered graphic with it. Per-slide
+                    // media is keyed by index, so without this shift slide 3's design
+                    // would reappear underneath slide 2's copy.
+                    if (typeof meta?.removedIndex === "number") {
+                      reindexFormatMediaAfterRemoval(meta.removedIndex);
+                    }
                     if (activeSlideIdx >= newSlides.length) {
                       setActiveSlideIdx(Math.max(0, newSlides.length - 1));
                     }

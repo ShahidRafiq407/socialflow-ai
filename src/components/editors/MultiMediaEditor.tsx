@@ -202,12 +202,15 @@ export default function MultiMediaEditor({
       {capability.platform === "x" && <XGuidelinesBanner format={capability.format} />}
       
       {/* MEDIA GRID / STRIP */}
-      <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+      <div className="p-3 bg-primary/5 dark:bg-primary/10 rounded-xl border border-primary/15 dark:border-primary/20 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
-            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 text-blue-600" />
-              {isThreadFormat ? "Thread Posts" : "Media Assets"} ({mediaItems.length} of {capability.maxMedia})
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-primary" />
+              {isThreadFormat ? "Thread Posts" : "Media Assets"}
+              <span className="px-1.5 py-0.5 rounded-md bg-secondary/10 text-secondary text-[10px] font-bold tracking-normal normal-case">
+                {mediaItems.length} of {capability.maxMedia}
+              </span>
             </span>
             <Button
               type="button"
@@ -233,7 +236,7 @@ export default function MultiMediaEditor({
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
               Active: {slotLabel(activeMediaIndex)}
             </span>
             {onReorderCards && mediaItems.length > 1 && (
@@ -242,7 +245,7 @@ export default function MultiMediaEditor({
                   type="button"
                   disabled={activeMediaIndex === 0}
                   onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex - 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title={`Move ${slotLabel(activeMediaIndex)} Left`}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
@@ -251,7 +254,7 @@ export default function MultiMediaEditor({
                   type="button"
                   disabled={activeMediaIndex === mediaItems.length - 1}
                   onClick={() => onReorderCards(activeMediaIndex, activeMediaIndex + 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title={`Move ${slotLabel(activeMediaIndex)} Right`}
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
@@ -266,7 +269,8 @@ export default function MultiMediaEditor({
             type="button"
             disabled={activeMediaIndex === 0}
             onClick={() => onActiveMediaChange(Math.max(0, activeMediaIndex - 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title={`Previous ${isThreadFormat ? "Post" : "Asset"}`}
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -278,12 +282,16 @@ export default function MultiMediaEditor({
               onClick={() => onActiveMediaChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 activeMediaIndex === idx
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs"
-                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
+                  ? "bg-primary text-primary-foreground shadow-xs ring-2 ring-primary/25"
+                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-primary hover:border-primary/40"
               }`}
             >
               <span>{slotLabel(idx)}</span>
-              {item.url && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+              {item.url && (
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${activeMediaIndex === idx ? "bg-primary-foreground/70" : "bg-primary"}`}
+                />
+              )}
             </button>
           ))}
 
@@ -291,7 +299,8 @@ export default function MultiMediaEditor({
             type="button"
             disabled={activeMediaIndex >= mediaItems.length - 1}
             onClick={() => onActiveMediaChange(Math.min(mediaItems.length - 1, activeMediaIndex + 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title={`Next ${isThreadFormat ? "Post" : "Asset"}`}
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -300,22 +309,31 @@ export default function MultiMediaEditor({
             <button
               type="button"
               onClick={handleAddMedia}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-blue-600 flex items-center gap-1 shrink-0"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-secondary/40 text-secondary hover:bg-secondary/10 hover:border-secondary flex items-center gap-1 shrink-0 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" /> {isThreadFormat ? "Add Post" : "Add Asset"}
             </button>
           )}
 
-          {mediaItems.length > 1 && (
-            <button
-              type="button"
-              onClick={() => handleRemoveMedia(activeMediaIndex)}
-              className="p-1.5 text-slate-400 hover:text-red-500 ml-auto shrink-0 transition-colors"
-              title={isThreadFormat ? "Delete Active Post" : "Delete Active Asset"}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          {/*
+            Labelled and always present (disabled on the last remaining card) so it reads
+            the same as Delete Slide in the carousel/document editors — an icon that
+            vanished at one item was easy to mistake for a broken button.
+          */}
+          <button
+            type="button"
+            disabled={mediaItems.length <= 1}
+            onClick={() => handleRemoveMedia(activeMediaIndex)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20 disabled:opacity-40 disabled:hover:bg-destructive/10 disabled:cursor-not-allowed flex items-center gap-1 ml-auto shrink-0 transition-colors"
+            title={
+              mediaItems.length <= 1
+                ? `A post needs at least one ${isThreadFormat ? "post" : "asset"}`
+                : `Delete ${slotLabel(activeMediaIndex)}`
+            }
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete {slotLabel(activeMediaIndex)}</span>
+          </button>
         </div>
       </div>
 

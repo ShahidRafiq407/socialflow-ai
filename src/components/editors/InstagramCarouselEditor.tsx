@@ -30,6 +30,12 @@ import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import {
+  MIN_DECK_SLIDES,
+  SlidesChangeMeta,
+  canRemoveDeckSlide,
+  nextActiveSlideIndex,
+} from "./deckSlides";
 
 export interface CarouselSlideItem {
   slideNumber: number;
@@ -41,6 +47,8 @@ export interface CarouselSlideItem {
   type?: string;
 }
 
+export type { SlidesChangeMeta };
+
 interface InstagramCarouselEditorProps {
   capability: PlatformCapability;
   caption: string;
@@ -50,7 +58,7 @@ interface InstagramCarouselEditorProps {
   firstComment: string;
   onFirstCommentChange: (val: string) => void;
   slides: CarouselSlideItem[];
-  onSlidesChange: (slides: CarouselSlideItem[]) => void;
+  onSlidesChange: (slides: CarouselSlideItem[], meta?: SlidesChangeMeta) => void;
   activeSlideIndex: number;
   onActiveSlideChange: (idx: number) => void;
   onGenerateCarouselAI: () => void;
@@ -181,24 +189,29 @@ export default function InstagramCarouselEditor({
   };
 
   const handleRemoveSlide = (idx: number) => {
-    if (effectiveSlides.length <= 2) return;
+    if (!canRemoveDeckSlide(effectiveSlides.length)) return;
     const updated = effectiveSlides
       .filter((_, i) => i !== idx)
       .map((s, i) => ({ ...s, slideNumber: i + 1 }));
-    onSlidesChange(updated);
-    onActiveSlideChange(Math.max(0, currentIdx - 1));
+    // `removedIndex` lets the page shift the rendered graphics down with the copy —
+    // they are stored per slide index, so a plain shorter array is not enough.
+    onSlidesChange(updated, { removedIndex: idx });
+    onActiveSlideChange(nextActiveSlideIndex(idx, updated.length));
   };
 
   return (
     <div className="space-y-4 text-left">
       {/* SLIDE TIMELINE STRIP */}
-      <div className="p-3.5 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5">
+      <div className="p-3.5 bg-primary/5 dark:bg-primary/10 rounded-xl border border-primary/15 dark:border-primary/20 space-y-2.5">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-pink-500" />
-            Carousel Slide Sequence ({effectiveSlides.length} Slides)
+          <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            <Layers className="h-3.5 w-3.5 text-primary" />
+            Carousel Slide Sequence
+            <span className="px-1.5 py-0.5 rounded-md bg-secondary/10 text-secondary text-[10px] font-bold tracking-normal normal-case">
+              {effectiveSlides.length} slides
+            </span>
           </span>
-          <span className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1">
             Active: Slide {currentIdx + 1} of {effectiveSlides.length}
             {onReorderCards && effectiveSlides.length > 1 && (
               <>
@@ -206,7 +219,7 @@ export default function InstagramCarouselEditor({
                   type="button"
                   disabled={currentIdx === 0}
                   onClick={() => onReorderCards(currentIdx, currentIdx - 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-pink-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title="Move Slide Left"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
@@ -215,7 +228,7 @@ export default function InstagramCarouselEditor({
                   type="button"
                   disabled={currentIdx === effectiveSlides.length - 1}
                   onClick={() => onReorderCards(currentIdx, currentIdx + 1)}
-                  className="p-1 rounded-md text-slate-400 hover:text-pink-600 hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 transition-colors"
+                  className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title="Move Slide Right"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
@@ -230,7 +243,8 @@ export default function InstagramCarouselEditor({
             type="button"
             disabled={currentIdx === 0}
             onClick={() => onActiveSlideChange(Math.max(0, currentIdx - 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title="Previous Slide"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -242,11 +256,16 @@ export default function InstagramCarouselEditor({
               onClick={() => onActiveSlideChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                 currentIdx === idx
-                  ? "bg-pink-600 text-white shadow-xs ring-2 ring-pink-400/30"
-                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
+                  ? "bg-primary text-primary-foreground shadow-xs ring-2 ring-primary/25"
+                  : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-primary hover:border-primary/40"
               }`}
             >
               <span>Slide {idx + 1}</span>
+              {s.imageUrl && (
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${currentIdx === idx ? "bg-primary-foreground/70" : "bg-primary"}`}
+                />
+              )}
             </button>
           ))}
 
@@ -254,7 +273,8 @@ export default function InstagramCarouselEditor({
             type="button"
             disabled={currentIdx >= effectiveSlides.length - 1}
             onClick={() => onActiveSlideChange(Math.min(effectiveSlides.length - 1, currentIdx + 1))}
-            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 disabled:opacity-30 hover:bg-slate-50 shrink-0"
+            className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
+            title="Next Slide"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -263,23 +283,32 @@ export default function InstagramCarouselEditor({
             <button
               type="button"
               onClick={handleAddSlide}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-pink-600 flex items-center gap-1 shrink-0"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-secondary/40 text-secondary hover:bg-secondary/10 hover:border-secondary flex items-center gap-1 shrink-0 transition-colors"
+              title="Add Slide"
             >
               <Plus className="h-3.5 w-3.5" /> Add Slide
             </button>
           )}
 
-          {effectiveSlides.length > 2 && (
-            <button
-              type="button"
-              onClick={() => handleRemoveSlide(currentIdx)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-600 hover:bg-red-100 flex items-center gap-1 ml-auto shrink-0 transition-colors"
-              title={`Delete Slide ${currentIdx + 1}`}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              <span>Delete Slide {currentIdx + 1}</span>
-            </button>
-          )}
+          {/*
+            Always rendered, disabled at the floor. It used to disappear below three
+            slides, which read as "the button is broken" rather than "the deck is at its
+            minimum" — the tooltip now says which it is.
+          */}
+          <button
+            type="button"
+            disabled={!canRemoveDeckSlide(effectiveSlides.length)}
+            onClick={() => handleRemoveSlide(currentIdx)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20 disabled:opacity-40 disabled:hover:bg-destructive/10 disabled:cursor-not-allowed flex items-center gap-1 ml-auto shrink-0 transition-colors"
+            title={
+              canRemoveDeckSlide(effectiveSlides.length)
+                ? `Delete Slide ${currentIdx + 1}`
+                : `A carousel needs at least ${MIN_DECK_SLIDES} slides`
+            }
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete Slide {currentIdx + 1}</span>
+          </button>
         </div>
       </div>
 
