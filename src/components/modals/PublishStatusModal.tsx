@@ -217,15 +217,24 @@ export default function PublishStatusModal({
                 {/* RIGHT ACTION BUTTONS */}
                 <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   {item.status === "PUBLISHED" && item.liveUrl && (
-                    <a
-                      href={item.liveUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
-                    >
-                      <span>View Live Post</span>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
+                    <div className="flex flex-col items-end gap-1">
+                      <a
+                        href={item.liveUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
+                      >
+                        <span>View Live Post</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                      {/* Stories are ephemeral (24h) and only viewable in the
+                          story tray — the permalink mostly works on mobile/app. */}
+                      {item.format.toLowerCase().includes("story") && (
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium max-w-[180px] text-right leading-tight">
+                          Stories are visible for 24h in the story tray (best viewed in the mobile app)
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {item.status === "SCHEDULED" && (

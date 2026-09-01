@@ -249,7 +249,38 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
     }
 
     const rawPostId = data.post_id || data.id;
-    const liveUrl = isVideo
+
+    // Verify the story actually exists before claiming success — the
+    // video_stories "finish" phase can return an id even when the story
+    // never went live (processing failure, invalid video), which previously
+    // surfaced as a success modal with a dead "content isn't available" link.
+    if (isStory && rawPostId) {
+      try {
+        const verifyRes = await fetch(
+          `https://graph.facebook.com/${GRAPH_VERSION}/${rawPostId}?fields=status,id&access_token=${targetAccessToken}`
+        );
+        const verifyData = await verifyRes.json().catch(() => ({}));
+        if (!verifyRes.ok || verifyData.error) {
+          return {
+            success: false,
+            error: verifyData.error?.message || 'Facebook accepted the story upload but the story did not go live. The video may still be processing — try again in a minute.',
+            platform: 'FACEBOOK',
+          };
+        }
+      } catch {
+        // Verification is best-effort — don't fail a live story on a flaky check.
+      }
+    }
+
+    // Stories are NOT regular feed posts: facebook.com/{id} shows the
+    // "This content isn't available right now" page. Stories live in the
+    // story tray and use the /stories/{id} permalink format (visible for 24h,
+    // mostly in the app / mobile web).
+    const liveUrl = isStory
+      ? rawPostId
+        ? `https://www.facebook.com/stories/${rawPostId}`
+        : `https://www.facebook.com/${targetPageId}`
+      : isVideo
       ? `https://www.facebook.com/${targetPageId}/videos/${rawPostId}`
       : `https://www.facebook.com/${rawPostId}`;
 
