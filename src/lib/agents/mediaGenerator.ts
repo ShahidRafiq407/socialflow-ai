@@ -824,7 +824,14 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             (ai as any).interactions.create({
               model: modelName,
               input: slidePrompt,
-              aspect_ratio: targetImageAspect,
+              // The Interactions API takes the ratio inside generation_config, NOT
+              // next to `model`: a top-level aspect_ratio is rejected with
+              // 400 Unknown parameter 'aspect_ratio'.
+              generation_config: {
+                image_config: {
+                  aspect_ratio: targetImageAspect,
+                },
+              },
             }),
             new Promise((_, reject) => {
               interactionTimeout = setTimeout(
@@ -840,9 +847,18 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
           if (directImg?.data) {
             imageUrl = `data:${directImg.mime_type || "image/png"};base64,${directImg.data}`;
             console.log(`[Visualizer] ✅ Image generated successfully via interactions.create on ${modelName}`);
+          } else if (directImg?.uri) {
+            imageUrl = directImg.uri;
+            console.log(`[Visualizer] ✅ Image asset ready via interactions.create on ${modelName}`);
           }
         } catch (e: any) {
-          lastFailure = e?.message || lastFailure;
+          // The primary path's failure is the real story. Keep it ahead of the
+          // fallback's own error so a quota wall is never masked by a 400.
+          const fallbackFailure = e?.message ? String(e.message) : "";
+          lastFailure =
+            lastFailure && fallbackFailure
+              ? `${lastFailure} | interactions fallback: ${fallbackFailure}`
+              : fallbackFailure || lastFailure;
           console.warn(`[Visualizer] interactions.create on ${modelName} failed:`, e?.message || e);
         }
       }
