@@ -29,7 +29,12 @@ export interface Artifact {
   body?: string;
 }
 
-export type ToolPhase = "running" | "done" | "error";
+/**
+ * `cancelled` exists because Stop has to leave a mark. Without it a stopped run
+ * has nowhere to go except "running" (a spinner that never stops) or "error"
+ * (blaming the tool for something the user did).
+ */
+export type ToolPhase = "running" | "done" | "error" | "cancelled";
 
 /** One entry in the tool timeline shown inline with the reasoning. */
 export interface ToolRun {
@@ -57,6 +62,14 @@ export interface AttachmentRef {
   kind: string;
   url?: string;
 }
+
+/**
+ * What is saved as the assistant's answer when the user pressed Stop before it
+ * wrote anything. It must be non-empty: a blank row is filtered out of history,
+ * and the request above it would then look unanswered forever — which is how a
+ * stopped media job came back to life on the next message.
+ */
+export const STOPPED_TURN_TEXT = "_Stopped. Nothing above this line was undone._";
 
 // ---------------------------------------------------------------------------
 // SSE events

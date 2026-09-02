@@ -15,6 +15,7 @@ import { MODELS, vertexProvider } from "../llm";
 import { ensureControllerSchema } from "./schema";
 import type { Artifact, AttachmentRef, ChatMessage, ChatSessionSummary, ToolRun } from "./types";
 import type { ControllerHistoryMessage } from "./runtime";
+import { closeDanglingRequests } from "./turnFlow";
 
 /** Turns kept verbatim in the model's context window. */
 const LIVE_HISTORY_TURNS = 24;
@@ -116,8 +117,13 @@ export async function openSession(params: {
     .filter((m) => typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role === "USER" ? ("user" as const) : ("assistant" as const), content: m.content }));
 
-  const history = all.slice(-LIVE_HISTORY_TURNS);
-  const overflow = all.slice(0, Math.max(0, all.length - LIVE_HISTORY_TURNS));
+  // A stopped turn can leave a user row with nothing after it — either the marker
+  // never got written, or the request was killed before it could be. Close those
+  // before the model sees them, or the abandoned instruction is the newest thing
+  // said and the next message resumes it instead of being answered.
+  const closed = closeDanglingRequests(all);
+  const history = closed.slice(-LIVE_HISTORY_TURNS);
+  const overflow = closed.slice(0, Math.max(0, closed.length - LIVE_HISTORY_TURNS));
 
   // Still a placeholder if nobody (and nothing) has named it yet: an early
   // session whose title is exactly what the opening message was cut down to.

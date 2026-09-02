@@ -24,6 +24,31 @@ export interface ToolContext {
   brandDNA?: any;
   uploadedFiles?: { name: string; content: string; type: string; size?: number }[];
   onProgress?: (message: string) => void;
+  /**
+   * Aborted when the user presses Stop (or closes the tab). Every tool that waits
+   * on something slow — an image render, a video poll — must honour it, otherwise
+   * Stop only hides the work instead of ending it.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Sleeps, unless Stop lands first. Returns false when the wait was cut short, so
+ * a polling loop can bail out instead of spinning for another interval.
+ */
+async function waitUnlessAborted(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      resolve(false);
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export interface ToolDef {
@@ -357,6 +382,7 @@ INSTRUCTIONS:
         imageModel: MODELS.VISUALIZER,
         sourceImage,
         onProgress: ctx.onProgress,
+        signal: ctx.signal,
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate image" };
@@ -455,6 +481,7 @@ INSTRUCTIONS:
         videoTask: sourceImage ? "image_to_video" : (args.videoTask || "product_showcase"),
         sourceImage,
         onProgress: ctx.onProgress,
+        signal: ctx.signal,
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate video" };
@@ -630,6 +657,8 @@ INSTRUCTIONS:
             prompt: args.visualPrompt,
             aspectRatio: args.aspectRatio || "1:1",
             imageModel: MODELS.VISUALIZER,
+            onProgress: ctx.onProgress,
+            signal: ctx.signal,
           });
           if (assets[0]?.url) {
             mediaUrl = assets[0].url;
@@ -647,6 +676,8 @@ INSTRUCTIONS:
             prompt: args.visualPrompt,
             topic: args.topic,
             aspectRatio: args.aspectRatio || "9:16",
+            onProgress: ctx.onProgress,
+            signal: ctx.signal,
           });
           if (assets[0]?.url) {
             mediaUrl = assets[0].url;
@@ -1761,7 +1792,14 @@ INSTRUCTIONS:
       const startedAt = Date.now();
 
       while (Date.now() - startedAt < MAX_POLL_MS) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (!(await waitUnlessAborted(POLL_INTERVAL_MS, ctx.signal))) {
+          return {
+            cancelled: true,
+            status: "still_processing",
+            videoId,
+            note: "Stopped while waiting on HeyGen. The render keeps going on their side — ask for heygen_check_video with this videoId to pick it up.",
+          };
+        }
         const statusRes = await getHeyGenVideoStatus(apiKey, videoId);
         if (!statusRes.success || !statusRes.info) {
           return { error: statusRes.error || "Lost track of the HeyGen render status.", videoId };
@@ -1842,7 +1880,14 @@ INSTRUCTIONS:
             note: "Still rendering. Call heygen_check_video again with this videoId.",
           };
         }
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (!(await waitUnlessAborted(POLL_INTERVAL_MS, ctx.signal))) {
+          return {
+            cancelled: true,
+            status: "still_processing",
+            videoId,
+            note: "Stopped while waiting on HeyGen. The render keeps going on their side — call heygen_check_video with this videoId to pick it up.",
+          };
+        }
       }
     },
   },

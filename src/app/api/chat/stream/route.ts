@@ -18,7 +18,12 @@ import {
   saveAssistantMessage,
   saveUserMessage,
 } from "@/lib/agents/controller/session";
-import { sseFrame, type AttachmentRef, type ControllerEvent } from "@/lib/agents/controller/types";
+import {
+  sseFrame,
+  STOPPED_TURN_TEXT,
+  type AttachmentRef,
+  type ControllerEvent,
+} from "@/lib/agents/controller/types";
 import { parseAllUploadedFiles } from "@/lib/agents/chat/documentParser";
 import { isKnownChatModel } from "@/lib/agents/controller/models";
 
@@ -191,9 +196,22 @@ export async function POST(req: Request) {
           emit: send,
         });
 
+        // A stopped turn still has to be saved with something in it. An empty row
+        // is filtered out of history, which leaves the request above it looking
+        // unanswered — and that is how a stopped media job came back to life on
+        // the next message.
+        const stopped = result.finishReason === "cancelled";
+        const savedText = result.text.trim()
+          ? stopped
+            ? `${result.text.trimEnd()}\n\n${STOPPED_TURN_TEXT}`
+            : result.text
+          : stopped
+            ? STOPPED_TURN_TEXT
+            : result.text;
+
         const messageId = await saveAssistantMessage({
           sessionId: session.sessionId,
-          content: result.text,
+          content: savedText,
           reasoning: result.reasoning,
           toolRuns: result.toolRuns,
           artifacts: result.artifacts,
@@ -214,7 +232,8 @@ export async function POST(req: Request) {
 
         // One session, one history row — and it names itself from the exchange
         // instead of staying stuck on whatever the opening line happened to be.
-        if (session.provisionalTitle && result.text.trim() && result.finishReason !== "error") {
+        // A stopped turn is not an exchange, so it does not get to name anything.
+        if (!stopped && session.provisionalTitle && result.text.trim() && result.finishReason !== "error") {
           const title = await autoTitleSession({
             sessionId: session.sessionId,
             userMessage: message,
@@ -225,7 +244,9 @@ export async function POST(req: Request) {
         }
 
         // Fold anything that fell out of the live window into the rolling summary.
-        if (session.overflow.length > 0) {
+        // Skipped on a stop: the abandoned request must stay visibly abandoned in
+        // history rather than being written into memory as something that happened.
+        if (!stopped && session.overflow.length > 0) {
           await refreshSessionSummary({
             sessionId: session.sessionId,
             existingSummary: session.summary,

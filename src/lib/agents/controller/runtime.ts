@@ -26,9 +26,14 @@ import { buildToolRegistry, toFunctionDeclarations, MUTATING_TOOLS, type ToolDef
 import { artifactsFromToolResult, dedupeArtifacts } from "./artifacts";
 import type { Artifact, ControllerEvent, ToolRun } from "./types";
 import { getChatModel } from "./models";
+import { batchCalls, settleRuns } from "./turnFlow";
 
 const MAX_TOOL_RESULT_CHARS = 24_000;
-const MAX_PARALLEL_TOOLS = 4;
+
+/** Shown on a tool row the user stopped, so it reads as stopped, not as broken. */
+const CANCELLED_RUN_NOTE = "Stopped before it finished";
+/** Sent back to the model for a call that never ran because Stop landed first. */
+const SKIPPED_RUN_NOTE = "Cancelled by the user before this step ran.";
 
 export interface ControllerAttachment {
   name: string;
@@ -391,16 +396,49 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       const calls = turn.functionCalls;
       const responseParts: Part[] = [];
 
-      // Run in bounded batches: independent tools in parallel, without letting a
-      // model that asked for 20 calls hammer every downstream API at once.
-      for (let i = 0; i < calls.length; i += MAX_PARALLEL_TOOLS) {
-        const batch = calls.slice(i, i + MAX_PARALLEL_TOOLS);
+      // Run in bounded batches: independent tools in parallel, quota-bound ones
+      // (image, video) alone, without letting a model that asked for 20 calls
+      // hammer every downstream API at once.
+      const batches = batchCalls(calls, (name: string) => nameMap.get(name) || name);
+      let placed = 0;
+
+      for (const batch of batches) {
+        const offset = placed;
+        placed += batch.length;
+
+        // Stop landed between batches: record the rest as cancelled rather than
+        // starting work nobody is waiting for.
+        if (params.signal?.aborted) {
+          batch.forEach((call: AgentFunctionCall, idx: number) => {
+            const realName = nameMap.get(call.name) || call.name;
+            const run: ToolRun = {
+              id: `${loop}-${offset + idx}-${realName}`,
+              name: realName,
+              label: toolLabel(realName, call.args),
+              phase: "cancelled",
+              args: call.args,
+              mutating: MUTATING_TOOLS.has(realName),
+              summary: CANCELLED_RUN_NOTE,
+              durationMs: 0,
+            };
+            toolRuns.push(run);
+            emit({ type: "tool", run: { ...run } });
+            responseParts.push({
+              functionResponse: {
+                id: call.id,
+                name: call.name,
+                response: { cancelled: true, error: SKIPPED_RUN_NOTE },
+              },
+            } as Part);
+          });
+          continue;
+        }
 
         const settled = await Promise.all(
           batch.map(async (call: AgentFunctionCall, idx: number) => {
             const realName = nameMap.get(call.name) || call.name;
             const tool = toolsByName.get(realName);
-            const runId = `${loop}-${i + idx}-${realName}`;
+            const runId = `${loop}-${offset + idx}-${realName}`;
             const startTool = Date.now();
 
             const run: ToolRun = {
@@ -425,23 +463,42 @@ export async function runController(params: RunControllerParams): Promise<RunCon
             try {
               const result = await tool.execute(call.args, {
                 ...toolContext,
+                // The link that made Stop real: without it the tool keeps
+                // rendering, retrying and polling after the user gave up.
+                signal: params.signal,
                 onProgress: (message: string) => {
+                  if (run.phase !== "running") return;
                   run.progress = message;
                   emit({ type: "tool", run: { ...run } });
                 },
               } as any);
 
+              // Stop landed while this tool was working. Whatever came back, the
+              // row is a stop, not a result.
+              if (params.signal?.aborted) {
+                run.phase = "cancelled";
+                run.progress = undefined;
+                run.summary = CANCELLED_RUN_NOTE;
+                run.durationMs = Date.now() - startTool;
+                emit({ type: "tool", run: { ...run } });
+                return { call, realName, result: { cancelled: true, error: "Stopped by the user." } };
+              }
+
               const failed = !!(result && typeof result === "object" && (result as any).error);
-              run.phase = failed ? "error" : "done";
+              const cancelled = !!(result && typeof result === "object" && (result as any).cancelled);
+              run.phase = cancelled ? "cancelled" : failed ? "error" : "done";
+              run.progress = undefined;
               run.durationMs = Date.now() - startTool;
-              if (failed) {
+              if (cancelled) {
+                run.summary = CANCELLED_RUN_NOTE;
+              } else if (failed) {
                 run.error = String((result as any).error).slice(0, 400);
               } else {
                 run.summary = summarizeResult(realName, result);
               }
               emit({ type: "tool", run: { ...run } });
 
-              if (!failed) {
+              if (!failed && !cancelled) {
                 for (const artifact of artifactsFromToolResult(realName, result)) {
                   artifacts.push(artifact);
                   emit({ type: "artifact", artifact });
@@ -451,11 +508,18 @@ export async function runController(params: RunControllerParams): Promise<RunCon
               return { call, realName, result };
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              run.phase = "error";
-              run.error = message.slice(0, 400);
+              const cancelled = !!(err as any)?.isCancelled || !!params.signal?.aborted;
+              run.phase = cancelled ? "cancelled" : "error";
+              run.progress = undefined;
+              if (cancelled) run.summary = CANCELLED_RUN_NOTE;
+              else run.error = message.slice(0, 400);
               run.durationMs = Date.now() - startTool;
               emit({ type: "tool", run: { ...run } });
-              return { call, realName, result: { error: message } };
+              return {
+                call,
+                realName,
+                result: cancelled ? { cancelled: true, error: "Stopped by the user." } : { error: message },
+              };
             }
           })
         );
@@ -473,6 +537,13 @@ export async function runController(params: RunControllerParams): Promise<RunCon
 
       contents.push({ role: "user", parts: responseParts });
 
+      // Stop means stop: the results are recorded for the transcript, but they do
+      // not go back to the model for another round of work.
+      if (params.signal?.aborted) {
+        finishReason = "cancelled";
+        break;
+      }
+
       if (loop >= maxLoops) {
         finishReason = "max_loops";
         emit({
@@ -489,6 +560,9 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       finishReason = "error";
       const message = err instanceof Error ? err.message : String(err);
       emit({ type: "error", message });
+      for (const run of settleRuns(toolRuns, "error", message.slice(0, 400), startedAt)) {
+        emit({ type: "tool", run: { ...run } });
+      }
       return {
         text: answerText,
         reasoning: reasoningText,
@@ -500,6 +574,12 @@ export async function runController(params: RunControllerParams): Promise<RunCon
         durationMs: Date.now() - startedAt,
       };
     }
+  }
+
+  // Nothing may be left spinning. A row still marked "running" here is saved that
+  // way too, so it would spin again every time the message is re-rendered.
+  for (const run of settleRuns(toolRuns, "cancelled", CANCELLED_RUN_NOTE, startedAt)) {
+    emit({ type: "tool", run: { ...run } });
   }
 
   // ---- follow-ups + auto memory ------------------------------------------

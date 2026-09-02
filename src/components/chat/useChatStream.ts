@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseControllerEvent,
   splitSseFrames,
+  STOPPED_TURN_TEXT,
   type Artifact,
   type AttachmentRef,
   type ChatMessage,
@@ -53,6 +54,37 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Matches the note the server writes on a stopped tool row. */
+const CANCELLED_RUN_NOTE = "Stopped before it finished";
+
+/**
+ * Ends a message locally: nothing keeps spinning, and when it was stopped the
+ * text says so. The server persists the same thing, so a reload of the thread
+ * matches what was on screen when it stopped.
+ */
+function settleMessage(message: ChatMessage, cancelled: boolean): ChatMessage {
+  const runs = message.toolRuns || [];
+  const stillRunning = runs.some((r) => r.phase === "running");
+
+  return {
+    ...message,
+    streaming: false,
+    finishReason: cancelled ? message.finishReason || "cancelled" : message.finishReason,
+    toolRuns: stillRunning
+      ? runs.map((r) =>
+          r.phase === "running"
+            ? { ...r, phase: "cancelled" as const, progress: undefined, summary: CANCELLED_RUN_NOTE }
+            : r
+        )
+      : runs,
+    content: !cancelled
+      ? message.content
+      : message.content.trim()
+        ? `${message.content.trimEnd()}\n\n${STOPPED_TURN_TEXT}`
+        : STOPPED_TURN_TEXT,
+  };
+}
+
 export function useChatStream(options: UseChatStreamOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(options.initialMessages || []);
   const [sessionId, setSessionId] = useState<string | null>(options.initialSessionId || null);
@@ -64,6 +96,12 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   const abortRef = useRef<AbortController | null>(null);
   const assistantIdRef = useRef<string | null>(null);
+
+  // Bumped on every send and on every stop. A turn only owns the shared state
+  // (streaming flag, abort handle, status line) while its token is still the
+  // current one — so an aborted turn whose `finally` runs late cannot reset the
+  // turn the user started right after pressing Stop.
+  const turnRef = useRef(0);
 
   // The live session id, so a second message sent right after the first turn
   // joins the same session instead of opening a new one on a stale closure.
@@ -82,14 +120,23 @@ export function useChatStream(options: UseChatStreamOptions) {
     setMessages((prev) => prev.map((m) => (m.id === id ? patch(m) : m)));
   }, []);
 
+  /**
+   * Stop means stop, on screen as well as on the server. Aborting the fetch takes
+   * the request down with it (the route bridges the abort into the model and into
+   * every tool), and the rows are settled here because the events that would have
+   * finished them are never arriving.
+   */
   const stop = useCallback(() => {
+    const id = assistantIdRef.current;
+    turnRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    assistantIdRef.current = null;
     setStreaming(false);
     setStatus(null);
-    patchAssistant((m) => ({ ...m, streaming: false, finishReason: m.finishReason || "cancelled" }));
-    assistantIdRef.current = null;
-  }, [patchAssistant]);
+    if (!id) return;
+    setMessages((prev) => prev.map((m) => (m.id === id ? settleMessage(m, true) : m)));
+  }, []);
 
   const send = useCallback(
     async (params: { text: string; files?: PendingFile[]; model?: string }) => {
@@ -120,6 +167,8 @@ export function useChatStream(options: UseChatStreamOptions) {
 
       const assistantId = makeId("a");
       assistantIdRef.current = assistantId;
+      const turn = turnRef.current + 1;
+      turnRef.current = turn;
       const assistantMessage: ChatMessage = {
         id: assistantId,
         role: "assistant",
@@ -284,12 +333,19 @@ export function useChatStream(options: UseChatStreamOptions) {
           }));
         }
       } finally {
-        patchAssistant((m) => ({ ...m, streaming: false }));
-        assistantIdRef.current = null;
-        abortRef.current = null;
-        setStreaming(false);
-        setStatus(null);
-        options.onTurnComplete?.();
+        // Only the turn that still owns the stream may reset it. After a Stop the
+        // user can send again immediately, and this block must not take the new
+        // turn's abort handle or streaming flag down with the old one.
+        if (turnRef.current === turn) {
+          // However the turn ended — cleanly, a dropped connection, a thrown
+          // error — nothing is allowed to stay marked running once it is over.
+          setMessages((prev) => prev.map((m) => (m.id === assistantId ? settleMessage(m, false) : m)));
+          assistantIdRef.current = null;
+          abortRef.current = null;
+          setStreaming(false);
+          setStatus(null);
+          options.onTurnComplete?.();
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,6 +355,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   /** Swaps the whole thread when the user opens another session. */
   const loadSession = useCallback(
     (id: string | null, loaded: ChatMessage[]) => {
+      turnRef.current += 1;
       abortRef.current?.abort();
       abortRef.current = null;
       assistantIdRef.current = null;
