@@ -12,6 +12,7 @@ import { resolveIdentity } from "@/lib/agents/controller/auth";
 import { getChatSettings } from "@/lib/agents/controller/settings";
 import { runController, type ControllerAttachment } from "@/lib/agents/controller/runtime";
 import {
+  autoTitleSession,
   openSession,
   refreshSessionSummary,
   saveAssistantMessage,
@@ -210,6 +211,18 @@ export async function POST(req: Request) {
           model: result.model,
           toolCount: result.toolRuns.length,
         });
+
+        // One session, one history row — and it names itself from the exchange
+        // instead of staying stuck on whatever the opening line happened to be.
+        if (session.provisionalTitle && result.text.trim() && result.finishReason !== "error") {
+          const title = await autoTitleSession({
+            sessionId: session.sessionId,
+            userMessage: message,
+            answer: result.text,
+            currentTitle: session.title,
+          }).catch(() => null);
+          if (title) send({ type: "title", sessionId: session.sessionId, title });
+        }
 
         // Fold anything that fell out of the live window into the rolling summary.
         if (session.overflow.length > 0) {

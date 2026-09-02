@@ -10,8 +10,20 @@ import {
   type DashboardTab,
 } from "@/lib/agents/controller/navigation";
 import { artifactsFromToolResult, dedupeArtifacts, linkArtifact } from "@/lib/agents/controller/artifacts";
-import { CHAT_MODELS, DEFAULT_CHAT_MODEL, getChatModel, isKnownChatModel } from "@/lib/agents/controller/models";
+import {
+  CHAT_MODELS,
+  DEFAULT_CHAT_MODEL,
+  chatModelLabel,
+  getChatModel,
+  isKnownChatModel,
+} from "@/lib/agents/controller/models";
 import { DEFAULT_CHAT_SETTINGS, normalizeChatSettings } from "@/lib/agents/controller/settingsShape";
+import {
+  parseControllerEvent,
+  splitSseFrames,
+  sseFrame,
+  type ControllerEvent,
+} from "@/lib/agents/controller/types";
 
 // ============================================================================
 // The controller's promise to the user is "here is a link, click it and you land
@@ -256,7 +268,7 @@ describe("dedupeArtifacts", () => {
 });
 
 describe("chat model registry", () => {
-  // The user asked for this model by name; it is the default brain.
+  // The user asked for this model by name; it is the only brain.
   it("defaults to Gemini 3.1 Pro Preview and lists it first", () => {
     expect(DEFAULT_CHAT_MODEL).toBe("gemini-3.1-pro-preview");
     expect(isKnownChatModel(DEFAULT_CHAT_MODEL)).toBe(true);
@@ -272,15 +284,23 @@ describe("chat model registry", () => {
     expect(isKnownChatModel("")).toBe(false);
   });
 
-  it("only offers models that can run tools, since the controller acts", () => {
-    expect(CHAT_MODELS.length).toBeGreaterThan(1);
-    for (const model of CHAT_MODELS) {
-      expect(model.supportsTools).toBe(true);
-      expect(model.label.length).toBeGreaterThan(0);
-      expect(model.blurb.length).toBeGreaterThan(0);
-    }
-    expect(new Set(CHAT_MODELS.map((m) => m.id)).size).toBe(CHAT_MODELS.length);
-    expect(CHAT_MODELS.some((m) => m.supportsThinking)).toBe(true);
+  // One brain, not a menu: media has its own models behind generate_image /
+  // generate_video, so a second chat model would only be a worse controller.
+  it("offers exactly one model, and it can think and run tools", () => {
+    expect(CHAT_MODELS).toHaveLength(1);
+    const [model] = CHAT_MODELS;
+    expect(model.supportsTools).toBe(true);
+    expect(model.supportsThinking).toBe(true);
+    expect(model.supportsVision).toBe(true);
+    expect(model.label.length).toBeGreaterThan(0);
+    expect(model.blurb.length).toBeGreaterThan(0);
+  });
+
+  // A fallback model answering must not be labelled as the model we advertise.
+  it("shows the serving model honestly", () => {
+    expect(chatModelLabel(DEFAULT_CHAT_MODEL)).toBe(CHAT_MODELS[0].label);
+    expect(chatModelLabel("gemini-2.5-flash")).toBe("gemini-2.5-flash");
+    expect(chatModelLabel(null)).toBe(CHAT_MODELS[0].label);
   });
 });
 
@@ -313,7 +333,8 @@ describe("normalizeChatSettings", () => {
 
   it("keeps a stale client from selecting a model that no longer exists", () => {
     expect(normalizeChatSettings({ model: "gemini-1.0-ultra" }).model).toBe(DEFAULT_CHAT_MODEL);
-    expect(normalizeChatSettings({ model: "gemini-2.5-pro" }).model).toBe("gemini-2.5-pro");
+    expect(normalizeChatSettings({ model: "gemini-2.5-pro" }).model).toBe(DEFAULT_CHAT_MODEL);
+    expect(normalizeChatSettings({ model: DEFAULT_CHAT_MODEL }).model).toBe(DEFAULT_CHAT_MODEL);
   });
 
   it("falls back on unknown enum values", () => {
@@ -346,5 +367,85 @@ describe("normalizeChatSettings", () => {
   it("caps custom instructions so one paste cannot blow up every prompt", () => {
     const long = normalizeChatSettings({ customInstructions: "x".repeat(9000) });
     expect(long.customInstructions).toHaveLength(4000);
+  });
+});
+
+// ============================================================================
+// The wire. Both halves of the stream live in one file for exactly this reason:
+// if the reader does not undo what the writer did, every event is dropped and
+// the chat answers nothing at all. These tests hold the two halves together.
+// ============================================================================
+
+describe("SSE frame round trip", () => {
+  const events: ControllerEvent[] = [
+    { type: "session", sessionId: "s_1", userMessageId: "m_1", title: "hi" },
+    { type: "title", sessionId: "s_1", title: "Instagram launch plan" },
+    { type: "status", step: "context", label: "Loading workspace context", state: "start" },
+    { type: "memory", facts: [{ id: "f1", category: "brand", content: "Tone: warm", pinned: true }] },
+    { type: "thought", delta: "The user wants a feed post…" },
+    { type: "text", delta: "Here is the post: " },
+    { type: "tool", run: { id: "t1", name: "generate_image", label: "Generating…", phase: "running" } },
+    {
+      type: "artifact",
+      artifact: { id: "a1", kind: "image", title: "Instagram feed", url: "https://cdn.test/a.png" },
+    },
+    { type: "suggestions", items: ["Schedule it", "Make a variant"] },
+    { type: "model", model: "gemini-3.1-pro-preview", fallback: false },
+    { type: "notice", level: "warn", message: "GitHub is not connected." },
+    { type: "done", messageId: "m_2", finishReason: "ok", durationMs: 1200, model: "x", toolCount: 3 },
+    { type: "error", message: "Vertex AI Provider Agent: all candidates failed", code: "provider" },
+  ];
+
+  it("survives every event kind, prefix and all", () => {
+    for (const event of events) {
+      const { frames, rest } = splitSseFrames(sseFrame(event));
+      expect(rest).toBe("");
+      expect(frames).toHaveLength(1);
+      expect(parseControllerEvent(frames[0])).toEqual(event);
+    }
+  });
+
+  // The bug this replaces: the reader handed the whole frame to JSON.parse.
+  it("strips the data: field the writer added", () => {
+    const frame = sseFrame({ type: "text", delta: "hello" }).trimEnd();
+    expect(() => JSON.parse(frame)).toThrow();
+    expect(parseControllerEvent(frame)).toEqual({ type: "text", delta: "hello" });
+  });
+
+  it("keeps text deltas byte-exact, including spaces, colons and markdown", () => {
+    for (const delta of ["  two spaces  ", "ratio 1:1", "line\nbreak", "**bold** `code`", "data: not a field"]) {
+      const [frame] = splitSseFrames(sseFrame({ type: "text", delta })).frames;
+      expect(parseControllerEvent(frame)).toEqual({ type: "text", delta });
+    }
+  });
+
+  it("holds a half-received frame back until the rest arrives", () => {
+    const wire = sseFrame({ type: "text", delta: "one" }) + sseFrame({ type: "text", delta: "two" });
+    const cut = wire.length - 6;
+
+    const first = splitSseFrames(wire.slice(0, cut));
+    expect(first.frames).toHaveLength(1);
+    expect(parseControllerEvent(first.frames[0])).toEqual({ type: "text", delta: "one" });
+
+    const second = splitSseFrames(first.rest + wire.slice(cut));
+    expect(second.frames).toHaveLength(1);
+    expect(second.rest).toBe("");
+    expect(parseControllerEvent(second.frames[0])).toEqual({ type: "text", delta: "two" });
+  });
+
+  it("reads a proxy's \\r\\n and ignores heartbeats and unknown fields", () => {
+    const wire = 'data: {"type":"text","delta":"a"}\r\n\r\n: keep-alive\r\n\r\nevent: ping\r\ndata: {"type":"text","delta":"b"}\r\n\r\n';
+    const { frames } = splitSseFrames(wire);
+    const parsed = frames.map(parseControllerEvent).filter(Boolean);
+    expect(parsed).toEqual([
+      { type: "text", delta: "a" },
+      { type: "text", delta: "b" },
+    ]);
+  });
+
+  it("returns null for anything that is not an event", () => {
+    for (const junk of ["", "   ", ": heartbeat", "data: ", "data: not json", '{"noType":true}', "event: ping"]) {
+      expect(parseControllerEvent(junk)).toBeNull();
+    }
   });
 });

@@ -16,7 +16,7 @@
 // ============================================================================
 
 import type { Content, Part } from "@google/genai";
-import { vertexProvider } from "../llm";
+import { MODELS, vertexProvider } from "../llm";
 import type { AgentFunctionCall, ThinkingEffort } from "@/lib/providers/VertexAIProvider";
 import { getChatSettings, type ChatSettings } from "./settings";
 import { buildWorkspaceSnapshot } from "./snapshot";
@@ -559,7 +559,7 @@ async function generateSuggestions(params: {
           content: `User asked: ${params.message.slice(0, 800)}\n\nAssistant did: ${params.answer.slice(0, 2000)}`,
         },
       ],
-      { modelName: "gemini-3.6-flash", temperature: 0.6 }
+      { modelName: MODELS.CHAT_UTILITY, temperature: 0.6 }
     );
     const items = Array.isArray(data?.suggestions) ? data.suggestions : [];
     return items
@@ -602,7 +602,7 @@ async function autoSaveMemory(params: {
             `USER: ${params.message.slice(0, 2000)}\n\nASSISTANT: ${params.answer.slice(0, 2000)}`,
         },
       ],
-      { modelName: "gemini-3.6-flash", temperature: 0.1 }
+      { modelName: MODELS.CHAT_UTILITY, temperature: 0.1 }
     );
 
     const facts = Array.isArray(data?.facts) ? data.facts : [];

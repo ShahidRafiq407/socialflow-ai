@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   parseControllerEvent,
+  splitSseFrames,
   type Artifact,
   type AttachmentRef,
   type ChatMessage,
@@ -44,6 +45,7 @@ interface UseChatStreamOptions {
   initialSessionId?: string | null;
   initialMessages?: ChatMessage[];
   onSessionCreated?: (sessionId: string, title: string) => void;
+  onTitle?: (sessionId: string, title: string) => void;
   onTurnComplete?: () => void;
 }
 
@@ -62,6 +64,14 @@ export function useChatStream(options: UseChatStreamOptions) {
 
   const abortRef = useRef<AbortController | null>(null);
   const assistantIdRef = useRef<string | null>(null);
+
+  // The live session id, so a second message sent right after the first turn
+  // joins the same session instead of opening a new one on a stale closure.
+  const sessionIdRef = useRef<string | null>(options.initialSessionId || null);
+  const setActiveSession = useCallback((id: string | null) => {
+    sessionIdRef.current = id;
+    setSessionId(id);
+  }, []);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -137,7 +147,7 @@ export function useChatStream(options: UseChatStreamOptions) {
           body: JSON.stringify({
             message: text,
             workspaceId: options.workspaceId,
-            sessionId,
+            sessionId: sessionIdRef.current,
             model: params.model,
             files,
           }),
@@ -159,8 +169,8 @@ export function useChatStream(options: UseChatStreamOptions) {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          const frames = buffer.split("\n\n");
-          buffer = frames.pop() || "";
+          const { frames, rest } = splitSseFrames(buffer);
+          buffer = rest;
 
           for (const frame of frames) {
             const event = parseControllerEvent(frame);
@@ -168,10 +178,14 @@ export function useChatStream(options: UseChatStreamOptions) {
 
             switch (event.type) {
               case "session":
-                if (event.sessionId !== sessionId) {
-                  setSessionId(event.sessionId);
+                if (event.sessionId !== sessionIdRef.current) {
+                  setActiveSession(event.sessionId);
                   options.onSessionCreated?.(event.sessionId, event.title || "New chat");
                 }
+                break;
+
+              case "title":
+                options.onTitle?.(event.sessionId, event.title);
                 break;
 
               case "status":
@@ -279,21 +293,24 @@ export function useChatStream(options: UseChatStreamOptions) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options.workspaceId, sessionId, streaming, patchAssistant]
+    [options.workspaceId, streaming, patchAssistant, setActiveSession]
   );
 
   /** Swaps the whole thread when the user opens another session. */
-  const loadSession = useCallback((id: string | null, loaded: ChatMessage[]) => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    assistantIdRef.current = null;
-    setStreaming(false);
-    setStatus(null);
-    setNotice(null);
-    setMemoryFlash([]);
-    setSessionId(id);
-    setMessages(loaded);
-  }, []);
+  const loadSession = useCallback(
+    (id: string | null, loaded: ChatMessage[]) => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      assistantIdRef.current = null;
+      setStreaming(false);
+      setStatus(null);
+      setNotice(null);
+      setMemoryFlash([]);
+      setActiveSession(id);
+      setMessages(loaded);
+    },
+    [setActiveSession]
+  );
 
   return {
     messages,

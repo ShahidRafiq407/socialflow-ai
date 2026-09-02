@@ -225,7 +225,7 @@ export function MessageThread({
 
   return (
     <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-7 px-4 py-6 sm:px-6">
+      <div className="mx-auto w-full max-w-4xl space-y-7 px-4 py-6 sm:px-6">
         {messages.map((message, index) =>
           message.role === "user" ? (
             <UserMessage key={message.id} message={message} />

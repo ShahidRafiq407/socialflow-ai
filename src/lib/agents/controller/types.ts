@@ -65,6 +65,8 @@ export interface AttachmentRef {
 export type ControllerEvent =
   /** Session id + persisted user message id, sent before any model work. */
   | { type: "session"; sessionId: string; userMessageId: string; title?: string }
+  /** The session renamed itself from the conversation; the rail should follow. */
+  | { type: "title"; sessionId: string; title: string }
   /** Named setup step: memory recall, workspace snapshot, plugin load. */
   | { type: "status"; step: string; label: string; state: "start" | "done"; detail?: string }
   /** Memory facts that were loaded into context for this turn. */
@@ -100,10 +102,49 @@ export function sseFrame(event: ControllerEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
-/** Parses one SSE `data:` payload back into an event, or null if malformed. */
+/**
+ * Splits a streamed buffer into whole SSE frames and returns the trailing
+ * partial frame, so the reader can prepend it to the next network chunk. Frames
+ * are separated by a blank line; `\r\n` is normalised because a proxy may
+ * rewrite the line endings on the way to the browser.
+ */
+export function splitSseFrames(buffer: string): { frames: string[]; rest: string } {
+  const parts = buffer.replace(/\r\n/g, "\n").split("\n\n");
+  const rest = parts.pop() || "";
+  return { frames: parts.filter((frame) => frame.trim().length > 0), rest };
+}
+
+/**
+ * Parses one SSE frame back into an event, or null if it carries no event.
+ *
+ * The reader gets exactly what `sseFrame` wrote, so the `data:` field prefix has
+ * to come off before the JSON is touched — a bare `JSON.parse` on the frame
+ * throws on every single event. `event:`/`id:`/`retry:` fields and `:` heartbeat
+ * comments are skipped, multi-line `data:` fields are joined per the SSE spec,
+ * and a caller that already holds a bare payload still works.
+ */
 export function parseControllerEvent(raw: string): ControllerEvent | null {
+  if (!raw) return null;
+
+  const data: string[] = [];
+  const bare: string[] = [];
+
+  for (const line of raw.split("\n")) {
+    const clean = line.replace(/\r$/, "").trimEnd();
+    if (!clean || clean.startsWith(":")) continue;
+    if (/^data\s*:/.test(clean)) {
+      data.push(clean.replace(/^data\s*:\s?/, ""));
+      continue;
+    }
+    if (/^(event|id|retry)\s*:/.test(clean)) continue;
+    bare.push(clean);
+  }
+
+  const payload = (data.length > 0 ? data.join("\n") : bare.join("\n")).trim();
+  if (!payload) return null;
+
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(payload);
     return parsed && typeof parsed.type === "string" ? (parsed as ControllerEvent) : null;
   } catch {
     return null;

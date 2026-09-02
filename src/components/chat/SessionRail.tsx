@@ -76,23 +76,23 @@ export function SessionRail({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 space-y-2 p-3">
+      <div className="shrink-0 space-y-1 px-2 pb-1.5 pt-2">
         <button
           type="button"
           onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border mkt-border mkt-surface px-3 py-2 text-[13px] font-medium mkt-text transition-colors hover:border-[color:var(--mkt-accent)]/60 hover:mkt-accent-text"
+          className="flex w-full items-center gap-1.5 rounded-lg border mkt-border mkt-surface px-2 py-1.5 text-[12px] font-medium mkt-text transition-colors hover:border-[color:var(--mkt-accent)]/60 hover:mkt-accent-text"
         >
-          <MessageSquarePlus className="h-4 w-4" />
+          <MessageSquarePlus className="h-3.5 w-3.5 shrink-0" />
           New chat
         </button>
 
-        <div className="flex items-center gap-2 rounded-xl border mkt-border px-2.5 py-1.5">
-          <Search className="h-3.5 w-3.5 shrink-0 mkt-faint" />
+        <div className="flex items-center gap-1.5 rounded-lg px-2 py-1">
+          <Search className="h-3 w-3 shrink-0 mkt-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search chats"
-            className="w-full bg-transparent text-[12.5px] mkt-text outline-none placeholder:mkt-faint"
+            className="w-full bg-transparent text-[11.5px] mkt-text outline-none placeholder:mkt-faint"
           />
           {query && (
             <button type="button" onClick={() => setQuery("")} className="shrink-0 mkt-faint hover:mkt-text">
@@ -137,14 +137,14 @@ export function SessionRail({
                     <button
                       type="button"
                       onClick={() => onOpen(session.id)}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
                         active ? "mkt-bg2 mkt-text" : "mkt-muted hover:mkt-bg2 hover:mkt-text"
                       }`}
                     >
                       {session.pinned && <Pin className="h-3 w-3 shrink-0 mkt-accent-text" />}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12.5px] leading-tight">{session.title}</span>
-                        <span className="mt-0.5 block text-[10.5px] mkt-faint">
+                        <span className="block truncate text-[12px] leading-tight">{session.title}</span>
+                        <span className="mt-0.5 block text-[10px] mkt-faint">
                           {relativeTime(session.updatedAt)}
                           {session.messageCount > 0 && ` · ${session.messageCount} msg`}
                           {loadingId === session.id && " · opening…"}
@@ -213,11 +213,11 @@ export function SessionRail({
         )}
       </div>
 
-      <div className="shrink-0 border-t mkt-border p-2">
+      <div className="shrink-0 border-t mkt-border px-2 py-1.5">
         <button
           type="button"
           onClick={onToggleArchived}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] mkt-faint transition-colors hover:mkt-muted"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] mkt-faint transition-colors hover:mkt-muted"
         >
           <Archive className="h-3 w-3" />
           {showArchived ? "Back to active chats" : "Archived chats"}

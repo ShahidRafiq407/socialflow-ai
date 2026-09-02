@@ -45,7 +45,7 @@ const STARTERS: { icon: typeof Sparkles; title: string; prompt: string }[] = [
 export function EmptyState({ workspaceName, onPick }: EmptyStateProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex min-h-full max-w-3xl flex-col justify-center px-5 py-10">
+      <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center px-5 py-10">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 mkt-accent-text" />
           <span className="text-[11px] font-semibold uppercase tracking-wider mkt-faint">

@@ -1,4 +1,5 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
+import { CONTROLLER_MODEL_ID } from "./controller/models";
 
 // Centralized ELITE-tier Google Vertex AI model mapping
 // Removed all flash, lite, and low-scale constraints to guarantee production depth
@@ -26,6 +27,14 @@ export const MODELS = {
   // The "Marketing Brain" orchestrator / planner / synthesizer model
   ORCHESTRATOR: process.env.MODEL_ORCHESTRATOR || "gemini-3.1-pro-preview",
   EMBEDDING: process.env.MODEL_EMBEDDING || "text-embedding-004",
+
+  // The Automate Task controller. CHAT_CONTROLLER is the same id the chat picker
+  // shows (see src/lib/agents/controller/models.ts) so the label can never drift
+  // from the model that actually runs. CHAT_UTILITY is the small fast model for
+  // the controller's background chores — naming a session, follow-up chips,
+  // memory extraction, rolling summaries — none of which need the frontier model.
+  CHAT_CONTROLLER: CONTROLLER_MODEL_ID,
+  CHAT_UTILITY: process.env.MODEL_CHAT_UTILITY || "gemini-3.6-flash",
 };
 
 let currentWorkingModel = MODELS.CONTENT_CREATOR;

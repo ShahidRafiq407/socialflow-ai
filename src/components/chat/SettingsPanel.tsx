@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { Check, Loader2, X } from "lucide-react";
-import { CHAT_MODELS } from "@/lib/agents/controller/models";
+import { getChatModel } from "@/lib/agents/controller/models";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { Row, Section, Segmented, Slider, Toggle } from "./SettingsControls";
 
@@ -24,6 +24,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({ settings, saving, onChange, onClose }: SettingsPanelProps) {
   const [instructions, setInstructions] = useState(settings.customInstructions);
   const [instructionsSaved, setInstructionsSaved] = useState(false);
+  const model = getChatModel(settings.model);
 
   const saveInstructions = () => {
     onChange({ customInstructions: instructions });
@@ -51,37 +52,20 @@ export function SettingsPanel({ settings, saving, onChange, onClose }: SettingsP
         <Section title="Brain">
           <div>
             <div className="mb-2 text-[12.5px] font-medium mkt-text">Model</div>
-            <div className="space-y-1.5">
-              {CHAT_MODELS.map((model) => (
-                <button
-                  key={model.id}
-                  type="button"
-                  onClick={() => onChange({ model: model.id })}
-                  className={`flex w-full items-start gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors ${
-                    settings.model === model.id
-                      ? "border-[color:var(--mkt-accent)]/70 mkt-bg2"
-                      : "mkt-border hover:mkt-bg2"
-                  }`}
-                >
-                  <span
-                    className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                      settings.model === model.id ? "bg-[color:var(--mkt-accent)]" : "bg-[color:var(--mkt-border)]"
-                    }`}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-[12.5px] font-medium mkt-text">{model.label}</span>
-                      {model.recommended && (
-                        <span className="shrink-0 rounded border border-[color:var(--mkt-accent)]/40 px-1 text-[9.5px] uppercase tracking-wide mkt-accent-text">
-                          best
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-0.5 block text-[11.5px] leading-snug mkt-faint">{model.blurb}</span>
-                  </span>
-                </button>
-              ))}
+            <div className="rounded-xl border border-[color:var(--mkt-accent)]/50 mkt-bg2 px-3 py-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--mkt-accent)]" />
+                <span className="truncate text-[12.5px] font-medium mkt-text">{model.label}</span>
+                <span className="ml-auto shrink-0 rounded border border-[color:var(--mkt-accent)]/40 px-1 text-[9.5px] uppercase tracking-wide mkt-accent-text">
+                  running
+                </span>
+              </div>
+              <p className="mt-1 text-[11.5px] leading-snug mkt-faint">{model.blurb}</p>
             </div>
+            <p className="mt-1.5 text-[11px] leading-snug mkt-faint">
+              This is the only brain — it plans and runs the work. Images and video are produced by their own
+              dedicated models when it calls them, so nothing here changes those.
+            </p>
           </div>
 
           <Row label="Creativity" hint="Low is precise and repeatable. High is more inventive.">

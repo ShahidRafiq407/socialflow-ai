@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from "@/lib/agents/controller/settingsShape";
-import { getChatModel } from "@/lib/agents/controller/models";
+import { chatModelLabel } from "@/lib/agents/controller/models";
 import { useChatStream, type PendingFile } from "./useChatStream";
 import { MessageThread } from "./MessageThread";
 import { Composer } from "./Composer";
@@ -83,6 +83,12 @@ export function ChatWorkbench({
     initialSessionId,
     initialMessages,
     onSessionCreated: () => void refreshSessions(),
+    // The session renamed itself from the conversation: show it immediately, and
+    // let the refresh confirm it from the database.
+    onTitle: (sessionId, title) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title } : s)));
+      void refreshSessions();
+    },
     onTurnComplete: () => void refreshSessions(),
   });
 
@@ -204,14 +210,14 @@ export function ChatWorkbench({
     ? { level: "warn" as const, message: localNotice }
     : chat.notice;
 
-  const modelLabel = getChatModel(chat.activeModel || settings.model).label;
+  const modelLabel = chatModelLabel(chat.activeModel || settings.model);
 
   return (
     <div className="flex h-full min-h-0 w-full">
       {/* History rail */}
       <aside
         className={`hidden shrink-0 border-r mkt-border transition-all lg:block ${
-          railOpen ? "w-[248px]" : "w-0 overflow-hidden"
+          railOpen ? "w-[212px]" : "w-0 overflow-hidden"
         }`}
       >
         {railOpen && (

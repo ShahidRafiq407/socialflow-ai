@@ -18,7 +18,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { CHAT_MODELS } from "@/lib/agents/controller/models";
+import { getChatModel } from "@/lib/agents/controller/models";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import type { PendingFile } from "./useChatStream";
 
@@ -155,11 +155,11 @@ export function Composer({
     void ingest(e.dataTransfer?.files || null);
   };
 
-  const model = CHAT_MODELS.find((m) => m.id === settings.model) || CHAT_MODELS[0];
+  const model = getChatModel(settings.model);
 
   return (
     <div className="shrink-0 border-t mkt-border mkt-bg/80 backdrop-blur">
-      <div className="mx-auto w-full max-w-3xl px-4 pb-4 pt-3 sm:px-6">
+      <div className="mx-auto w-full max-w-4xl px-4 pb-4 pt-3 sm:px-6">
         {status && (
           <div className="mb-2 flex items-center gap-2 text-[12px] mkt-muted">
             <Loader2 className="h-3 w-3 animate-spin mkt-accent-text" />
@@ -263,19 +263,14 @@ export function Composer({
 
             <div className="mx-1 h-5 w-px bg-[color:var(--mkt-border)]" aria-hidden />
 
-            <select
-              value={settings.model}
-              onChange={(e) => onSettingsChange({ model: e.target.value })}
-              title={model.blurb}
-              className="max-w-[190px] cursor-pointer rounded-lg bg-transparent px-1.5 py-1 text-[12px] mkt-muted outline-none transition-colors hover:mkt-text"
+            {/* One brain runs the controller, so this states it rather than offering
+                a choice. Images and video are made by their own models via tools. */}
+            <span
+              title={`${model.label} — ${model.blurb}`}
+              className="max-w-[190px] truncate px-1 py-1 text-[12px] mkt-muted"
             >
-              {CHAT_MODELS.map((m) => (
-                <option key={m.id} value={m.id} className="mkt-bg mkt-text">
-                  {m.label}
-                  {m.recommended ? " ·  recommended" : ""}
-                </option>
-              ))}
-            </select>
+              {model.label}
+            </span>
 
             <button
               type="button"

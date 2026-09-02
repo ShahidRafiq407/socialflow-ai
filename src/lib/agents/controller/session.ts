@@ -11,7 +11,7 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
-import { vertexProvider } from "../llm";
+import { MODELS, vertexProvider } from "../llm";
 import { ensureControllerSchema } from "./schema";
 import type { Artifact, AttachmentRef, ChatMessage, ChatSessionSummary, ToolRun } from "./types";
 import type { ControllerHistoryMessage } from "./runtime";
@@ -21,11 +21,14 @@ const LIVE_HISTORY_TURNS = 24;
 /** Turns loaded for the UI on first paint. */
 const UI_HISTORY_MESSAGES = 80;
 const MAX_SUMMARY_CHARS = 4000;
+const MAX_TITLE_CHARS = 60;
 
 export interface SessionContext {
   sessionId: string;
   title: string;
   isNew: boolean;
+  /** The title is still a placeholder, so the session may rename itself. */
+  provisionalTitle: boolean;
   history: ControllerHistoryMessage[];
   summary: string | null;
   /** Messages that fell out of the live window and are not yet summarised. */
@@ -43,6 +46,18 @@ export function deriveTitle(message: string): string {
   const firstSentence = clean.split(/(?<=[.!?])\s/)[0] || clean;
   const base = firstSentence.length <= 60 ? firstSentence : clean.slice(0, 60).replace(/\s\S*$/, "");
   return (base || clean.slice(0, 60)).slice(0, 80);
+}
+
+/** Squeezes a written title into the shape the rail can show on one line. */
+function cleanTitle(raw: string): string {
+  const clean = raw
+    .replace(/[\r\n]+/g, " ")
+    .replace(/^[\s"'“”‘’*#]+/, "")
+    .replace(/[\s"'“”‘’*.:;,-]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (clean.length <= MAX_TITLE_CHARS) return clean;
+  return clean.slice(0, MAX_TITLE_CHARS).replace(/\s\S*$/, "").trim();
 }
 
 /**
@@ -82,6 +97,7 @@ export async function openSession(params: {
       sessionId: created.id,
       title: created.title || "New chat",
       isNew: true,
+      provisionalTitle: true,
       history: [],
       summary: null,
       overflow: [],
@@ -103,14 +119,73 @@ export async function openSession(params: {
   const history = all.slice(-LIVE_HISTORY_TURNS);
   const overflow = all.slice(0, Math.max(0, all.length - LIVE_HISTORY_TURNS));
 
+  // Still a placeholder if nobody (and nothing) has named it yet: an early
+  // session whose title is exactly what the opening message was cut down to.
+  const openingMessage = all.find((m) => m.role === "user");
+  const title = session.title || "New chat";
+  const provisionalTitle =
+    all.length <= 4 &&
+    (title === "New chat" || (!!openingMessage && title === deriveTitle(openingMessage.content)));
+
   return {
     sessionId: session.id,
-    title: session.title || "New chat",
+    title,
     isNew: false,
+    provisionalTitle,
     history,
     summary: session.summary || null,
     overflow,
   };
+}
+
+/**
+ * Names the session after the conversation itself — "hi" is not a title. Runs on
+ * the first real exchange with the small utility model, and writes only if the
+ * title is still the one it was opened with, so a manual rename always wins.
+ * Returns the new title, or null when the session should keep the one it has.
+ */
+export async function autoTitleSession(params: {
+  sessionId: string;
+  userMessage: string;
+  answer: string;
+  currentTitle: string;
+}): Promise<string | null> {
+  let title = "";
+
+  try {
+    const data = await vertexProvider.generateJSON(
+      [
+        {
+          role: "system",
+          content:
+            "You name chat sessions in a marketing operations product. Read the first exchange and return " +
+            '{"title": "..."}: a 2-6 word noun phrase naming what this conversation is about, written in the ' +
+            "user's own language. No quotes, no trailing punctuation, no filler words like chat, conversation, " +
+            'request or help. If it is only a greeting or too vague to name, return {"title": ""}.',
+        },
+        {
+          role: "user",
+          content:
+            `USER: ${params.userMessage.replace(/\s+/g, " ").slice(0, 1500)}\n\n` +
+            `ASSISTANT: ${params.answer.replace(/\s+/g, " ").slice(0, 1500)}`,
+        },
+      ],
+      { modelName: MODELS.CHAT_UTILITY, temperature: 0.2 }
+    );
+    title = typeof data?.title === "string" ? cleanTitle(data.title) : "";
+  } catch (err) {
+    console.warn("[Session] auto-title skipped:", err instanceof Error ? err.message : err);
+    // No model, no invention: fall back to the opening line rather than a guess.
+    title = params.currentTitle === "New chat" ? cleanTitle(deriveTitle(params.userMessage)) : "";
+  }
+
+  if (!title || title === params.currentTitle) return null;
+
+  const written = await prisma.chatSession
+    .updateMany({ where: { id: params.sessionId, title: params.currentTitle }, data: { title } })
+    .catch(() => null);
+
+  return written && written.count > 0 ? title : null;
 }
 
 /** Persists the user's turn and returns its row id. */
@@ -208,7 +283,7 @@ export async function refreshSessionSummary(params: {
             `NEW TRANSCRIPT TO FOLD IN:\n${transcript}`,
         },
       ],
-      { modelName: "gemini-3.6-flash", temperature: 0.2 }
+      { modelName: MODELS.CHAT_UTILITY, temperature: 0.2 }
     );
 
     const summary = typeof data?.summary === "string" ? data.summary.trim().slice(0, MAX_SUMMARY_CHARS) : "";
