@@ -55,7 +55,7 @@ export const PLANS: Record<PlanTier, PlanConfig> = {
     features: [
       "Connect up to 4 social accounts",
       "Full 6-agent AI Studio campaign generation",
-      "Studio-grade AI image generation (Nano Banana Pro)",
+      "Studio-grade AI image generation",
       "Google Search grounded trend & competitor research",
       "Chat AI Brain with natural language platform control",
       "Multimodal document understanding (PDF, DOCX, TXT, CSV)",

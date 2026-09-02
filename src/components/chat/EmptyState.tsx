@@ -6,13 +6,21 @@
 // The first thing a user sees in a new chat. It exists to answer one question —
 // "what can I actually ask this thing?" — so every card is a real, runnable
 // instruction that exercises a different part of the project.
+//
+// Clicking a card RUNS it. Nothing is dropped into the composer for the user to
+// press send on: a card that only fills in text is a card that has to be read,
+// edited and confirmed before anything happens. Which means every prompt here
+// has to stand on its own, with no attachment and no follow-up needed to start.
 // ============================================================================
 
 import { Boxes, FolderGit2, ImagePlus, Radar, Send, Sparkles } from "lucide-react";
 
 interface EmptyStateProps {
   workspaceName: string;
-  onPick: (text: string) => void;
+  /** Runs the prompt immediately. */
+  onRun: (text: string) => void;
+  /** A turn is already in flight, so a card must not start a second one. */
+  busy?: boolean;
 }
 
 const STARTERS: { icon: typeof Sparkles; title: string; prompt: string }[] = [
@@ -32,7 +40,7 @@ const STARTERS: { icon: typeof Sparkles; title: string; prompt: string }[] = [
     icon: FolderGit2,
     title: "Document a project",
     prompt:
-      "Analyse the folder I'm attaching, write a proper README with a mermaid architecture diagram, organise the repo on GitHub, then turn it into a launch post and publish it.",
+      "I want a project documented: tell me exactly what to attach, then write a proper README with a mermaid architecture diagram, organise the repo on GitHub, and turn it into a launch post I can publish.",
   },
   {
     icon: Radar,
@@ -42,7 +50,7 @@ const STARTERS: { icon: typeof Sparkles; title: string; prompt: string }[] = [
   },
 ];
 
-export function EmptyState({ workspaceName, onPick }: EmptyStateProps) {
+export function EmptyState({ workspaceName, onRun, busy }: EmptyStateProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center px-5 py-10">
@@ -67,8 +75,10 @@ export function EmptyState({ workspaceName, onPick }: EmptyStateProps) {
             <button
               key={starter.title}
               type="button"
-              onClick={() => onPick(starter.prompt)}
-              className="group flex flex-col gap-1.5 rounded-2xl border mkt-border px-3.5 py-3 text-left transition-colors hover:border-[color:var(--mkt-accent)]/60 hover:mkt-bg2"
+              disabled={busy}
+              onClick={() => onRun(starter.prompt)}
+              title="Runs straight away"
+              className="group flex flex-col gap-1.5 rounded-2xl border mkt-border px-3.5 py-3 text-left transition-colors hover:border-[color:var(--mkt-accent)]/60 hover:mkt-bg2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="flex items-center gap-2">
                 <starter.icon className="h-3.5 w-3.5 shrink-0 mkt-accent-text" />
@@ -81,6 +91,8 @@ export function EmptyState({ workspaceName, onPick }: EmptyStateProps) {
             </button>
           ))}
         </div>
+
+        <p className="mt-3 text-[11px] mkt-faint">Click any of these and I start on it right away.</p>
       </div>
     </div>
   );

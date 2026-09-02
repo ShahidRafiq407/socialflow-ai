@@ -29,6 +29,7 @@ import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import {
   MIN_DECK_SLIDES,
   SlidesChangeMeta,
@@ -177,7 +178,7 @@ export default function InstagramCarouselEditor({
       aspectRatio: resolveSlideAspectRatio(),
       style: slideStyle,
       quality: slideQuality,
-      imageModel: "gemini-3-pro-image",
+      imageModel: IMAGE_MODEL_ID,
     });
   };
 

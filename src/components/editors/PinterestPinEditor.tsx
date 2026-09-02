@@ -35,6 +35,7 @@ import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndic
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 
 interface PinterestPinEditorProps {
   capability: PlatformCapability;
@@ -145,7 +146,7 @@ export default function PinterestPinEditor({
   refiningAction = null,
 }: PinterestPinEditorProps) {
   const formatKey = `${capability.platform}-${capability.format}`;
-  // Pinterest Image Settings for Image Pins (Google Cloud Nano Banana Pro / gemini-3-pro-image)
+  // Pinterest Image Settings for Image Pins (rendered on IMAGE_MODEL_ID)
   const [pinAspectRatio, setPinAspectRatio] = useState<string>("auto");
   // Video Pin settings (9:16 vertical video)
   const [pinVideoDuration, setPinVideoDuration] = useState<number>(5);
@@ -177,7 +178,7 @@ export default function PinterestPinEditor({
         aspectRatio: pinAspectRatio === "auto" ? "2:3" : pinAspectRatio,
         style: pinStyle,
         quality: pinQuality,
-        imageModel: "gemini-3-pro-image",
+        imageModel: IMAGE_MODEL_ID,
       });
     }
   };

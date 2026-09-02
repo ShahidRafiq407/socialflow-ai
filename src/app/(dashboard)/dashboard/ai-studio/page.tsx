@@ -197,6 +197,7 @@ import { CarouselSlideItem } from "@/components/editors/InstagramCarouselEditor"
 import { MultiMediaItem } from "@/components/editors/MultiMediaEditor";
 import { MIN_DECK_SLIDES } from "@/components/editors/deckSlides";
 import { getPlatformCapability, PlatformCapability } from "@/lib/capabilities/platformCapabilities";
+import { IMAGE_MODEL_ID, IMAGE_MODEL_LABEL } from "@/lib/agents/mediaModels";
 
 // ============================================================================
 // PLATFORM CONSTANTS & CHARACTER LIMITS
@@ -764,7 +765,7 @@ export default function AIStudioPage() {
   const [selectedStockCategory, setSelectedStockCategory] = useState<string>("Business");
   const [carouselSlideCount, setCarouselSlideCount] = useState<number>(5);
   const [carouselCustomPrompt, setCarouselCustomPrompt] = useState<string>("");
-  const [selectedAiImageModel, setSelectedAiImageModel] = useState<string>("gemini-3-pro-image");
+  const [selectedAiImageModel, setSelectedAiImageModel] = useState<string>(IMAGE_MODEL_ID);
   const [selectedAiVideoModel, setSelectedAiVideoModel] = useState<string>("template");
   const [videoPromptText, setVideoPromptText] = useState<string>("");
   const [aiGeneratingCaption, setAiGeneratingCaption] = useState<boolean>(false);
@@ -2777,7 +2778,7 @@ export default function AIStudioPage() {
       return;
     }
 
-    // Real Image Rendering via Backend AI Visualizer (Vertex AI / Nano Banana Pro)
+    // Real Image Rendering via Backend AI Visualizer (Vertex AI / IMAGE_MODEL_ID)
     // For informational deck formats the ACTIVE slide's headline + insight is sent along
     // so the model typesets it onto the graphic instead of returning a bare backdrop.
     const activeSlideText = isMultiFormat
@@ -2789,8 +2790,8 @@ export default function AIStudioPage() {
     setGenerationStageDict(prev => ({
       ...prev,
       [targetFormatKey]: isDeckSlideRender
-        ? `Designing text-rich slide ${targetSlideIdx + 1} of ${totalCarouselSlides} with Nano Banana Pro...`
-        : "Synthesizing visual canvas with Nano Banana Pro...",
+        ? `Designing text-rich slide ${targetSlideIdx + 1} of ${totalCarouselSlides} with ${IMAGE_MODEL_LABEL}...`
+        : `Synthesizing visual canvas with ${IMAGE_MODEL_LABEL}...`,
     }));
 
     const controller = new AbortController();
@@ -6000,7 +6001,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro</option>
+                    <option value={IMAGE_MODEL_ID}>🍌 {IMAGE_MODEL_LABEL}</option>
                   </select>
                 </div>
                 <div>
@@ -6458,7 +6459,7 @@ export default function AIStudioPage() {
                     onChange={e => setSelectedAiImageModel(e.target.value)}
                     className="w-full h-9 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800 px-3 font-semibold text-slate-800 dark:text-slate-200"
                   >
-                    <option value="gemini-3-pro-image">🍌 Nano Banana Pro</option>
+                    <option value={IMAGE_MODEL_ID}>🍌 {IMAGE_MODEL_LABEL}</option>
                   </select>
                 </div>
                 <div>

@@ -316,7 +316,11 @@ export function ChatWorkbench({
         )}
 
         {chat.messages.length === 0 ? (
-          <EmptyState workspaceName={workspaceName} onPick={(text) => setDraft(text)} />
+          <EmptyState
+            workspaceName={workspaceName}
+            busy={chat.streaming}
+            onRun={(text) => send(text, [])}
+          />
         ) : (
           <MessageThread
             messages={chat.messages}

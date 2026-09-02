@@ -1,5 +1,6 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 import { CONTROLLER_MODEL_ID } from "./controller/models";
+import { IMAGE_MODEL_ID, VIDEO_MODEL_ID } from "./mediaModels";
 
 // Centralized ELITE-tier Google Vertex AI model mapping
 // Removed all flash, lite, and low-scale constraints to guarantee production depth
@@ -14,10 +15,15 @@ export const MODELS = {
   ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
-  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || "gemini-3-pro-image",
-  // gemini-omni-flash-preview — Google's multimodal video generation model
-  // Generates short-form video content from text/image prompts.
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || "gemini-omni-flash-preview",
+  //
+  // The ids come from mediaModels.ts, which the editors and the AI Studio pickers
+  // read as well — server and UI cannot drift onto different models. Server-only
+  // MODEL_IMAGE_GENERATOR / MODEL_VIDEO_GENERATOR still win if they are set, for
+  // a deployment that wants the backend on a different render model than the one
+  // the pickers advertise.
+  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || IMAGE_MODEL_ID,
+  // The video model generates short-form video from text/image prompts.
+  VIDEO: process.env.MODEL_VIDEO_GENERATOR || VIDEO_MODEL_ID,
 
   // Regenerating a single slide's copy is a content-creator job, so it follows the
   // content-creator override rather than the (unrelated) competitor-analyst one.

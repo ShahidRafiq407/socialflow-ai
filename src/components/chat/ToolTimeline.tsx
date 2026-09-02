@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Loader2,
   ShieldAlert,
+  SquareSlash,
 } from "lucide-react";
 import type { ToolRun } from "@/lib/agents/controller/types";
 
@@ -28,6 +29,8 @@ interface ToolTimelineProps {
 function PhaseIcon({ phase }: { phase: ToolRun["phase"] }) {
   if (phase === "running") return <Loader2 className="h-3.5 w-3.5 animate-spin mkt-accent-text" />;
   if (phase === "error") return <AlertTriangle className="h-3.5 w-3.5 text-red-400" />;
+  // Stopped is its own outcome: not a success, and not the tool's fault either.
+  if (phase === "cancelled") return <SquareSlash className="h-3.5 w-3.5 mkt-faint" />;
   return <Check className="h-3.5 w-3.5 mkt-accent-text" />;
 }
 
@@ -50,7 +53,11 @@ function ToolRow({ run, expandable }: { run: ToolRun; expandable: boolean }) {
 
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className={`truncate text-[12.5px] ${run.phase === "error" ? "text-red-400" : "mkt-text"}`}>
+            <span
+              className={`truncate text-[12.5px] ${
+                run.phase === "error" ? "text-red-400" : run.phase === "cancelled" ? "mkt-faint" : "mkt-text"
+              }`}
+            >
               {run.label}
             </span>
             {run.mutating && (
@@ -63,7 +70,7 @@ function ToolRow({ run, expandable }: { run: ToolRun; expandable: boolean }) {
           {run.phase === "running" && run.progress && (
             <span className="mt-0.5 block truncate text-[11.5px] mkt-faint">{run.progress}</span>
           )}
-          {run.phase === "done" && run.summary && (
+          {(run.phase === "done" || run.phase === "cancelled") && run.summary && (
             <span className="mt-0.5 block truncate text-[11.5px] mkt-faint">{run.summary}</span>
           )}
           {run.phase === "error" && run.error && (
@@ -98,6 +105,7 @@ export function ToolTimeline({ runs, visibility }: ToolTimelineProps) {
   if (shown.length === 0) return null;
 
   const failures = runs.filter((r) => r.phase === "error").length;
+  const stopped = runs.filter((r) => r.phase === "cancelled").length;
   const running = runs.some((r) => r.phase === "running");
 
   return (
@@ -106,11 +114,10 @@ export function ToolTimeline({ runs, visibility }: ToolTimelineProps) {
         <span className="text-[11px] font-medium uppercase tracking-wide mkt-muted">
           {running ? "Working" : `${runs.length} step${runs.length === 1 ? "" : "s"}`}
         </span>
-        {failures > 0 && (
-          <span className="text-[11px] text-red-400">
-            {failures} failed
-          </span>
-        )}
+        <span className="flex items-center gap-2 text-[11px]">
+          {stopped > 0 && <span className="mkt-faint">{stopped} stopped</span>}
+          {failures > 0 && <span className="text-red-400">{failures} failed</span>}
+        </span>
       </div>
       <div>
         {shown.map((run) => (

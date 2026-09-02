@@ -25,6 +25,7 @@ import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMedia
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 
 interface StandardSocialEditorProps {
   capability: PlatformCapability;
@@ -148,7 +149,7 @@ export default function StandardSocialEditor({
     capability.supportsTitle ||
     capability.supportsDescription;
 
-  // Model settings for image synthesis (Google Cloud Nano Banana Pro / gemini-3-pro-image)
+  // Model settings for image synthesis (rendered on IMAGE_MODEL_ID)
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
@@ -239,7 +240,7 @@ export default function StandardSocialEditor({
         aspectRatio: safeAspectRatio,
         style: imageStyle,
         quality: imageQuality,
-        imageModel: "gemini-3-pro-image",
+        imageModel: IMAGE_MODEL_ID,
       });
     }
   };

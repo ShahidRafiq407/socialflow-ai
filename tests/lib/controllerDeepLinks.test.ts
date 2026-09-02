@@ -22,8 +22,28 @@ import {
   parseControllerEvent,
   splitSseFrames,
   sseFrame,
+  STOPPED_TURN_TEXT,
   type ControllerEvent,
+  type ToolPhase,
 } from "@/lib/agents/controller/types";
+import {
+  INTERRUPTED_TURN_NOTE,
+  MAX_PARALLEL_TOOLS,
+  SERIAL_TOOLS,
+  batchCalls,
+  closeDanglingRequests,
+  envInt,
+  envList,
+  settleRuns,
+  type SettleableRun,
+} from "@/lib/agents/controller/turnFlow";
+import {
+  IMAGE_MODEL_ID,
+  IMAGE_MODEL_LABEL,
+  VIDEO_MODEL_ID,
+  VIDEO_MODEL_LABEL,
+  mediaModelLabel,
+} from "@/lib/agents/mediaModels";
 
 // ============================================================================
 // The controller's promise to the user is "here is a link, click it and you land
@@ -386,6 +406,17 @@ describe("SSE frame round trip", () => {
     { type: "text", delta: "Here is the post: " },
     { type: "tool", run: { id: "t1", name: "generate_image", label: "Generating…", phase: "running" } },
     {
+      type: "tool",
+      run: {
+        id: "t1",
+        name: "generate_image",
+        label: "Generating…",
+        phase: "cancelled",
+        summary: "Stopped before it finished",
+        durationMs: 812,
+      },
+    },
+    {
       type: "artifact",
       artifact: { id: "a1", kind: "image", title: "Instagram feed", url: "https://cdn.test/a.png" },
     },
@@ -393,6 +424,7 @@ describe("SSE frame round trip", () => {
     { type: "model", model: "gemini-3.1-pro-preview", fallback: false },
     { type: "notice", level: "warn", message: "GitHub is not connected." },
     { type: "done", messageId: "m_2", finishReason: "ok", durationMs: 1200, model: "x", toolCount: 3 },
+    { type: "done", messageId: "m_3", finishReason: "cancelled", durationMs: 400, model: "x", toolCount: 1 },
     { type: "error", message: "Vertex AI Provider Agent: all candidates failed", code: "provider" },
   ];
 
@@ -447,5 +479,261 @@ describe("SSE frame round trip", () => {
     for (const junk of ["", "   ", ": heartbeat", "data: ", "data: not json", '{"noType":true}', "event: ping"]) {
       expect(parseControllerEvent(junk)).toBeNull();
     }
+  });
+});
+
+// ============================================================================
+// Stop. Every rule below is the difference between the work ending and the work
+// only looking like it ended: what a stopped turn leaves behind, what the next
+// turn is told about it, and which tools may run beside each other at all.
+// ============================================================================
+
+describe("stopped turn markers", () => {
+  it("carries a phase of its own, distinct from done and error", () => {
+    const phases: ToolPhase[] = ["running", "done", "error", "cancelled"];
+    expect(new Set(phases).size).toBe(phases.length);
+    expect(phases).toContain("cancelled");
+  });
+
+  // The bug this replaces: a stopped turn saved empty text, the empty row was
+  // filtered out of history, and the next message resumed the abandoned work.
+  it("is non-empty, so a stopped turn still persists an assistant row", () => {
+    expect(STOPPED_TURN_TEXT.trim().length).toBeGreaterThan(0);
+    expect(STOPPED_TURN_TEXT.toLowerCase()).toContain("stopped");
+  });
+
+  it("tells the user the finished work was kept", () => {
+    expect(STOPPED_TURN_TEXT.toLowerCase()).toContain("undone");
+  });
+});
+
+describe("envInt", () => {
+  it("falls back when the variable is missing, blank or not a number", () => {
+    for (const raw of [undefined, "", "   ", "abc", "NaN"]) {
+      expect(envInt("X", 4, 1, 8, { X: raw })).toBe(4);
+    }
+  });
+
+  it("clamps into range instead of trusting the value", () => {
+    expect(envInt("X", 4, 1, 8, { X: "99" })).toBe(8);
+    expect(envInt("X", 4, 1, 8, { X: "0" })).toBe(1);
+    expect(envInt("X", 4, 1, 8, { X: "-3" })).toBe(1);
+  });
+
+  it("reads a valid value and rounds a fractional one", () => {
+    expect(envInt("X", 4, 1, 8, { X: "2" })).toBe(2);
+    expect(envInt("X", 4, 1, 8, { X: "2.6" })).toBe(3);
+  });
+
+  it("clamps the fallback too, so a bad default cannot escape the range", () => {
+    expect(envInt("X", 40, 1, 8, {})).toBe(8);
+  });
+});
+
+describe("envList", () => {
+  it("keeps the fallback when the variable is missing or holds no real entries", () => {
+    expect(envList("X", ["a"], {})).toEqual(["a"]);
+    expect(envList("X", ["a"], { X: "" })).toEqual(["a"]);
+    expect(envList("X", ["a"], { X: " , , " })).toEqual(["a"]);
+  });
+
+  it("splits on commas and trims each entry", () => {
+    expect(envList("X", ["a"], { X: "one, two ,three" })).toEqual(["one", "two", "three"]);
+  });
+
+  it("lets one entry replace the whole fallback", () => {
+    expect(envList("X", ["a", "b"], { X: "only" })).toEqual(["only"]);
+  });
+});
+
+describe("batchCalls", () => {
+  const asIs = (name: string) => name;
+  const call = (name: string) => ({ name });
+  const names = (batches: { name: string }[][]) => batches.map((b) => b.map((c) => c.name));
+
+  it("fills a batch to the cap and starts a new one after it", () => {
+    const batches = batchCalls(["a", "b", "c", "d", "e"].map(call), asIs, {
+      maxParallel: 2,
+      serialTools: new Set(),
+    });
+    expect(names(batches)).toEqual([["a", "b"], ["c", "d"], ["e"]]);
+  });
+
+  // The bug this replaces: four image renders in one batch tripped the media
+  // model's per-minute quota, and all four then sat in a visible retry storm.
+  it("gives a quota-bound tool a batch of its own", () => {
+    const batches = batchCalls(["a", "generate_image", "generate_image", "b"].map(call), asIs, {
+      maxParallel: 4,
+      serialTools: new Set(["generate_image"]),
+    });
+    expect(names(batches)).toEqual([["a"], ["generate_image"], ["generate_image"], ["b"]]);
+  });
+
+  it("preserves the model's ordering, so a dependent chain still runs in sequence", () => {
+    const flat = batchCalls(["a", "b", "generate_video", "c"].map(call), asIs, {
+      maxParallel: 3,
+      serialTools: new Set(["generate_video"]),
+    }).flat();
+    expect(flat.map((c) => c.name)).toEqual(["a", "b", "generate_video", "c"]);
+  });
+
+  it("resolves the alias first, so a renamed image tool is still serial", () => {
+    const batches = batchCalls([call("img_1"), call("img_2")], () => "generate_image", {
+      maxParallel: 4,
+      serialTools: new Set(["generate_image"]),
+    });
+    expect(names(batches)).toEqual([["img_1"], ["img_2"]]);
+  });
+
+  it("returns nothing for no calls and never emits an empty batch", () => {
+    expect(batchCalls([], asIs)).toEqual([]);
+    const batches = batchCalls(["a", "b"].map(call), asIs, { maxParallel: 0, serialTools: new Set() });
+    expect(batches.every((b) => b.length >= 1)).toBe(true);
+  });
+
+  it("ships with the media tools serial and a cap the runtime can hold", () => {
+    expect(SERIAL_TOOLS.has("generate_image")).toBe(true);
+    expect(SERIAL_TOOLS.has("generate_video")).toBe(true);
+    expect(MAX_PARALLEL_TOOLS).toBeGreaterThanOrEqual(1);
+    expect(MAX_PARALLEL_TOOLS).toBeLessThanOrEqual(8);
+  });
+});
+
+describe("closeDanglingRequests", () => {
+  const user = (content: string) => ({ role: "user" as const, content });
+  const assistant = (content: string) => ({ role: "assistant" as const, content });
+
+  it("leaves a complete conversation exactly as it was", () => {
+    const all = [user("hi"), assistant("hello"), user("again"), assistant("sure")];
+    expect(closeDanglingRequests(all)).toEqual(all);
+  });
+
+  // The bug this replaces: Stop on a media job, then "hi", and the controller
+  // went back to generating images because the media request was still the
+  // newest thing it could see.
+  it("closes a request that was stopped before any answer was saved", () => {
+    const out = closeDanglingRequests([user("generate 4 instagram images"), user("hi")]);
+    expect(out).toEqual([
+      user("generate 4 instagram images"),
+      assistant(INTERRUPTED_TURN_NOTE),
+      user("hi"),
+      assistant(INTERRUPTED_TURN_NOTE),
+    ]);
+  });
+
+  it("closes a trailing user row, so history never ends on an open request", () => {
+    const out = closeDanglingRequests([user("hi"), assistant("hello"), user("render a video")]);
+    expect(out[out.length - 1]).toEqual(assistant(INTERRUPTED_TURN_NOTE));
+  });
+
+  it("never leaves two user rows side by side", () => {
+    const out = closeDanglingRequests([user("a"), user("b"), user("c")]);
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i - 1].role === "user" && out[i].role === "user").toBe(false);
+    }
+  });
+
+  it("does not touch the input array", () => {
+    const all = [user("a"), user("b")];
+    closeDanglingRequests(all);
+    expect(all).toHaveLength(2);
+  });
+
+  it("handles an empty history and one that opens with an assistant row", () => {
+    expect(closeDanglingRequests([])).toEqual([]);
+    const all = [assistant("summary of earlier turns"), user("hi"), assistant("hello")];
+    expect(closeDanglingRequests(all)).toEqual(all);
+  });
+
+  it("tells the model to abandon the work rather than resume it", () => {
+    expect(INTERRUPTED_TURN_NOTE.toLowerCase()).toContain("interrupted");
+    expect(INTERRUPTED_TURN_NOTE.toLowerCase()).toContain("do not resume");
+  });
+});
+
+describe("settleRuns", () => {
+  const run = (phase: string, extra: Partial<SettleableRun> = {}): SettleableRun => ({
+    phase,
+    progress: "Generating image via the image model…",
+    ...extra,
+  });
+
+  // The bug this replaces: a row left on "running" spun forever after Stop, and
+  // was saved that way too, so it spun again on every reload of that message.
+  it("moves a running row to cancelled and clears its progress line", () => {
+    const runs = [run("running")];
+    const changed = settleRuns(runs, "cancelled", "Stopped before it finished");
+    expect(runs[0].phase).toBe("cancelled");
+    expect(runs[0].progress).toBeUndefined();
+    expect(runs[0].summary).toBe("Stopped before it finished");
+    expect(changed).toEqual([runs[0]]);
+  });
+
+  it("leaves rows that already finished alone", () => {
+    const runs = [run("done", { summary: "Rendered" }), run("error", { error: "429" }), run("cancelled")];
+    expect(settleRuns(runs, "cancelled", "Stopped")).toEqual([]);
+    expect(runs.map((r) => r.phase)).toEqual(["done", "error", "cancelled"]);
+    expect(runs[0].summary).toBe("Rendered");
+    expect(runs[1].error).toBe("429");
+  });
+
+  it("writes the note to error rather than summary when the turn failed", () => {
+    const runs = [run("running")];
+    settleRuns(runs, "error", "provider unavailable");
+    expect(runs[0].error).toBe("provider unavailable");
+    expect(runs[0].summary).toBeUndefined();
+  });
+
+  it("returns only the rows it changed, so the caller emits exactly those", () => {
+    const runs = [run("done"), run("running"), run("running"), run("error")];
+    const changed = settleRuns(runs, "cancelled", "Stopped");
+    expect(changed).toHaveLength(2);
+    expect(changed.every((r) => r.phase === "cancelled")).toBe(true);
+  });
+
+  it("fills a duration from the turn start, and keeps one it already had", () => {
+    const runs = [run("running"), run("running", { durationMs: 500 })];
+    settleRuns(runs, "cancelled", "Stopped", Date.now() - 1000);
+    expect(runs[0].durationMs).toBeGreaterThanOrEqual(900);
+    expect(runs[1].durationMs).toBe(500);
+  });
+
+  it("leaves the duration unset when the caller has no start time", () => {
+    const runs = [run("running")];
+    settleRuns(runs, "cancelled", "Stopped");
+    expect(runs[0].durationMs).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Media models. The controller never draws or films anything itself, so the ids
+// live in one client-safe module that both the server and every picker read. If
+// a component hardcodes a model string again, the UI and the backend drift.
+// ============================================================================
+
+describe("media model registry", () => {
+  it("resolves an image and a video model id", () => {
+    for (const id of [IMAGE_MODEL_ID, VIDEO_MODEL_ID]) {
+      expect(typeof id).toBe("string");
+      expect(id.trim()).toBe(id);
+      expect(id.length).toBeGreaterThan(0);
+    }
+    expect(IMAGE_MODEL_ID).not.toBe(VIDEO_MODEL_ID);
+  });
+
+  it("labels the models it ships with", () => {
+    expect(mediaModelLabel("gemini-3-pro-image")).toBe("Nano Banana Pro");
+    expect(mediaModelLabel("gemini-2.5-flash-image")).toBe("Nano Banana");
+    expect(mediaModelLabel("gemini-omni-flash-preview")).toBe("Omni Flash Video");
+  });
+
+  it("shows an unknown id as-is instead of inventing a name", () => {
+    expect(mediaModelLabel("some-future-model")).toBe("some-future-model");
+    expect(mediaModelLabel("")).toBe("");
+  });
+
+  it("keeps the exported labels in step with the exported ids", () => {
+    expect(IMAGE_MODEL_LABEL).toBe(mediaModelLabel(IMAGE_MODEL_ID));
+    expect(VIDEO_MODEL_LABEL).toBe(mediaModelLabel(VIDEO_MODEL_ID));
   });
 });

@@ -37,6 +37,45 @@ const THINKING_LEVEL_BY_EFFORT: Record<Exclude<ThinkingEffort, "off">, string> =
   deep: "HIGH",
 };
 
+// ---------------------------------------------------------------------------
+// Model defaults
+//
+// Every id here is a default, not a constant: a deployment whose project has a
+// different set of Gemini models enabled changes these through the environment
+// instead of through a code change. This file cannot import llm.ts (llm.ts
+// imports this class), so the vars are read directly.
+// ---------------------------------------------------------------------------
+
+/** Comma-separated env list, trimmed and de-duped; empty falls back. */
+function modelList(name: string, fallback: string[]): string[] {
+  const raw = process.env[name];
+  if (typeof raw !== "string") return fallback;
+  const items = Array.from(new Set(raw.split(",").map((p) => p.trim()).filter(Boolean)));
+  return items.length > 0 ? items : fallback;
+}
+
+/** The model a caller gets when it names none and wants reasoning depth. */
+const DEFAULT_FRONTIER_MODEL = process.env.VERTEX_DEFAULT_PRO_MODEL?.trim() || "gemini-3.1-pro-preview";
+/** The model a caller gets when it names none and wants speed (vision, grounding). */
+const DEFAULT_FAST_MODEL = process.env.VERTEX_DEFAULT_FAST_MODEL?.trim() || "gemini-3.6-flash";
+
+/** Tried in order after a "pro" model fails on quota or a transient error. */
+const PRO_FALLBACKS = modelList("VERTEX_PRO_FALLBACKS", [
+  DEFAULT_FAST_MODEL,
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-1.5-pro",
+  "gemini-1.5-flash",
+]);
+
+/** Tried in order after any other model fails the same way. */
+const FAST_FALLBACKS = modelList("VERTEX_FAST_FALLBACKS", [
+  DEFAULT_FAST_MODEL,
+  "gemini-3.5-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-1.5-flash",
+]);
+
 export class VertexAIProvider {
   public ai: GoogleGenAI;
   public mediaAi: GoogleGenAI;
@@ -89,12 +128,7 @@ export class VertexAIProvider {
    * Resilient fallback model resolution for Vertex AI
    */
   private getFallbackModels(primaryModel: string): string[] {
-    const list = [primaryModel];
-    if (primaryModel.includes("pro")) {
-      list.push("gemini-3.6-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash");
-    } else {
-      list.push("gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-1.5-flash");
-    }
+    const list = [primaryModel, ...(primaryModel.includes("pro") ? PRO_FALLBACKS : FAST_FALLBACKS)];
     return Array.from(new Set(list.filter(Boolean)));
   }
 
@@ -123,7 +157,7 @@ export class VertexAIProvider {
     messages: { role: string; content: string }[],
     options: { modelName?: string; temperature?: number; tools?: any[] } = {}
   ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
+    const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FRONTIER_MODEL);
     let lastError: any = null;
 
     const prompt = messages.map(m => {
@@ -184,7 +218,7 @@ export class VertexAIProvider {
     parts: Part[],
     options: { modelName?: string; temperature?: number } = {}
   ): Promise<string> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
+    const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FAST_MODEL);
     let lastError: unknown = null;
 
     for (const modelName of candidateModels) {
@@ -228,7 +262,7 @@ export class VertexAIProvider {
     prompt: string,
     options: { modelName?: string; temperature?: number } = {}
   ): Promise<{ text: string; searchQueries: string[]; sources: { title: string; url: string; snippet: string }[] }> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.6-flash");
+    const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FAST_MODEL);
     let lastError: any = null;
 
     for (const modelName of candidateModels) {
@@ -349,7 +383,7 @@ export class VertexAIProvider {
     model: string;
     thinkingUsed: boolean;
   }> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
+    const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FRONTIER_MODEL);
     let lastError: any = null;
 
     if (typeof (this.ai as any)?.models?.generateContentStream !== "function") {
@@ -580,7 +614,7 @@ export class VertexAIProvider {
       onModelFallback?: (modelName: string) => void;
     } = {}
   ): Promise<AgentTurnResult> {
-    const requested = params.modelName || "gemini-3.1-pro-preview";
+    const requested = params.modelName || DEFAULT_FRONTIER_MODEL;
     const candidateModels = this.getFallbackModels(requested);
     const declarations = params.functionDeclarations || [];
     const wantsThinking = params.thinkingEffort !== "off";
@@ -740,7 +774,7 @@ export class VertexAIProvider {
     messages: { role: string; content: string }[],
     options: { modelName?: string; temperature?: number } = {}
   ): Promise<any> {
-    const candidateModels = this.getFallbackModels(options.modelName || "gemini-3.1-pro-preview");
+    const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FRONTIER_MODEL);
     let lastError: any = null;
 
     const prompt = messages.map(m => {

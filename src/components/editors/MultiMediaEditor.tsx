@@ -29,6 +29,7 @@ import XGuidelinesBanner from "./XGuidelinesBanner";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { DECK_MEDIA_FIT, mediaPreviewFrame, resolvePreviewRatio } from "./mediaPreviewFrame";
 
 export interface MultiMediaItem {
@@ -203,7 +204,7 @@ export default function MultiMediaEditor({
       aspectRatio: safeAspectRatio,
       style: imageStyle,
       quality: imageQuality,
-      imageModel: "gemini-3-pro-image",
+      imageModel: IMAGE_MODEL_ID,
     });
   };
 

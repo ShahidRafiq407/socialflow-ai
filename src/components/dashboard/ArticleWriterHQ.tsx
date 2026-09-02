@@ -59,6 +59,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { connectWordPressSite, getWordPressSite } from "@/actions/wordpressSite";
+import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 
 // ============================================================================
 // TYPES
@@ -3329,7 +3330,7 @@ export function ArticleWriterHQ({
                               format: "Article",
                               prompt: cleanPrompt,
                               aspectRatio: targetAspect,
-                              imageModel: "gemini-3-pro-image",
+                              imageModel: IMAGE_MODEL_ID,
                             }),
                           });
                           const data = await res.json();
@@ -3385,7 +3386,7 @@ export function ArticleWriterHQ({
                                   format: "Article",
                                   prompt: cleanPrompt,
                                   aspectRatio: targetAspect,
-                                  imageModel: "gemini-3-pro-image",
+                                  imageModel: IMAGE_MODEL_ID,
                                 }),
                               });
                               const data = await res.json();
