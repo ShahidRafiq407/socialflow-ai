@@ -712,10 +712,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         // single 429 consumed a shape instead of being retried and the whole campaign
         // died with "no image bytes" after about six seconds of patience.
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
-        // Kept deliberately small. With families rendering one at a time the request
-        // rate stays under the quota, so the old retry storm (up to 7 tries chasing
-        // 429s) is no longer needed — one render, and a single second try only for a
-        // genuine transient blip. Set IMAGE_MAX_ATTEMPTS=1 to disable the retry entirely.
+        // Kept deliberately small. The per-model rate pacer keeps the request rate
+        // under the quota even with several families rendering in parallel, so the old
+        // retry storm (up to 7 tries chasing 429s) is no longer needed — one render,
+        // and a single second try only for a genuine transient blip. Set
+        // IMAGE_MAX_ATTEMPTS=1 to disable the retry entirely.
         const maxRungAttempts = envInt("IMAGE_MAX_ATTEMPTS", 2, { min: 1, max: 12 });
         const baseBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MS", 2000, { min: 250, max: 60000 });
         const maxBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MAX_MS", 24000, {

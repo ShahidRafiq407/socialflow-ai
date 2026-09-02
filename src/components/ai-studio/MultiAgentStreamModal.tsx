@@ -160,9 +160,10 @@ const DEFAULT_PHASES: PhaseInfo[] = [
   },
   // Writing and rendering are two stages, not two peers: the visualizer cannot render
   // a format until the content creator has handed it that format's visual prompt.
-  // Content writing fans out over formats in parallel (the text model's quota is roomy).
-  // Media production does NOT: it renders one format family at a time so the image
-  // model's small per-minute quota is never tripped — hence no PARALLEL badge on it.
+  // Both fan out over formats in parallel — the text model's quota is roomy, and the
+  // image model's per-minute quota is protected by the shared rate pacer, not by
+  // rendering serially (serial rendering stacked 30-120s per format and blew the run
+  // budget on multi-format campaigns).
   {
     phase: "copy",
     label: "Content writing",
@@ -175,8 +176,8 @@ const DEFAULT_PHASES: PhaseInfo[] = [
     phase: "render",
     label: "Media production",
     agents: ["visualizer"],
-    parallel: false,
-    mode: "sequential",
+    parallel: true,
+    mode: "parallel",
     status: "waiting",
   },
   {

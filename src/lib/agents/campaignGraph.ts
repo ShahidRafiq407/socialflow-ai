@@ -1080,17 +1080,22 @@ Return strictly JSON:
   // Copy families DO overlap: several text families at once are different prompts on the
   // text model, whose per-minute allowance comfortably covers a handful of requests.
   //
-  // Media families render ONE AT A TIME by default, and that is deliberate. On the
-  // image quotas these projects actually have (a few requests per minute) the model is
-  // also slow — 30-120s per render — so its own render time already paces it well under
-  // the wall. Firing several families at once buys no real speed there (the quota, not
-  // the CPU, is the limit) and instead slams the per-minute window: the pacer then has
-  // to stall everyone 60s at a time and the console fills with "resuming in 60s". Going
-  // one family after another keeps the request rate naturally below the quota, so the
-  // 429s — and the retries that chase them — mostly stop happening. Raise
-  // CAMPAIGN_MEDIA_CONCURRENCY only on a project with a genuinely lifted image quota.
+  // Media families render SEVERAL AT A TIME by default, and that is deliberate. A render
+  // takes 30-120s while the image quota allows ~6 requests a minute, so strictly serial
+  // rendering used only 0.5-2 of those 6 and made the render LATENCY the bottleneck:
+  // four families at ~90s each is 360s of wall clock, which blows the 255s run budget,
+  // and the tail families get skipped with "run reached its time limit" — the exact way
+  // multi-format campaigns lost their media while single-format runs worked.
+  //
+  // Overlapping the renders fixes that (four families now finish in roughly one render's
+  // span), and the per-model rate pacer in mediaGenerator keeps the overlap honest:
+  // every request, from any family, queues on ONE shared sliding window, so concurrency
+  // cannot manufacture a 429 the pacer then has to absorb. If the provider disagrees
+  // with the configured RPM the pacer shrinks itself and excess renders simply hold at
+  // "resuming in Xs" instead of failing. Set CAMPAIGN_MEDIA_CONCURRENCY=1 to get the
+  // old strictly-serial behaviour back.
   const copyConcurrency = envConcurrency("CAMPAIGN_COPY_CONCURRENCY", 3);
-  const mediaConcurrency = envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 1);
+  const mediaConcurrency = envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 3);
   const copyLimiter = createLimiter(copyConcurrency);
   const mediaLimiter = createLimiter(mediaConcurrency);
 
@@ -1590,9 +1595,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     const primary = family.members[0];
     const item = state.generatedContent!.platforms[primary.platform][primary.contentType] as any;
     const shared = family.members.length > 1;
-    // Families render strictly one at a time, so a running position ("Format 2/3") makes
-    // the sequential flow legible in the thinking panel: each family announces itself,
-    // renders, then reports complete before the next one starts.
+    // Families render several at a time (bounded by mediaConcurrency), so the position
+    // ("Format 2/3") identifies WHICH family a console line belongs to rather than its
+    // turn: two families can legitimately be in flight at once, each announcing itself,
+    // rendering and reporting complete independently.
     const position = options?.positionLabel ?? `Format ${familyIndex + 1}/${familyTotal}`;
 
     // One controller per family, chained to the run's. Aborting it abandons THIS family
@@ -1859,20 +1865,23 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   completePhase("copy");
 
   // =========================================================================
-  // PHASE 3b — VISUALIZER: one format family's media at a time
+  // PHASE 3b — VISUALIZER: format families render in bounded parallel
   //
-  // This is the stage multi-format campaigns used to die in. ONE platform with ONE
-  // format worked because there was a single render to make. Ask for several formats
-  // and the renders raced each other into the image model's per-minute window; the
-  // first 429 failed its family, that failure set `productionHalted`, and the halt
-  // cancelled every sibling and threw the whole campaign away. Multi-format was not
-  // "slower" — it was structurally unable to finish.
+  // This is the stage multi-format campaigns used to die in, twice over. First the
+  // renders raced each other into the image model's per-minute window; the first 429
+  // failed its family, that failure set `productionHalted`, and the halt cancelled
+  // every sibling and threw the whole campaign away. Then, once rendering was made
+  // strictly serial to cure that, the render LATENCY stacked — 30-120s per family, one
+  // after another — until the run's time budget ran out and the tail families were
+  // skipped. Multi-format was not "slower" — it was structurally unable to finish.
   //
   // Two things change that:
-  //   1. Families render one at a time (`mediaConcurrency` defaults to 1) and every
-  //      request is paced against ONE shared per-minute window per model (the rate
-  //      pacer in mediaGenerator), so they queue politely instead of manufacturing the
-  //      429 they then have to absorb.
+  //   1. Families render in parallel, bounded by `mediaConcurrency` (default 3), and
+  //      every request — from any family, any slide — is paced against ONE shared
+  //      per-minute window per model (the rate pacer in mediaGenerator), so the
+  //      overlap cannot manufacture the 429 it then has to absorb: excess requests
+  //      hold at "resuming in Xs" instead of failing. The wall clock is now the span
+  //      of the slowest render, not the sum of all of them.
   //   2. A render failure is LOCAL to its family. That family publishes as text-only
   //      and every other family keeps its media, because a missing image is a degraded
   //      post, not a dead campaign.
@@ -1883,11 +1892,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   // from a single generation, and the members stay in sync by construction.
   // =========================================================================
   checkCancelled();
-  // Media renders one family at a time (mediaConcurrency defaults to 1), so this phase
-  // is genuinely sequential — no PARALLEL badge. The old "parallel" label was left over
-  // from when families fanned out at once; that tripped the image model's per-minute
-  // quota, which is exactly why rendering was made one-at-a-time.
-  startPhase("render", "Media production", ["visualizer"], "sequential");
+  // Families fan out under the media limiter (mediaConcurrency defaults to 3), so this
+  // phase runs in parallel — the per-model rate pacer, not the phase, is what keeps
+  // the request rate inside the image model's per-minute quota.
+  startPhase("render", "Media production", ["visualizer"], "parallel");
   emit({ type: "agent_started", agentId: "visualizer" });
   emit({
     type: "agent_action",
