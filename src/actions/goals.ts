@@ -724,7 +724,7 @@ OUTPUT VALID JSON ONLY:
           mediaType: isVideo ? "video" : "image",
           prompt: visualPrompt,
           aspectRatio: capability.defaultAspectRatio,
-          imageModel: "gemini-3-pro-image",
+          imageModel: MODELS.VISUALIZER,
           topic: task.topic,
           signal: options?.signal,
           onProgress: options?.onProgress,
@@ -1252,7 +1252,7 @@ export async function regenerateGrowthTaskMedia(
       mediaType: isVideo ? "video" : "image",
       prompt: (options?.prompt || post.imagePrompt || task.topic || "").trim(),
       aspectRatio: capability.defaultAspectRatio,
-      imageModel: "gemini-3-pro-image",
+      imageModel: MODELS.VISUALIZER,
       topic: task.topic,
       signal: options?.signal,
     } as any);

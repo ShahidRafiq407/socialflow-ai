@@ -15,7 +15,7 @@ import {
   type FormatFamily,
 } from "@/lib/agents/formatFamilies";
 import { createThoughtEmitter } from "@/lib/agents/thoughtStream";
-import { createLimiter, envConcurrency } from "@/lib/agents/concurrency";
+import { createLimiter, envConcurrency, envInt } from "@/lib/agents/concurrency";
 import {
   runDeterministicChecks,
   groupIssuesByPost,
@@ -37,6 +37,13 @@ export interface AgentEventCallback {
       | "agent_action"
       /** A real thought summary streamed from the model that is doing the work. */
       | "agent_thought"
+      /**
+       * One parallel unit of work (a format family) finished. Several families run
+       * under a single agentId, so without this the console cannot tell a family that
+       * succeeded from one still in flight — and a sibling's failure used to red-mark
+       * both.
+       */
+      | "agent_scope_completed"
       | "web_search"
       | "source_found"
       | "output_ready"
@@ -383,6 +390,14 @@ export async function runCampaignGraph(
       emit: (line, index) =>
         emit({ type: "agent_thought", agentId, data: { line, index, scope } }),
     });
+
+  /**
+   * Closes one parallel unit of work. The console keeps a unit's latest line marked
+   * in-flight until it hears this, which is what lets it show a family that finished
+   * as finished while its siblings are still running.
+   */
+  const completeScope = (agentId: string, scope: string) =>
+    emit({ type: "agent_scope_completed", agentId, data: { scope } });
 
   const startPhase = (phase: string, label: string, agents: string[], parallel: boolean) =>
     emit({ type: "phase_started", agentId: "system", data: { phase, label, agents, parallel } });
@@ -977,10 +992,19 @@ Return strictly JSON:
   state.generatedContent = state.generatedContent || { platforms: {} };
   state.generatedAssets = [];
 
-  // Bounded concurrency: Vertex enforces per-model RPM limits, so families queue
-  // rather than all firing at once. Raise via env when the project quota allows.
+  // Parallelism is applied only where the work genuinely runs on different resources.
+  //
+  // Copy families DO overlap: several text families at once are different prompts on the
+  // text model, whose per-minute allowance comfortably covers a handful of requests.
+  //
+  // Media families DO NOT overlap by default. Every render — still, deck slide or video —
+  // queues on the SINGLE image/video model, so two families in flight only compete for
+  // the same quota window and answer with 429s, which the render then has to spend its
+  // retries absorbing. Serialising them costs little (copy for the next family is being
+  // written meanwhile) and is what makes the renders actually land. Raise it only on a
+  // project whose image quota is genuinely higher.
   const copyLimiter = createLimiter(envConcurrency("CAMPAIGN_COPY_CONCURRENCY", 3));
-  const mediaLimiter = createLimiter(envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 2));
+  const mediaLimiter = createLimiter(envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 1));
 
   let productionHalted = false;
   const checkProductionRunnable = () => {
@@ -1502,6 +1526,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         ? `Shared ${family.label} rendered for ${family.members.length} formats`
         : `${family.label} rendered for ${primary.platform} ${primary.contentType}`
     );
+    completeScope("visualizer", family.label);
   };
 
   const familyOutcomes = await Promise.allSettled(
@@ -1518,6 +1543,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
             );
           }
           markCopyDone(family);
+          completeScope("content_creator", family.label);
         } else {
           let creative: FamilyCreative;
           try {
@@ -1529,6 +1555,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
           }
           applyCreative(family, creative);
           markCopyDone(family);
+          completeScope("content_creator", family.label);
         }
 
         if (!family.visualRequired) {
@@ -1540,6 +1567,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
               scope: family.label,
             },
           });
+          completeScope("visualizer", family.label);
           return;
         }
 
@@ -1551,6 +1579,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         }
       } catch (err: any) {
         if (!err?.isSilentHalt) productionHalted = true;
+        // Record WHICH family failed. Without it the console marked every in-flight line
+        // of that agent as failed, so a family that had already rendered successfully was
+        // shown with a red cross next to its finished step.
+        if (!err?.scope) err.scope = family.label;
         throw err;
       }
     })
@@ -1580,6 +1612,8 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         status: "failed",
         errorCode,
         message,
+        // The failing family, so the console reds out that unit of work only.
+        scope: realFailure.scope,
         provider: "google_vertex",
         model: agentId === "visualizer" ? MODELS.VISUALIZER : MODELS.CONTENT_CREATOR,
         retryable: true,
@@ -1704,17 +1738,28 @@ Return strictly JSON:
   ]
 }`;
 
+  // The audit's patience is a deployment fact (model tier, region), not a pipeline
+  // constant. The handle is cleared either way so a fast audit doesn't leave a timer
+  // holding the request open for the whole ceiling.
+  const auditTimeoutMs = envInt("CAMPAIGN_AUDIT_TIMEOUT_MS", 45000, { min: 10000, max: 240000 });
+
   try {
+    let auditTimeout: ReturnType<typeof setTimeout> | undefined;
     const judged = await Promise.race([
       vertexProvider.generateJSONWithThoughts(
         [{ role: "user", content: auditPrompt }],
         { modelName: MODELS.CEO_SUPERVISOR, temperature: 0.1, signal },
         { onThought: (chunk) => judgementThoughts.push(chunk) }
       ),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("CEO judgement timed out after 45s")), 45000)
-      ),
-    ]);
+      new Promise<never>((_, reject) => {
+        auditTimeout = setTimeout(
+          () => reject(new Error(`CEO judgement timed out after ${Math.round(auditTimeoutMs / 1000)}s`)),
+          auditTimeoutMs
+        );
+      }),
+    ]).finally(() => {
+      if (auditTimeout) clearTimeout(auditTimeout);
+    });
     judgementThoughts.flush();
 
     const data = judged.data || {};

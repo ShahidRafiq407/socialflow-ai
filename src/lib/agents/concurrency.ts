@@ -39,6 +39,24 @@ export function createLimiter(concurrency: number): Limiter {
     });
 }
 
+/**
+ * Reads an integer from env, clamped to a sane range, falling back when unset or
+ * unparseable. Retry counts and timeouts belong to the deployment's quota, not to the
+ * pipeline, so they are read here instead of being written into the code as literals.
+ */
+export function envInt(
+  name: string,
+  fallback: number,
+  bounds: { min?: number; max?: number } = {}
+): number {
+  const min = bounds.min ?? 1;
+  const max = bounds.max ?? Number.MAX_SAFE_INTEGER;
+  const raw = process.env[name];
+  const parsed = Number(raw);
+  const value = !raw || !Number.isFinite(parsed) ? fallback : Math.floor(parsed);
+  return Math.min(max, Math.max(min, value));
+}
+
 /** Reads a positive integer from env, falling back when unset/invalid. */
 export function envConcurrency(name: string, fallback: number): number {
   const raw = process.env[name];

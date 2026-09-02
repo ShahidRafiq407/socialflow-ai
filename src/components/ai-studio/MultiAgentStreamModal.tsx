@@ -49,7 +49,6 @@ interface TimelineEntry {
   summary: string;
   /** Which parallel unit of work this line belongs to (e.g. "vertical video (9:16)"). */
   scope?: string;
-  progress?: number;
   ts: number;
 }
 
@@ -172,7 +171,6 @@ export default function MultiAgentStreamModal({
     ceo_auditor: "waiting",
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("brand_analyst");
-  const [userHasManuallySelected, setUserHasManuallySelected] = useState(false);
   const [agentOutputs, setAgentOutputs] = useState<Record<string, any>>({});
   const [agentProgress, setAgentProgress] = useState<Record<string, number>>({});
   const [agentStages, setAgentStages] = useState<Record<string, string>>({});
@@ -186,6 +184,9 @@ export default function MultiAgentStreamModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedAgentId, setFailedAgentId] = useState<string | null>(null);
   const [upgradeRequired, setUpgradeRequired] = useState(false);
+  // When the stream opened. The console labels each step with its offset from this, so
+  // it has to be state the render can read — not a ref.
+  const [runStartedAt, setRunStartedAt] = useState(0);
 
   const agentOutputsRef = useRef<Record<string, any>>({});
   const agentProgressRef = useRef<Record<string, number>>({});
@@ -200,6 +201,28 @@ export default function MultiAgentStreamModal({
   const timelineEndRef = useRef<HTMLDivElement>(null);
   const timelineBoxRef = useRef<HTMLDivElement>(null);
   const followScrollRef = useRef<boolean>(true);
+  // `startStream` is memoised, so the handler it closes over is frozen at the render that
+  // created it: a user's agent click never reached it and the panel kept auto-switching.
+  // Dispatching through a ref always runs the current handler.
+  const handleStreamEventRef = useRef<((event: any) => void) | null>(null);
+  // Two `agent_started` events for a parallel phase arrive in the same tick, before React
+  // has re-rendered. These mirrors let the handler read what it just decided.
+  const agentStatusesRef = useRef<Record<string, AgentStatus>>({});
+  const selectedAgentIdRef = useRef<string>("brand_analyst");
+  const manualSelectionRef = useRef<boolean>(false);
+
+  /** Applies a status change to both the ref (read by the handler) and the view. */
+  const applyAgentStatus = (id: string, status: AgentStatus) => {
+    agentStatusesRef.current = { ...agentStatusesRef.current, [id]: status };
+    setAgentStatuses((prev) => ({ ...prev, [id]: status }));
+  };
+
+  /** Moves the focused panel. `manual` locks out further automatic switching. */
+  const focusAgent = (id: string, manual = false) => {
+    if (manual) manualSelectionRef.current = true;
+    selectedAgentIdRef.current = id;
+    setSelectedAgentId(id);
+  };
 
   const startStream = useCallback(async (retryOptions?: { resumeFromAgent?: string }) => {
     setIsCompleted(false);
@@ -222,36 +245,38 @@ export default function MultiAgentStreamModal({
       setPhases(DEFAULT_PHASES);
       setAuditResult(null);
       setFailedAgentId(null);
-      setUserHasManuallySelected(false);
-      setSelectedAgentId("brand_analyst");
+      manualSelectionRef.current = false;
+      setRunStartedAt(Date.now());
+      focusAgent("brand_analyst");
       seenEventIdsRef.current.clear();
-      setAgentStatuses({
+      const initialStatuses: Record<string, AgentStatus> = {
         brand_analyst: "running",
         trend_researcher: "waiting",
         competitor_analyst: "waiting",
         content_creator: "waiting",
         visualizer: "waiting",
         ceo_auditor: "waiting",
-      });
+      };
+      agentStatusesRef.current = initialStatuses;
+      setAgentStatuses(initialStatuses);
     } else if (targetResumeAgent) {
       setFailedAgentId(null);
-      setSelectedAgentId(targetResumeAgent);
+      focusAgent(targetResumeAgent);
       // Keep prior agents marked as completed, target as running, subsequent as waiting
-      setAgentStatuses((prev) => {
-        const next: Record<string, AgentStatus> = { ...prev };
-        let foundTarget = false;
-        for (const agent of AGENT_SEQUENCE) {
-          if (agent.id === targetResumeAgent) {
-            next[agent.id] = "running";
-            foundTarget = true;
-          } else if (foundTarget) {
-            next[agent.id] = "waiting";
-          } else {
-            next[agent.id] = "completed";
-          }
+      const resumed: Record<string, AgentStatus> = { ...agentStatusesRef.current };
+      let foundTarget = false;
+      for (const agent of AGENT_SEQUENCE) {
+        if (agent.id === targetResumeAgent) {
+          resumed[agent.id] = "running";
+          foundTarget = true;
+        } else if (foundTarget) {
+          resumed[agent.id] = "waiting";
+        } else {
+          resumed[agent.id] = "completed";
         }
-        return next;
-      });
+      }
+      agentStatusesRef.current = resumed;
+      setAgentStatuses(resumed);
       // Show a real retry entry based on the actual resume target
       setTimeline((prev) => [
         ...prev,
@@ -336,7 +361,7 @@ export default function MultiAgentStreamModal({
           if (dataPayload) {
             try {
               const event = JSON.parse(dataPayload);
-              handleStreamEvent(event);
+              handleStreamEventRef.current?.(event);
             } catch (e) {
               console.error("Failed to parse SSE JSON payload:", dataPayload);
             }
@@ -373,12 +398,21 @@ export default function MultiAgentStreamModal({
     if (seenEventIdsRef.current.has(eventId)) return;
     seenEventIdsRef.current.add(eventId);
 
-    /** Appends a console line, closing off the agent's previous in-flight action. */
-    const pushEntry = (entry: TimelineEntry, closePreviousAction = false) => {
+    /**
+     * Appends a console line and optionally closes the previous in-flight line.
+     *
+     * `"same-scope"` closes only the previous line of the SAME unit of work: several
+     * format families run under one agentId at the same time, so family B's next step
+     * must not close (or later fail) family A's line. `"all-scopes"` is for the agent
+     * genuinely finishing everything.
+     */
+    const pushEntry = (entry: TimelineEntry, closePrevious?: "same-scope" | "all-scopes") => {
       setTimeline((prev) => {
-        const base = closePreviousAction
+        const base = closePrevious
           ? prev.map((e) =>
-              e.agentId === entry.agentId && e.status === "running"
+              e.agentId === entry.agentId &&
+              e.status === "running" &&
+              (closePrevious === "all-scopes" || (e.scope || "") === (entry.scope || ""))
                 ? { ...e, status: "completed" as const }
                 : e
             )
@@ -415,10 +449,14 @@ export default function MultiAgentStreamModal({
         );
       }
     } else if (type === "agent_started") {
-      setAgentStatuses((prev) => ({ ...prev, [agentId]: "running" }));
-      // Automatically switch active panel to running agent unless user explicitly clicked another
-      if (!userHasManuallySelected) {
-        setSelectedAgentId(agentId);
+      applyAgentStatus(agentId, "running");
+      // In a parallel phase both agents start in the same tick. Auto-focus must not
+      // hop off an agent that is still working — that is what made the first step
+      // vanish behind the second. Only follow the stream when nothing is running.
+      const selected = selectedAgentIdRef.current;
+      const selectedStillRunning = agentStatusesRef.current[selected] === "running";
+      if (!manualSelectionRef.current && (!selectedStillRunning || selected === agentId)) {
+        focusAgent(agentId);
       }
     } else if (type === "agent_progress") {
       const p = data?.progress;
@@ -457,12 +495,22 @@ export default function MultiAgentStreamModal({
             stage: "action",
             summary: data.label,
             scope: data?.scope,
-            progress: agentProgressRef.current[agentId] ?? 0,
             ts: Date.now(),
           },
-          true
+          "same-scope"
         );
       }
+    } else if (type === "agent_scope_completed") {
+      // One parallel unit of work (a format family) finished. Close its running lines
+      // now so a sibling family's later failure cannot red-mark work that succeeded.
+      const scope = (data?.scope || "") as string;
+      setTimeline((prev) =>
+        prev.map((e) =>
+          e.agentId === agentId && e.status === "running" && (e.scope || "") === scope
+            ? { ...e, status: "completed" as const }
+            : e
+        )
+      );
     } else if (type === "web_search") {
       if (data?.query) setSearchQuery(data.query);
     } else if (type === "source_found") {
@@ -476,7 +524,7 @@ export default function MultiAgentStreamModal({
         if (agentId === "ceo_auditor") setAuditResult(data);
       }
     } else if (type === "agent_completed") {
-      setAgentStatuses((prev) => ({ ...prev, [agentId]: "completed" }));
+      applyAgentStatus(agentId, "completed");
       agentProgressRef.current[agentId] = 100;
       setAgentProgress((prev) => ({ ...prev, [agentId]: 100 }));
       pushEntry(
@@ -487,18 +535,21 @@ export default function MultiAgentStreamModal({
           kind: "action",
           stage: "completed",
           summary: "Completed",
-          progress: 100,
           ts: Date.now(),
         },
-        true
+        "all-scopes"
       );
     } else if (type === "agent_error") {
-      setAgentStatuses((prev) => ({ ...prev, [agentId]: "error" }));
+      applyAgentStatus(agentId, "error");
       setFailedAgentId(agentId);
-      // Mark this agent's running entries as error, then append the error entry
+      // Only the failed unit of work turns red. A family that already rendered keeps
+      // its green tick instead of being condemned by a sibling's 429.
+      const failedScope = typeof data?.scope === "string" ? data.scope : null;
       setTimeline((prev) =>
         prev.map((e) =>
-          e.agentId === agentId && e.status === "running"
+          e.agentId === agentId &&
+          e.status === "running" &&
+          (failedScope === null || (e.scope || "") === failedScope)
             ? { ...e, status: "error" as const }
             : e
         )
@@ -510,8 +561,11 @@ export default function MultiAgentStreamModal({
         kind: "action",
         stage: "error",
         summary: data?.message || "Failed",
+        scope: failedScope || undefined,
         ts: Date.now(),
       });
+      // A failure is the one thing worth pulling the view to, even mid-parallel-phase.
+      if (!manualSelectionRef.current) focusAgent(agentId);
       if (data?.message) setErrorMessage(data.message);
     } else if (type === "workflow_completed") {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -526,6 +580,14 @@ export default function MultiAgentStreamModal({
       onClose();
     }
   };
+
+  // The SSE loop lives inside a memoised `startStream`, so it must not close over the
+  // handler directly — it would keep calling the version created on the first render.
+  // Re-pointing the ref after every commit is what makes the handler see current state.
+  // Declared before the streaming effect so it is already pointed when the stream opens.
+  useEffect(() => {
+    handleStreamEventRef.current = handleStreamEvent;
+  });
 
   useEffect(() => {
     if (isOpen) {
@@ -611,9 +673,22 @@ export default function MultiAgentStreamModal({
   const activeAgentOutput = agentOutputs[selectedAgentId];
   const activeAgentStatus = agentStatuses[selectedAgentId] || "waiting";
   const activeAgentProgress = agentProgress[selectedAgentId] ?? 0;
-  // Timeline filtered to the selected agent so the execution console stays scoped
-  const activeTimeline = timeline.filter((e) => e.agentId === selectedAgentId);
+  // The console shows the whole parallel phase, not one agent at a time. In the
+  // production phase the Content Creator writes the next family's copy while the
+  // Visualizer renders the current one; filtering to the selected agent hid half the
+  // run, so the second agent's reasoning only appeared once the first had finished.
+  const selectedPhase = phases.find((p) => p.agents.includes(selectedAgentId));
+  const consoleAgentIds =
+    selectedPhase?.parallel && selectedPhase.agents.length > 1
+      ? selectedPhase.agents
+      : [selectedAgentId];
+  const consoleSpansAgents = consoleAgentIds.length > 1;
+  const activeTimeline = timeline.filter((e) => consoleAgentIds.includes(e.agentId));
   const activeThoughtCount = activeTimeline.filter((e) => e.kind === "thought").length;
+  const agentShortName = (id: string) => AGENT_SEQUENCE.find((a) => a.id === id)?.name || id;
+  /** Seconds since this run began — a step's place in the run, not a fake percentage. */
+  const entryOffset = (ts: number) =>
+    runStartedAt ? `+${Math.max(0, Math.round((ts - runStartedAt) / 1000))}s` : "+0s";
   // Every agent the backend has grouped into a phase, so the sidebar can only show an
   // agent once even if a phase list changes mid-run.
   const phasedAgentIds = new Set(phases.flatMap((p) => p.agents));
@@ -637,13 +712,14 @@ export default function MultiAgentStreamModal({
     return (
       <div
         key={agent.id}
-        onClick={() => {
-          setUserHasManuallySelected(true);
-          setSelectedAgentId(agent.id);
-        }}
+        onClick={() => focusAgent(agent.id, true)}
         className={`flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border cursor-pointer transition-all duration-200 ${
           isSelected
             ? "bg-[#161920] border-[#8B5CF6]/40 shadow-[0_0_15px_rgba(139,92,246,0.15)]"
+            : isRunning
+            ? // A sibling running in parallel is NOT background noise. Dimming it to 50%
+              // made a two-agent phase look like one agent had been skipped.
+              "bg-[#0F1218] border-[#8B5CF6]/25 hover:bg-[#11141A]"
             : isAgentCompleted
             ? "bg-transparent border-[#252A32] opacity-80 hover:bg-[#11141A]"
             : isFailed
@@ -674,7 +750,11 @@ export default function MultiAgentStreamModal({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-0.5">
-            <h4 className={`text-xs sm:text-sm font-semibold truncate ${isSelected ? "text-white" : "text-[#9CA3AF]"}`}>
+            <h4
+              className={`text-xs sm:text-sm font-semibold truncate ${
+                isSelected || isRunning ? "text-white" : "text-[#9CA3AF]"
+              }`}
+            >
               {agent.name}
             </h4>
             <div className="flex items-center gap-1.5 shrink-0 ml-1">
@@ -859,12 +939,20 @@ export default function MultiAgentStreamModal({
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
                         Live execution
                       </span>
-                      {activeThoughtCount > 0 && (
-                        <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#A78BFA] bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 px-1.5 py-0.5 rounded-full">
-                          <Brain className="w-2.5 h-2.5" />
-                          {activeThoughtCount} reasoning step{activeThoughtCount === 1 ? "" : "s"}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {consoleSpansAgents && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#A78BFA] bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 px-1.5 py-0.5 rounded-full">
+                            <Zap className="w-2.5 h-2.5" />
+                            {consoleAgentIds.length} agents, interleaved
+                          </span>
+                        )}
+                        {activeThoughtCount > 0 && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#A78BFA] bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 px-1.5 py-0.5 rounded-full">
+                            <Brain className="w-2.5 h-2.5" />
+                            {activeThoughtCount} reasoning step{activeThoughtCount === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div
                       ref={timelineBoxRef}
@@ -880,11 +968,18 @@ export default function MultiAgentStreamModal({
                               <Brain className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#6D28D9]" />
                               <div className="min-w-0 flex-1">
                                 <p className="text-[11px] italic leading-snug text-[#9CA3AF]">{entry.summary}</p>
-                                {entry.scope && (
-                                  <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
-                                    {entry.scope}
-                                  </span>
-                                )}
+                                <div className="flex items-center gap-2">
+                                  {consoleSpansAgents && (
+                                    <span className="text-[9px] font-semibold uppercase tracking-wide text-[#8B5CF6]">
+                                      {agentShortName(entry.agentId)}
+                                    </span>
+                                  )}
+                                  {entry.scope && (
+                                    <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
+                                      {entry.scope}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ) : (
@@ -930,13 +1025,19 @@ export default function MultiAgentStreamModal({
                                   {entry.summary}
                                 </p>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                  {typeof entry.progress === "number" && (
-                                    <span className="text-[9px] font-mono text-[#6B7280]">
-                                      {Math.round(entry.progress)}%
+                                  {consoleSpansAgents && (
+                                    <span className="text-[9px] font-semibold uppercase tracking-wide text-[#8B5CF6]">
+                                      {agentShortName(entry.agentId)}
                                     </span>
                                   )}
                                   <span className="text-[9px] uppercase tracking-wide text-[#4B5563]">
                                     {entry.scope || entry.stage}
+                                  </span>
+                                  {/* When the step happened. The old per-line percentage was
+                                      the agent's progress at the moment the line was pushed,
+                                      so a finished step sat next to a stale "0%". */}
+                                  <span className="text-[9px] font-mono text-[#4B5563]">
+                                    {entryOffset(entry.ts)}
                                   </span>
                                 </div>
                               </div>

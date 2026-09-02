@@ -7,9 +7,9 @@
  *
  * The copy agents already write per-slide `title` + `body` (the storyboard). This
  * module turns each slide's text + art direction into a full graphic-design brief so
- * the image model (Nano Banana Pro / gemini-3-pro-image, which typesets real legible
- * text) renders a finished infographic slide: headline, body copy, slide counter,
- * brand footer and background graphics — all baked into the image that gets published.
+ * the configured image model (one that typesets real legible text) renders a finished
+ * infographic slide: headline, body copy, slide counter, brand footer and background
+ * graphics — all baked into the image that gets published.
  */
 
 export interface SlideTextSpec {
@@ -298,10 +298,18 @@ export function buildInfographicSlidePrompt(ctx: SlideDesignContext): string {
 /**
  * System instruction for the image model when it is acting as a graphic designer
  * (text-rich slides) rather than a photographer.
+ *
+ * `modelName` is passed in rather than written here: the deployment decides which
+ * image model runs (`MODEL_IMAGE_GENERATOR`), and a prompt that addresses the model
+ * by a name it does not have is a lie the model has to reconcile.
  */
-export function buildDesignSystemInstruction(aspectRatio: string, qualityClause?: string): string {
+export function buildDesignSystemInstruction(
+  aspectRatio: string,
+  qualityClause?: string,
+  modelName?: string
+): string {
   return [
-    `You are Nano Banana Pro (gemini-3-pro-image) operating as a senior graphic designer and typographer for social-media infographics.`,
+    `You are ${modelName || "an image generation model"} operating as a senior graphic designer and typographer for social-media infographics.`,
     `You render finished, publication-ready designed graphics with real, perfectly legible typography baked into the image — never blank backgrounds, never placeholder text, never misspelled words.`,
     `Adhere strictly to the ${aspectRatio} aspect ratio and keep all text inside a safe margin.`,
     qualityClause ? `Quality standard: ${qualityClause}.` : ``,

@@ -1,6 +1,7 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
+import { envInt } from "@/lib/agents/concurrency";
 import {
   buildDesignSystemInstruction,
   buildInfographicSlidePrompt,
@@ -9,6 +10,54 @@ import {
   pickDeckStyle,
   type SlideTextSpec,
 } from "@/lib/agents/slideDesigner";
+
+/** Waits, but gives up the moment the campaign is cancelled. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
+/**
+ * Vertex answers a quota rejection with its own `RetryInfo` ("retryDelay":"27s").
+ * Honouring it is the difference between one clean retry and burning every attempt
+ * against a window that has not reopened yet.
+ */
+export function parseRetryDelayMs(message: string): number {
+  if (!message) return 0;
+  const seconds = message.match(/retry[_-]?delay["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)s?/i);
+  if (seconds) return Math.round(Number(seconds[1]) * 1000);
+  const retryAfter = message.match(/retry[- ]?after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)/i);
+  if (retryAfter) return Math.round(Number(retryAfter[1]) * 1000);
+  return 0;
+}
+
+/**
+ * Turns a provider error into something a marketer can act on. The old
+ * "failed to produce image bytes" was true of every cause and useful for none.
+ */
+export function describeFailure(message: string): string {
+  const msg = (message || "").toLowerCase();
+  if (!msg) return "no image data returned";
+  if (/429|quota|exhaust|rate limit|too many requests/.test(msg)) {
+    return "image model quota reached for this minute";
+  }
+  if (/timeout|deadline/.test(msg)) return "the render exceeded its time budget";
+  if (/503|unavailable|overloaded/.test(msg)) return "the image model is temporarily overloaded";
+  if (/permission|401|403|credential|unauthenticated/.test(msg)) {
+    return "the image model rejected the project credentials";
+  }
+  if (/not found|404|does not exist/.test(msg)) return "the configured image model is not available to this project";
+  if (/safety|blocked|prohibited|recitation/.test(msg)) return "the prompt was blocked by safety filters";
+  return message.length > 180 ? `${message.slice(0, 180)}…` : message;
+}
 
 export type VisualErrorCode =
   | "VISUALIZER_PROVIDER_ERROR"
@@ -151,6 +200,10 @@ async function generateRealVideo(options: {
   const inlineImage = toInlineInput(sourceImage);
   const inlineVideo = toInlineInput(sourceVideo);
 
+  // Video render budgets belong to the deployment (region, model tier), not to the code.
+  const videoTimeoutMs = envInt("VIDEO_TIMEOUT_MS", 120000, { min: 20000, max: 600000 });
+  const videoPollIntervalMs = envInt("VIDEO_POLL_INTERVAL_MS", 3000, { min: 500, max: 30000 });
+
   let lastErr: any = null;
 
   for (const targetVideoModel of candidateModels) {
@@ -207,15 +260,21 @@ async function generateRealVideo(options: {
           formattedInput = inputParts;
         }
 
+        let videoTimeout: ReturnType<typeof setTimeout> | undefined;
         const interaction = await Promise.race([
           (ai as any).interactions.create({
             model: targetVideoModel,
             input: formattedInput,
           }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Video synthesis timeout after 120s")), 120000)
-          ),
-        ]);
+          new Promise((_, reject) => {
+            videoTimeout = setTimeout(
+              () => reject(new Error(`Video synthesis timeout after ${Math.round(videoTimeoutMs / 1000)}s`)),
+              videoTimeoutMs
+            );
+          }),
+        ]).finally(() => {
+          if (videoTimeout) clearTimeout(videoTimeout);
+        });
 
         // Check direct output_video (standard response format from Omni-class models)
         const directVideo = (interaction as any)?.output_video || (interaction as any)?.outputVideo;
@@ -270,8 +329,6 @@ async function generateRealVideo(options: {
         });
 
         if (operation) {
-          const POLL_INTERVAL_MS = 3000;
-          const TIMEOUT_MS = 120000;
           const startTime = Date.now();
           const opName = operation.name || `operation_${Date.now()}`;
 
@@ -279,19 +336,21 @@ async function generateRealVideo(options: {
             if (signal?.aborted) {
               throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
             }
-            const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-            if (Date.now() - startTime > TIMEOUT_MS) {
+            const elapsedMs = Date.now() - startTime;
+            const elapsedSec = Math.round(elapsedMs / 1000);
+            if (elapsedMs > videoTimeoutMs) {
               break;
             }
 
-            // Real Google API progress percentage or dynamic progression calculation
+            // Real Google API progress percentage, or elapsed share of the actual budget
+            // when the operation reports none — never an invented curve.
             const rawProgress = (operation as any)?.metadata?.progressPercentage;
             const progressPercent = typeof rawProgress === "number"
               ? rawProgress
-              : Math.min(98, Math.max(10, Math.round((elapsedSec / 60) * 100)));
+              : Math.min(98, Math.max(5, Math.round((elapsedMs / videoTimeoutMs) * 100)));
 
             onProgress?.(`Rendering video frames: ${progressPercent}% (${elapsedSec}s elapsed)`);
-            await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            await sleep(videoPollIntervalMs, signal);
 
             if (typeof (ai.operations as any)?.getVideosOperation === "function") {
               operation = await (ai.operations as any).getVideosOperation({ operation });
@@ -451,9 +510,9 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   }
 
   // -------------------------------------------------------------
-  // REAL IMAGE GENERATION (Vertex AI: gemini-3-pro-image / Nano Banana Pro)
+  // REAL IMAGE GENERATION (Vertex AI image model, MODELS.VISUALIZER)
   // -------------------------------------------------------------
-  const targetImageModel = input.imageModel || MODELS.VISUALIZER || "gemini-3-pro-image";
+  const targetImageModel = input.imageModel || MODELS.VISUALIZER;
 
   // ── TEXT-RICH (INFOGRAPHIC) MODE ──────────────────────────────────────────────
   // Carousels, Idea Pins, Multi-Image posts and LinkedIn Documents are informational
@@ -472,8 +531,8 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   onProgress?.(
     isInfographic
-      ? `[Visualizer] Designing text-rich informational ${isDocumentFormat(contentType) ? "document pages" : "slides"} via Nano Banana Pro (${targetImageModel})...`
-      : `[Visualizer] Synthesizing photographic canvas via Nano Banana Pro (${targetImageModel})...`
+      ? `[Visualizer] Designing text-rich informational ${isDocumentFormat(contentType) ? "document pages" : "slides"} via ${targetImageModel}...`
+      : `[Visualizer] Synthesizing photographic canvas via ${targetImageModel}...`
   );
 
   const requestedDeckSlides = Math.max(
@@ -530,19 +589,25 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   );
 
   const systemInstructionText = isInfographic
-    ? buildDesignSystemInstruction(targetImageAspect, qualityClause)
-    : `You are Nano Banana Pro (gemini-3-pro-image), a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
+    ? buildDesignSystemInstruction(targetImageAspect, qualityClause, targetImageModel)
+    : `You are ${targetImageModel}, a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
 
   // Typesetting several text blocks takes noticeably longer than a plain photo render.
-  const imageTimeoutMs = isInfographic ? 90000 : 40000;
+  // Both ceilings are deployment facts (region, model tier), not pipeline constants.
+  const imageTimeoutMs = isInfographic
+    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 90000, { min: 10000, max: 300000 })
+    : envInt("IMAGE_TIMEOUT_MS", 40000, { min: 10000, max: 300000 });
+  // Spacing between slides of one deck keeps a burst of renders inside the model's
+  // per-minute allowance instead of provoking the 429 the retry then has to absorb.
+  const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 1000, { min: 0, max: 30000 });
 
   for (let idx = 0; idx < assetCount; idx++) {
     if (input.signal?.aborted) {
       throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
     }
-    if (idx > 0) {
+    if (idx > 0 && slideSpacingMs > 0) {
       onProgress?.(`[Visualizer] Preparing slide ${idx + 1}/${assetCount}...`);
-      await new Promise(r => setTimeout(r, 1000));
+      await sleep(slideSpacingMs, input.signal);
     }
 
     const currentPrompt = (input.visualPrompts && input.visualPrompts[idx])
@@ -593,26 +658,35 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     try {
       const ai = (vertexProvider as any).ai;
       let imageUrl = "";
+      /** Why the last attempt produced nothing — reported instead of a bare "no bytes". */
+      let lastFailure = "";
+      let attemptsUsed = 0;
 
       // Use the targetImageModel as requested instead of hardcoding
       const modelName = targetImageModel;
 
       // 1. generateContent with responseModalities (Official Google Gemini Image Generation API)
       if (typeof ai?.models?.generateContent === "function") {
+        // Two request shapes: most Gemini image models want TEXT+IMAGE back, a few
+        // reject the text modality and need IMAGE alone. The shape rotates per attempt,
+        // it does NOT bound the retries — the loop used to iterate this array, so a
+        // single 429 consumed a shape instead of being retried and the whole campaign
+        // died with "no image bytes" after about six seconds of patience.
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
-        const MAX_TOTAL_ATTEMPTS = 3;
-        const MAX_RATE_LIMIT_WAITS = 2;
-        let totalAttempts = 0;
-        let rateLimitWaits = 0;
+        const maxAttempts = envInt("IMAGE_MAX_ATTEMPTS", 5, { min: 1, max: 12 });
+        const baseBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MS", 2000, { min: 250, max: 60000 });
+        const maxBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MAX_MS", 24000, {
+          min: baseBackoffMs,
+          max: 120000,
+        });
 
-        for (const modalities of modalityCombos) {
-          if (imageUrl || totalAttempts >= MAX_TOTAL_ATTEMPTS) break;
-
+        for (let attempt = 1; attempt <= maxAttempts && !imageUrl; attempt++) {
           if (input.signal?.aborted) {
             throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
           }
 
-          totalAttempts++;
+          const modalities = modalityCombos[(attempt - 1) % modalityCombos.length];
+          attemptsUsed = attempt;
 
           try {
             const slideNoun = isInfographic
@@ -621,8 +695,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             const statusLabel = assetCount > 1
               ? `[Visualizer] Rendering ${slideNoun} ${idx + 1}/${assetCount} with headline & insight text via ${modelName}...`
               : `[Visualizer] Generating ${slideNoun} via ${modelName}...`;
-            onProgress?.(statusLabel);
-            console.log(`[Visualizer] Generating ${isInfographic ? "text-rich graphic" : "image"} on ${modelName} with modalities: ${modalities.join(",")} (Attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS})`);
+            onProgress?.(
+              attempt > 1 ? `${statusLabel.replace(/\.\.\.$/, "")} (attempt ${attempt}/${maxAttempts})...` : statusLabel
+            );
+            console.log(`[Visualizer] Generating ${isInfographic ? "text-rich graphic" : "image"} on ${modelName} with modalities: ${modalities.join(",")} (Attempt ${attempt}/${maxAttempts})`);
 
             let contentsInput: any = slidePrompt;
             if (input.sourceImage) {
@@ -644,6 +720,9 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               }
             }
 
+            // The timeout only abandons the wait; the handle is cleared either way so a
+            // finished render doesn't keep a stray timer alive for the whole ceiling.
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
             const genRes = await Promise.race([
               ai.models.generateContent({
                 model: modelName,
@@ -655,10 +734,15 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                   },
                 },
               }),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`Image generation timeout after ${imageTimeoutMs / 1000}s`)), imageTimeoutMs)
-              )
-            ]);
+              new Promise((_, reject) => {
+                timeoutHandle = setTimeout(
+                  () => reject(new Error(`Image generation timeout after ${imageTimeoutMs / 1000}s`)),
+                  imageTimeoutMs
+                );
+              }),
+            ]).finally(() => {
+              if (timeoutHandle) clearTimeout(timeoutHandle);
+            });
 
             // Check for generatedImages array (Google Cloud GenAI Imagen response format)
             const generatedImages = (genRes as any)?.generatedImages || (genRes as any)?.generated_images || [];
@@ -697,21 +781,37 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
               if (!imageUrl) {
                 const finishReason = candidates[0]?.finishReason || "unknown";
-                console.warn(`[Visualizer] ${modelName} responded without image data (${finishReason}). Retrying...`);
+                const blockReason =
+                  (genRes as any)?.promptFeedback?.blockReason ||
+                  (genRes as any)?.prompt_feedback?.block_reason ||
+                  "";
+                lastFailure = blockReason
+                  ? `${modelName} returned no image (${finishReason}, prompt blocked: ${blockReason})`
+                  : `${modelName} returned no image (finishReason: ${finishReason})`;
+                console.warn(`[Visualizer] ${lastFailure}.`);
               }
             }
           } catch (e: any) {
-            console.warn(`[Visualizer] generateContent on ${modelName} (${modalities.join(",")}) failed (attempt ${totalAttempts}/${MAX_TOTAL_ATTEMPTS}):`, e?.message || e);
-            const msg = (e?.message || "").toLowerCase();
-            const isRateLimit = msg.includes("429") || msg.includes("quota") || msg.includes("exhausted") || msg.includes("503") || msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("unavailable");
-
-            if (isRateLimit && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
-              rateLimitWaits++;
-              const waitMs = Math.min(2000 * rateLimitWaits, 6000);
-              onProgress?.(`[Visualizer] Rate limit buffer: waiting ${waitMs / 1000}s before retry...`);
-              await new Promise(r => setTimeout(r, waitMs));
-              totalAttempts--;
+            lastFailure = e?.message || String(e);
+            console.warn(`[Visualizer] generateContent on ${modelName} (${modalities.join(",")}) failed (attempt ${attempt}/${maxAttempts}):`, lastFailure);
+            if (e?.isCancelled || input.signal?.aborted) {
+              throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
             }
+          }
+
+          // Back off before the next attempt whether the call threw or simply came back
+          // empty — both mean the model needs a moment, and an instant retry against a
+          // throttled image model only burns the remaining attempts.
+          if (!imageUrl && attempt < maxAttempts) {
+            const hinted = parseRetryDelayMs(lastFailure);
+            const waitMs = Math.min(
+              maxBackoffMs,
+              Math.max(hinted, baseBackoffMs * Math.pow(2, attempt - 1))
+            );
+            onProgress?.(
+              `[Visualizer] ${modelName} unavailable (${describeFailure(lastFailure)}) — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${maxAttempts})...`
+            );
+            await sleep(waitMs, input.signal);
           }
         }
       }
@@ -719,16 +819,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       // 2. interactions.create fallback if available
       if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
         try {
+          let interactionTimeout: ReturnType<typeof setTimeout> | undefined;
           const interaction = await Promise.race([
             (ai as any).interactions.create({
               model: modelName,
               input: slidePrompt,
               aspect_ratio: targetImageAspect,
             }),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error("Image interactions.create timeout")), Math.max(35000, Math.round(imageTimeoutMs * 0.9)))
-            )
-          ]);
+            new Promise((_, reject) => {
+              interactionTimeout = setTimeout(
+                () => reject(new Error("Image interactions.create timeout")),
+                Math.round(imageTimeoutMs * 0.9)
+              );
+            }),
+          ]).finally(() => {
+            if (interactionTimeout) clearTimeout(interactionTimeout);
+          });
 
           const directImg = (interaction as any)?.output_image || (interaction as any)?.outputImage;
           if (directImg?.data) {
@@ -736,12 +842,19 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             console.log(`[Visualizer] ✅ Image generated successfully via interactions.create on ${modelName}`);
           }
         } catch (e: any) {
+          lastFailure = e?.message || lastFailure;
           console.warn(`[Visualizer] interactions.create on ${modelName} failed:`, e?.message || e);
         }
       }
 
       if (!imageUrl) {
-        throw new VisualizerError("IMAGE_GENERATION_FAILED", "Image generation model failed to produce image bytes.");
+        // Say what actually went wrong. "failed to produce image bytes" told nobody
+        // whether it was a quota wall, a blocked prompt or a timeout.
+        throw new VisualizerError(
+          "IMAGE_GENERATION_FAILED",
+          `${modelName} produced no image after ${attemptsUsed || 1} attempt(s)` +
+            (lastFailure ? `: ${describeFailure(lastFailure)}` : "."),
+        );
       }
 
       let finalImageUrl = imageUrl;

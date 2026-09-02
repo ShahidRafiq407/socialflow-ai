@@ -344,7 +344,7 @@ INSTRUCTIONS:
         }
       }
 
-      ctx.onProgress?.(`Starting image synthesis with gemini-3-pro-image...`);
+      ctx.onProgress?.(`Starting image synthesis with ${MODELS.VISUALIZER}...`);
 
       const assets = await generateMediaAsset({
         platform,
@@ -354,7 +354,7 @@ INSTRUCTIONS:
         aspectRatio,
         style: args.style || "commercial_product",
         quality: args.quality || "studio_4k",
-        imageModel: "gemini-3-pro-image",
+        imageModel: MODELS.VISUALIZER,
         sourceImage,
         onProgress: ctx.onProgress,
       });
@@ -403,7 +403,7 @@ INSTRUCTIONS:
         platform,
         format,
         aspectRatio,
-        model: "gemini-3-pro-image",
+        model: MODELS.VISUALIZER,
         status: "completed",
         hasReferenceImage: Boolean(sourceImage),
         savedToContentLibrary: true,
@@ -443,7 +443,7 @@ INSTRUCTIONS:
         }
       }
 
-      ctx.onProgress?.(`Initializing video generation (gemini-omni-flash-preview)...`);
+      ctx.onProgress?.(`Initializing video generation (${MODELS.VIDEO})...`);
 
       const assets = await generateMediaAsset({
         platform,
@@ -603,7 +603,7 @@ INSTRUCTIONS:
   {
     name: "create_campaign_post",
     description:
-      "Full end-to-end post generator that crafts the caption, optionally generates real AI visual media (gemini-3-pro-image or video), and saves it into Content Library & AI Studio in one go.",
+      "Full end-to-end post generator that crafts the caption, optionally generates real AI visual media (image or video), and saves it into Content Library & AI Studio in one go.",
     parameters: {
       type: "object",
       properties: {
@@ -629,7 +629,7 @@ INSTRUCTIONS:
             mediaType: "image",
             prompt: args.visualPrompt,
             aspectRatio: args.aspectRatio || "1:1",
-            imageModel: "gemini-3-pro-image",
+            imageModel: MODELS.VISUALIZER,
           });
           if (assets[0]?.url) {
             mediaUrl = assets[0].url;
