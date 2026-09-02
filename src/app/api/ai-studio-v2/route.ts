@@ -150,6 +150,11 @@ export async function POST(req: Request) {
               // bloating the final event and risking image loss in the editor.
               data: {
                 campaign: campaignPayload,
+                // The CEO audit verdict has to ride along on the final event.
+                // The graph emits its own `workflow_completed` with the audit,
+                // but this one lands last, so without it a client that keys off
+                // the last event would show a campaign with no verdict.
+                audit: resultState.auditResult ?? null,
                 savedPostIds,
                 totalSaved: savedPostIds.length,
               },
