@@ -626,8 +626,8 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   // (a single-prompt render squeaks under the cap, the campaign's longer art-direction
   // prompts do not), so the budget has to fit the model, not the other way round.
   const imageTimeoutMs = isInfographic
-    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 150000, { min: 10000, max: 300000 })
-    : envInt("IMAGE_TIMEOUT_MS", 120000, { min: 10000, max: 300000 });
+    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 220000, { min: 10000, max: 300000 })
+    : envInt("IMAGE_TIMEOUT_MS", 180000, { min: 10000, max: 300000 });
   // Spacing between slides of one deck keeps a burst of renders inside the model's
   // per-minute allowance instead of provoking the 429 the retry then has to absorb.
   const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 1000, { min: 0, max: 30000 });
@@ -712,19 +712,22 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         // single 429 consumed a shape instead of being retried and the whole campaign
         // died with "no image bytes" after about six seconds of patience.
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
-        const maxRungAttempts = envInt("IMAGE_MAX_ATTEMPTS", 5, { min: 1, max: 12 });
+        // Kept deliberately small. With families rendering one at a time the request
+        // rate stays under the quota, so the old retry storm (up to 7 tries chasing
+        // 429s) is no longer needed — one render, and a single second try only for a
+        // genuine transient blip. Set IMAGE_MAX_ATTEMPTS=1 to disable the retry entirely.
+        const maxRungAttempts = envInt("IMAGE_MAX_ATTEMPTS", 2, { min: 1, max: 12 });
         const baseBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MS", 2000, { min: 250, max: 60000 });
         const maxBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MAX_MS", 24000, {
           min: baseBackoffMs,
           max: 120000,
         });
 
-        // A quota wall on the configured model is not a reason to publish a post with
-        // no image at all. The configured model is always tried first and keeps every
-        // one of its attempts; only once it has none left does a lighter image model
-        // get a short pass, so a hard wall degrades the render instead of losing it.
-        // `IMAGE_FALLBACK_MODELS=""` turns the step-down off entirely.
-        const fallbackModels = (process.env.IMAGE_FALLBACK_MODELS ?? "gemini-2.5-flash-image")
+        // Model step-down is OFF by default: the configured image model is the only one
+        // used, so no run silently swaps in a lighter model. To allow a fallback after
+        // the primary exhausts its attempts, set IMAGE_FALLBACK_MODELS to a comma list
+        // (e.g. "gemini-2.5-flash-image").
+        const fallbackModels = (process.env.IMAGE_FALLBACK_MODELS ?? "")
           .split(",")
           .map((m) => m.trim())
           .filter((m) => m && m !== targetImageModel);

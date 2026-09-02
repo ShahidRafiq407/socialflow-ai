@@ -1017,15 +1017,17 @@ Return strictly JSON:
   // Copy families DO overlap: several text families at once are different prompts on the
   // text model, whose per-minute allowance comfortably covers a handful of requests.
   //
-  // Media families now overlap too — this is the render-side parallelism that actually
-  // saves wall-clock, because each platform's asset is a separate request to the image
-  // model. It was pinned to 1 while a burst of renders could manufacture its own 429s;
-  // `getModelRatePacer` in mediaGenerator now holds every request behind ONE shared
-  // per-minute window for the model, so several families in flight queue politely
-  // instead of racing each other into a quota wall. Lower it to 1 on a project with a
-  // very small image quota, raise it where the quota is generous.
+  // Media families render ONE AT A TIME by default, and that is deliberate. On the
+  // image quotas these projects actually have (a few requests per minute) the model is
+  // also slow — 30-120s per render — so its own render time already paces it well under
+  // the wall. Firing several families at once buys no real speed there (the quota, not
+  // the CPU, is the limit) and instead slams the per-minute window: the pacer then has
+  // to stall everyone 60s at a time and the console fills with "resuming in 60s". Going
+  // one family after another keeps the request rate naturally below the quota, so the
+  // 429s — and the retries that chase them — mostly stop happening. Raise
+  // CAMPAIGN_MEDIA_CONCURRENCY only on a project with a genuinely lifted image quota.
   const copyConcurrency = envConcurrency("CAMPAIGN_COPY_CONCURRENCY", 3);
-  const mediaConcurrency = envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 3);
+  const mediaConcurrency = envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 1);
   const copyLimiter = createLimiter(copyConcurrency);
   const mediaLimiter = createLimiter(mediaConcurrency);
 
@@ -1689,7 +1691,9 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
             (visualTargets > visualFamilies.length
               ? ` — ${visualTargets - visualFamilies.length} duplicate generation(s) avoided`
               : "") +
-            `, up to ${Math.min(mediaConcurrency, visualFamilies.length)} at a time`,
+            (Math.min(mediaConcurrency, visualFamilies.length) <= 1
+              ? `, one at a time (paced to the image quota)`
+              : `, up to ${Math.min(mediaConcurrency, visualFamilies.length)} at a time`),
       detail: visualFamilies.map((f) => `${f.label} → ${describeMembers(f)}`).join(" • "),
     },
   });
