@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   ArrowRight,
   CalendarClock,
   Globe,
@@ -17,7 +16,7 @@ import {
   UserPlus,
   Zap,
 } from "lucide-react";
-import { leadTypeLabel, type GoalStatus, type GrowthStrategy } from "@/lib/types/growth";
+import { goalLeadNoun, type GoalStatus, type GrowthStrategy } from "@/lib/types/growth";
 import { Chip, InfoDot, StatTile, ToastStack, useToasts } from "./shared";
 import type { ChannelSection, GoalHQData, GoalTabKey } from "./types";
 import { GoalWizardTab } from "./GoalWizardTab";
@@ -168,6 +167,85 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
   const progress = Math.max(0, Math.min(100, Math.round(kpis.progressPercentage || 0)));
   const published = (kpis.postsPublished || 0) + (kpis.articlesPublished || 0);
 
+  // The single most important thing left to do, in the order it must happen:
+  // describe the brand, set the goal, connect each chosen channel, give posts a
+  // link, build the plan, then switch Autopilot on. Only the first unmet step is
+  // surfaced, so the user is handed the next move, never a checklist to triage.
+  const nextStep = ((): {
+    title: string;
+    detail: string;
+    cta: string;
+    tone: "primary" | "secondary";
+    href?: string;
+    onClick?: () => void;
+  } | null => {
+    if (!data.hasBrandDNA)
+      return {
+        title: "Describe your brand first",
+        detail: "The AI needs your business name, industry and audience before it writes anything about you.",
+        cta: "Set up Brand DNA",
+        href: "/dashboard/brand",
+        tone: "secondary",
+      };
+    if (data.needsSetup || !goal)
+      return {
+        title: "Set your lead goal",
+        detail: "How many leads you want, and by when. Everything on this page is built from that one answer.",
+        cta: "Set the goal",
+        onClick: () => goToTab("goal"),
+        tone: "primary",
+      };
+    if (usesSocial && data.connectedPlatforms.length === 0)
+      return {
+        title: "Connect a social account",
+        detail: "Autopilot can only post where you have a connected account — nothing is planned or counted until then.",
+        cta: "Connect an account",
+        href: "/dashboard/integrations",
+        tone: "primary",
+      };
+    if (usesWebsite && !data.wordpress.connected)
+      return {
+        title: "Connect your website",
+        detail: "The AI needs your site connected before it can publish an article to it.",
+        cta: "Connect your site",
+        href: "/dashboard/plugins?connector=wordpress",
+        tone: "secondary",
+      };
+    if (usesWebsite && !data.tracking.installed)
+      return {
+        title: "Install your lead tag",
+        detail: "Without the one-line tag, a form submit or WhatsApp tap on your site cannot be counted.",
+        cta: "Install the tag",
+        href: "/dashboard/plugins?connector=website-tag",
+        tone: "secondary",
+      };
+    if (usesSocial && !goal?.ctaDestinations?.default && !data.website)
+      return {
+        title: "Add a link for your posts",
+        detail: "A post needs a link before a click can become a lead you can trace.",
+        cta: "Add the link",
+        onClick: () => goToTab("goal"),
+        tone: "primary",
+      };
+    if (!strategy)
+      return {
+        title: "Build your plan",
+        detail: "Turn the goal into a daily posting plan the AI can run on its own.",
+        cta: "Build the plan",
+        onClick: () => goToTab(usesSocial ? "plan" : "seo"),
+        tone: "primary",
+      };
+    if (!autopilotOn)
+      return {
+        title: "Turn on Autopilot",
+        detail: "Let the plan publish every day by itself — you can pause any account any time.",
+        cta: "Open Autopilot",
+        onClick: () => goToTab("autopilot"),
+        tone: "primary",
+      };
+    return null;
+  })();
+
   // Counts on the rail are per channel, so "3" on Social media means three
   // social posts still to go out today — not three of something unspecified.
   const { pendingSocial, pendingWebsite } = useMemo(() => {
@@ -212,7 +290,7 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
             {goal ? (
               <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground leading-relaxed">
                 <span className="font-semibold text-foreground">
-                  {goal.leadTarget} {leadTypeLabel(goal.leadType, goal.leadTarget === 1 ? 1 : 2)}
+                  {goal.leadTarget} {goalLeadNoun(goal.leadType, goal.customLeadTypeName, goal.leadTarget === 1 ? 1 : 2)}
                 </span>{" "}
                 in {goal.timeframeDays} day{goal.timeframeDays === 1 ? "" : "s"}
                 {data.workspaceName ? ` for ${data.workspaceName}` : ""} — {sourceSentence}.
@@ -276,8 +354,64 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
         )}
       </section>
 
-      {/* ── The three steps, shown only until a plan exists ── */}
-      {!strategy && (
+      {/* ── Do this next: the one step that matters right now ── */}
+      {nextStep && (
+        <div
+          className={`flex flex-wrap items-start justify-between gap-3 rounded-2xl border p-4 ${
+            nextStep.tone === "primary"
+              ? "border-primary/30 bg-primary/5"
+              : "border-secondary/30 bg-secondary/5"
+          }`}
+        >
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span
+              className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                nextStep.tone === "primary"
+                  ? "bg-primary/15 text-primary"
+                  : "bg-secondary/15 text-secondary"
+              }`}
+            >
+              <ArrowRight className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                Do this next
+              </span>
+              <p className="text-sm font-bold text-foreground">{nextStep.title}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">{nextStep.detail}</p>
+            </div>
+          </div>
+          {nextStep.href ? (
+            <a
+              href={nextStep.href}
+              className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold ${
+                nextStep.tone === "primary"
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
+              }`}
+            >
+              {nextStep.cta}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={nextStep.onClick}
+              className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold ${
+                nextStep.tone === "primary"
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
+              }`}
+            >
+              {nextStep.cta}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── How this works — onboarding, shown only before a goal exists ── */}
+      {data.needsSetup && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-[11px] text-muted-foreground">
           <span className="text-[10px] font-bold uppercase tracking-wide text-foreground">How this works</span>
           <span className="font-semibold text-foreground">1. Set the target</span>
@@ -289,30 +423,6 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
             align="right"
             text="You only fill in step 1. Step 2 happens on the Social media and Website tabs, where the AI proposes where to post and what to say. Step 3 runs by itself once Autopilot is on — every post keeps a tracked link, so the clicks and leads on this page are counted, not guessed."
           />
-        </div>
-      )}
-
-      {/* ── Brand DNA gate ── */}
-      {!data.hasBrandDNA && (
-        <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-secondary/30 bg-secondary/5 p-4">
-          <div className="flex min-w-0 items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-secondary" />
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                Your brand is not described yet
-                <InfoDot text="The AI needs your business name, industry and audience before it can write anything about you. Without them it stops instead of inventing a business." />
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
-                Fill in Brand DNA and the plan becomes about your business.
-              </p>
-            </div>
-          </div>
-          <a
-            href="/dashboard/brand"
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-secondary px-3 text-xs font-semibold text-secondary-foreground hover:bg-secondary/90"
-          >
-            Set up Brand DNA
-          </a>
         </div>
       )}
 

@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { CalendarRange, FileText, Globe, Send, Share2, Sparkles, Users } from "lucide-react";
+import { ArrowRight, CalendarRange, Check, FileText, Globe, Send, Share2, Sparkles, Users } from "lucide-react";
 import type { GrowthStrategy, LeadChannel } from "@/lib/types/growth";
-import { SubRail } from "./shared";
+import { InfoDot, SubRail } from "./shared";
 import type { ChannelSection, GoalHQData } from "./types";
 import { PlanTab } from "./PlanTab";
 import { TodayTab } from "./TodayTab";
@@ -124,6 +124,47 @@ export function ChannelTab({
     );
   }
 
+  // A channel the user chose still cannot do anything until its must-haves
+  // exist: a connected account for social, or a connected site plus the lead tag
+  // for website. Until then the Plan/Today/Published/Leads sections stay hidden
+  // behind a short checklist, so there is never a button that leads nowhere.
+  const ready = isSocial
+    ? data.connectedPlatforms.length > 0
+    : data.wordpress.connected && data.tracking.installed;
+
+  if (!ready) {
+    const items = isSocial
+      ? [
+          {
+            label: "Connect at least one social account",
+            done: data.connectedPlatforms.length > 0,
+            why: "Autopilot can only post where you have a connected account, so nothing can be planned or counted yet.",
+            href: "/dashboard/integrations",
+            cta: "Connect an account",
+            info: "Accounts are linked once in Integrations. This tab reads that connection — it never asks for a password itself.",
+          },
+        ]
+      : [
+          {
+            label: "Connect your website",
+            done: data.wordpress.connected,
+            why: "The AI needs your site connected before it can publish an article to it.",
+            href: "/dashboard/plugins?connector=wordpress",
+            cta: "Connect site",
+            info: "Your site is linked once in Plugins. Articles are then published straight to it with schema and meta tags.",
+          },
+          {
+            label: "Install your lead tag",
+            done: data.tracking.installed,
+            why: "Without the one-line tag, a form submit or WhatsApp tap on your site cannot be counted, so website leads stay at zero.",
+            href: "/dashboard/plugins?connector=website-tag",
+            cta: "Install the tag",
+            info: "One line of JavaScript from Plugins. It fires only on a real lead action and credits it to the post that sent the visitor.",
+          },
+        ];
+    return <ChannelSetupGate channel={channel} items={items} />;
+  }
+
   return (
     <div className="space-y-5">
       {isSocial ? (
@@ -175,6 +216,95 @@ export function ChannelTab({
           onRefresh={onRefresh}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The hard gate for a chosen-but-not-ready channel. It lists the must-haves as a
+ * short numbered checklist — the ones already done tick green, the rest link
+ * straight to the one place they are set — and shows nothing else until every
+ * item is met. This is what keeps a half-set-up channel from showing plans and
+ * numbers that could never be real.
+ */
+function ChannelSetupGate({
+  channel,
+  items,
+}: {
+  channel: LeadChannel;
+  items: { label: string; done: boolean; why: string; href: string; cta: string; info: string }[];
+}) {
+  const isSocial = channel === "SOCIAL";
+  const doneCount = items.filter((i) => i.done).length;
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6">
+      <div className="flex flex-wrap items-start gap-3">
+        <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          {isSocial ? <Share2 className="h-5 w-5" /> : <Globe className="h-5 w-5" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
+            Finish setup to unlock {isSocial ? "social media" : "your website"}
+            <InfoDot
+              align="left"
+              text={
+                isSocial
+                  ? "Everything on this tab — the plan, today's posts, the history and the leads — runs on a connected account. Connect one and it all switches on."
+                  : "The AI publishes SEO articles to your own site and counts the leads your tag captures. Both are connected once, in Plugins, then this tab runs itself."
+              }
+            />
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+            {isSocial
+              ? "Autopilot can only post where you have a connected account. Do the step below and this tab builds the plan and starts publishing on its own."
+              : "This channel writes SEO articles to your own site and counts the leads it captures. Finish the steps below and it starts working on its own."}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border border-border px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+          {doneCount}/{items.length} done
+        </span>
+      </div>
+
+      <ol className="mt-4 space-y-2">
+        {items.map((it, i) => (
+          <li
+            key={it.label}
+            className={`flex flex-wrap items-center gap-3 rounded-xl border p-3 ${
+              it.done ? "border-primary/30 bg-primary/5" : "border-border bg-background"
+            }`}
+          >
+            <span
+              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                it.done ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+              }`}
+            >
+              {it.done ? <Check className="h-4 w-4" /> : i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                {it.label}
+                <InfoDot text={it.info} />
+              </p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {it.done ? "Done." : it.why}
+              </p>
+            </div>
+            {it.done ? (
+              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold text-primary">
+                <Check className="h-3.5 w-3.5" /> Ready
+              </span>
+            ) : (
+              <a
+                href={it.href}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                {it.cta}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

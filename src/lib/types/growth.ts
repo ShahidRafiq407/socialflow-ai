@@ -35,6 +35,22 @@ export function leadTypeLabel(value: LeadType | string | null | undefined, count
   return words || "leads";
 }
 
+/**
+ * Display noun for a goal's leads, preferring the user's own wording when they
+ * gave one. The custom name never changes what is counted or the forecast — the
+ * maths runs off `leadType` alone — it only renames what the page calls a lead
+ * (e.g. "demo requests" instead of "leads").
+ */
+export function goalLeadNoun(
+  leadType: LeadType | string | null | undefined,
+  customLeadTypeName?: string | null,
+  count = 2
+): string {
+  const custom = (customLeadTypeName || "").trim();
+  if (custom) return count === 1 ? custom.replace(/s$/i, "") || custom : custom;
+  return leadTypeLabel(leadType, count);
+}
+
 export type AutopilotMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
 
 /** Where the user expects leads to come from. */

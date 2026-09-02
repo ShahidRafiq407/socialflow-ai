@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle,
+  BadgeCheck,
   Check,
   Globe,
   Info,
@@ -13,9 +14,10 @@ import {
   Sparkles,
   Target,
   Trash2,
+  Users,
 } from "lucide-react";
 import {
-  leadTypeLabel,
+  goalLeadNoun,
   validateGoalFeasibility,
   type GoalFeasibilityResult,
   type LeadSource,
@@ -42,14 +44,35 @@ import type { GoalHQData } from "./types";
  * where that decision belongs.
  */
 
-const LEAD_TYPES: { value: LeadType; label: string; hint: string }[] = [
-  { value: "QUALIFIED_LEADS", label: "Qualified leads", hint: "Vetted, sales-ready enquiries" },
-  { value: "LEADS", label: "Leads", hint: "Any enquiry, unqualified" },
-  { value: "WEBSITE_INQUIRIES", label: "Website enquiries", hint: "Contact requests from your site" },
-  { value: "CONTACT_FORM", label: "Contact form fills", hint: "Form submissions" },
-  { value: "WHATSAPP", label: "WhatsApp chats", hint: "Chats started from your links" },
-  { value: "BOOKINGS", label: "Bookings / calls", hint: "Booked meetings or calls" },
-  { value: "CUSTOM", label: "Something else", hint: "Name it yourself" },
+/**
+ * The only lead distinction that actually changes the forecast: whether you
+ * count every enquiry, or just the sales-ready ones. Far fewer clicks turn into
+ * a qualified lead, so that choice makes the plan ask for more posts. Everything
+ * else people used to pick from — WhatsApp, form fills, phone taps — is simply
+ * whatever the website tag happens to capture, not a separate target, so it is
+ * no longer a button that pretends to change anything.
+ */
+const QUALITY: {
+  value: "all" | "qualified";
+  leadType: LeadType;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  {
+    value: "all",
+    leadType: "LEADS",
+    label: "Any enquiry",
+    hint: "Every form fill, WhatsApp, email or phone tap your tag sees, plus any lead you confirm on a post.",
+    icon: Users,
+  },
+  {
+    value: "qualified",
+    leadType: "QUALIFIED_LEADS",
+    label: "Sales-qualified only",
+    hint: "Only vetted, sales-ready enquiries. Fewer clicks become these, so the plan works harder.",
+    icon: BadgeCheck,
+  },
 ];
 
 export function GoalWizardTab({
@@ -67,8 +90,14 @@ export function GoalWizardTab({
 
   const [leadTarget, setLeadTarget] = useState<number>(goal?.leadTarget ?? 12);
   const [timeframeDays, setTimeframeDays] = useState<number>(goal?.timeframeDays ?? 30);
-  const [leadType, setLeadType] = useState<LeadType>((goal?.leadType as LeadType) || "QUALIFIED_LEADS");
+  // The lead "type" is now a single honest choice: count everything, or only
+  // the sales-ready ones. An old goal saved with WhatsApp/Bookings/etc. all used
+  // the same maths as "any enquiry", so it maps cleanly onto this bar.
+  const [quality, setQuality] = useState<"all" | "qualified">(
+    String(goal?.leadType) === "QUALIFIED_LEADS" ? "qualified" : "all"
+  );
   const [customLeadTypeName, setCustomLeadTypeName] = useState<string>(goal?.customLeadTypeName || "");
+  const leadType: LeadType = quality === "qualified" ? "QUALIFIED_LEADS" : "LEADS";
   const [leadSources, setLeadSources] = useState<LeadSource[]>(goal?.leadSources || ["SOCIAL"]);
   const [articlesPerWeek, setArticlesPerWeek] = useState<number>(goal?.articlesPerWeek ?? 2);
   const [destinations, setDestinations] = useState<Record<string, string>>(goal?.ctaDestinations || {});
@@ -171,7 +200,7 @@ export function GoalWizardTab({
       const res = await saveGrowthGoal(data.workspaceId, {
         leadTarget,
         leadType,
-        customLeadTypeName: leadType === "CUSTOM" ? customLeadTypeName : null,
+        customLeadTypeName: customLeadTypeName.trim() || null,
         timeframeDays,
         targetPlatforms: useSocial ? aiPlatforms : [],
         leadSources,
@@ -272,34 +301,44 @@ export function GoalWizardTab({
 
         <div className="mt-4">
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            What counts as a lead for you?
-            <InfoDot text="This changes the maths, not just the wording. A booked call takes far more clicks than a form fill, so the plan asks for more posts to reach the same number." />
+            What counts as a lead?
+            <InfoDot text="This is the one thing that changes the forecast. 'Any enquiry' counts every form fill, WhatsApp, email or phone tap your website tag sees, plus any lead you confirm on a post. 'Sales-qualified only' counts just the vetted, sales-ready ones — far fewer clicks become those, so the plan asks for more posts to reach the same number." />
           </span>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {LEAD_TYPES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setLeadType(t.value)}
-                title={t.hint}
-                className={`px-3 h-9 rounded-xl text-xs font-semibold border transition-colors ${
-                  leadType === t.value
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-transparent border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {QUALITY.map((q) => {
+              const active = quality === q.value;
+              const Icon = q.icon;
+              return (
+                <button
+                  key={q.value}
+                  type="button"
+                  onClick={() => setQuality(q.value)}
+                  className={`text-left rounded-xl border p-3 transition-colors ${
+                    active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <Icon className={`w-4 h-4 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                    {q.label}
+                    {active && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
+                  </span>
+                  <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{q.hint}</p>
+                </button>
+              );
+            })}
           </div>
-          {leadType === "CUSTOM" && (
+          <label className="mt-3 block">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+              Call it something specific? (optional)
+              <InfoDot text="Only changes the wording shown on this page — e.g. 'demo requests' instead of 'leads'. It does not change what is counted or the forecast." />
+            </span>
             <input
               value={customLeadTypeName}
               onChange={(e) => setCustomLeadTypeName(e.target.value)}
-              placeholder="Name it — e.g. demo requests, quote requests"
-              className="mt-2 w-full h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="e.g. demo requests, quote requests"
+              className="mt-1.5 w-full h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             />
-          )}
+          </label>
         </div>
       </SectionCard>
 
@@ -377,7 +416,7 @@ export function GoalWizardTab({
               {verdict.estimatedRealisticMin}–{verdict.estimatedRealisticMax}
             </p>
             <p className="text-[11px] text-muted-foreground">
-              {leadTypeLabel(leadType)} in {timeframeDays} day{timeframeDays === 1 ? "" : "s"}
+              {goalLeadNoun(leadType, customLeadTypeName)} in {timeframeDays} day{timeframeDays === 1 ? "" : "s"}
             </p>
           </div>
         </div>
