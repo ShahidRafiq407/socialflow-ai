@@ -21,6 +21,7 @@ import { ensureControllerSchema } from "./schema";
 import { rankFacts } from "./memoryRank";
 import { PLAYBOOK_CATEGORY, buildPlaybookContent } from "./playbooks";
 import { OUTCOME_CATEGORY } from "./outcomes";
+import { CONNECT_REQUEST_CATEGORY } from "./selfConnect";
 
 export interface ControllerMemoryFact {
   id: string;
@@ -46,10 +47,12 @@ const MAX_CONTENT_CHARS = 1200;
 // history, the active plan, checkout intents, captured feature requests, and
 // playbooks (procedural recipes recalled through their own path, loadPlaybooks)
 // — plus content-outcome events (publish/discard tallies aggregated by
-// outcomeStore). None of those are things the user "told us to remember", so
-// none of them may ever be injected into the prompt as a remembered fact or
-// shown in the memory browser. Every fact-recall path filters these out;
-// loadPlaybooks / loadOutcomeEvents query their own category explicitly instead.
+// outcomeStore) and parked tool-connection requests (pending consent, held by
+// selfConnectStore and deleted the moment it is used). None of those are things
+// the user "told us to remember", so none of them may ever be injected into the
+// prompt as a remembered fact or shown in the memory browser. Every fact-recall
+// path filters these out; loadPlaybooks / loadOutcomeEvents / loadPendingConnect
+// query their own category explicitly instead.
 // ---------------------------------------------------------------------------
 export const NON_FACT_CATEGORIES = [
   "billing_event",
@@ -58,6 +61,7 @@ export const NON_FACT_CATEGORIES = [
   "feature_request",
   PLAYBOOK_CATEGORY,
   OUTCOME_CATEGORY,
+  CONNECT_REQUEST_CATEGORY,
 ] as const;
 
 /** Prisma `where` fragment excluding system rows from a fact query. */

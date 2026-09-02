@@ -18,6 +18,7 @@ import { NAVIGATION_TOOLS } from "./navigation";
 import { MEMORY_TOOLS } from "./memory";
 import { ANALYSIS_TOOLS } from "./analysis";
 import { PLUGIN_TOOLS } from "./plugins";
+import { SELF_CONNECT_TOOLS } from "./selfConnect";
 import { LIMIT_TOOLS } from "./limits";
 import { REPORT_LIMITATION_TOOL } from "../limits";
 
@@ -41,6 +42,9 @@ export const MUTATING_TOOLS = new Set([
   "github_push_files",
   "heygen_generate_video",
   "forget",
+  // Attaching an outside server is the one mutation with its own hard gate on
+  // top of this flag: connect_tool_server reads the user's real reply.
+  "connect_tool_server",
 ]);
 
 /** Tools whose work is worth showing as a card rather than only as prose. */
@@ -50,7 +54,16 @@ const WEB_TOOLS = new Set(["search_web", "fetch_serp", "scrape_url"]);
 const PUBLISH_TOOLS = new Set(["publish_post", "approve_content", "schedule_post", "reschedule_post"]);
 const PLUGIN_TOOL_PREFIXES = ["github_", "heygen_", "mcp__"];
 
+/**
+ * Self-connect counts as a plugin tool, which does two jobs at once: it is
+ * removed when the workspace has switched plugins off (a workspace that does not
+ * want plugin tools certainly does not want the model attaching new ones), and
+ * it is catalogued next to list_capabilities in the prompt, where it belongs.
+ */
+const SELF_CONNECT_TOOL_NAMES = new Set(["propose_tool_connection", "connect_tool_server"]);
+
 function isPluginTool(name: string): boolean {
+  if (SELF_CONNECT_TOOL_NAMES.has(name)) return true;
   return PLUGIN_TOOL_PREFIXES.some((p) => name.startsWith(p));
 }
 
@@ -69,6 +82,7 @@ export async function buildToolRegistry(
     ...MEMORY_TOOLS,
     ...ANALYSIS_TOOLS,
     ...PLUGIN_TOOLS,
+    ...SELF_CONNECT_TOOLS,
     // Always present, on purpose: the one tool that must survive every switch
     // being off, since that is exactly when the model needs to admit a limit.
     ...LIMIT_TOOLS,

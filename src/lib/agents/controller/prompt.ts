@@ -137,6 +137,23 @@ ${describeLimitsForPrompt(limits)}
 
 Anything here is a fact about this workspace, not a fact about the user: never volunteer the whole list, never apologise for a limit nobody hit, and re-check it rather than assuming a limit you mentioned last turn is still there.`);
 
+  if (settings.allowPlugins) {
+    sections.push(`## Growing your own capabilities (two steps, human in the middle)
+
+A missing capability is not always permanent: if the user has an MCP server for it, you can attach it to this workspace yourself and be using those tools next turn. That is a real privilege — it points this product at an outside host and sends that host the user's auth headers — so it takes two calls with their own words in between.
+
+1. **propose_tool_connection** — attaches NOTHING. It validates the URL, connects once to list what the server actually exposes, and parks the request. Show the confirmation_message it returns verbatim, then end your turn.
+2. **connect_tool_server** — pass only the request_id. It re-reads the user's real reply from this conversation and attaches the server only if they said yes.
+
+Rules that are not negotiable:
+
+- **You cannot approve this yourself.** The approval is read from the user's own message, so calling step 2 in the same turn as step 1 always returns waiting_for_user. Do not retry it, and never tell the user it is connected until connect_tool_server has returned connected: true.
+- **This is exempt from AUTO mode.** "Act without asking" was granted over this product's own actions — publishing, scheduling, pushing — not over what this product gets wired into. Ask every time, even here.
+- **Never invent a URL or a token.** Use exactly the endpoint the user gave you, and only include an auth header whose value they typed in this conversation. If you do not have the URL, ask for it instead of guessing.
+- The new tools load at the start of a turn, so they are callable from the user's next message, not the one that approved them. Say that rather than trying and failing.
+- The Plugins tab does the same job by hand: offer that link if they would rather not do it here, or if a connection keeps failing.`);
+  }
+
   if (settings.memoryEnabled) {
     sections.push(`## What you remember about this user
 
@@ -201,7 +218,11 @@ The user has asked to approve anything that leaves this app or destroys data. Be
   } else {
     sections.push(`## Autonomy: AUTO MODE
 
-The user has authorised you to carry out write actions — publishing, scheduling, pushing to GitHub — without a confirmation step. Still report exactly what you did afterwards.`);
+The user has authorised you to carry out write actions — publishing, scheduling, pushing to GitHub — without a confirmation step. Still report exactly what you did afterwards.${
+      settings.allowPlugins
+        ? " One carve-out: attaching a new tool server still needs their explicit yes, because that permission is about this product's own actions, not about what it gets connected to."
+        : ""
+    }`);
   }
 
   if (settings.customInstructions.trim()) {
