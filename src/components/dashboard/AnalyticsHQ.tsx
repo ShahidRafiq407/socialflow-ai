@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BarChart3,
@@ -16,6 +17,7 @@ import {
   Info,
   Layers,
   MousePointerClick,
+  RefreshCw,
   Search,
   Send,
   Target,
@@ -267,7 +269,7 @@ function TrendChart({
       <EmptyState
         icon={<BarChart3 className="w-5 h-5" />}
         title="Nothing measured in this window"
-        description="No clicks, leads or publishes were recorded in this period. Publish something and share its tracked link — the chart fills itself from real events."
+        description="No clicks, leads or publishes in this period."
       />
     );
   }
@@ -397,13 +399,21 @@ function SplitBar({
 // ============================================================================
 
 export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("overview");
   const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]["key"]>("30D");
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string>("ALL");
   const [isExporting, setIsExporting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const days = TIMEFRAMES.find((t) => t.key === timeframe)!.days;
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    router.refresh();
+    window.setTimeout(() => setIsRefreshing(false), 1500);
+  };
 
   // ── Window maths (all from the server-counted daily series) ────────────────
   const series = initialData.series;
@@ -411,12 +421,29 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
   const previousPoints = useMemo(() => series.slice(-days * 2, -days), [series, days]);
 
   const windowTotals = useMemo(() => {
-    const sum = (pts: typeof series, key: "clicks" | "leads" | "published") =>
-      pts.reduce((s, p) => s + p[key], 0);
+    type NumKey =
+      | "clicks"
+      | "uniqueClicks"
+      | "leads"
+      | "socialLeads"
+      | "websiteLeads"
+      | "manualLeads"
+      | "posts"
+      | "articles"
+      | "published"
+      | "failed";
+    const sum = (pts: typeof series, key: NumKey) => pts.reduce((s, p) => s + p[key], 0);
     return {
       clicks: sum(windowPoints, "clicks"),
+      uniqueClicks: sum(windowPoints, "uniqueClicks"),
       leads: sum(windowPoints, "leads"),
+      socialLeads: sum(windowPoints, "socialLeads"),
+      websiteLeads: sum(windowPoints, "websiteLeads"),
+      manualLeads: sum(windowPoints, "manualLeads"),
+      posts: sum(windowPoints, "posts"),
+      articles: sum(windowPoints, "articles"),
       published: sum(windowPoints, "published"),
+      failed: sum(windowPoints, "failed"),
       prevClicks: sum(previousPoints, "clicks"),
       prevLeads: sum(previousPoints, "leads"),
       prevPublished: sum(previousPoints, "published"),
@@ -453,13 +480,10 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
       ? Number(((windowTotals.leads / windowTotals.clicks) * 100).toFixed(1))
       : null;
 
-  const publishAttempts =
-    initialData.totals.postsPublished +
-    initialData.totals.articlesPublished +
-    initialData.totals.publishFailures;
+  const publishAttempts = windowTotals.posts + windowTotals.articles + windowTotals.failed;
   const successRate =
     publishAttempts > 0
-      ? Math.round(((publishAttempts - initialData.totals.publishFailures) / publishAttempts) * 100)
+      ? Math.round(((windowTotals.posts + windowTotals.articles) / publishAttempts) * 100)
       : null;
 
   const hasAnyData =
@@ -495,16 +519,17 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
     setTimeout(() => {
       const lines: string[] = [];
       const esc = (v: unknown) => {
-        const s = v == null ? "" : String(v);
+        let s = v == null ? "" : String(v);
+        if (/^[=+\-@]/.test(s)) s = `'${s}`;
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
 
       lines.push(["workspace", esc(initialData.workspaceName || "-")].join(","));
       lines.push(["window", `${timeframe} (${days} days)`].join(","));
       lines.push("");
-      lines.push(["date", "link_clicks", "leads", "published"].join(","));
+      lines.push(["date", "link_clicks", "unique_clicks", "leads", "published"].join(","));
       for (const p of windowPoints) {
-        lines.push([p.date, p.clicks, p.leads, p.published].join(","));
+        lines.push([p.date, p.clicks, p.uniqueClicks, p.leads, p.published].join(","));
       }
       lines.push("");
       lines.push(
@@ -521,6 +546,23 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
         lines.push(
           [p.publishedAt, p.channel, esc(p.platform), esc(p.format || ""), p.clicks, p.leads, esc(p.liveUrl || "")].join(",")
         );
+      }
+      if (initialData.goal) {
+        lines.push("");
+        lines.push("LEAD GOAL");
+        lines.push(["target", initialData.goal.leadTarget].join(","));
+        lines.push(["achieved", initialData.goal.leadsAchieved].join(","));
+        lines.push(["lead_type", esc(initialData.goal.leadType)].join(","));
+        lines.push(["days_elapsed", initialData.goal.daysElapsed].join(","));
+        lines.push(["days_total", initialData.goal.daysTotal].join(","));
+      }
+      if (initialData.leadStatuses.length > 0) {
+        lines.push("");
+        lines.push("LEAD STATUSES (ALL-TIME)");
+        lines.push(["status", "count", "counts_toward_goal"].join(","));
+        for (const row of initialData.leadStatuses) {
+          lines.push([esc(row.status), row.count, row.counted ? "yes" : "no"].join(","));
+        }
       }
 
       const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -550,38 +592,47 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
   return (
     <div className="w-full max-w-6xl mx-auto font-sans pb-16 space-y-5">
       {/* ── Header ── */}
-      <section className="rounded-2xl bg-gradient-to-r from-primary to-secondary p-6 text-primary-foreground">
+      <section className="rounded-2xl bg-primary p-6 text-primary-foreground">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-xl font-bold sm:text-2xl tracking-tight">Analytics</h1>
-            <p className="mt-1.5 max-w-2xl text-sm text-white/85 leading-relaxed">
-              {initialData.workspaceName
-                ? `${initialData.workspaceName}${initialData.industry ? ` · ${initialData.industry}` : ""} — every number below is counted from real link clicks, lead events and publish receipts. Nothing is estimated.`
-                : "Every number below is counted from real link clicks, lead events and publish receipts. Nothing is estimated."}
+            {(initialData.workspaceName || initialData.industry) && (
+              <p className="mt-1 text-sm text-primary-foreground/85">
+                {[initialData.workspaceName, initialData.industry].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            <p className="mt-0.5 text-xs text-primary-foreground/70">
+              Real clicks, leads and publish receipts — nothing estimated.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleExport}
-            disabled={isExporting || !hasAnyData}
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 px-3 text-xs font-semibold hover:bg-white/25 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {isExporting ? "Exporting…" : `Export ${timeframe} CSV`}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="Reload the latest numbers from the server"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-primary-foreground/15 px-3 text-xs font-semibold hover:bg-primary-foreground/25 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting || !hasAnyData}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-primary-foreground/15 px-3 text-xs font-semibold hover:bg-primary-foreground/25 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {isExporting ? "Exporting…" : `Export ${timeframe} CSV`}
+            </button>
+          </div>
         </div>
 
-        {hasAnyData ? (
-          <p className="mt-4 text-[11px] text-white/70">
-            Last refreshed {fmtDateTime(initialData.generatedAt)} · data window: last{" "}
-            {initialData.windowDays} days
-          </p>
-        ) : (
-          <p className="mt-4 text-[11px] text-white/70">
-            No measured activity yet — connect a platform and publish from Lead Goal HQ or Content
-            Studio, then come back.
-          </p>
-        )}
+        <p className="mt-4 text-[11px] text-primary-foreground/70">
+          {hasAnyData
+            ? `Updated ${fmtDateTime(initialData.generatedAt)} · last ${initialData.windowDays} days`
+            : "No activity yet — publish something to see numbers here."}
+        </p>
       </section>
 
       {/* ── Controls: tabs + timeframe ── */}
@@ -626,13 +677,13 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
       {!hasAnyData && (
         <SectionCard
           title="No measured data yet"
-          subtitle="This dashboard fills itself from real events — there is no demo data in it."
-          icon={<Info className="w-4 h-4" />}
+          subtitle="This dashboard fills itself from real events — no demo data."
+          icon={<Info className="w-4 w-4" />}
           accent="secondary"
         >
           <EmptyState
-            title="Analytics will appear after your first real activity"
-            description="Numbers arrive from three places: tracked CTA link clicks, confirmed lead events, and publish receipts from Lead Goal HQ or Content Studio. Publish a post with a tracked link and this page updates itself."
+            title="Analytics will appear after your first publish"
+            description="Clicks, leads and publish receipts land here automatically."
             action={
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <a
@@ -674,7 +725,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
               label="Link clicks (window)"
               value={fmtNum(windowTotals.clicks)}
               delta={pctChange(windowTotals.clicks, windowTotals.prevClicks)}
-              hint={`${fmtNum(initialData.totals.uniqueClicks)} unique across ${days} days`}
+              hint={`${fmtNum(windowTotals.uniqueClicks)} unique · last ${days} days`}
               icon={<MousePointerClick className="h-4 w-4" />}
               accent="secondary"
             />
@@ -682,7 +733,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
               label="Published (window)"
               value={fmtNum(windowTotals.published)}
               delta={pctChange(windowTotals.published, windowTotals.prevPublished)}
-              hint={`${fmtNum(initialData.totals.postsPublished)} posts · ${fmtNum(initialData.totals.articlesPublished)} articles`}
+              hint={`${fmtNum(windowTotals.posts)} posts · ${fmtNum(windowTotals.articles)} articles`}
               icon={<Send className="h-4 w-4" />}
             />
             <StatTile
@@ -703,7 +754,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
               title="Lead goal progress"
               subtitle={`${fmtNum(goal.leadTarget)} ${goal.leadType
                 .toLowerCase()
-                .replace(/_/g, " ")} in ${goal.daysTotal} days — counted inside the goal window, not the chart window.`}
+                .replace(/_/g, " ")} in ${goal.daysTotal} days`}
               icon={<Target className="w-4 h-4" />}
               actions={
                 <a
@@ -747,7 +798,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
 
           <SectionCard
             title="Clicks, leads & publishes"
-            subtitle={`Daily totals over the last ${days} days. Each metric scales to its own maximum, so magnitudes are never cross-faked.`}
+            subtitle={`Daily totals, last ${days} days`}
             icon={<BarChart3 className="w-4 h-4" />}
           >
             <TrendChart buckets={buckets} metrics={["clicks", "leads", "published"]} />
@@ -756,21 +807,21 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
           <div className="grid gap-5 lg:grid-cols-2">
             <SectionCard
               title="Where leads came from"
-              subtitle="Counted from lead events in the chart window — social posts vs your website tag."
-              icon={<Globe className="w-4 h-4" />}
+              subtitle={`Lead events, last ${days} days`}
+              icon={<Globe className="w-4 w-4" />}
               accent="secondary"
             >
               <SplitBar
                 segments={[
                   {
                     label: "Social posts",
-                    value: initialData.totals.socialLeads,
+                    value: windowTotals.socialLeads,
                     color: "bg-primary",
                     text: "text-primary",
                   },
                   {
                     label: "Website tag",
-                    value: initialData.totals.websiteLeads,
+                    value: windowTotals.websiteLeads,
                     color: "bg-secondary",
                     text: "text-secondary",
                   },
@@ -778,10 +829,10 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
               />
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Chip tone="muted" icon={<UserPlus className="w-3 h-3" />}>
-                  {fmtNum(initialData.totals.manualLeads)} manually logged
+                  {fmtNum(windowTotals.manualLeads)} manually logged
                 </Chip>
                 <Chip tone="muted" icon={<MousePointerClick className="w-3 h-3" />}>
-                  {fmtNum(initialData.totals.uniqueClicks)} unique clicks
+                  {fmtNum(windowTotals.uniqueClicks)} unique clicks
                 </Chip>
               </div>
             </SectionCard>
@@ -846,7 +897,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
                   {fmtNum(initialData.pipeline.connectedPlatforms)} platforms connected
                 </Chip>
                 {successRate !== null && (
-                  <Chip tone={initialData.totals.publishFailures > 0 ? "danger" : "muted"}>
+                  <Chip tone={windowTotals.failed > 0 ? "danger" : "muted"}>
                     {successRate}% publish success
                   </Chip>
                 )}
@@ -862,21 +913,25 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Posts published"
-              value={fmtNum(initialData.totals.postsPublished)}
-              hint={`Social publishes in the last ${days} days`}
+              value={fmtNum(windowTotals.posts)}
+              hint={`Social · last ${days} days`}
               icon={<Send className="h-4 w-4" />}
             />
             <StatTile
               label="Articles published"
-              value={fmtNum(initialData.totals.articlesPublished)}
-              hint={`Website publishes in the last ${days} days`}
+              value={fmtNum(windowTotals.articles)}
+              hint={`Website · last ${days} days`}
               icon={<FileText className="h-4 w-4" />}
               accent="secondary"
             />
             <StatTile
               label="Failed publishes"
-              value={fmtNum(initialData.totals.publishFailures)}
-              hint={successRate !== null ? `${successRate}% success rate` : "No attempts yet"}
+              value={fmtNum(windowTotals.failed)}
+              hint={
+                successRate !== null
+                  ? `${successRate}% success · last ${days} days`
+                  : "No attempts yet"
+              }
               icon={<AlertTriangle className="h-4 w-4" />}
             />
             <StatTile
@@ -890,7 +945,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
 
           <SectionCard
             title="Publishing volume"
-            subtitle={`Items that actually went live per period, from permanent publish receipts (last ${days} days).`}
+            subtitle={`Went-live items per period, last ${days} days`}
             icon={<Send className="w-4 w-4" />}
           >
             <TrendChart buckets={buckets} metrics={["published"]} />
@@ -898,7 +953,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
 
           <SectionCard
             title="Post performance"
-            subtitle="Every published item with its real tracked-link clicks and attributed leads. Publish receipts are permanent, so history never disappears."
+            subtitle="Published items with their real clicks and leads."
             icon={<BarChart3 className="w-4 h-4" />}
             accent="secondary"
             actions={
@@ -937,7 +992,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
               <EmptyState
                 icon={<Send className="w-5 h-5" />}
                 title="No published items yet"
-                description="Once a post or article goes live, its publish receipt lands here with the exact clicks and leads its tracked link collected."
+                description="Publish receipts with their clicks and leads will show up here."
               />
             ) : (
               <div className="overflow-x-auto -mx-2">
@@ -1029,25 +1084,21 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
             />
             <StatTile
               label="From social"
-              value={fmtNum(initialData.totals.socialLeads)}
-              hint="Leads attributed to social posts"
+              value={fmtNum(windowTotals.socialLeads)}
+              hint={`Last ${days} days`}
               icon={<Send className="h-4 w-4" />}
               accent="secondary"
             />
             <StatTile
               label="From website"
-              value={fmtNum(initialData.totals.websiteLeads)}
-              hint="Captured by the website tracking tag"
+              value={fmtNum(windowTotals.websiteLeads)}
+              hint={`Last ${days} days`}
               icon={<Globe className="h-4 w-4" />}
             />
             <StatTile
               label="Manually logged"
-              value={fmtNum(initialData.totals.manualLeads)}
-              hint={
-                conversionRate !== null
-                  ? `Click→lead rate ${conversionRate}%`
-                  : "Confirmed by you, not inferred"
-              }
+              value={fmtNum(windowTotals.manualLeads)}
+              hint={`Last ${days} days`}
               icon={<Users className="h-4 w-4" />}
               accent="secondary"
             />
@@ -1055,7 +1106,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
 
           <SectionCard
             title="Lead flow"
-            subtitle={`Confirmed lead events per period (last ${days} days) — the same rows Lead Goal HQ counts.`}
+            subtitle={`Confirmed leads per period, last ${days} days`}
             icon={<Users className="w-4 w-4" />}
           >
             <TrendChart buckets={buckets} metrics={["leads"]} />
@@ -1064,7 +1115,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
           <div className="grid gap-5 lg:grid-cols-2">
             <SectionCard
               title="Status breakdown"
-              subtitle="All lead events ever recorded, by status. Only CONFIRMED, QUALIFIED and WON count toward goals."
+              subtitle="All-time, by status. CONFIRMED, QUALIFIED and WON count toward goals."
               icon={<Target className="w-4 h-4" />}
               accent="secondary"
             >
@@ -1079,18 +1130,17 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
                   {initialData.leadStatuses.map((row) => {
                     const total = initialData.leadStatuses.reduce((s, r) => s + r.count, 0);
                     const pct = total > 0 ? (row.count / total) * 100 : 0;
-                    const counted = ["CONFIRMED", "QUALIFIED", "WON"].includes(row.status);
                     return (
                       <div key={row.status} className="space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
                           <span className="inline-flex items-center gap-2">
                             <span
-                              className={`h-2.5 w-2.5 rounded-sm ${counted ? "bg-primary" : "bg-muted-foreground/40"}`}
+                              className={`h-2.5 w-2.5 rounded-sm ${row.counted ? "bg-primary" : "bg-muted-foreground/40"}`}
                             />
                             <span className="font-semibold text-foreground">
                               {row.status.replace(/_/g, " ").toLowerCase()}
                             </span>
-                            {!counted && (
+                            {!row.counted && (
                               <span className="text-[10px] text-muted-foreground">
                                 (not counted toward the goal)
                               </span>
@@ -1100,7 +1150,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
                         </div>
                         <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                           <div
-                            className={`h-full rounded-full ${counted ? "bg-primary" : "bg-muted-foreground/40"}`}
+                            className={`h-full rounded-full ${row.counted ? "bg-primary" : "bg-muted-foreground/40"}`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -1113,7 +1163,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
 
             <SectionCard
               title="Top posts by leads"
-              subtitle="Which published items actually produced confirmed leads — counted from tracked-link attribution."
+              subtitle="Confirmed leads by post."
               icon={<TrendingUp className="w-4 w-4" />}
             >
               {topPostsByLeads.every((p) => p.leads === 0 && p.clicks === 0) ? (
@@ -1168,7 +1218,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
         <div className="space-y-5">
           <SectionCard
             title="Platform performance"
-            subtitle="Lifetime totals per platform — connected accounts plus every platform with real publish, click or lead activity. Rows only exist where data exists."
+            subtitle="Lifetime totals per connected or active platform."
             icon={<Layers className="w-4 w-4" />}
             actions={
               <a
@@ -1293,7 +1343,7 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
                     {successRate !== null ? `${successRate}%` : "—"}
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-1">
-                    {fmtNum(publishAttempts)} attempts in window
+                    {fmtNum(publishAttempts)} attempts · last {days} days
                   </p>
                 </div>
                 <div className="rounded-xl border border-border bg-muted/40 p-3">
@@ -1301,10 +1351,10 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
                     Failures in window
                   </p>
                   <p className="text-lg font-bold text-foreground leading-none mt-1">
-                    {fmtNum(initialData.totals.publishFailures)}
+                    {fmtNum(windowTotals.failed)}
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-1">
-                    {initialData.totals.publishFailures > 0
+                    {windowTotals.failed > 0
                       ? "Retry them from Lead Goal HQ → History"
                       : "No failed publishes"}
                   </p>

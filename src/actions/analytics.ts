@@ -27,8 +27,15 @@ export interface AnalyticsSeriesPoint {
   /** Preformatted label, e.g. "Sep 1" — deterministic, no locale drift */
   label: string;
   clicks: number;
+  uniqueClicks: number;
   leads: number;
+  socialLeads: number;
+  websiteLeads: number;
+  manualLeads: number;
+  posts: number;
+  articles: number;
   published: number;
+  failed: number;
 }
 
 export interface PlatformAnalyticsRow {
@@ -59,6 +66,8 @@ export interface PostPerformanceRow {
 export interface LeadStatusRow {
   status: string;
   count: number;
+  /** Whether this status counts toward goals — computed from COUNTED_LEAD_STATUSES. */
+  counted: boolean;
 }
 
 export interface AnalyticsTotals {
@@ -128,7 +137,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 function platformKey(raw: string): string {
   const p = String(raw || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   if (!p) return "";
-  if (p.includes("instagram") || p.includes("ig")) return "instagram";
+  if (p.includes("instagram") || p === "ig") return "instagram";
   if (p.includes("linkedin")) return "linkedin";
   if (p.includes("facebook") || p === "fb") return "facebook";
   if (p.includes("tiktok")) return "tiktok";
@@ -177,8 +186,7 @@ function emptyPayload(windowDays: number): WorkspaceAnalyticsData {
     },
     series: [],
     leadStatuses: [],
-    platforms: [],
-    posts: [],
+    platforms: [],    posts: [],
     pipeline: {
       pendingApproval: 0,
       approved: 0,
@@ -251,7 +259,7 @@ export async function getWorkspaceAnalytics(
 
       p.publishLog.groupBy({
         by: ["platform"],
-        where: { workspaceId, status: "PUBLISHED", channel: "SOCIAL" },
+        where: { workspaceId, status: "PUBLISHED" },
         _count: { _all: true },
       }).catch(() => []),
 
@@ -316,28 +324,52 @@ export async function getWorkspaceAnalytics(
     }
 
     // ── Daily series (90 UTC day buckets, gaps included) ─────────────────────
-    const buckets = new Map<string, { clicks: number; leads: number; published: number }>();
+    const buckets = new Map<string, Omit<AnalyticsSeriesPoint, "date" | "label">>();
     for (let i = 0; i < ANALYTICS_WINDOW_DAYS; i++) {
       const d = new Date(windowStart);
       d.setUTCDate(windowStart.getUTCDate() + i);
-      buckets.set(dayKeyUTC(d), { clicks: 0, leads: 0, published: 0 });
+      buckets.set(dayKeyUTC(d), {
+        clicks: 0,
+        uniqueClicks: 0,
+        leads: 0,
+        socialLeads: 0,
+        websiteLeads: 0,
+        manualLeads: 0,
+        posts: 0,
+        articles: 0,
+        published: 0,
+        failed: 0,
+      });
     }
 
     for (const row of clickRows as any[]) {
       const key = dayKeyUTC(new Date(row.createdAt));
       const b = buckets.get(key);
-      if (b) b.clicks += 1;
+      if (b) {
+        b.clicks += 1;
+        if (row.isUnique) b.uniqueClicks += 1;
+      }
     }
     for (const row of leadRows as any[]) {
       const key = dayKeyUTC(new Date(row.occurredAt));
       const b = buckets.get(key);
-      if (b) b.leads += 1;
+      if (!b) continue;
+      b.leads += 1;
+      if (row.channel === "WEBSITE") b.websiteLeads += 1;
+      else b.socialLeads += 1;
+      if (row.source === "MANUAL") b.manualLeads += 1;
     }
     for (const row of publishRows as any[]) {
-      if (row.status !== "PUBLISHED") continue;
       const key = dayKeyUTC(new Date(row.publishedAt));
       const b = buckets.get(key);
-      if (b) b.published += 1;
+      if (!b) continue;
+      if (row.status === "FAILED") {
+        b.failed += 1;
+      } else if (row.status === "PUBLISHED") {
+        b.published += 1;
+        if (row.channel === "WEBSITE") b.articles += 1;
+        else b.posts += 1;
+      }
     }
 
     const series: AnalyticsSeriesPoint[] = Array.from(buckets.entries())
@@ -382,9 +414,7 @@ export async function getWorkspaceAnalytics(
     for (const row of trackedLinkGroups as any[]) {
       const key = platformKey(String(row.platform || ""));
       if (!key) continue;
-      const entry = ensure(key);
-      entry.clicks += row?._sum?.clickCount || 0;
-      entry.leads += row?._sum?.leadCount || 0;
+      ensure(key).clicks += row?._sum?.clickCount || 0;
     }
     for (const row of leadPlatformGroups as any[]) {
       const key = platformKey(String(row.platform || ""));
@@ -444,6 +474,7 @@ export async function getWorkspaceAnalytics(
     const leadStatuses: LeadStatusRow[] = (leadStatusGroups as any[]).map((row: any) => ({
       status: String(row.status || "CONFIRMED"),
       count: row?._count?._all || 0,
+      counted: COUNTED_LEAD_STATUSES.includes(String(row.status || "CONFIRMED")),
     }));
 
     // ── Content pipeline (real row counts) ───────────────────────────────────
