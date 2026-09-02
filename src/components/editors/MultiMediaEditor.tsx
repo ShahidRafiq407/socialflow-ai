@@ -14,9 +14,6 @@ import {
   RefreshCw,
   Loader2,
   Hash,
-  ShoppingBag,
-  Sliders,
-  Check,
   Settings2,
   AlertCircle,
   Square
@@ -24,7 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
@@ -57,6 +53,12 @@ interface MultiMediaEditorProps {
   isGeneratingCopy: boolean;
   onGenerateAllMediaAI: () => void;
   isGeneratingAllMedia: boolean;
+  /**
+   * TRUE when the one-press action also designs the asset graphics (every multi-asset
+   * deck format). FALSE for single-media / thread formats where it only writes the copy —
+   * the button must not promise media it will not produce.
+   */
+  generatesMediaWithPost?: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
   onRenderSingleAI: (options?: {
@@ -107,6 +109,7 @@ export default function MultiMediaEditor({
   isGeneratingCopy,
   onGenerateAllMediaAI,
   isGeneratingAllMedia,
+  generatesMediaWithPost = true,
   onOpenUpload,
   onOpenStock,
   onRenderSingleAI,
@@ -132,7 +135,6 @@ export default function MultiMediaEditor({
   isRefiningCaption = false,
   refiningAction = null,
 }: MultiMediaEditorProps) {
-  const [tagInput, setTagInput] = useState("");
   const [imageAspectRatio, setImageAspectRatio] = useState<string>("auto");
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
@@ -160,7 +162,9 @@ export default function MultiMediaEditor({
   // internal step of generating the media, never the deliverable.
   const fullPostLabel = isThreadFormat
     ? "Generate Complete Thread with AI"
-    : `Generate Complete ${capability.format} Post with AI`;
+    : capability.format === "Post"
+      ? "Generate Complete Post with AI"
+      : `Generate Complete ${capability.format} Post with AI`;
 
   const handleRemoveMedia = (idx: number) => {
     if (mediaItems.length <= 1) return;
@@ -501,8 +505,12 @@ export default function MultiMediaEditor({
               <span>{isGeneratingAllMedia ? "Stop Generating" : fullPostLabel}</span>
             </Button>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              Writes the caption and hashtags, then designs {isThreadFormat ? "every post's visual" : `all ${mediaItems.length} asset${mediaItems.length === 1 ? "" : "s"}`}.
-              Every selected platform that shares this format gets the same post.
+              {generatesMediaWithPost
+                ? `Writes the caption and hashtags, then designs all ${mediaItems.length} asset${mediaItems.length === 1 ? "" : "s"}.`
+                : isThreadFormat
+                  ? "Writes every post in the thread plus the hashtags. Add a visual per post below when you want one."
+                  : "Writes the caption and hashtags for this post. Generate the visual below."}
+              {" "}Every selected platform that shares this format gets the same post.
             </p>
           </div>
         </div>

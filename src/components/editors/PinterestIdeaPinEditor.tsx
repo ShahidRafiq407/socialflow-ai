@@ -13,23 +13,22 @@ import {
   Wand2,
   RefreshCw,
   Loader2,
-  Link as LinkIcon,
+  Settings2,
   Tag,
   ShoppingBag,
   X,
-  Check,
   AlertCircle,
   Square
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
-
+import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
+import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import {
   MIN_DECK_SLIDES,
@@ -37,6 +36,7 @@ import {
   canRemoveDeckSlide,
   nextActiveSlideIndex,
 } from "./deckSlides";
+import { DECK_MEDIA_FIT, mediaPreviewFrame, resolvePreviewRatio } from "./mediaPreviewFrame";
 
 export interface IdeaPinPage {
   pageNumber: number;
@@ -69,6 +69,17 @@ interface PinterestIdeaPinEditorProps {
   isGeneratingAI: boolean;
   onRegeneratePageAI: (pageIdx: number) => void;
   isRegeneratingPage: boolean;
+  /** Renders just the active page's graphic with the Image Settings below the preview. */
+  onRenderPageMedia?: (options?: {
+    mediaType?: "image" | "video";
+    prompt?: string;
+    aspectRatio?: string;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
+    slideIndex?: number;
+  }) => void;
+  isRenderingPageMedia?: boolean;
   onOpenUpload: () => void;
   onOpenStock: () => void;
   onCaptionToPrompt?: () => void;
@@ -88,6 +99,10 @@ interface PinterestIdeaPinEditorProps {
   isAnalyzingMedia?: boolean;
   // TRUE only when the current slot holds user-provided media (upload/stock)
   hasUserMedia?: boolean;
+  // Description quick actions (rewrite / boost hook / executive tone / hashtags)
+  onAIRefine?: (action: "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags") => void;
+  isRefiningCaption?: boolean;
+  refiningAction?: string | null;
 }
 
 export default function PinterestIdeaPinEditor({
@@ -111,6 +126,8 @@ export default function PinterestIdeaPinEditor({
   isGeneratingAI,
   onRegeneratePageAI,
   isRegeneratingPage,
+  onRenderPageMedia,
+  isRenderingPageMedia = false,
   onOpenUpload,
   onOpenStock,
   onCaptionToPrompt,
@@ -128,6 +145,9 @@ export default function PinterestIdeaPinEditor({
   onAnalyzeMedia,
   isAnalyzingMedia = false,
   hasUserMedia = false,
+  onAIRefine,
+  isRefiningCaption = false,
+  refiningAction = null,
 }: PinterestIdeaPinEditorProps) {
   const [topicInput, setTopicInput] = useState("");
   const [pageAspectRatio, setPageAspectRatio] = useState<string>("auto");
@@ -169,6 +189,23 @@ export default function PinterestIdeaPinEditor({
 
   const currentIdx = Math.min(Math.max(activePageIndex, 0), effectivePages.length - 1);
   const activePage = effectivePages[currentIdx] || effectivePages[0];
+  const isBusyOnPageVisual = isRegeneratingPage || isRenderingPageMedia;
+  const hasSourceText = Boolean(description?.trim() || activePage.body?.trim());
+
+  // Idea Pin pages are typeset informational graphics — the preview runs at the real
+  // 9:16 publish ratio so the headline on the page is legible while editing.
+  const previewFrame = mediaPreviewFrame(
+    resolvePreviewRatio(pageAspectRatio, capability.defaultAspectRatio || "9:16")
+  );
+
+  const renderActivePageMedia = () => {
+    onRenderPageMedia?.({
+      aspectRatio: pageAspectRatio !== "auto" ? pageAspectRatio : (capability.defaultAspectRatio || "9:16"),
+      style: pageStyle,
+      quality: pageQuality,
+      imageModel: "gemini-3-pro-image",
+    });
+  };
 
   const handleUpdateActivePage = (field: keyof IdeaPinPage, value: any) => {
     const updated = [...effectivePages];
@@ -239,8 +276,8 @@ export default function PinterestIdeaPinEditor({
                 }
               }} disabled={generatingField !== null && generatingField !== "title"} title={generatingField === "title" ? "Stop generating title" : "Generate Title with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
                 generatingField === "title"
-                  ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
-                  : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                  ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                  : "bg-secondary/10 text-secondary hover:bg-secondary/20"
               } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
                 {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
               </button>
@@ -397,12 +434,15 @@ export default function PinterestIdeaPinEditor({
         </div>
       </div>
 
-      {/* ACTIVE PAGE EDITOR */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: ACTIVE PAGE MEDIA FRAME (9:16 VERTICAL) */}
-        <div className="md:col-span-5 space-y-3">
-          <div className="relative rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center min-h-[320px] aspect-[9/16] overflow-hidden group shadow-2xs">
-            {isRegeneratingPage ? (
+      {/* ACTIVE PAGE PREVIEW (LEFT) + PIN COPY & ONE-CLICK GENERATE (RIGHT) */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        {/* LEFT: ACTIVE PAGE MEDIA AT FULL PUBLISH SIZE */}
+        <div className="xl:col-span-7 space-y-3">
+          <div
+            className="relative w-full mx-auto rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs"
+            style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
+          >
+            {isBusyOnPageVisual ? (
               <GenerationProgressIndicator
                 progress={generationProgress}
                 stage={generationStage}
@@ -413,16 +453,16 @@ export default function PinterestIdeaPinEditor({
               />
             ) : renderError ? (
               <div className="text-center p-4 space-y-2.5">
-                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <AlertCircle className="h-8 w-8 text-destructive mx-auto" />
                 <div className="space-y-0.5">
-                  <p className="text-xs font-bold text-red-400">Generation failed</p>
+                  <p className="text-xs font-bold text-destructive">Generation failed</p>
                   <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
                 </div>
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => onRegeneratePageAI(currentIdx)}
-                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                  onClick={() => (onRenderPageMedia ? renderActivePageMedia() : onRegeneratePageAI(currentIdx))}
+                  className="h-7 text-[11px] bg-destructive text-white hover:bg-destructive/90 font-bold"
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
@@ -432,14 +472,15 @@ export default function PinterestIdeaPinEditor({
                 <ContentMediaRenderer
                   url={activePage.mediaUrl}
                   mediaType={activePage.mediaType}
+                  className={DECK_MEDIA_FIT}
                   isVertical={true}
                   showRemoveButton={false}
                   alt={`Page ${currentIdx + 1}`}
                 />
                 {/* STEP OVERLAY BADGE */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
-                  <span className="bg-red-600 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
-                    Page {currentIdx + 1}
+                  <span className="bg-slate-900/90 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
+                    Page {currentIdx + 1} of {effectivePages.length}
                   </span>
                   <p className="text-white text-xs font-bold line-clamp-1">{activePage.title}</p>
                 </div>
@@ -463,44 +504,232 @@ export default function PinterestIdeaPinEditor({
           </div>
         </div>
 
-        {/* RIGHT: ACTIVE PAGE TEXT & PROMPTS */}
-        <div className="md:col-span-7 space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Page {currentIdx + 1} Title / Step Header
-            </label>
-            <Input
-              value={activePage.title}
-              onChange={(e) => handleUpdateActivePage("title", e.target.value)}
-              placeholder={`e.g. Step ${currentIdx + 1}: Key Strategy`}
-              className="h-10 text-xs sm:text-sm font-semibold rounded-xl bg-white dark:bg-slate-900"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Page {currentIdx + 1} Key Insight / Body Text
-            </label>
+        {/* RIGHT: PIN DESCRIPTION, TOPICS AND THE ONE ACTION THAT BUILDS THE PIN */}
+        <div className="xl:col-span-5 space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Pin Description (Shared)
+              </label>
+              <div className="flex items-center gap-2">
+                {onGenerateField && (
+                  <button type="button" onClick={() => {
+                    if (generatingField === "description") {
+                      cancelAIAction("field", `${formatKey}:description`);
+                    } else {
+                      onGenerateField("description");
+                    }
+                  }} disabled={generatingField !== null && generatingField !== "description"} title={generatingField === "description" ? "Stop generating description" : "Generate Description with AI"} className={`text-[10px] font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors ${
+                    generatingField === "description"
+                      ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                      : "bg-secondary/10 text-secondary hover:bg-secondary/20"
+                  } ${generatingField !== null && generatingField !== "description" ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    {generatingField === "description" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "description" ? "Stop" : "AI"}
+                  </button>
+                )}
+                <CharacterCounter current={(description || "").length} max={capability.captionLimit} />
+              </div>
+            </div>
             <Textarea
-              rows={3}
-              value={activePage.body}
-              onChange={(e) => handleUpdateActivePage("body", e.target.value)}
-              placeholder="Write 1-2 punchy sentences that give immediate value on this slide..."
+              rows={6}
+              value={description || ""}
+              onChange={(e) => onDescriptionChange(e.target.value)}
+              placeholder="Describe the Idea Pin with searchable keywords, the value inside, and a clear call to action..."
               className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
             />
+            {onAIRefine && (
+              <CaptionRefineActions
+                formatKey={formatKey}
+                caption={description || ""}
+                onRefine={onAIRefine}
+                isRefining={isRefiningCaption}
+                refiningAction={refiningAction}
+              />
+            )}
+          </div>
+
+          {/* TAGGED TOPICS (PINTEREST INTEREST TAGS) */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+              <Tag className="h-3.5 w-3.5 text-secondary" /> Tagged Topics
+            </label>
+            <Input
+              value={topicInput}
+              onChange={(e) => setTopicInput(e.target.value)}
+              onKeyDown={handleAddTopic}
+              placeholder="Type a topic and press Enter (e.g. automation)"
+              className="h-8.5 text-xs bg-white dark:bg-slate-900 rounded-lg"
+            />
+            {taggedTopics.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {taggedTopics.map((topic) => (
+                  <span
+                    key={topic}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary/10 text-secondary text-[11px] font-bold"
+                  >
+                    {topic}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTopic(topic)}
+                      className="hover:text-destructive transition-colors"
+                      title={`Remove ${topic}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* TAG PRODUCTS SECTION */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">Tag Products</label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTagProductDialogOpen(true)}
+              className="h-8 text-xs font-semibold gap-1.5 rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              <ShoppingBag className="h-3.5 w-3.5 text-primary" />
+              <span>Add products</span>
+            </Button>
+
+            {taggedProducts.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {taggedProducts.map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="inline-flex items-center gap-1.5 bg-primary/10 border border-primary/25 text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg text-xs font-medium"
+                  >
+                    <ShoppingBag className="h-3 w-3 text-primary shrink-0" />
+                    <span className="font-bold">{prod.name}</span>
+                    {prod.price && <span className="text-[11px] text-primary font-mono">({prod.price})</span>}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveProduct(prod.id)}
+                      className="ml-1 text-slate-400 hover:text-destructive transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
+          {onAnalyzeMedia && (
+            <AnalyzeMediaAIButton
+              formatKey={formatKey}
+              onClick={onAnalyzeMedia}
+              isAnalyzing={isAnalyzingMedia}
+              hasMedia={hasUserMedia}
+            />
+          )}
+
+          {/*
+            THE pin action. One press writes the storyboard + title + description and
+            then designs every page graphic — nothing stops at a prompt.
+          */}
+          <div className="pt-1 space-y-1.5">
+            <Button
+              type="button"
+              size="sm"
+              onClick={isGeneratingAI ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                cancelAIAction("copy", formatKey);
+              } : onGenerateIdeaPinAI}
+              title={isGeneratingAI ? "Stop Idea Pin generation" : undefined}
+              className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
+                isGeneratingAI
+                  ? "bg-destructive text-white hover:bg-destructive/90"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              }`}
+            >
+              {isGeneratingAI ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{generationProgress > 0 ? `Generating Idea Pin (${generationProgress}%)...` : "Generating Full Idea Pin..."}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Generate Complete Idea Pin Post with AI</span>
+                </>
+              )}
+            </Button>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Writes the title and description, then designs all {effectivePages.length} page graphics.
+              Every selected platform that shares this format gets the same post.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* PAGE COPY, IMAGE SETTINGS & PROMPT — under the preview they change */}
+      <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3.5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5 items-start">
+          {/* PAGE COPY — typeset into the page graphic */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Page {currentIdx + 1} Title / Step Header
+              </label>
+              <Input
+                value={activePage.title}
+                onChange={(e) => handleUpdateActivePage("title", e.target.value)}
+                placeholder={`e.g. Step ${currentIdx + 1}: Key Strategy`}
+                className="h-8.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Page {currentIdx + 1} Key Insight / Body Text
+              </label>
+              <Textarea
+                rows={3}
+                value={activePage.body}
+                onChange={(e) => handleUpdateActivePage("body", e.target.value)}
+                placeholder="Write 1-2 punchy sentences that give immediate value on this page..."
+                className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
+              />
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (isRegeneratingPage) {
+                  cancelAIAction("slide", `${formatKey}:${currentIdx}`);
+                  return;
+                }
+                onRegeneratePageAI(currentIdx);
+              }}
+              title={isRegeneratingPage ? "Stop regenerating this page" : undefined}
+              className={`w-full h-8.5 text-xs font-bold gap-1.5 transition-colors ${
+                isRegeneratingPage
+                  ? "border-destructive/30 text-destructive hover:bg-destructive/10"
+                  : "border-secondary/30 text-secondary hover:bg-secondary/10"
+              }`}
+            >
+              {isRegeneratingPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              <span>{isRegeneratingPage ? `Stop Regenerating Page ${currentIdx + 1}` : `Regenerate Page ${currentIdx + 1} Copy & Visual`}</span>
+            </Button>
           </div>
 
           {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Wand2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
-              </span>
-            </div>
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+              <Settings2 className="h-3.5 w-3.5 text-amber-500" /> Image Settings
+            </span>
 
             <div className="space-y-2.5">
-
-              {/* 2. Aspect Ratio */}
+              {/* Aspect Ratio */}
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                   Aspect Ratio
@@ -510,7 +739,7 @@ export default function PinterestIdeaPinEditor({
                   onChange={(e) => setPageAspectRatio(e.target.value)}
                   className="w-full h-8.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-2.5 text-slate-800 dark:text-slate-200 shadow-2xs focus:ring-1 focus:ring-amber-500 focus:outline-none font-mono"
                 >
-                  <option value="auto">Auto (9:16)</option>
+                  <option value="auto">Auto ({capability.defaultAspectRatio || "9:16"} Platform Default)</option>
                   <option value="9:16">9:16 (Tall Idea Pin)</option>
                   <option value="2:3">2:3 (Standard Pin)</option>
                   <option value="1:1">1:1 (Square)</option>
@@ -518,7 +747,7 @@ export default function PinterestIdeaPinEditor({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {/* 3. Visual Style */}
+                {/* Visual Style */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                     Visual Style
@@ -538,7 +767,7 @@ export default function PinterestIdeaPinEditor({
                   </select>
                 </div>
 
-                {/* 4. Quality */}
+                {/* Quality */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">
                     Quality
@@ -556,185 +785,112 @@ export default function PinterestIdeaPinEditor({
               </div>
             </div>
           </div>
+        </div>
 
-          {/* UNIFIED PAGE PROMPT CONTROLS */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
-            <div className="flex items-center justify-between flex-wrap gap-1.5">
-              <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                <Wand2 className="h-3 w-3 text-red-500" /> Page {currentIdx + 1} Visual AI Prompt
-              </label>
-              <div className="flex items-center gap-3">
-                {onCaptionToPrompt && (
-                  <button
-                    type="button"
-                    disabled={!isGeneratingPromptFromScript}
-                    onClick={() => {
-                      if (isGeneratingPromptFromScript) {
-                        cancelAIAction("script", formatKey);
-                      } else {
-                        onCaptionToPrompt();
-                      }
-                    }}
-                    title={isGeneratingPromptFromScript ? "Stop generating prompt" : "Generate media prompt from current text"}
-                    className={`text-[11px] font-semibold transition-colors ${
-                      isGeneratingPromptFromScript
-                        ? "text-red-500 hover:text-red-600 cursor-pointer"
-                        : "text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
-                    }`}
-                  >
-                    {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt"}
-                  </button>
-                )}
-                {onEnhancePrompt && (
-                  <button
-                    type="button"
-                    disabled={!isEnhancingPrompt && (!activePage.visualPrompt || !activePage.visualPrompt.trim())}
-                    onClick={() => {
-                      if (isEnhancingPrompt) {
-                        cancelAIAction("enhance", formatKey);
-                      } else {
-                        onEnhancePrompt();
-                      }
-                    }}
-                    className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
-                      isEnhancingPrompt
-                        ? "text-red-500 hover:text-red-600 cursor-pointer"
-                        : !activePage.visualPrompt || !activePage.visualPrompt.trim()
-                          ? "text-slate-400 cursor-not-allowed opacity-50"
-                          : "text-pink-600 hover:text-pink-700 hover:underline cursor-pointer"
-                    }`}
-                  >
-                    {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
-                  </button>
-                )}
-                {originalPrompt && originalPrompt !== activePage.visualPrompt && onRestoreOriginalPrompt && (
-                  <button
-                    type="button"
-                    onClick={onRestoreOriginalPrompt}
-                    title={originalPrompt}
-                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
-                  >
-                    ↩ Original
-                  </button>
-                )}
-              </div>
+        {/* UNIFIED PAGE PROMPT CONTROLS */}
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-1.5">
+            <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+              <Wand2 className="h-3 w-3 text-secondary" /> Page {currentIdx + 1} Visual AI Prompt
+            </label>
+            <div className="flex items-center gap-3">
+              {onCaptionToPrompt && (
+                <button
+                  type="button"
+                  disabled={!isGeneratingPromptFromScript && !hasSourceText}
+                  onClick={() => {
+                    if (isGeneratingPromptFromScript) {
+                      cancelAIAction("script", formatKey);
+                    } else {
+                      onCaptionToPrompt();
+                    }
+                  }}
+                  title={isGeneratingPromptFromScript ? "Stop generating prompt" : hasSourceText ? "Generate media prompt from current text" : "Write the description or page text first"}
+                  className={`text-[11px] font-semibold transition-colors ${
+                    isGeneratingPromptFromScript
+                      ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                      : hasSourceText
+                      ? "text-primary hover:underline cursor-pointer"
+                      : "text-slate-400 cursor-not-allowed opacity-60"
+                  }`}
+                >
+                  {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt"}
+                </button>
+              )}
+              {onEnhancePrompt && (
+                <button
+                  type="button"
+                  disabled={!isEnhancingPrompt && (!activePage.visualPrompt || !activePage.visualPrompt.trim())}
+                  onClick={() => {
+                    if (isEnhancingPrompt) {
+                      cancelAIAction("enhance", formatKey);
+                    } else {
+                      onEnhancePrompt();
+                    }
+                  }}
+                  className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                    isEnhancingPrompt
+                      ? "text-destructive hover:text-destructive/80 cursor-pointer"
+                      : !activePage.visualPrompt || !activePage.visualPrompt.trim()
+                        ? "text-slate-400 cursor-not-allowed opacity-50"
+                        : "text-secondary hover:underline cursor-pointer"
+                  }`}
+                >
+                  {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
+                </button>
+              )}
+              {originalPrompt && originalPrompt !== activePage.visualPrompt && onRestoreOriginalPrompt && (
+                <button
+                  type="button"
+                  onClick={onRestoreOriginalPrompt}
+                  title={originalPrompt}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline cursor-pointer"
+                >
+                  ↩ Original
+                </button>
+              )}
             </div>
+          </div>
 
-            <Textarea
-              rows={2}
-              value={activePage.visualPrompt}
-              onChange={(e) => handleUpdateActivePage("visualPrompt", e.target.value)}
-              placeholder="Describe vertical 9:16 background scene and visual aesthetics for this page..."
-              className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300 leading-relaxed"
-            />
+          <Textarea
+            rows={3}
+            value={activePage.visualPrompt}
+            onChange={(e) => handleUpdateActivePage("visualPrompt", e.target.value)}
+            placeholder="Describe vertical 9:16 layout, typography and colour palette for this page..."
+            className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300 leading-relaxed"
+          />
 
-            <Button
-              type="button"
-              size="sm"
-              onClick={isRegeneratingPage ? (e) => {
-                e.preventDefault();
-                e.stopPropagation();
+          <Button
+            type="button"
+            size="sm"
+            onClick={isBusyOnPageVisual ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (isRenderingPageMedia) {
+                window.dispatchEvent(new CustomEvent("cancel-render-media", { detail: { formatKey } }));
+              } else {
                 cancelAIAction("slide", `${formatKey}:${currentIdx}`);
-              } : () => onRegeneratePageAI(currentIdx)}
-              className={`w-full h-8 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
-                isRegeneratingPage
-                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
-                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
-              }`}
-            >
-              {isRegeneratingPage ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Stop Page Visual</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Generate Page {currentIdx + 1} Visual</span>
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* TAG PRODUCTS SECTION */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">Tag Products</label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsTagProductDialogOpen(true)}
-              className="h-8 text-xs font-semibold gap-1.5 rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50"
-            >
-              <ShoppingBag className="h-3.5 w-3.5 text-red-600" />
-              <span>Add products</span>
-            </Button>
-
-            {taggedProducts.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {taggedProducts.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-red-900 dark:text-red-300 px-2.5 py-1 rounded-lg text-xs font-medium"
-                  >
-                    <ShoppingBag className="h-3 w-3 text-red-600 shrink-0" />
-                    <span className="font-bold">{prod.name}</span>
-                    {prod.price && <span className="text-[11px] text-red-600 dark:text-red-400 font-mono">({prod.price})</span>}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveProduct(prod.id)}
-                      className="hover:text-red-700 ml-1 text-slate-400 hover:text-red-600"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              }
+            } : () => (onRenderPageMedia ? renderActivePageMedia() : onRegeneratePageAI(currentIdx))}
+            className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
+              isBusyOnPageVisual
+                ? "bg-destructive text-white hover:bg-destructive/90"
+                : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
+            }`}
+          >
+            {isBusyOnPageVisual ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Stop Page Visual</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Generate Page {currentIdx + 1} Visual</span>
+              </>
             )}
-          </div>
-
-          {/* AI MEDIA ANALYSIS — analyze the uploaded/stock media and write matching text */}
-          {onAnalyzeMedia && (
-            <div className="pt-1">
-              <AnalyzeMediaAIButton
-                formatKey={formatKey}
-                onClick={onAnalyzeMedia}
-                isAnalyzing={isAnalyzingMedia}
-                hasMedia={hasUserMedia}
-              />
-            </div>
-          )}
-
-          {/* AUTO-GENERATE FULL IDEA PIN BUTTON */}
-          <div className="pt-1">
-            <Button
-              type="button"
-              size="sm"
-              onClick={isGeneratingAI ? (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                cancelAIAction("copy", formatKey);
-              } : onGenerateIdeaPinAI}
-              className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-                isGeneratingAI
-                  ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
-                  : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
-              }`}
-            >
-              {isGeneratingAI ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Stop Idea Pin Generation</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Generate Idea Pin Pages, Title & Prompts with AI</span>
-                </>
-              )}
-            </Button>
-          </div>
+          </Button>
         </div>
       </div>
 
@@ -744,7 +900,7 @@ export default function PinterestIdeaPinEditor({
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4 text-red-600" />
+                <ShoppingBag className="h-4 w-4 text-primary" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Tag Product to Idea Pin</h3>
               </div>
               <button
@@ -806,7 +962,7 @@ export default function PinterestIdeaPinEditor({
                         setNewProductPrice(p.price);
                         setNewProductUrl(p.url);
                       }}
-                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-600 transition-colors"
+                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-primary/10 text-slate-700 dark:text-slate-300 hover:text-primary transition-colors"
                     >
                       + {p.name} ({p.price})
                     </button>
@@ -830,7 +986,7 @@ export default function PinterestIdeaPinEditor({
                 size="sm"
                 disabled={!newProductName.trim()}
                 onClick={handleAddProduct}
-                className="h-8 text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
+                className="h-8 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Add Tag
               </Button>

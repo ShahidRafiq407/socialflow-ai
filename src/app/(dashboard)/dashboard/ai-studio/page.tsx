@@ -2870,6 +2870,23 @@ export default function AIStudioPage() {
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
     let stoppedByUser = false;
 
+    // ── CROSS-PLATFORM SAME-FORMAT FAN-OUT (ONE DECK FILLS EVERY SELECTED SIBLING) ──
+    // Generating the Instagram carousel must also fill the Pinterest carousel, the
+    // LinkedIn document, the Facebook photo set — every OTHER selected format in the
+    // same family. Same graphic per slide index, so the deck is paid for once.
+    const targetFamily = getFormatFamily(targetPlatform, targetFormat);
+    const siblingFormats: { platform: string; format: string }[] = [];
+    selectedPlatforms.forEach((pId) => {
+      const availableFormats = selectedContentTypes[pId]?.length
+        ? selectedContentTypes[pId]
+        : (getPlatformDef(pId)?.contentTypes || []);
+      availableFormats.forEach((otherFmt: string) => {
+        if (pId === targetPlatform && otherFmt === targetFormat) return;
+        if (getFormatFamily(pId, otherFmt) !== targetFamily) return;
+        siblingFormats.push({ platform: pId, format: otherFmt });
+      });
+    });
+
     try {
       for (let i = 0; i < slideCount; i++) {
         // User pressed Stop on the full-carousel generation
@@ -2916,11 +2933,33 @@ export default function AIStudioPage() {
             return;
           }
           if (data.success && data.asset?.url) {
-            newRendered[slideKey] = data.asset.url;
-            setRenderedImageUrlsDict({ ...newRendered });
+            const slideUrl: string = data.asset.url;
+            newRendered[slideKey] = slideUrl;
+
             // A previously cleared slide must become visible again once redesigned
-            setClearedMediaKeys(prev => ({ ...prev, [slideKey]: false }));
-            setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: null }));
+            const syncCleared: Record<string, boolean> = { [slideKey]: false };
+            const syncCustom: Record<string, { url: string; type: "image" | "video"; name: string; source: "ai" }> = {};
+            const syncClearErrors: Record<string, null> = { [targetFormatKey]: null };
+
+            siblingFormats.forEach(({ platform: pId, format: fmt }) => {
+              const siblingKey = `${pId}-${fmt}-${i}`;
+              newRendered[siblingKey] = slideUrl;
+              syncCleared[siblingKey] = false;
+              syncCustom[siblingKey] = {
+                url: slideUrl,
+                type: "image",
+                name: `${pId}-${fmt}-${i + 1}.png`,
+                source: "ai",
+              };
+              syncClearErrors[`${pId}-${fmt}`] = null;
+            });
+
+            setRenderedImageUrlsDict({ ...newRendered });
+            setClearedMediaKeys(prev => ({ ...prev, ...syncCleared }));
+            if (Object.keys(syncCustom).length > 0) {
+              setCustomMediaDict(prev => ({ ...prev, ...syncCustom }));
+            }
+            setRenderErrorDict(prev => ({ ...prev, ...syncClearErrors }));
           } else if (data.error) {
             setRenderErrorDict(prev => ({ ...prev, [targetFormatKey]: `Slide ${i + 1}: ${data.error}` }));
           }
@@ -4798,6 +4837,7 @@ export default function AIStudioPage() {
                     }
                   }}
                   isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
+                  generatesMediaWithPost={isDeckFormat}
                   onAnalyzeMedia={handleAnalyzeMediaAI}
                   isAnalyzingMedia={Boolean(analyzingMediaKeys[currentFormatKey])}
                   hasUserMedia={isUserUploadedMedia}
