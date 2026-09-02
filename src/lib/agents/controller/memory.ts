@@ -19,6 +19,7 @@ import prisma from "@/lib/db";
 import { embedText } from "../embeddings";
 import { ensureControllerSchema } from "./schema";
 import { rankFacts } from "./memoryRank";
+import { PLAYBOOK_CATEGORY, buildPlaybookContent } from "./playbooks";
 
 export interface ControllerMemoryFact {
   id: string;
@@ -41,16 +42,19 @@ const MAX_CONTENT_CHARS = 1200;
 // Not-a-fact categories
 //
 // The Memory table is also used as a schema-free store for system JSON: billing
-// history, the active plan, checkout intents, and now captured feature requests.
+// history, the active plan, checkout intents, captured feature requests — and
+// playbooks (procedural recipes recalled through their own path, loadPlaybooks).
 // None of those are things the user "told us to remember", so none of them may
 // ever be injected into the prompt as a remembered fact or shown in the memory
-// browser. Every recall path filters these out.
+// browser. Every fact-recall path filters these out; loadPlaybooks queries the
+// playbook category explicitly instead.
 // ---------------------------------------------------------------------------
 export const NON_FACT_CATEGORIES = [
   "billing_event",
   "subscription_plan",
   "checkout_intent",
   "feature_request",
+  PLAYBOOK_CATEGORY,
 ] as const;
 
 /** Prisma `where` fragment excluding system rows from a fact query. */
@@ -284,6 +288,154 @@ export async function loadMemoryContext(
   }
 
   return facts;
+}
+
+/** Importance playbooks are stored at — modest, and never auto-pinned. */
+const PLAYBOOK_IMPORTANCE = 2;
+/** A stored recipe this close to a new one is refreshed, not duplicated. */
+const PLAYBOOK_NEAR_DUP = 0.94;
+/** A playbook must match the current task at least this well to be injected. */
+export const PLAYBOOK_MIN_SIMILARITY = 0.5;
+
+/**
+ * Stores one playbook: the tool sequence that just completed a task, keyed to
+ * the task it carried out. Deduplication is scoped to the playbook category so
+ * a recipe can never merge into (or overwrite) a user fact, and a near-identical
+ * recipe is refreshed to the newest working sequence rather than piled up.
+ */
+export async function savePlaybook(params: {
+  workspaceId: string;
+  task: string;
+  sequence: string[];
+  sessionId?: string | null;
+}): Promise<{ saved: boolean; id?: string; merged?: boolean }> {
+  const content = buildPlaybookContent(params.task, params.sequence);
+  if (!content || !params.workspaceId) return { saved: false };
+
+  try {
+    await ensureControllerSchema();
+
+    // Exact-duplicate guard, scoped to playbooks.
+    const existing = await prisma.memory.findFirst({
+      where: { workspaceId: params.workspaceId, category: PLAYBOOK_CATEGORY, content },
+      select: { id: true },
+    });
+    if (existing) {
+      await (prisma as any).memory.update({
+        where: { id: existing.id },
+        data: { updatedAt: new Date(), sessionId: params.sessionId ?? undefined },
+      });
+      return { saved: true, id: existing.id, merged: true };
+    }
+
+    const vec = await embedText(content);
+    await ensureMemoryVector();
+
+    if (vec.length > 0) {
+      const near = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT id, (1 - (embedding <=> $1::vector)) AS similarity
+           FROM "Memory"
+          WHERE "workspaceId" = $2 AND "category" = '${PLAYBOOK_CATEGORY}' AND embedding IS NOT NULL
+          ORDER BY embedding <=> $1::vector
+          LIMIT 1`,
+        toVectorString(vec),
+        params.workspaceId
+      );
+      const top = near?.[0];
+      if (top && Number(top.similarity) >= PLAYBOOK_NEAR_DUP) {
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Memory" SET content = $1, "updatedAt" = NOW() WHERE id = $2`,
+          content,
+          String(top.id)
+        );
+        return { saved: true, id: String(top.id), merged: true };
+      }
+    }
+
+    const row = await (prisma as any).memory.create({
+      data: {
+        workspaceId: params.workspaceId,
+        category: PLAYBOOK_CATEGORY,
+        content,
+        importance: PLAYBOOK_IMPORTANCE,
+        pinned: false,
+        source: "auto",
+        sessionId: params.sessionId ?? null,
+      },
+    });
+
+    if (vec.length > 0) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Memory" SET embedding = $1::vector WHERE id = $2`,
+        toVectorString(vec),
+        row.id
+      );
+    }
+
+    return { saved: true, id: row.id };
+  } catch (err) {
+    console.warn("[ControllerMemory] savePlaybook failed (non-fatal):", err instanceof Error ? err.message : err);
+    return { saved: false };
+  }
+}
+
+/**
+ * Loads the best-matching playbooks for the current task. Unlike fact recall
+ * there is no always-load and no recency backfill: an unrelated recipe is worse
+ * than none, so only matches above PLAYBOOK_MIN_SIMILARITY survive, ranked with
+ * the same similarity-plus-reinforcement ordering facts use (so a recipe the
+ * user leans on rises). Recall is written back to reinforce popular playbooks.
+ */
+export async function loadPlaybooks(
+  workspaceId: string,
+  query: string,
+  topK = 2,
+  minSimilarity = PLAYBOOK_MIN_SIMILARITY
+): Promise<ControllerMemoryFact[]> {
+  if (!workspaceId || !(query || "").trim() || topK <= 0) return [];
+
+  try {
+    await ensureControllerSchema();
+    const vec = await embedText(query);
+    if (vec.length === 0) return [];
+    await ensureMemoryVector();
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT id, category, content, importance, pinned, source, "createdAt", "hitCount", "lastUsedAt",
+              (1 - (embedding <=> $1::vector)) AS similarity
+         FROM "Memory"
+        WHERE "workspaceId" = $2 AND "category" = '${PLAYBOOK_CATEGORY}' AND embedding IS NOT NULL
+        ORDER BY embedding <=> $1::vector
+        LIMIT $3`,
+      toVectorString(vec),
+      workspaceId,
+      Math.max(1, topK) * 3
+    );
+
+    const matched = (rows || [])
+      .map((row) => normalizeRow(row, row.similarity))
+      .filter((f) => f.similarity >= minSimilarity);
+
+    const ranked = rankFacts(matched, Date.now()).slice(0, Math.max(1, topK));
+
+    if (ranked.length > 0) {
+      void (async () => {
+        try {
+          await (prisma as any).memory.updateMany({
+            where: { id: { in: ranked.map((f) => f.id) } },
+            data: { hitCount: { increment: 1 }, lastUsedAt: new Date() },
+          });
+        } catch {
+          /* non-fatal */
+        }
+      })();
+    }
+
+    return ranked;
+  } catch (err) {
+    console.warn("[ControllerMemory] loadPlaybooks failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
 }
 
 /** Free-text / category search for the memory browser in chat settings. */

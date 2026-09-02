@@ -21,7 +21,8 @@ import type { AgentFunctionCall, ThinkingEffort } from "@/lib/providers/VertexAI
 import { getChatSettings, type ChatSettings } from "./settings";
 import { buildWorkspaceSnapshot } from "./snapshot";
 import { buildSystemPrompt } from "./prompt";
-import { loadMemoryContext, rememberFact, type ControllerMemoryFact } from "./memory";
+import { loadMemoryContext, loadPlaybooks, rememberFact, savePlaybook, type ControllerMemoryFact } from "./memory";
+import { extractSequence, isPlaybookWorthy } from "./playbooks";
 import { buildToolRegistry, toFunctionDeclarations, MUTATING_TOOLS, type ToolDef } from "./tools";
 import { artifactsFromToolResult, dedupeArtifacts } from "./artifacts";
 import type { Artifact, ControllerEvent, ToolRun } from "./types";
@@ -265,6 +266,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
   emit({ type: "status", step: "context", label: "Loading workspace context", state: "start" });
 
   let memory: ControllerMemoryFact[] = [];
+  let playbooks: ControllerMemoryFact[] = [];
   let planTier: string | null = null;
   const [snapshot, registry] = await Promise.all([
     buildWorkspaceSnapshot(params.workspaceId),
@@ -272,6 +274,12 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     (async () => {
       if (!settings.memoryEnabled) return;
       memory = await loadMemoryContext(params.workspaceId, params.message, settings.memoryRecallTopK);
+    })(),
+    (async () => {
+      // Proven tool sequences for tasks like this one. Loaded alongside facts so
+      // the model starts a recurring task from its own working procedure.
+      if (!settings.memoryEnabled) return;
+      playbooks = await loadPlaybooks(params.workspaceId, params.message);
     })(),
     (async () => {
       // Only when billing is actually enforced. With the kill-switch off every
@@ -294,7 +302,8 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     detail:
       `${registry.tools.length} tools` +
       (registry.mcpCount > 0 ? `, ${registry.mcpCount} from MCP` : "") +
-      (memory.length > 0 ? `, ${memory.length} memories` : ""),
+      (memory.length > 0 ? `, ${memory.length} memories` : "") +
+      (playbooks.length > 0 ? `, ${playbooks.length} playbook${playbooks.length === 1 ? "" : "s"}` : ""),
   });
 
   if (memory.length > 0) {
@@ -330,6 +339,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     settings,
     snapshot,
     memory,
+    playbooks,
     tools: registry.tools,
     attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, summary: a.summary })),
     limits,
@@ -635,6 +645,18 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       modelName: requestedModel,
       known: memory,
     });
+
+    // Capture the working tool sequence as a playbook, so a recurring task
+    // starts from its own proven procedure next time. Only genuine multi-tool
+    // turns qualify (see isPlaybookWorthy); a chat-only answer records nothing.
+    if (isPlaybookWorthy(toolRuns)) {
+      void savePlaybook({
+        workspaceId: params.workspaceId,
+        task: params.message,
+        sequence: extractSequence(toolRuns),
+        sessionId: params.sessionId,
+      });
+    }
   }
 
   return {

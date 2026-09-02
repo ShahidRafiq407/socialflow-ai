@@ -9,6 +9,7 @@
 import type { ChatSettings } from "./settings";
 import { describeDashboardTabs } from "./navigation";
 import { formatMemoryForPrompt, type ControllerMemoryFact } from "./memory";
+import { formatPlaybooksForPrompt } from "./playbooks";
 import type { ToolDef } from "./tools";
 import { describeToolsForPrompt } from "./tools";
 import { describeLimitsForPrompt, LIMITATION_RULE, type CapabilityLimit } from "./limits";
@@ -75,6 +76,8 @@ export function buildSystemPrompt(params: {
   settings: ChatSettings;
   snapshot: WorkspaceSnapshot;
   memory: ControllerMemoryFact[];
+  /** Proven tool sequences from past turns that match this request. */
+  playbooks?: { content: string }[];
   tools: ToolDef[];
   attachments: { name: string; kind: string; summary: string }[];
   /** The live edge of what this workspace can do. Empty means "nothing is blocked". */
@@ -137,6 +140,17 @@ Anything here is a fact about this workspace, not a fact about the user: never v
 ${formatMemoryForPrompt(memory)}
 
 Treat these as established fact. Do not re-ask what is already here.`);
+  }
+
+  if (settings.memoryEnabled && params.playbooks && params.playbooks.length > 0) {
+    const playbookBlock = formatPlaybooksForPrompt(params.playbooks);
+    if (playbookBlock) {
+      sections.push(`## Proven playbooks for tasks like this
+
+You have completed similar tasks before. These are the tool sequences that worked — use the closest one as your starting plan and adapt it. It is a hint from your own track record, not a rule: if this request differs, deviate.
+
+${playbookBlock}`);
+    }
   }
 
   if (params.sessionSummary) {
