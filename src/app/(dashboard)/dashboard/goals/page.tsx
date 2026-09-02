@@ -9,24 +9,21 @@ import {
   getPublishHistory,
   getTrackingStatus,
 } from "@/lib/growth/metrics";
+import { suggestChannels, PLATFORM_LABEL } from "@/lib/growth/channelAdvisor";
+import type { LeadSource } from "@/lib/types/growth";
 import { getAppBaseUrl } from "@/lib/media/urls";
 import { GoalHQShell } from "@/components/dashboard/goals/GoalHQShell";
 import type { GoalHQData } from "@/components/dashboard/goals/types";
 
 export const dynamic = "force-dynamic";
 
-/** Display names for the platforms, derived from the connected accounts only. */
-const PLATFORM_LABEL: Record<string, string> = {
-  instagram: "Instagram",
-  linkedin: "LinkedIn",
-  facebook: "Facebook",
-  x: "X",
-  twitter: "X",
-  tiktok: "TikTok",
-  youtube: "YouTube",
-  pinterest: "Pinterest",
-  threads: "Threads",
-};
+function normalizeSources(value: any): LeadSource[] {
+  const list = Array.isArray(value) ? value : [];
+  const out = list
+    .map((v) => String(v).toUpperCase())
+    .filter((v): v is LeadSource => v === "SOCIAL" || v === "WEBSITE");
+  return out.length ? Array.from(new Set(out)) : ["SOCIAL"];
+}
 
 export default async function LeadGoalPage() {
   const { userId } = await auth();
@@ -53,6 +50,23 @@ export default async function LeadGoalPage() {
     getTrackingStatus(workspaceId),
     getWordPressSite(workspaceId),
   ]);
+
+  // "Post here" advice for the first paint. `fast` keeps this render free of an
+  // LLM round trip — the tab refreshes it with the AI-written reasons on demand.
+  const advice = await suggestChannels({
+    workspaceId,
+    leadSources: normalizeSources(goalView.goal?.leadSources),
+    leadTarget: Math.max(1, Number(goalView.goal?.leadTarget ?? 10)),
+    timeframeDays: Math.max(1, Number(goalView.goal?.timeframeDays ?? 30)),
+    leadType: String(goalView.goal?.leadType || "LEADS"),
+    fast: true,
+  }).catch(() => ({
+    suggestions: [],
+    websiteNote: null,
+    basis: "RULES" as const,
+    nothingConnected: true,
+    generatedAt: new Date().toISOString(),
+  }));
 
   const connectedPlatforms = Array.from(
     new Set(
@@ -82,6 +96,7 @@ export default async function LeadGoalPage() {
     needsSetup: goalView.needsSetup,
 
     connectedPlatforms,
+    advice,
 
     activity,
     history,

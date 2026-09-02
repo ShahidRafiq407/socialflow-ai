@@ -203,16 +203,12 @@ export function ArticleWriterHQ({
   const [wpModalError, setWpModalError] = useState<string | null>(null);
   const [showAppPasswordHelp, setShowAppPasswordHelp] = useState(false);
 
-  // Active connected WP site metadata
-  const [wpCategories, setWpCategories] = useState<WPCategory[]>([
-    { id: 1, name: "Uncategorized", slug: "uncategorized" },
-    { id: 2, name: "Technology", slug: "technology" },
-    { id: 3, name: "AI & Robotics", slug: "ai-robotics" },
-    { id: 4, name: "Business", slug: "business" },
-    { id: 5, name: "Marketing", slug: "marketing" },
-  ]);
+  // Active connected WP site metadata. Starts empty and is filled only from the
+  // live site — never seeded with invented ids that would file posts into the
+  // wrong real category.
+  const [wpCategories, setWpCategories] = useState<WPCategory[]>([]);
   const [categorySearch, setCategorySearch] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<number[]>([2]); // default to Technology
+  const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [isSuggestingCategories, setIsSuggestingCategories] = useState(false);
@@ -631,15 +627,9 @@ export function ArticleWriterHQ({
   }, [workspaceId]);
 
   const applyConnectedSiteData = (site: ConnectedWPSite) => {
-    const cats = site.categories && site.categories.length > 0
-      ? site.categories
-      : [
-          { id: 1, name: "Uncategorized", slug: "uncategorized" },
-          { id: 2, name: "Technology", slug: "technology" },
-          { id: 3, name: "AI & Robotics", slug: "ai-robotics" },
-          { id: 4, name: "Business", slug: "business" },
-          { id: 5, name: "Marketing", slug: "marketing" },
-        ];
+    // Only ever the site's own categories. If none are cached yet, stay empty
+    // until syncLiveWPCategories pulls the real list from WordPress.
+    const cats = site.categories && site.categories.length > 0 ? site.categories : [];
     setWpCategories(cats);
     if (cats.length > 0 && selectedCategories.length === 0) {
       setSelectedCategories([cats[0].id]);
@@ -658,13 +648,7 @@ export function ArticleWriterHQ({
   const handleSelectWebsiteChange = async (url: string) => {
     setTargetWebsite(url);
     if (url === "none") {
-      setWpCategories([
-        { id: 1, name: "Uncategorized", slug: "uncategorized" },
-        { id: 2, name: "Technology", slug: "technology" },
-        { id: 3, name: "AI & Robotics", slug: "ai-robotics" },
-        { id: 4, name: "Business", slug: "business" },
-        { id: 5, name: "Marketing", slug: "marketing" },
-      ]);
+      setWpCategories([]);
       setWpPostTypes([
         { slug: "post", name: "post" },
         { slug: "page", name: "page" },

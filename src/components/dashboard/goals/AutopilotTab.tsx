@@ -15,15 +15,16 @@ import {
   Save,
   ShieldCheck,
   Sparkles,
-  Terminal,
+  Trash2,
   Zap,
 } from "lucide-react";
 import type { AutopilotMode } from "@/lib/types/growth";
-import { toggleAutopilot } from "@/actions/goals";
+import { saveGrowthGoal, toggleAutopilot } from "@/actions/goals";
 import {
   Chip,
-  CopyButton,
+  ConfirmButton,
   EmptyState,
+  InfoDot,
   SectionCard,
   fmtDateTime,
 } from "./shared";
@@ -218,7 +219,37 @@ export function AutopilotTab({
     });
   };
 
-  const cronUrl = `${data.appBaseUrl}/api/cron/growth-autopilot`;
+  // Takes a platform off the goal entirely — the same field the Social tab and
+  // the engine read. Used for a platform that is no longer connected (so pausing
+  // it is meaningless) or one you simply don't want any more.
+  const removePlatform = (platform: string) => {
+    const nextLabels = platforms.filter((p) => p.toLowerCase() !== platform.toLowerCase());
+    setPlatformBusy(platform);
+    startSwitching(async () => {
+      const res = await saveGrowthGoal(data.workspaceId, {
+        leadTarget: goal.leadTarget,
+        leadType: goal.leadType,
+        customLeadTypeName: goal.customLeadTypeName || null,
+        timeframeDays: goal.timeframeDays,
+        targetPlatforms: nextLabels,
+        leadSources: goal.leadSources,
+        ctaDestinations: goal.ctaDestinations || {},
+        dailyPostCap: goal.dailyPostCap ?? null,
+        articlesPerWeek: goal.articlesPerWeek ?? null,
+        graceMinutes: goal.graceMinutes ?? null,
+        // The target was already accepted when the goal was saved; this only
+        // changes which accounts it runs on.
+        acceptAggressive: true,
+      });
+      setPlatformBusy(null);
+      if (!res.success) {
+        onToast("error", res.error || "Could not remove that platform.");
+        return;
+      }
+      onToast("success", `${platform} removed from the goal. Autopilot will not post there any more.`);
+      onRefresh();
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -236,6 +267,15 @@ export function AutopilotTab({
                 {running ? "Autopilot is running" : paused ? "Everything is paused" : "Manual mode"}
               </span>
               {publishPaused && <Chip tone="danger">Publishing held</Chip>}
+              <InfoDot
+                text={
+                  running
+                    ? "Autopilot is on: once a day the engine builds the plan, writes the posts and schedules each at its best time. You do nothing unless you want to step in."
+                    : paused
+                      ? "Everything is paused. The engine will not build a plan, write or publish anything until you resume."
+                      : "Manual mode: nothing runs on its own. You generate and publish today's work yourself from the Today tab."
+                }
+              />
             </div>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-2xl">
               {running
@@ -296,24 +336,36 @@ export function AutopilotTab({
 
         <div className="grid gap-3 mt-4 pt-4 border-t border-border sm:grid-cols-3">
           <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Last run
+              <InfoDot
+                className="normal-case"
+                text="When the engine last built and scheduled a plan for you. 'Not yet' means it has never run — turn autopilot on or run today's work from the Today tab."
+              />
             </span>
             <p className="text-sm font-semibold text-foreground mt-0.5">
               {goal.lastPlanRunAt ? fmtDateTime(goal.lastPlanRunAt) : "Not yet"}
             </p>
           </div>
           <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Today
+              <InfoDot
+                className="normal-case"
+                text="Whether today's plan has already run. If a day was missed while the app was closed, the next run catches it up — nothing is silently skipped."
+              />
             </span>
             <p className="text-sm font-semibold text-foreground mt-0.5">
               {ranToday ? "Already run" : running ? "Will run on the next tick" : "Not scheduled"}
             </p>
           </div>
           <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Daily cap
+              <InfoDot
+                className="normal-case"
+                text="The most posts autopilot will publish in one day. Anything the plan asks for beyond this is held back so your accounts are never flooded. Change it under Guardrails."
+              />
             </span>
             <p className="text-sm font-semibold text-foreground mt-0.5">
               {dailyCap} post{dailyCap === 1 ? "" : "s"}
@@ -359,6 +411,7 @@ export function AutopilotTab({
         title="Guardrails"
         subtitle="These are the limits autopilot works inside. Every one of them is read by the engine."
         icon={<ShieldCheck className="w-4 h-4" />}
+        info="Nothing here is decorative — each limit is read by the engine on every run. Change one and the very next run obeys it."
         actions={
           dirty ? (
             <>
@@ -394,6 +447,7 @@ export function AutopilotTab({
             <label className="text-xs font-semibold text-foreground inline-flex items-center gap-1.5">
               <Gauge className="w-3.5 h-3.5 text-primary" />
               Most posts per day
+              <InfoDot text="The hard ceiling on posts published in a single day, across every platform combined. Set it to the pace your funnel actually needs — more is not better if it floods your accounts." />
             </label>
             <div className="flex items-center gap-3 mt-2">
               <input
@@ -415,6 +469,7 @@ export function AutopilotTab({
             <label className="text-xs font-semibold text-foreground inline-flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-primary" />
               Wait before anything goes live
+              <InfoDot text="A safety window between the moment a post is written and the moment it publishes. During it, the post sits on the Today tab where you can delete it. 'No wait' means a post can go live before you ever see it." />
             </label>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               {GRACE_PRESETS.map((m) => (
@@ -444,6 +499,7 @@ export function AutopilotTab({
               <label className="text-xs font-semibold text-foreground inline-flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-secondary" />
                 Articles per week
+                <InfoDot text="How many SEO articles autopilot writes and publishes to your website each week. The AI picks the keywords from your goal. Set it to 0 to stop writing articles — website leads would then only come from links you share yourself." />
               </label>
               <div className="flex items-center gap-3 mt-2">
                 <input
@@ -465,7 +521,10 @@ export function AutopilotTab({
           )}
 
           <div>
-            <label className="text-xs font-semibold text-foreground">Visuals</label>
+            <label className="text-xs font-semibold text-foreground inline-flex items-center gap-1.5">
+              Visuals
+              <InfoDot text="When on, every autopilot post gets a generated image. Turn it off for text-only posts — faster and cheaper, but reach is usually lower." />
+            </label>
             <label className="flex items-start gap-2 mt-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -486,7 +545,10 @@ export function AutopilotTab({
         <div className="mt-5 pt-4 border-t border-border">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-foreground">Hold publishing</p>
+              <p className="text-xs font-semibold text-foreground inline-flex items-center gap-1.5">
+                Hold publishing
+                <InfoDot text="A pause on going live only. The engine keeps writing and scheduling posts as normal, but nothing actually publishes until you resume. Useful over a holiday or while you review the first few days of output." />
+              </p>
               <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed max-w-lg">
                 Keeps writing and scheduling, but stops anything from actually going live. Useful during a
                 holiday or while you review the first few days of output.
@@ -512,8 +574,9 @@ export function AutopilotTab({
       {/* ── Platforms ── */}
       <SectionCard
         title="Platforms in the rotation"
-        subtitle="Pause one and autopilot stops posting there — the plan redistributes on the next build."
+        subtitle="Pause one and autopilot stops posting there. Remove one and it comes off the goal entirely."
         icon={<Plug className="w-4 h-4" />}
+        info="This lists the platforms on your goal. A connected one can be paused (kept on the goal, but no new posts) or removed (taken off the goal). A platform that is not connected cannot post at all, so autopilot skips it — connect it in Integrations or remove it here."
       >
         {platforms.length === 0 ? (
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -525,6 +588,7 @@ export function AutopilotTab({
               const key = platform.toLowerCase();
               const isPaused = pausedPlatforms.some((p) => p.toLowerCase() === key);
               const isConnected = connectedLower.has(key);
+              const busy = switching && platformBusy === platform;
               return (
                 <div
                   key={platform}
@@ -545,66 +609,59 @@ export function AutopilotTab({
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {!isConnected && (
-                      <a
-                        href="/dashboard/integrations"
-                        className="text-[11px] font-semibold text-primary hover:underline"
+                    {isConnected ? (
+                      // Connected → pausing is meaningful, so offer it.
+                      <button
+                        type="button"
+                        onClick={() => togglePlatform(platform)}
+                        disabled={busy}
+                        className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                          isPaused
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "border border-border text-foreground hover:bg-muted"
+                        }`}
                       >
+                        {busy ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : isPaused ? (
+                          <Play className="w-3 h-3" />
+                        ) : (
+                          <Pause className="w-3 h-3" />
+                        )}
+                        {isPaused ? "Resume" : "Pause"}
+                      </button>
+                    ) : (
+                      // Not connected → it can't post, so there is nothing to
+                      // pause. Point to where it gets connected instead.
+                      <a
+                        href={`/dashboard/integrations?platform=${encodeURIComponent(key)}`}
+                        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted"
+                      >
+                        <Plug className="w-3.5 h-3.5" />
                         Connect
                       </a>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => togglePlatform(platform)}
-                      disabled={switching && platformBusy === platform}
-                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 ${
-                        isPaused
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                          : "border border-border text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {switching && platformBusy === platform ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : isPaused ? (
-                        <Play className="w-3 h-3" />
-                      ) : (
-                        <Pause className="w-3 h-3" />
-                      )}
-                      {isPaused ? "Resume" : "Pause"}
-                    </button>
+                    <ConfirmButton
+                      label="Remove"
+                      confirmLabel="Remove"
+                      icon={<Trash2 className="w-3 h-3" />}
+                      busy={busy}
+                      onConfirm={() => removePlatform(platform)}
+                    />
+                    <InfoDot
+                      align="right"
+                      text={
+                        isConnected
+                          ? "Pause keeps this platform on the goal but stops autopilot posting there until you resume. Remove takes it off the goal entirely — you can add it back any time from the Social tab."
+                          : "This platform has no connected account, so autopilot can't post there and there is nothing to pause. Connect it in Integrations, or remove it from the goal so it stops showing here."
+                      }
+                    />
                   </div>
                 </div>
               );
             })}
           </div>
         )}
-      </SectionCard>
-
-      {/* ── Scheduling precision ── */}
-      <SectionCard
-        title="How often the engine ticks"
-        subtitle="The hosted schedule runs once a day, which is enough to never miss a day but not enough to hit exact posting times."
-        icon={<Terminal className="w-4 h-4" />}
-        accent="secondary"
-      >
-        <p className="text-xs text-foreground leading-relaxed">
-          For minute-accurate publishing, point an external scheduler (cron-job.org, Upstash QStash, or your
-          own server) at this endpoint every 5 minutes. Each tick catches up on anything missed and publishes
-          whatever is due.
-        </p>
-
-        <div className="flex flex-wrap items-center gap-2 mt-3">
-          <code className="flex-1 min-w-0 overflow-x-auto rounded-xl border border-border bg-muted/50 px-3 py-2 text-[11px] font-mono text-foreground whitespace-nowrap">
-            {cronUrl}
-          </code>
-          <CopyButton value={cronUrl} label="Copy URL" />
-        </div>
-
-        <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-          Authenticate with <span className="font-mono">Authorization: Bearer &lt;CRON_SECRET&gt;</span> or
-          append <span className="font-mono">?key=&lt;CRON_SECRET&gt;</span>. The secret is a server-side
-          environment variable and is deliberately not printed here, so it cannot leak through this page.
-        </p>
       </SectionCard>
     </div>
   );

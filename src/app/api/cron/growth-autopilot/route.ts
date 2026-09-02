@@ -203,12 +203,14 @@ export async function GET(request: Request) {
             : [];
 
           const { executeGrowthPlanTask, executeGrowthArticleTask } = await import("@/actions/goals");
+          const { INTERNAL_CALL_TOKEN } = await import("@/lib/growth/internalCall");
 
           const socialResults = await Promise.all(
             socialTasks.map((task) =>
               executeGrowthPlanTask(goal.workspaceId, task, {
                 generateVisuals: goal.autopilotPermissions?.generateVisuals !== false,
                 scheduleNow: true,
+                internalToken: INTERNAL_CALL_TOKEN,
               }).catch((err: any) => ({ success: false, error: err?.message, taskId: task.id }))
             )
           );
@@ -231,7 +233,9 @@ export async function GET(request: Request) {
           const articleResults = articleTasks.length
             ? await Promise.all(
                 articleTasks.map((task) =>
-                  executeGrowthArticleTask(goal.workspaceId, task).catch((err: any) => ({
+                  executeGrowthArticleTask(goal.workspaceId, task, {
+                    internalToken: INTERNAL_CALL_TOKEN,
+                  }).catch((err: any) => ({
                     success: false,
                     error: err?.message,
                     taskId: task.id,

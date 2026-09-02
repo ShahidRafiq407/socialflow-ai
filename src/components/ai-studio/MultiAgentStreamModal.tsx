@@ -230,6 +230,12 @@ export default function MultiAgentStreamModal({
   const runIdRef = useRef<string>(`run_${Date.now()}`);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<any>(null);
+  // Wall-clock start, mirrored in a ref so the timer reads it synchronously. The elapsed
+  // clock is computed as (now - this) on every tick rather than by incrementing a counter:
+  // browsers throttle setInterval in a backgrounded tab (to ~once a minute when hidden), so
+  // a "+1 each second" counter drifts badly — a 25-minute run showed as 7. Recomputing from
+  // the timestamp is immune to that and snaps to the true value the moment the tab refocuses.
+  const runStartedAtRef = useRef<number>(0);
   // Event dedup: the backend stamps every event with a monotonic `seq`, so identity is
   // exact. Deriving the key from the payload (as this used to) collapsed two genuinely
   // different steps that happened to produce the same label, and real progress vanished
@@ -283,7 +289,9 @@ export default function MultiAgentStreamModal({
       setAuditResult(null);
       setFailedAgentId(null);
       manualSelectionRef.current = false;
-      setRunStartedAt(Date.now());
+      const startedAtNow = Date.now();
+      runStartedAtRef.current = startedAtNow;
+      setRunStartedAt(startedAtNow);
       focusAgent("brand_analyst");
       seenEventIdsRef.current.clear();
       const initialStatuses: Record<string, AgentStatus> = {
@@ -335,8 +343,10 @@ export default function MultiAgentStreamModal({
     abortControllerRef.current = abortController;
 
     if (timerRef.current) clearInterval(timerRef.current);
+    // A retry keeps the original start (so elapsed is cumulative); only a fresh run reset it.
+    if (!runStartedAtRef.current) runStartedAtRef.current = Date.now();
     timerRef.current = setInterval(() => {
-      setElapsedTime((prev) => prev + 1);
+      setElapsedTime(Math.max(0, Math.round((Date.now() - runStartedAtRef.current) / 1000)));
     }, 1000);
 
     const resumeState = isRetry && targetResumeAgent ? {

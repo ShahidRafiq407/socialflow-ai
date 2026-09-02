@@ -2,6 +2,7 @@
 
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { auth } from "@clerk/nextjs/server";
 import {
   getAttribution,
   getGrowthMetrics,
@@ -9,6 +10,7 @@ import {
   getPublishHistory,
   getTrackingStatus,
   COUNTED_LEAD_STATUSES,
+  EMPTY_METRICS,
 } from "@/lib/growth/metrics";
 import {
   LeadChannel,
@@ -21,11 +23,43 @@ import { buildTagSnippet, ensureTrackingKey } from "@/lib/growth/ctaLinks";
 /**
  * Leads, history and website-tag actions for Lead Goal HQ.
  *
- * Every number here is counted from a row: LinkClick for clicks, LeadEvent for
- * leads, PublishLog for what actually went out. Nothing is estimated.
+ * Two rules hold everywhere in this file:
+ *   1. Every number is counted from a row — LinkClick for clicks, LeadEvent for
+ *      leads, PublishLog for what actually went out. Nothing is estimated.
+ *   2. This is a `"use server"` module, so every export below is a public HTTP
+ *      endpoint that receives `workspaceId` from the browser. Each one therefore
+ *      proves the signed-in user owns that workspace before touching a row.
+ *      Unlike `@/actions/goals`, nothing here is called by the cron, so a real
+ *      Clerk session is always required.
  */
 
 const VALID_STATUSES = ["NEW", "CONFIRMED", "QUALIFIED", "WON", "LOST"];
+
+const NOT_YOURS = "You do not have access to this workspace.";
+
+const EMPTY_TRACKING: TrackingStatus = {
+  installed: false,
+  trackingKey: null,
+  domain: null,
+  verifiedAt: null,
+  snippet: "",
+  leadsCaptured: 0,
+  stale: false,
+};
+
+/** True when the signed-in user owns `workspaceId`. */
+async function ownsWorkspace(workspaceId: string): Promise<boolean> {
+  if (!workspaceId) return false;
+
+  const { userId } = await auth().catch(() => ({ userId: null }) as any);
+  if (!userId) return false;
+
+  const owned = await prisma.workspace
+    .findFirst({ where: { id: workspaceId, userId }, select: { id: true } })
+    .catch(() => null);
+
+  return Boolean(owned);
+}
 
 function normalizeDomain(raw: string): string {
   const trimmed = (raw || "").trim();
@@ -68,6 +102,8 @@ export async function logLead(
   input: LogLeadInput
 ): Promise<{ success: boolean; lead?: LeadEventItem; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     let postId = input.postId || null;
     let trackedLinkId = input.trackedLinkId || null;
     let platform = input.platform || null;
@@ -156,6 +192,8 @@ export async function updateLead(
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const existing = await (prisma as any).leadEvent.findFirst({ where: { id: leadId, workspaceId } });
     if (!existing) return { success: false, error: "Lead not found." };
 
@@ -205,6 +243,8 @@ export async function deleteLead(
   leadId: string
 ): Promise<{ success: boolean; deleted?: LogLeadInput & { leadType?: string }; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const existing = await (prisma as any).leadEvent.findFirst({ where: { id: leadId, workspaceId } });
     if (!existing) return { success: false, error: "Lead not found." };
 
@@ -243,6 +283,7 @@ export async function listLeads(
   workspaceId: string,
   filters?: { channel?: LeadChannel | "ALL"; status?: string | "ALL"; limit?: number }
 ): Promise<LeadEventItem[]> {
+  if (!(await ownsWorkspace(workspaceId))) return [];
   return getLeadEvents(workspaceId, filters || {});
 }
 
@@ -251,6 +292,14 @@ export async function getLeadsOverview(workspaceId: string): Promise<{
   attribution: Awaited<ReturnType<typeof getAttribution>>;
   metrics: Awaited<ReturnType<typeof getGrowthMetrics>>;
 }> {
+  if (!(await ownsWorkspace(workspaceId))) {
+    return {
+      leads: [],
+      attribution: { byPlatform: [], byPillar: [], byChannel: [] },
+      metrics: EMPTY_METRICS,
+    };
+  }
+
   const [leads, attribution, metrics] = await Promise.all([
     getLeadEvents(workspaceId, { limit: 100 }),
     getAttribution(workspaceId),
@@ -274,6 +323,7 @@ export async function listPublishHistory(
     limit?: number;
   }
 ): Promise<PublishHistoryItem[]> {
+  if (!(await ownsWorkspace(workspaceId))) return [];
   return getPublishHistory(workspaceId, filters || {});
 }
 
@@ -283,6 +333,8 @@ export async function deletePublishHistoryRow(
   logId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const row = await (prisma as any).publishLog.findFirst({ where: { id: logId, workspaceId } });
     if (!row) return { success: false, error: "History row not found." };
 
@@ -300,6 +352,8 @@ export async function retryPublishHistoryRow(
   logId: string
 ): Promise<{ success: boolean; liveUrl?: string | null; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const row = await (prisma as any).publishLog.findFirst({ where: { id: logId, workspaceId } });
     if (!row) return { success: false, error: "History row not found." };
     if (row.status !== "FAILED") return { success: false, error: "This item did not fail." };
@@ -350,6 +404,8 @@ export async function exportPublishHistoryCsv(
   }
 ): Promise<{ success: boolean; csv?: string; filename?: string; rows?: number; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const history = await getPublishHistory(workspaceId, { ...(filters || {}), limit: 1000 });
 
     const escape = (v: any) => {
@@ -414,6 +470,8 @@ export async function exportLeadsCsv(
   workspaceId: string
 ): Promise<{ success: boolean; csv?: string; filename?: string; rows?: number; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const leads = await getLeadEvents(workspaceId, { limit: 200 });
     const escape = (v: any) => {
       const s = v == null ? "" : String(v);
@@ -469,6 +527,8 @@ export async function exportLeadsCsv(
 // ============================================================================
 
 export async function getWebsiteTrackingStatus(workspaceId: string): Promise<TrackingStatus> {
+  // The status carries the tracking key, so a non-owner gets the empty shape.
+  if (!(await ownsWorkspace(workspaceId))) return EMPTY_TRACKING;
   return getTrackingStatus(workspaceId);
 }
 
@@ -482,6 +542,8 @@ export async function setupWebsiteTracking(
   domain?: string | null
 ): Promise<{ success: boolean; status?: TrackingStatus; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const key = await ensureTrackingKey(workspaceId);
     if (!key) return { success: false, error: "Could not create the tracking key. Try again." };
 
@@ -506,6 +568,10 @@ export async function setupWebsiteTracking(
 export async function verifyWebsiteTracking(
   workspaceId: string
 ): Promise<{ success: boolean; verified: boolean; status: TrackingStatus; message: string }> {
+  if (!(await ownsWorkspace(workspaceId))) {
+    return { success: false, verified: false, status: EMPTY_TRACKING, message: NOT_YOURS };
+  }
+
   const status = await getTrackingStatus(workspaceId);
 
   if (!status.trackingKey) {
@@ -538,6 +604,8 @@ export async function rotateTrackingKey(
   workspaceId: string
 ): Promise<{ success: boolean; status?: TrackingStatus; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     await prisma.workspace
       .update({
         where: { id: workspaceId },
@@ -560,6 +628,8 @@ export async function disableWebsiteTracking(
   workspaceId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     await prisma.workspace.update({
       where: { id: workspaceId },
       data: { trackingKey: null, trackingDomain: null, trackingVerifiedAt: null } as any,
@@ -573,6 +643,8 @@ export async function disableWebsiteTracking(
 
 /** Snippet text on its own, for the copy button. */
 export async function getTrackingSnippet(workspaceId: string): Promise<{ snippet: string; key: string | null }> {
+  if (!(await ownsWorkspace(workspaceId))) return { snippet: "", key: null };
+
   const status = await getTrackingStatus(workspaceId);
   return {
     snippet: status.trackingKey ? buildTagSnippet(status.trackingKey) : "",

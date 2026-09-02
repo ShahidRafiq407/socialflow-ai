@@ -43,7 +43,7 @@ export interface GrowthMetrics {
   isMeasured: boolean;
 }
 
-const EMPTY_METRICS: GrowthMetrics = {
+export const EMPTY_METRICS: GrowthMetrics = {
   windowStart: null,
   clicks: 0,
   uniqueClicks: 0,

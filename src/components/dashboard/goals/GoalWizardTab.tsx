@@ -6,30 +6,40 @@ import {
   Check,
   Globe,
   Info,
-  Link2,
   Loader2,
   Plug,
-  RotateCcw,
   Save,
   Share2,
   Sparkles,
   Target,
   Trash2,
 } from "lucide-react";
-import { validateGoalFeasibility, LeadSource, LeadType, GoalFeasibilityResult } from "@/lib/types/growth";
-import { saveGrowthGoal, resetGrowthGoal, validateGoalAction, saveCtaDestination } from "@/actions/goals";
-import { Chip, ConfirmButton, SectionCard } from "./shared";
-import { WebsiteChannelCards } from "./WebsiteChannelCards";
+import {
+  leadTypeLabel,
+  validateGoalFeasibility,
+  type GoalFeasibilityResult,
+  type LeadSource,
+  type LeadType,
+} from "@/lib/types/growth";
+import {
+  resetGrowthGoal,
+  saveCtaDestination,
+  saveGrowthGoal,
+  validateGoalAction,
+} from "@/actions/goals";
+import { Chip, ConfirmButton, DestinationRow, InfoDot, SectionCard } from "./shared";
+import { WebsiteStatusCards } from "./WebsiteChannelCards";
 import type { GoalHQData } from "./types";
 
 /**
- * Goal tab — the only place a target is created.
+ * Goal tab — three steps and nothing else: what you want, where it should come
+ * from, and where the link should send people.
  *
- * The feasibility meter runs the pure `validateGoalFeasibility` on every
- * keystroke (no LLM, no network) and is then overwritten by the server's
- * measured verdict when this workspace has enough tracked data. A
- * HIGHLY_AGGRESSIVE target cannot be saved until the user has seen the real
- * range and explicitly accepted it.
+ * Two things deliberately do not live here. Accounts and sites are connected in
+ * Integrations and Plugins, so this tab only reports whether they are. And the
+ * list of platforms is the AI's, not a checkbox list — ranked on your measured
+ * results where they exist. Both are changed in the Social media tab, which is
+ * where that decision belongs.
  */
 
 const LEAD_TYPES: { value: LeadType; label: string; hint: string }[] = [
@@ -60,19 +70,34 @@ export function GoalWizardTab({
   const [leadType, setLeadType] = useState<LeadType>((goal?.leadType as LeadType) || "QUALIFIED_LEADS");
   const [customLeadTypeName, setCustomLeadTypeName] = useState<string>(goal?.customLeadTypeName || "");
   const [leadSources, setLeadSources] = useState<LeadSource[]>(goal?.leadSources || ["SOCIAL"]);
-  const [platforms, setPlatforms] = useState<string[]>(goal?.targetPlatforms || data.connectedPlatforms);
   const [articlesPerWeek, setArticlesPerWeek] = useState<number>(goal?.articlesPerWeek ?? 2);
   const [destinations, setDestinations] = useState<Record<string, string>>(goal?.ctaDestinations || {});
   const [acceptAggressive, setAcceptAggressive] = useState(false);
   const [restartWindow, setRestartWindow] = useState(false);
 
-  const [measured, setMeasured] = useState<(GoalFeasibilityResult & { isMeasured: boolean; measuredNote?: string }) | null>(null);
+  const [measured, setMeasured] = useState<
+    (GoalFeasibilityResult & { isMeasured: boolean; measuredNote?: string }) | null
+  >(null);
   const [checking, setChecking] = useState(false);
   const [saving, startSaving] = useTransition();
   const [resetting, startResetting] = useTransition();
 
   const useSocial = leadSources.includes("SOCIAL");
   const useWebsite = leadSources.includes("WEBSITE");
+
+  // The line-up is the AI's, not a checkbox list. Anything already saved wins, so
+  // a change made in the Social media tab is never silently undone by saving
+  // here; otherwise the AI's shortlist of connected accounts is used.
+  const aiPlatforms = useMemo<string[]>(() => {
+    const saved = Array.isArray(goal?.targetPlatforms)
+      ? goal.targetPlatforms.filter(Boolean).map(String)
+      : [];
+    if (saved.length) return saved;
+    const picked = data.advice.suggestions
+      .filter((s) => s.recommended && s.connected)
+      .map((s) => s.label);
+    return picked.length ? picked : data.connectedPlatforms;
+  }, [goal?.targetPlatforms, data.advice.suggestions, data.connectedPlatforms]);
 
   // Instant, offline verdict — recomputed on every change.
   const local = useMemo(
@@ -81,11 +106,20 @@ export function GoalWizardTab({
         leadTarget,
         timeframeDays,
         leadType,
-        channelCount: platforms.length || data.connectedPlatforms.length || 1,
+        channelCount: aiPlatforms.length || data.connectedPlatforms.length || 1,
         leadSources,
         articlesPerWeek: useWebsite ? articlesPerWeek : undefined,
       }),
-    [leadTarget, timeframeDays, leadType, platforms.length, leadSources, articlesPerWeek, useWebsite, data.connectedPlatforms.length]
+    [
+      leadTarget,
+      timeframeDays,
+      leadType,
+      aiPlatforms.length,
+      leadSources,
+      articlesPerWeek,
+      useWebsite,
+      data.connectedPlatforms.length,
+    ]
   );
 
   const verdict = measured ?? local;
@@ -117,6 +151,7 @@ export function GoalWizardTab({
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadTarget, timeframeDays, leadType, leadSources, articlesPerWeek, useWebsite, data.workspaceId, data.metrics.isMeasured]);
 
   useEffect(() => {
@@ -126,12 +161,9 @@ export function GoalWizardTab({
   const toggleSource = (src: LeadSource) => {
     setLeadSources((prev) => {
       const next = prev.includes(src) ? prev.filter((s) => s !== src) : [...prev, src];
+      // One source has to stay on, otherwise the goal has nowhere to come from.
       return next.length ? next : [src];
     });
-  };
-
-  const togglePlatform = (p: string) => {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
   const save = () => {
@@ -141,7 +173,7 @@ export function GoalWizardTab({
         leadType,
         customLeadTypeName: leadType === "CUSTOM" ? customLeadTypeName : null,
         timeframeDays,
-        targetPlatforms: useSocial ? platforms : [],
+        targetPlatforms: useSocial ? aiPlatforms : [],
         leadSources,
         ctaDestinations: destinations,
         articlesPerWeek: useWebsite ? articlesPerWeek : null,
@@ -155,10 +187,10 @@ export function GoalWizardTab({
         return;
       }
 
-      onToast("success", "Goal saved. Build the plan next so the AI knows what to post.");
+      onToast("success", "Goal saved. Next: build the plan so the AI knows what to post.");
       setRestartWindow(false);
       onSaved();
-      onGoToTab("plan");
+      onGoToTab(useSocial ? "plan" : "seo");
     });
   };
 
@@ -192,19 +224,25 @@ export function GoalWizardTab({
         : "danger";
 
   const blocked = verdict.feasibilityLevel === "HIGHLY_AGGRESSIVE" && !acceptAggressive;
-  const noPlatform = useSocial && platforms.length === 0;
+  // Website-only goals need no account, so an empty line-up only blocks a
+  // social goal.
+  const noPlatform = useSocial && !useWebsite && aiPlatforms.length === 0;
 
   return (
     <div className="space-y-5">
-      {/* ───────────────────────── Target ───────────────────────── */}
+      {/* ───────────────────────── Step 1 · Target ───────────────────────── */}
       <SectionCard
-        title="What do you want, and by when?"
-        subtitle="The AI builds the whole posting plan from these two numbers. Be specific — the meter below tells you straight away whether it is achievable organically."
+        title="Step 1 — What do you want, and by when?"
+        subtitle="Two numbers. Everything else on this page is worked out from them."
         icon={<Target className="w-4 h-4" />}
+        info="The AI turns these two numbers into a posting plan: how many posts a week it takes, on which accounts, and what they should be about. Change them any time and the plan is rebuilt."
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
-            <span className="text-xs font-semibold text-foreground">How many leads?</span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              How many leads?
+              <InfoDot text="A lead only counts once it is confirmed — by your website tag, or by you pressing 'Lead came in' on a post. Clicks are counted automatically and are shown separately, because a click is not a lead." />
+            </span>
             <input
               type="number"
               min={1}
@@ -215,7 +253,10 @@ export function GoalWizardTab({
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold text-foreground">In how many days?</span>
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              In how many days?
+              <InfoDot text="The clock starts the day you save. Organic reach builds slowly, so a longer window needs fewer posts a day for the same result — the meter below shows exactly what each choice costs you." />
+            </span>
             <input
               type="number"
               min={1}
@@ -230,7 +271,10 @@ export function GoalWizardTab({
         </div>
 
         <div className="mt-4">
-          <span className="text-xs font-semibold text-foreground">What counts as a lead for you?</span>
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            What counts as a lead for you?
+            <InfoDot text="This changes the maths, not just the wording. A booked call takes far more clicks than a form fill, so the plan asks for more posts to reach the same number." />
+          </span>
           <div className="mt-2 flex flex-wrap gap-2">
             {LEAD_TYPES.map((t) => (
               <button
@@ -259,7 +303,7 @@ export function GoalWizardTab({
         </div>
       </SectionCard>
 
-      {/* ───────────────────────── Feasibility ───────────────────────── */}
+      {/* ───────────────────── Is it achievable? ───────────────────── */}
       <section
         className={`rounded-2xl border p-5 ${
           levelTone === "primary"
@@ -280,25 +324,35 @@ export function GoalWizardTab({
             )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-sm font-bold text-foreground">
+                <h3 className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
                   {verdict.feasibilityLevel === "REALISTIC"
                     ? "Achievable"
                     : verdict.feasibilityLevel === "MODERATE"
                       ? "Ambitious but possible"
                       : "Not achievable organically"}
+                  <InfoDot text="This is the honest answer, not encouragement. It is worked out from how many people click a post and how many of those clicks turn into your kind of lead. If the target cannot be reached without paid ads, it says so and offers a number that can." />
                 </h3>
                 {checking ? (
                   <Chip tone="muted" icon={<Loader2 className="w-3 h-3 animate-spin" />}>
                     Checking your data
                   </Chip>
                 ) : verdict === measured ? (
-                  <Chip tone="primary">Measured from your data</Chip>
+                  <Chip
+                    tone="primary"
+                    title="Worked out from your own clicks and confirmed leads, not from a benchmark."
+                  >
+                    Measured from your data
+                  </Chip>
                 ) : (
-                  <Chip tone="muted" title="You do not have enough tracked posts, clicks and leads yet, so this uses published organic benchmarks.">
+                  <Chip
+                    tone="muted"
+                    title="You do not have enough tracked posts, clicks and leads yet, so this uses published organic benchmarks. It switches to your own numbers automatically."
+                  >
                     Benchmark estimate
                   </Chip>
                 )}
               </div>
+
               <p className="text-xs text-foreground/80 mt-1.5 leading-relaxed">{verdict.explanation}</p>
               {(verdict as any).measuredNote && (
                 <p className="text-[11px] text-muted-foreground mt-1">{(verdict as any).measuredNote}</p>
@@ -312,14 +366,18 @@ export function GoalWizardTab({
           </div>
 
           <div className="text-right shrink-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Expected range
+              <InfoDot
+                align="right"
+                text="What this plan is likely to actually produce in your window. If your target sits above this range, the number to trust is this one."
+              />
             </p>
             <p className="text-xl font-bold text-foreground leading-tight">
               {verdict.estimatedRealisticMin}–{verdict.estimatedRealisticMax}
             </p>
             <p className="text-[11px] text-muted-foreground">
-              in {timeframeDays} day{timeframeDays === 1 ? "" : "s"}
+              {leadTypeLabel(leadType)} in {timeframeDays} day{timeframeDays === 1 ? "" : "s"}
             </p>
           </div>
         </div>
@@ -338,8 +396,9 @@ export function GoalWizardTab({
             )}
             {useWebsite && (
               <div className="rounded-xl border border-border bg-card px-3 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   From website SEO
+                  <InfoDot text="An article does not rank the day it is published. Only the days left after that delay can realistically bring leads, which is why this number is lower than the social one on short windows." />
                 </p>
                 <p className="text-sm font-bold text-foreground">
                   {verdict.sourceBreakdown.websiteMin}–{verdict.sourceBreakdown.websiteMax} leads
@@ -387,12 +446,13 @@ export function GoalWizardTab({
         )}
       </section>
 
-      {/* ───────────────────────── Sources ───────────────────────── */}
+      {/* ───────────────────── Step 2 · Where from ───────────────────── */}
       <SectionCard
-        title="Where should the leads come from?"
-        subtitle="Pick one or both. Website adds AI-written SEO articles published straight to your own site."
+        title="Step 2 — Where should the leads come from?"
+        subtitle="There are two places, and you can use both. Pick one and only that channel is planned, posted and counted."
         icon={<Share2 className="w-4 h-4" />}
         accent="secondary"
+        info="This choice decides which tabs above do anything. Social media means daily posts on your connected accounts. Website means SEO articles published to your own site. Turning one off stops it completely — nothing is posted there and nothing is counted from it."
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <button
@@ -402,6 +462,7 @@ export function GoalWizardTab({
               useSocial ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
             }`}
           >
+
             <span className="flex items-center gap-2 text-sm font-bold text-foreground">
               <Share2 className={`w-4 h-4 ${useSocial ? "text-primary" : "text-muted-foreground"}`} />
               Social media
@@ -426,267 +487,174 @@ export function GoalWizardTab({
               {useWebsite && <Check className="w-3.5 h-3.5 text-secondary ml-auto" />}
             </span>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              The AI picks trending keywords for your business and publishes schema-rich SEO articles to
-              your site. Needs a WordPress connection and a small tag on your site.
+              The AI picks trending keywords for your business and publishes SEO articles to your own
+              site.
             </p>
           </button>
         </div>
 
+        {/* What the AI will actually post to — not a checkbox list */}
+        {useSocial && (
+          <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3">
+            <p className="inline-flex flex-wrap items-center gap-1.5 text-xs font-bold text-foreground">
+              <Sparkles className="w-3.5 h-3.5 text-secondary" />
+              The AI will post to
+              <InfoDot text="You do not have to guess at a checkbox list. Accounts are ranked by the clicks and leads they have actually produced for you, and where you have none, by your industry, your lead type and whether a link in the caption is clickable on that platform. Add or remove any of them in the Social media tab." />
+            </p>
+            {aiPlatforms.length > 0 ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {aiPlatforms.map((p) => (
+                  <Chip key={p} tone="primary">
+                    {p}
+                  </Chip>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => onGoToTab("social")}
+                  className="ml-1 text-[11px] font-semibold text-primary hover:underline"
+                >
+                  Change or remove
+                </button>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <p className="inline-flex items-center gap-1.5 text-[11px] text-foreground">
+                  <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                  No social account is connected, so nothing can be posted yet.
+                </p>
+                <a
+                  href="/dashboard/integrations"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90"
+                >
+                  <Plug className="w-3 h-3" />
+                  Connect an account
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* How many articles a week — only meaningful for the website channel */}
         {useWebsite && (
-          <label className="block mt-4 max-w-xs">
-            <span className="text-xs font-semibold text-foreground">Articles per week</span>
-            <input
-              type="number"
-              min={1}
-              max={7}
-              value={articlesPerWeek}
-              onChange={(e) =>
-                setArticlesPerWeek(Math.max(1, Math.min(7, Math.round(Number(e.target.value) || 1))))
-              }
-              className="mt-1.5 w-full h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-secondary"
-            />
-            <span className="text-[11px] text-muted-foreground">
-              Each article is written, given JSON-LD schema and published without review.
-            </span>
-          </label>
+          <div className="mt-4 space-y-3">
+            <label className="block max-w-xs">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                Articles per week
+                <InfoDot text="How many SEO articles the AI writes and publishes to your site each week. More articles means more chances to rank, but each one still needs weeks before search traffic arrives — the range above already accounts for that delay." />
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={7}
+                value={articlesPerWeek}
+                onChange={(e) =>
+                  setArticlesPerWeek(Math.max(1, Math.min(7, Math.round(Number(e.target.value) || 0))))
+                }
+                className="mt-1.5 w-full h-11 rounded-xl border border-border bg-background px-3 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-secondary"
+              />
+            </label>
+            <WebsiteStatusCards data={data} />
+          </div>
         )}
       </SectionCard>
 
-      {/* ───────────────────────── Platforms ───────────────────────── */}
-      {useSocial && (
-        <SectionCard
-          title="Which accounts should it post to?"
-          subtitle="Only connected accounts can be posted to — nothing is assumed."
-          icon={<Plug className="w-4 h-4" />}
-          actions={
-            <a
-              href="/dashboard/integrations"
-              className="text-xs font-semibold text-primary hover:underline"
-            >
-              Manage connections
-            </a>
-          }
-        >
-          {data.connectedPlatforms.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 p-4">
-              <p className="text-sm font-semibold text-foreground">No social account is connected.</p>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Autopilot cannot post anywhere until you connect at least one account. Connect one, or
-                switch the lead source to Website only.
-              </p>
-              <a
-                href="/dashboard/integrations"
-                className="inline-flex items-center gap-1.5 h-9 px-3 mt-3 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90"
-              >
-                <Plug className="w-3.5 h-3.5" />
-                Connect an account
-              </a>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {data.connectedPlatforms.map((p) => {
-                const on = platforms.includes(p);
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => togglePlatform(p)}
-                    className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold border transition-colors ${
-                      on
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                    }`}
-                  >
-                    {on && <Check className="w-3 h-3" />}
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {noPlatform && data.connectedPlatforms.length > 0 && (
-            <p className="text-[11px] text-destructive mt-3">
-              Select at least one account, or remove Social as a lead source.
-            </p>
-          )}
-        </SectionCard>
-      )}
-
-      {/* ───────────────────────── CTA links ───────────────────────── */}
+      {/* ───────────────────── Step 3 · Where the link goes ───────────────────── */}
       <SectionCard
-        title="Where should the CTA send people?"
-        subtitle="Every generated post gets a tracked short link pointing here. Without a link, a post cannot produce a countable lead."
-        icon={<Link2 className="w-4 h-4" />}
-        accent="secondary"
+        title="Step 3 — Where should the link send people?"
+        subtitle="One link. Every post carries a tracked version of it, which is how a click becomes a countable lead."
+        icon={<Sparkles className="w-4 h-4" />}
+        info="A post without a link can be liked but cannot produce a lead you can trace. The AI never writes a raw URL into a caption — it wraps this address in a short tracked link, so the redirect is counted here and the visitor still lands on your page."
       >
         <DestinationRow
-          label="Default link (used by every platform unless overridden)"
+          label="Default link for every post"
           value={destinations.default || ""}
           placeholder={data.website || "https://your-site.com/contact"}
-          onSave={(v) => saveDestination("default", v)}
+          info="Send people to the page where they can actually become a lead — a contact page, a booking page or a WhatsApp link. If you leave it empty, your website address is used when you have one."
+          onSave={(value) => saveDestination("default", value)}
         />
-        {useSocial &&
-          platforms.map((p) => (
-            <DestinationRow
-              key={p}
-              label={`${p} only (optional)`}
-              value={destinations[p.toLowerCase()] || ""}
-              placeholder="Leave empty to use the default link"
-              onSave={(v) => saveDestination(p, v)}
-            />
-          ))}
 
         {!destinations.default && !data.website && (
-          <p className="text-[11px] text-destructive mt-3 leading-relaxed">
-            No default link is set and your workspace has no website saved, so generated posts will have
-            no CTA link and no lead can be attributed to them.
+          <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 shrink-0" />
+            <p className="text-[11px] text-foreground leading-relaxed">
+              There is no link to send people to yet, so posts can be published but no click or lead
+              can be attributed to them. Add one above before turning Autopilot on.
+            </p>
+          </div>
+        )}
+
+        {useSocial && (
+          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+            Want a different link on one platform?{" "}
+            <button
+              type="button"
+              onClick={() => onGoToTab("social")}
+              className="font-semibold text-primary hover:underline"
+            >
+              Set a per-account override in the Social media tab
+            </button>
+            .
           </p>
         )}
       </SectionCard>
 
-      {/* ───────────────────────── Website channel setup ───────────────────────── */}
-      {useWebsite && <WebsiteChannelCards data={data} onToast={onToast} onChanged={onSaved} />}
+      {/* ───────────────────── Save ↔ Reset ───────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card p-4">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || blocked || noPlatform}
+          title={
+            blocked
+              ? "Tick the box above to keep this target, or use the recommended one."
+              : noPlatform
+                ? "Connect a social account, or add your website as a lead source."
+                : "Save the goal"
+          }
+          className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-primary text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {goal ? "Save changes" : "Save goal"}
+        </button>
 
-      {/* ───────────────────────── Save / Reset ───────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-foreground">
-            {goal ? "Update this goal" : "Save the goal"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-            {goal
-              ? "Saving keeps your measured history. Tick restart if you want the counters to start again from today."
-              : "Nothing is posted until you save the goal and build the plan."}
-          </p>
-          {goal && (
-            <label className="inline-flex items-center gap-2 mt-2 text-[11px] text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={restartWindow}
-                onChange={(e) => setRestartWindow(e.target.checked)}
-                className="accent-[var(--color-primary)]"
-              />
-              Restart the measurement window from today
-            </label>
-          )}
-        </div>
+        {goal && (
+          <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={restartWindow}
+              onChange={(e) => setRestartWindow(e.target.checked)}
+              className="accent-[var(--color-primary)]"
+            />
+            Start the {timeframeDays}-day window again from today
+            <InfoDot text="Leave this off and the clock keeps running from the day you first saved. Tick it and today becomes day one — your leads and posts are kept, only the deadline and the pace are recalculated." />
+          </label>
+        )}
 
-        <div className="flex flex-wrap items-center gap-2">
+        <span className="ml-auto inline-flex items-center gap-2">
           {goal && (
             <ConfirmButton
               onConfirm={reset}
               busy={resetting}
-              label="Reset goal"
+              label="Delete goal"
               confirmLabel="Delete it"
               icon={<Trash2 className="w-3 h-3" />}
-              size="default"
             />
           )}
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving || blocked || noPlatform}
-            title={
-              blocked
-                ? "Tick the confirmation above, or lower the target."
-                : noPlatform
-                  ? "Select at least one account."
-                  : "Save the goal"
-            }
-            className="inline-flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {goal ? "Save changes" : "Save goal"}
-          </button>
-        </div>
+          <InfoDot
+            align="right"
+            text="Deleting the goal stops everything: no plan, no daily posts, no articles. Your published posts, their live links, your clicks and your leads are all kept — only the target and its plan are removed."
+          />
+        </span>
       </div>
 
-      {!data.hasBrandDNA && (
-        <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-bold text-foreground">Brand DNA is empty</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              The AI will not guess what your business does. Fill in your audience, tone and offer so the
-              plan and captions are about your actual business.
-            </p>
-          </div>
-          <a
-            href="/dashboard/brand"
-            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-secondary text-secondary-foreground text-xs font-semibold hover:bg-secondary/90 shrink-0"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Set up Brand DNA
-          </a>
-        </div>
+      {(blocked || noPlatform) && (
+        <p className="flex items-start gap-2 text-[11px] text-destructive leading-relaxed">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          {blocked
+            ? "This target cannot be reached organically. Use the recommended number, give it more days, or tick the box to keep it anyway."
+            : "Connect at least one social account in Integrations, or turn on your website as a lead source above."}
+        </p>
       )}
-    </div>
-  );
-}
-
-/** One CTA destination with Save ↔ Remove. */
-function DestinationRow({
-  label,
-  value,
-  placeholder,
-  onSave,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  onSave: (value: string) => Promise<void> | void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const [busy, setBusy] = useState(false);
-  const dirty = draft.trim() !== value.trim();
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  const run = async (next: string) => {
-    setBusy(true);
-    try {
-      await onSave(next);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mb-3 last:mb-0">
-      <span className="text-xs font-semibold text-foreground">{label}</span>
-      <div className="mt-1.5 flex flex-wrap gap-2">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 min-w-[14rem] h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-        <button
-          type="button"
-          onClick={() => run(draft)}
-          disabled={busy || !dirty}
-          className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </button>
-        {value && (
-          <button
-            type="button"
-            onClick={() => {
-              setDraft("");
-              void run("");
-            }}
-            disabled={busy}
-            title="Remove this link"
-            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/10 disabled:opacity-40"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Remove
-          </button>
-        )}
-      </div>
     </div>
   );
 }

@@ -11,9 +11,12 @@ import {
   Globe,
   Image as ImageIcon,
   Info,
+  Link2,
   Loader2,
   Play,
+  Save,
   Square,
+  Trash2,
   Undo2,
   X,
 } from "lucide-react";
@@ -280,6 +283,7 @@ export function SectionCard({
   actions,
   children,
   className = "",
+  info,
 }: {
   title: string;
   subtitle?: string;
@@ -288,6 +292,8 @@ export function SectionCard({
   actions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /** "What is this section for?" — shown behind the "i" next to the title. */
+  info?: string;
 }) {
   return (
     <section className={`rounded-2xl border border-border bg-card overflow-hidden ${className}`}>
@@ -303,7 +309,10 @@ export function SectionCard({
             </span>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-foreground">{title}</h3>
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+              {title}
+              {info && <InfoDot text={info} />}
+            </h3>
             {subtitle && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{subtitle}</p>}
           </div>
         </div>
@@ -393,6 +402,7 @@ export function StatTile({
   accent = "primary",
   measured = true,
   onClick,
+  info,
 }: {
   label: string;
   value: React.ReactNode;
@@ -401,13 +411,29 @@ export function StatTile({
   accent?: "primary" | "secondary";
   measured?: boolean;
   onClick?: () => void;
+  /** Plain answer to "where does this number come from?". */
+  info?: string;
 }) {
-  const Wrapper: any = onClick ? "button" : "div";
+  // Always a div, never a <button>: the tile carries its own "i" button and a
+  // button inside a button is invalid markup. Keyboard support is wired by hand
+  // so a clickable tile still behaves like one.
   return (
-    <Wrapper
-      {...(onClick ? { type: "button", onClick } : {})}
+    <div
+      {...(onClick
+        ? {
+            role: "button",
+            tabIndex: 0,
+            onClick,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            },
+          }
+        : {})}
       className={`text-left rounded-2xl border border-border bg-card p-4 flex flex-col gap-1 ${
-        onClick ? "hover:border-primary/40 transition-colors" : ""
+        onClick ? "cursor-pointer hover:border-primary/40 transition-colors focus:outline-none focus:ring-2 focus:ring-primary" : ""
       }`}
     >
       <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -415,6 +441,11 @@ export function StatTile({
           <span className={accent === "primary" ? "text-primary" : "text-secondary"}>{icon}</span>
         )}
         {label}
+        {info && (
+          <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+            <InfoDot text={info} />
+          </span>
+        )}
       </span>
       <span className="text-2xl font-bold text-foreground leading-none">{value}</span>
       {hint && <span className="text-[11px] text-muted-foreground leading-snug">{hint}</span>}
@@ -423,7 +454,296 @@ export function StatTile({
           Estimate — not measured
         </span>
       )}
-    </Wrapper>
+    </div>
+  );
+}
+
+// ============================================================================
+// Explain-anything
+// ============================================================================
+
+/**
+ * The little "i" next to a label. Every number, toggle and button on this screen
+ * carries one, because the fastest way to make an automation trustworthy is to
+ * let the user ask "what is this?" without leaving the page.
+ *
+ * Click to open (not hover) so it works on a phone, closes on Escape or an
+ * outside click.
+ */
+export function InfoDot({
+  text,
+  align = "left",
+  className = "",
+}: {
+  text: string;
+  /** Which edge of the popover lines up with the button. */
+  align?: "left" | "right";
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={ref} className={`relative inline-flex align-middle ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="What is this?"
+        title={text}
+        className={`inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full border text-[9px] font-bold leading-none transition-colors ${
+          open
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border text-muted-foreground hover:border-primary/50 hover:text-primary"
+        }`}
+      >
+        i
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className={`absolute top-6 z-30 w-64 rounded-xl border border-border bg-card p-3 text-[11px] font-normal normal-case tracking-normal leading-relaxed text-foreground shadow-lg ${
+            align === "left" ? "left-0" : "right-0"
+          }`}
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** A form label with its own explanation attached. */
+export function FieldLabel({
+  children,
+  info,
+  icon,
+  className = "",
+}: {
+  children: React.ReactNode;
+  info?: string;
+  icon?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold text-foreground ${className}`}>
+      {icon}
+      {children}
+      {info && <InfoDot text={info} />}
+    </span>
+  );
+}
+
+// ============================================================================
+// Inner rail + connection status
+// ============================================================================
+
+/** Secondary rail inside a channel tab. Same grammar as the main rail. */
+export function SubRail<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { key: T; label: string; icon?: React.ReactNode; count?: number; info?: string }[];
+  active: T;
+  onChange: (key: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 overflow-x-auto rounded-xl border border-border bg-muted/40 p-1">
+      {tabs.map((t) => {
+        const on = t.key === active;
+        return (
+          <span key={t.key} className="inline-flex items-center shrink-0">
+            <button
+              type="button"
+              onClick={() => onChange(t.key)}
+              aria-current={on ? "page" : undefined}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold transition-colors ${
+                on
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-background hover:text-foreground"
+              }`}
+            >
+              {t.icon}
+              {t.label}
+              {typeof t.count === "number" && t.count > 0 && (
+                <span
+                  className={`inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold ${
+                    on ? "bg-primary-foreground/20 text-primary-foreground" : "bg-border text-foreground"
+                  }`}
+                >
+                  {t.count}
+                </span>
+              )}
+            </button>
+            {t.info && <InfoDot text={t.info} className="ml-0.5 mr-1" />}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Connection status for a channel. Connecting itself happens in Integrations or
+ * Plugins — this only reports the truth and points there, so there is exactly
+ * one place in the app where an account is linked.
+ */
+export function ConnectionStrip({
+  connected,
+  label,
+  connectedNote,
+  warning,
+  href,
+  hrefLabel,
+  info,
+  extra,
+}: {
+  connected: boolean;
+  label: string;
+  connectedNote?: string;
+  warning: string;
+  href: string;
+  hrefLabel: string;
+  info?: string;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`flex flex-wrap items-start justify-between gap-3 rounded-xl border px-4 py-3 ${
+        connected ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"
+      }`}
+    >
+      <div className="flex items-start gap-2 min-w-0">
+        {connected ? (
+          <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+        ) : (
+          <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+        )}
+        <div className="min-w-0">
+          <p className="inline-flex items-center gap-1.5 text-xs font-bold text-foreground">
+            {label}
+            {info && <InfoDot text={info} />}
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+            {connected ? connectedNote : warning}
+          </p>
+          {extra && <div className="flex flex-wrap items-center gap-1.5 mt-1.5">{extra}</div>}
+        </div>
+      </div>
+      <a
+        href={href}
+        className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold shrink-0 ${
+          connected
+            ? "border border-border text-foreground hover:bg-muted"
+            : "bg-primary text-primary-foreground hover:bg-primary/90"
+        }`}
+      >
+        {hrefLabel}
+        <ExternalLink className="w-3 h-3" />
+      </a>
+    </div>
+  );
+}
+
+// ============================================================================
+// CTA destination
+// ============================================================================
+
+/**
+ * One "where should this link send people?" row, with Save ↔ Remove.
+ *
+ * Shared by the Goal tab (the default link) and the Social tab (a per-platform
+ * override), because a link saved in one place has to mean the same thing in
+ * the other.
+ */
+export function DestinationRow({
+  label,
+  value,
+  placeholder,
+  info,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  info?: string;
+  onSave: (value: string) => Promise<void> | void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [busy, setBusy] = useState(false);
+  const dirty = draft.trim() !== value.trim();
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const run = async (next: string) => {
+    setBusy(true);
+    try {
+      await onSave(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-3 last:mb-0">
+      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
+        <Link2 className="w-3 h-3 text-muted-foreground" />
+        {label}
+        {info && <InfoDot text={info} />}
+      </span>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 min-w-[14rem] h-10 rounded-xl border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <button
+          type="button"
+          onClick={() => run(draft)}
+          disabled={busy || !dirty}
+          title={dirty ? "Save this link" : "Nothing changed yet"}
+          className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Save
+        </button>
+        {value && (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft("");
+              void run("");
+            }}
+            disabled={busy}
+            title="Remove this link"
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/10 disabled:opacity-40"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

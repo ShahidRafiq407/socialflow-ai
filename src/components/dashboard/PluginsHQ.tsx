@@ -29,10 +29,12 @@ import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS, ConnectorCategory } from "@/lib
 import type { WordPressSiteView } from "@/actions/wordpressSite";
 import type { ConnectorView } from "@/actions/connections";
 import type { McpServerView } from "@/actions/mcpServers";
+import type { TrackingStatus } from "@/lib/types/growth";
 import { ConnectWordPressModal } from "./plugins/ConnectWordPressModal";
 import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
 import { AddMcpServerModal } from "./plugins/AddMcpServerModal";
 import { McpServerCard } from "./plugins/McpServerCard";
+import { WebsiteTagCard } from "./plugins/WebsiteTagCard";
 
 const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
   dev: GitBranch,
@@ -53,28 +55,48 @@ interface PluginsHQProps {
   wpSite: WordPressSiteView;
   connections: ConnectorView[];
   mcpServers: McpServerView[];
+  tracking: TrackingStatus;
 }
 
-// Deep link from the chat controller: /dashboard/plugins?connector=<key>.
-// WordPress lives outside CONNECTOR_REGISTRY, so it gets its own alias set.
+// Deep link from the chat controller or the Goal page:
+// /dashboard/plugins?connector=<key>. WordPress and the website lead tag live
+// outside CONNECTOR_REGISTRY, so each gets its own alias set.
 const WORDPRESS_ALIASES = new Set(["wordpress", "wp", "wordpress-pro", "wpsite"]);
+const WEBSITE_TAG_ALIASES = new Set([
+  "website-tag",
+  "websitetag",
+  "website",
+  "lead-tag",
+  "leadtag",
+  "tracking",
+  "tracking-tag",
+  "lead-capture",
+]);
 
 function normalizeConnectorKey(raw: string | null): string | null {
   if (!raw) return null;
   const value = raw.trim().toLowerCase().replace(/[\s_]+/g, "-");
   if (!value) return null;
   if (WORDPRESS_ALIASES.has(value)) return "wordpress";
+  if (WEBSITE_TAG_ALIASES.has(value)) return "website-tag";
   if (CONNECTOR_REGISTRY.some((c) => c.key === value)) return value;
   const byName = CONNECTOR_REGISTRY.find((c) => c.name.toLowerCase().replace(/[\s_]+/g, "-") === value);
   return byName?.key || null;
 }
 
-export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers }: PluginsHQProps) {
+export default function PluginsHQ({
+  workspaceId,
+  wpSite,
+  connections,
+  mcpServers,
+  tracking,
+}: PluginsHQProps) {
   const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
   const [wpSiteState, setWpSiteState] = useState<WordPressSiteView>(wpSite);
   const [connectionsState, setConnectionsState] = useState<ConnectorView[]>(connections);
   const [mcpServersState, setMcpServersState] = useState<McpServerView[]>(mcpServers);
+  const [trackingState, setTrackingState] = useState<TrackingStatus>(tracking);
 
   const [showWpModal, setShowWpModal] = useState(false);
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
@@ -112,7 +134,9 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
     const connected =
       key === "wordpress"
         ? wpSite.connected
-        : connections.find((c) => c.providerKey === key)?.status === "connected";
+        : key === "website-tag"
+          ? tracking.installed
+          : connections.find((c) => c.providerKey === key)?.status === "connected";
 
     const scroll = setTimeout(() => {
       document
@@ -120,12 +144,15 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 120);
 
-    const open = connected
-      ? undefined
-      : setTimeout(() => {
-          if (key === "wordpress") setShowWpModal(true);
-          else setActiveConnectorKey(key);
-        }, 620);
+    // The website tag has no dialog — its whole form is on the card, so landing
+    // on it is enough.
+    const open =
+      connected || key === "website-tag"
+        ? undefined
+        : setTimeout(() => {
+            if (key === "wordpress") setShowWpModal(true);
+            else setActiveConnectorKey(key);
+          }, 620);
 
     const unring = setTimeout(() => setFocusedConnector(null), 4200);
 
@@ -207,35 +234,34 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-8 text-white shadow-2xl border border-indigo-500/20">
-        <div className="absolute -right-12 -top-12 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+      {/* Header — flat, no gradient: this page is a list of facts, not a banner */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/20 px-4 py-1.5 text-xs font-semibold text-indigo-300 ring-1 ring-inset ring-indigo-400/30 mb-4">
+            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-3">
               <Plug className="h-3.5 w-3.5" />
-              Plugins & AI Connectors
+              Plugins & connectors
             </div>
-            <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-              Connect Your CMS, Dev Tools & Live Internet Engine
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
+              Connect the things the AI publishes to
             </h1>
-            <p className="mt-2 max-w-2xl text-slate-300 text-sm sm:text-base">
-              Connect the services your AI CEO can actually act on — WordPress publishing, GitHub
-              project pushes, and real-time Google News trend scanning. Everything here reflects a
-              real, verified connection.
+            <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
+              Every connection is made once, here. The rest of the app reads it — so your website,
+              your lead tag and your dev tools can never be connected in one place and missing in
+              another. Nothing on this page shows a connection it has not actually verified.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowWpModal(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition-all"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
             >
               <Globe className="h-4 w-4" />
               Configure WordPress
             </button>
             <button
               onClick={() => setShowAddMcpModal(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 transition-all"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
               <ServerIcon className="h-4 w-4" />
               Add MCP Server
@@ -247,9 +273,9 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
                   handleScanTrends();
                 }
               }}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 px-5 py-3 text-sm font-semibold text-slate-200 ring-1 ring-slate-600 transition-all"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
+              <TrendingUp className="h-4 w-4 text-emerald-500" />
               Live News Engine
             </button>
           </div>
@@ -338,6 +364,14 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
                 </button>
               </div>
             </div>
+
+            {/* Website lead tag — the other half of the website channel */}
+            <WebsiteTagCard
+              workspaceId={workspaceId}
+              status={trackingState}
+              onStatus={setTrackingState}
+              focused={focusedConnector === "website-tag"}
+            />
 
             {/* Registry-driven connector cards */}
             {CONNECTOR_REGISTRY.map((connector) => {

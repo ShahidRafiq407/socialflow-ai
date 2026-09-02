@@ -31,6 +31,7 @@ import {
   ConfirmButton,
   CopyButton,
   EmptyState,
+  InfoDot,
   LiveLink,
   MediaPreview,
   SectionCard,
@@ -47,24 +48,36 @@ import type { GoalHQData } from "./types";
  * link survive long after the heavy `Post` row is cleaned up. A row only links
  * out when the platform actually returned a URL; otherwise it says so rather
  * than sending the user to a generic feed.
+ *
+ * `lockChannel` scopes the whole tab to one lead channel, because it is reached
+ * from inside either Social or Website.
  */
 
 type ChannelFilter = LeadChannel | "ALL";
 type StatusFilter = "PUBLISHED" | "FAILED" | "ALL";
 
 export function HistoryTab({
+  lockChannel,
   data,
   onToast,
   onGoToTab,
   onRefresh,
 }: {
+  /**
+   * Set when the tab is opened from inside one lead channel. The channel filter
+   * is then fixed and hidden: on the Website side you never see a social post,
+   * and the other way round.
+   */
+  lockChannel?: LeadChannel;
   data: GoalHQData;
   onToast: (tone: "success" | "error" | "info", text: string, undo?: () => void) => void;
   onGoToTab: (tab: string) => void;
   onRefresh: () => void;
 }) {
-  const [rows, setRows] = useState<PublishHistoryItem[]>(data.history);
-  const [channel, setChannel] = useState<ChannelFilter>("ALL");
+  const [rows, setRows] = useState<PublishHistoryItem[]>(
+    lockChannel ? data.history.filter((r) => r.channel === lockChannel) : data.history
+  );
+  const [channel, setChannel] = useState<ChannelFilter>(lockChannel ?? "ALL");
   const [platform, setPlatform] = useState<string>("ALL");
   const [status, setStatus] = useState<StatusFilter>("ALL");
   const [from, setFrom] = useState("");
@@ -91,13 +104,17 @@ export function HistoryTab({
   };
 
   const clearFilters = () => {
-    setChannel("ALL");
+    // The locked channel is not a filter the user chose, so Clear keeps it.
+    setChannel(lockChannel ?? "ALL");
     setPlatform("ALL");
     setStatus("ALL");
     setFrom("");
     setTo("");
     startLoading(async () => {
-      const next = await listPublishHistory(data.workspaceId, { limit: 200 });
+      const next = await listPublishHistory(data.workspaceId, {
+        limit: 200,
+        ...(lockChannel ? { channel: lockChannel } : {}),
+      } as any);
       setRows(next);
     });
   };
@@ -214,7 +231,11 @@ export function HistoryTab({
   }, [rows]);
 
   const filtersActive =
-    channel !== "ALL" || platform !== "ALL" || status !== "ALL" || Boolean(from) || Boolean(to);
+    (!lockChannel && channel !== "ALL") ||
+    platform !== "ALL" ||
+    status !== "ALL" ||
+    Boolean(from) ||
+    Boolean(to);
 
   return (
     <div className="space-y-5">
@@ -223,7 +244,8 @@ export function HistoryTab({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="inline-flex items-center gap-2 text-sm font-bold text-foreground">
             <Filter className="w-4 h-4 text-primary" />
-            Filter your history
+            {lockChannel === "WEBSITE" ? "Articles you have published" : "Posts you have published"}
+            <InfoDot text="Every row is a real publish attempt, kept permanently — the live link, the clicks measured on its tracked link, and the leads confirmed against it. Failed attempts stay too, so you can see what went wrong." />
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -257,46 +279,54 @@ export function HistoryTab({
           </div>
         </div>
 
-        <div className="grid gap-3 mt-4 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="block">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Channel
-            </span>
-            <select
-              value={channel}
-              onChange={(e) => {
-                const v = e.target.value as ChannelFilter;
-                setChannel(v);
-                reload({ channel: v });
-              }}
-              className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="ALL">Everything</option>
-              <option value="SOCIAL">Social posts</option>
-              <option value="WEBSITE">Website articles</option>
-            </select>
-          </label>
+        <div
+          className={`grid gap-3 mt-4 sm:grid-cols-2 ${
+            lockChannel === "WEBSITE" ? "lg:grid-cols-3" : lockChannel ? "lg:grid-cols-4" : "lg:grid-cols-5"
+          }`}
+        >
+          {!lockChannel && (
+            <label className="block">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Channel
+              </span>
+              <select
+                value={channel}
+                onChange={(e) => {
+                  const v = e.target.value as ChannelFilter;
+                  setChannel(v);
+                  reload({ channel: v });
+                }}
+                className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">Everything</option>
+                <option value="SOCIAL">Social posts</option>
+                <option value="WEBSITE">Website articles</option>
+              </select>
+            </label>
+          )}
 
-          <label className="block">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Platform
-            </span>
-            <select
-              value={platform}
-              onChange={(e) => {
-                setPlatform(e.target.value);
-                reload({ platform: e.target.value });
-              }}
-              className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="ALL">All platforms</option>
-              {platformOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </label>
+          {lockChannel !== "WEBSITE" && (
+            <label className="block">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Platform
+              </span>
+              <select
+                value={platform}
+                onChange={(e) => {
+                  setPlatform(e.target.value);
+                  reload({ platform: e.target.value });
+                }}
+                className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">All platforms</option>
+                {platformOptions.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label className="block">
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
@@ -367,7 +397,9 @@ export function HistoryTab({
           description={
             filtersActive
               ? "Widen the date range or clear the filters to see the rest of your history."
-              : "Once a post or article goes out, it is recorded here permanently with its live link, clicks and leads — even after the draft itself is cleaned up."
+              : lockChannel === "WEBSITE"
+                ? "Once an article goes live it is recorded here permanently with its real link, clicks and leads — even after the draft itself is cleaned up."
+                : "Once a post goes out it is recorded here permanently with its live link, clicks and leads — even after the draft itself is cleaned up."
           }
           action={
             filtersActive ? (
@@ -382,11 +414,11 @@ export function HistoryTab({
             ) : (
               <button
                 type="button"
-                onClick={() => onGoToTab("today")}
+                onClick={() => onGoToTab(lockChannel === "WEBSITE" ? "website-today" : "today")}
                 className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
               >
                 <Sparkles className="w-4 h-4" />
-                Go to today&rsquo;s work
+                {lockChannel === "WEBSITE" ? "Go to today's articles" : "Go to today's work"}
               </button>
             )
           }

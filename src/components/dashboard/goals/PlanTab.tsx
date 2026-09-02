@@ -18,13 +18,18 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import type { GrowthStrategy, GrowthPlanTask } from "@/lib/types/growth";
+import type { GrowthStrategy, GrowthPlanTask, LeadChannel } from "@/lib/types/growth";
 import { applyGrowthRecommendation, dismissGrowthRecommendation } from "@/actions/goals";
-import { ActionButton, Chip, EmptyState, SectionCard } from "./shared";
+import { ActionButton, Chip, EmptyState, InfoDot, SectionCard } from "./shared";
 import type { GoalHQData } from "./types";
 
 /**
  * Plan tab — the maths and the calendar behind the goal.
+ *
+ * Everything on screen belongs to one channel. On the Website tab you never see
+ * a social platform's cadence and on the Social tab you never see the article
+ * count, because a plan you cannot act on from the tab you are standing in is
+ * the thing that made this page confusing in the first place.
  *
  * Build/Rebuild streams over SSE with a real Stop: the AbortController aborts
  * the request, which aborts the LLM calls server-side. Every rate on screen is
@@ -32,18 +37,21 @@ import type { GoalHQData } from "./types";
  * leads) or a published benchmark.
  */
 export function PlanTab({
+  channel,
   data,
   strategy,
   onStrategy,
   onToast,
   onGoToTab,
 }: {
+  channel: LeadChannel;
   data: GoalHQData;
   strategy: GrowthStrategy | null;
   onStrategy: (strategy: GrowthStrategy) => void;
   onToast: (tone: "success" | "error" | "info", text: string) => void;
   onGoToTab: (tab: string) => void;
 }) {
+  const isSocial = channel === "SOCIAL";
   const [building, setBuilding] = useState(false);
   const [log, setLog] = useState<{ step: string; status: string }[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -169,6 +177,14 @@ export function PlanTab({
   const funnel = strategy?.funnel;
   const measured = Boolean(funnel?.isMeasured);
 
+  // Everything below is this channel's slice of the plan. The website side of a
+  // strategy is the article rows; the social side is everything else.
+  const channelTasks = (strategy?.weeklyPlan || []).filter(
+    (t: any) => (t.channel === "WEBSITE") === !isSocial
+  );
+  const platformRows = isSocial ? strategy?.platformStrategies || [] : [];
+  const articlesPerWeek = funnel?.requiredArticlesPerWeek || 0;
+
   return (
     <div className="space-y-5">
       {/* ── Build / Rebuild ── */}
@@ -179,8 +195,9 @@ export function PlanTab({
               <BrainCircuit className="w-4 h-4" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-sm font-bold text-foreground">
+              <h3 className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
                 {strategy ? "Rebuild the plan" : "Build the plan"}
+                <InfoDot text="One plan covers both channels, so building it here also fills in the other tab. Rebuilding replaces the upcoming days — anything already published stays exactly where it is, with its live link and its clicks." />
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                 The AI researches live trends for your industry, works out how many posts per day the
@@ -292,6 +309,7 @@ export function PlanTab({
           title="How the target becomes a posting schedule"
           subtitle="Working backwards from the leads you asked for."
           icon={<BarChart3 className="w-4 h-4" />}
+          info="Read it bottom-up: to get one lead you need a few conversions, to get those you need clicks, and to get clicks you need posts. Each rate below is either measured from your own tracked links or a published benchmark, and it says which."
           actions={
             measured ? (
               <Chip tone="primary" title="Derived from your own tracked clicks and confirmed leads.">
@@ -308,11 +326,16 @@ export function PlanTab({
           }
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <FunnelStep label="Leads wanted" value={funnel.targetLeads} />
+            <FunnelStep
+              label="Leads wanted"
+              value={funnel.targetLeads}
+              info="The number you set on the Goal tab. Everything to the right of it is worked out from this one figure."
+            />
             <FunnelStep
               label="Conversions needed"
               value={funnel.requiredConversions}
               hint={`${Math.round(funnel.qualificationRate * 100)}% qualify`}
+              info="Not every enquiry becomes the kind of lead you asked for, so the plan aims higher than your target on purpose. The percentage is how many of them are expected to qualify."
             />
             <FunnelStep
               label={measured ? "Clicks needed" : "Profile visits / clicks"}
@@ -322,6 +345,7 @@ export function PlanTab({
                   ? `${(funnel.leadsPerClick * 100).toFixed(1)}% of your clicks convert`
                   : `${(funnel.organicCVR * 100).toFixed(1)}% benchmark conversion`
               }
+              info="How many people have to reach your link. Once you have real data this is your own click-to-lead rate; until then it is a published organic benchmark, which is why the label changes."
             />
             <FunnelStep
               label="Posts needed in total"
@@ -331,47 +355,55 @@ export function PlanTab({
                   ? `${funnel.clicksPerPost.toFixed(1)} clicks per post, measured`
                   : `${funnel.avgImpressionsPerPost.toLocaleString()} est. impressions per post`
               }
+              info="The total across the whole window, both channels included. The daily and weekly figures below are this number spread over the days you have left."
             />
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Posts per day
-              </p>
-              <p className="text-2xl font-bold text-foreground leading-none mt-1">
-                {funnel.requiredPostsPerDay ?? Math.ceil(funnel.requiredDailyPace)}
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Across {strategy?.targetPlatforms?.length || data.connectedPlatforms.length} platform
-                {(strategy?.targetPlatforms?.length || data.connectedPlatforms.length) === 1 ? "" : "s"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Posts per week
-              </p>
-              <p className="text-2xl font-bold text-foreground leading-none mt-1">
-                {funnel.requiredPostsPerWeek}
-              </p>
-            </div>
-            {funnel.requiredArticlesPerWeek ? (
+            {isSocial ? (
+              <>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                  <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Posts per day
+                    <InfoDot text="What Autopilot publishes each day across your accounts. If this is higher than the daily cap on the Autopilot tab, the cap wins and the goal slips — the Autopilot tab says so when that happens." />
+                  </p>
+                  <p className="text-2xl font-bold text-foreground leading-none mt-1">
+                    {funnel.requiredPostsPerDay ?? Math.ceil(funnel.requiredDailyPace)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Across {platformRows.length || data.connectedPlatforms.length} platform
+                    {(platformRows.length || data.connectedPlatforms.length) === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                  <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Posts per week
+                    <InfoDot text="The same pace read weekly, which is usually the easier one to sanity-check against how much you would post by hand." />
+                  </p>
+                  <p className="text-2xl font-bold text-foreground leading-none mt-1">
+                    {funnel.requiredPostsPerWeek}
+                  </p>
+                </div>
+              </>
+            ) : (
               <div className="rounded-xl border border-secondary/20 bg-secondary/5 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   SEO articles per week
+                  <InfoDot text="How many articles the AI writes and publishes to your own site each week. Change the number on the Goal tab; this figure follows it." />
                 </p>
                 <p className="text-2xl font-bold text-foreground leading-none mt-1">
-                  {funnel.requiredArticlesPerWeek}
+                  {articlesPerWeek || data.goal?.articlesPerWeek || 0}
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-1">Published to your own site</p>
               </div>
-            ) : null}
+            )}
           </div>
 
           {funnel.assumptions?.length ? (
             <div className="mt-4 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 What this assumes
+                <InfoDot text="The plan is only as good as these assumptions. They are listed so you can tell straight away whether a number came from your own results or from a benchmark that may not match your audience." />
               </p>
               <ul className="mt-1.5 space-y-1">
                 {funnel.assumptions.map((a, i) => (
@@ -390,15 +422,16 @@ export function PlanTab({
         </SectionCard>
       )}
 
-      {/* ── Platform allocation ── */}
-      {strategy?.platformStrategies?.length ? (
+      {/* ── Platform allocation — social only ── */}
+      {platformRows.length ? (
         <SectionCard
           title="What each platform is for"
           subtitle="Cadence per platform, with the reason the AI gave."
           icon={<TrendingUp className="w-4 h-4" />}
+          info="Each account gets its own share of the week and its own job. A platform marked Not connected keeps its row so you can see what you are missing, but nothing is posted to it until it is connected in Integrations."
         >
           <div className="space-y-3">
-            {strategy.platformStrategies.map((p) => (
+            {platformRows.map((p) => (
               <div key={p.platform} className="rounded-xl border border-border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-bold text-foreground">{p.platform}</span>
@@ -428,13 +461,14 @@ export function PlanTab({
         </SectionCard>
       ) : null}
 
-      {/* ── Content pillars ── */}
-      {strategy?.contentPillars?.length ? (
+      {/* ── Content pillars — the themes posts are drawn from ── */}
+      {isSocial && strategy?.contentPillars?.length ? (
         <SectionCard
           title="Content pillars"
           subtitle="The themes every post is drawn from, and the share of the calendar each one gets."
           icon={<Layers className="w-4 h-4" />}
           accent="secondary"
+          info="Rather than posting whatever is trending, the calendar keeps a fixed mix of themes so your feed builds an argument over weeks. The percentage is how much of the calendar each theme takes."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             {strategy.contentPillars.map((pillar) => (
@@ -466,24 +500,29 @@ export function PlanTab({
         </SectionCard>
       ) : null}
 
-      {/* ── 7-day calendar ── */}
-      {strategy?.weeklyPlan?.length ? (
+      {/* ── 7-day calendar, this channel only ── */}
+      {channelTasks.length ? (
         <SectionCard
           title="The next 7 days"
-          subtitle="Today's row is what the Today tab runs. Autopilot works through the rest day by day."
+          subtitle={
+            isSocial
+              ? "Today's row is what the Today tab runs. Autopilot works through the rest day by day."
+              : "The articles queued for the week. Autopilot writes and publishes them day by day."
+          }
           icon={<CalendarDays className="w-4 h-4" />}
+          info="A calendar entry is a topic and a time, not a written post. The words and the image are made on the day — either by you on the next tab, or by Autopilot at the scheduled time."
           actions={
             <button
               type="button"
-              onClick={() => onGoToTab("today")}
+              onClick={() => onGoToTab(isSocial ? "today" : "articles")}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-primary/30 text-primary text-xs font-semibold hover:bg-primary/10"
             >
-              Open Today
+              {isSocial ? "Open Today" : "Open Articles"}
               <ExternalLink className="w-3 h-3" />
             </button>
           }
         >
-          <WeeklyCalendar tasks={strategy.weeklyPlan} />
+          <WeeklyCalendar tasks={channelTasks} />
         </SectionCard>
       ) : null}
 
@@ -525,10 +564,23 @@ export function PlanTab({
   );
 }
 
-function FunnelStep({ label, value, hint }: { label: string; value: number; hint?: string }) {
+function FunnelStep({
+  label,
+  value,
+  hint,
+  info,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  info?: string;
+}) {
   return (
     <div className="rounded-xl border border-border p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+        {info && <InfoDot text={info} />}
+      </p>
       <p className="text-xl font-bold text-foreground leading-none mt-1">
         {Number(value || 0).toLocaleString()}
       </p>

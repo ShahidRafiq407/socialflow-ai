@@ -11,6 +11,30 @@ export type LeadType =
   | "BOOKINGS"
   | "CUSTOM";
 
+/**
+ * Plain-English names for the lead types. Used everywhere a lead type is shown
+ * to the user, so a raw enum like `CUSTOM` never leaks into a sentence.
+ */
+export const LEAD_TYPE_LABEL: Record<LeadType, { one: string; many: string }> = {
+  QUALIFIED_LEADS: { one: "qualified lead", many: "qualified leads" },
+  LEADS: { one: "lead", many: "leads" },
+  WEBSITE_INQUIRIES: { one: "website enquiry", many: "website enquiries" },
+  CONTACT_FORM: { one: "contact-form submission", many: "contact-form submissions" },
+  WHATSAPP: { one: "WhatsApp message", many: "WhatsApp messages" },
+  BOOKINGS: { one: "booking", many: "bookings" },
+  CUSTOM: { one: "lead", many: "leads" },
+};
+
+/** Safe label for any lead type value, including one saved before this map existed. */
+export function leadTypeLabel(value: LeadType | string | null | undefined, count = 2): string {
+  const key = String(value || "LEADS").toUpperCase() as LeadType;
+  const entry = LEAD_TYPE_LABEL[key];
+  if (entry) return count === 1 ? entry.one : entry.many;
+  // A value we do not know about is still shown readably rather than as an enum.
+  const words = String(value).replace(/_/g, " ").trim().toLowerCase();
+  return words || "leads";
+}
+
 export type AutopilotMode = "MANUAL" | "ASSISTED" | "AUTOPILOT";
 
 /** Where the user expects leads to come from. */
@@ -438,16 +462,17 @@ export function validateGoalFeasibility(input: {
   let explanation = "";
 
   const sourceLabel = useSocial && useWebsite ? "social + website" : useWebsite ? "website SEO" : "organic social";
+  const unit = leadTypeLabel(leadType, target === 1 ? 1 : 2);
 
   if (target <= totalMaxRealistic * 1.1) {
     level = "REALISTIC";
-    explanation = `A target of ${target} leads in ${days} days (${dailyPace}/day) is well within expected ${sourceLabel} capacity for active multichannel publishing.`;
+    explanation = `${target} ${unit} in ${days} days (${dailyPace} a day) is well inside what ${sourceLabel} can realistically bring in if you publish consistently.`;
   } else if (target <= totalMaxRealistic * 2.2) {
     level = "MODERATE";
-    explanation = `A target of ${target} leads in ${days} days (${dailyPace}/day) is ambitious. Requires top-tier viral hook optimization, multi-platform short-form video, and high daily consistency.`;
+    explanation = `${target} ${unit} in ${days} days (${dailyPace} a day) is ambitious. It needs strong hooks, short-form video on more than one platform, and no missed days. Expect somewhere around ${totalMinRealistic}–${totalMaxRealistic}.`;
   } else {
     level = "HIGHLY_AGGRESSIVE";
-    explanation = `Target of ${target} leads in ${days} days (${dailyPace}/day) is aggressive for purely ${sourceLabel} without paid ad spend. Expected range at this pace is ${totalMinRealistic}–${totalMaxRealistic} ${String(leadType).replace(/_/g, " ").toLowerCase()}.`;
+    explanation = `${target} ${unit} in ${days} days (${dailyPace} a day) is not achievable from ${sourceLabel} alone without paid ads. At this pace the honest expected range is ${totalMinRealistic}–${totalMaxRealistic} ${unit}.`;
   }
 
   const notes: string[] = [];

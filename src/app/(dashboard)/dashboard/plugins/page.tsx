@@ -5,6 +5,7 @@ import PluginsHQ from "@/components/dashboard/PluginsHQ";
 import { getWordPressSite } from "@/actions/wordpressSite";
 import { listConnections } from "@/actions/connections";
 import { listMcpServers } from "@/actions/mcpServers";
+import { getWebsiteTrackingStatus } from "@/actions/growthLeads";
 
 export const dynamic = "force-dynamic";
 
@@ -23,10 +24,11 @@ export default async function PluginsPage() {
     redirect("/onboarding");
   }
 
-  const [wpSite, connections, mcpServers] = await Promise.all([
+  const [wpSite, connections, mcpServers, tracking] = await Promise.all([
     getWordPressSite(workspace.id),
     listConnections(workspace.id),
     listMcpServers(workspace.id),
+    getWebsiteTrackingStatus(workspace.id),
   ]);
 
   return (
@@ -35,6 +37,7 @@ export default async function PluginsPage() {
       wpSite={wpSite}
       connections={connections}
       mcpServers={mcpServers}
+      tracking={tracking}
     />
   );
 }

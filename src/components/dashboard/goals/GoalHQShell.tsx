@@ -4,36 +4,38 @@ import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarClock,
-  History,
+  Globe,
   Loader2,
   MousePointerClick,
   RefreshCw,
   Send,
   Settings2,
-  Sparkles,
+  Share2,
   Target,
   UserPlus,
-  Users,
   Zap,
 } from "lucide-react";
-import type { GoalStatus, GrowthStrategy } from "@/lib/types/growth";
-import { Chip, StatTile, ToastStack, useToasts } from "./shared";
-import type { GoalHQData, GoalTabKey } from "./types";
+import { leadTypeLabel, type GoalStatus, type GrowthStrategy } from "@/lib/types/growth";
+import { Chip, InfoDot, StatTile, ToastStack, useToasts } from "./shared";
+import type { ChannelSection, GoalHQData, GoalTabKey } from "./types";
 import { GoalWizardTab } from "./GoalWizardTab";
-import { PlanTab } from "./PlanTab";
-import { TodayTab } from "./TodayTab";
-import { HistoryTab } from "./HistoryTab";
-import { LeadsTab } from "./LeadsTab";
+import { ChannelTab } from "./ChannelTab";
 import { AutopilotTab } from "./AutopilotTab";
 
 /**
  * Lead Goal HQ shell — header, measured stat tiles, tab rail, toasts.
  *
- * The server page resolves everything once and hands it down; `onRefresh`
- * re-runs that server render instead of each tab keeping its own copy of the
+ * Four tabs, in the order the work actually happens: set the target, then the
+ * two places a lead can come from, then the switch that runs it every day. Each
+ * channel tab shows only its own plan, posts, history and leads, so nothing on
+ * screen belongs to a channel the user did not choose.
+ *
+ * The server page resolves everything once and hands it down; `refresh()`
+ * re-runs that server render instead of every tab keeping its own copy of the
  * truth. The only client-held state that outlives a refresh is the freshly
- * built strategy, because the Plan tab streams it in before it is persisted.
+ * built strategy, because the Plan section streams it in before it is saved.
  */
 
 const STATUS_LABEL: Record<GoalStatus, { text: string; tone: "primary" | "secondary" | "muted" | "danger" }> = {
@@ -44,31 +46,67 @@ const STATUS_LABEL: Record<GoalStatus, { text: string; tone: "primary" | "second
   INSUFFICIENT_DATA: { text: "Not enough data yet", tone: "muted" },
 };
 
-const TABS: { key: GoalTabKey; label: string; icon: React.ReactNode }[] = [
-  { key: "goal", label: "Goal", icon: <Target className="w-3.5 h-3.5" /> },
-  { key: "plan", label: "Plan", icon: <Sparkles className="w-3.5 h-3.5" /> },
-  { key: "today", label: "Today", icon: <Send className="w-3.5 h-3.5" /> },
-  { key: "history", label: "History", icon: <History className="w-3.5 h-3.5" /> },
-  { key: "leads", label: "Leads", icon: <Users className="w-3.5 h-3.5" /> },
-  { key: "autopilot", label: "Autopilot", icon: <Zap className="w-3.5 h-3.5" /> },
+const TABS: { key: GoalTabKey; label: string; icon: React.ReactNode; info: string }[] = [
+  {
+    key: "goal",
+    label: "Goal",
+    icon: <Target className="w-3.5 h-3.5" />,
+    info: "How many leads you want, by when, and which of the two channels should earn them. Everything else on this page is built from this one answer.",
+  },
+  {
+    key: "social",
+    label: "Social media",
+    icon: <Share2 className="w-3.5 h-3.5" />,
+    info: "Leads from social posts: the accounts the AI recommends, today's posts, what already went out with its live link, and the leads that came back.",
+  },
+  {
+    key: "website",
+    label: "Website",
+    icon: <Globe className="w-3.5 h-3.5" />,
+    info: "Leads from your own site: the SEO articles the AI writes and publishes for you, and the leads your website tag captures.",
+  },
+  {
+    key: "autopilot",
+    label: "Autopilot",
+    icon: <Zap className="w-3.5 h-3.5" />,
+    info: "The daily switch and its limits: how many posts a day are allowed, how long a post waits before going live, and which accounts are paused.",
+  },
 ];
 
-// Deep link from the chat controller: /dashboard/goals?view=<tab>. Aliases keep
-// older links (and the odd model paraphrase) landing on the right tab.
-const VIEW_ALIASES: Record<string, GoalTabKey> = {
-  strategy: "plan",
-  roadmap: "plan",
-  tasks: "today",
-  queue: "today",
-  automation: "autopilot",
-  setup: "goal",
+/**
+ * Deep links from the chat controller and older bookmarks used one tab per
+ * section (`?view=plan`, `?view=history` …). They now resolve to a channel tab
+ * plus the section inside it, so no existing link breaks. The bare names stay
+ * pointed at the social side for compatibility; the `website-*` keys exist so a
+ * child standing on the Website tab can send the user to its own section
+ * instead of bouncing them across channels.
+ */
+const VIEW_ALIASES: Record<string, { tab: GoalTabKey; section?: ChannelSection }> = {
+  setup: { tab: "goal" },
+  target: { tab: "goal" },
+  plan: { tab: "social", section: "plan" },
+  strategy: { tab: "social", section: "plan" },
+  roadmap: { tab: "social", section: "plan" },
+  today: { tab: "social", section: "today" },
+  tasks: { tab: "social", section: "today" },
+  queue: { tab: "social", section: "today" },
+  history: { tab: "social", section: "published" },
+  published: { tab: "social", section: "published" },
+  leads: { tab: "social", section: "leads" },
+  articles: { tab: "website", section: "today" },
+  seo: { tab: "website", section: "plan" },
+  "website-plan": { tab: "website", section: "plan" },
+  "website-today": { tab: "website", section: "today" },
+  "website-published": { tab: "website", section: "published" },
+  "website-leads": { tab: "website", section: "leads" },
+  automation: { tab: "autopilot" },
 };
 
-function resolveGoalView(raw: string | null): GoalTabKey | null {
+function resolveGoalView(raw: string | null): { tab: GoalTabKey; section?: ChannelSection } | null {
   if (!raw) return null;
   const value = raw.trim().toLowerCase();
   const direct = TABS.find((t) => t.key === value);
-  if (direct) return direct.key;
+  if (direct) return { tab: direct.key };
   return VIEW_ALIASES[value] || null;
 }
 
@@ -76,19 +114,29 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
   const router = useRouter();
   const { toasts, push, dismiss } = useToasts();
 
-  const [tab, setTab] = useState<GoalTabKey>(data.needsSetup ? "goal" : "today");
+  const { goal, kpis, metrics } = data;
+  const sources: string[] = Array.isArray(goal?.leadSources) ? goal.leadSources : ["SOCIAL"];
+  const usesSocial = sources.includes("SOCIAL");
+  const usesWebsite = sources.includes("WEBSITE");
+
+  const [tab, setTab] = useState<GoalTabKey>(
+    data.needsSetup ? "goal" : usesSocial ? "social" : "website"
+  );
+  const [section, setSection] = useState<ChannelSection>("today");
   const [strategy, setStrategy] = useState<GrowthStrategy | null>(data.strategy);
   const [refreshing, startRefresh] = useTransition();
 
-  // A ?view= link opens straight on that tab, then the param is consumed so a
-  // later refresh does not drag the user back off whatever tab they moved to.
+  // A ?view= link opens straight on that tab (and section), then the param is
+  // consumed so a later refresh does not drag the user back off the tab they
+  // moved to themselves.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const target = resolveGoalView(params.get("view"));
     if (!target) return;
 
-    setTab(target);
+    setTab(target.tab);
+    if (target.section) setSection(target.section);
 
     const url = new URL(window.location.href);
     url.searchParams.delete("view");
@@ -102,61 +150,76 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
     });
   };
 
+  /**
+   * One navigation entry point for every child. Children still ask for "plan",
+   * "today", "history" or "leads" by name; the alias table turns those into the
+   * right tab plus section.
+   */
   const goToTab = (next: string) => {
-    setTab(next as GoalTabKey);
+    const resolved = resolveGoalView(next);
+    if (!resolved) return;
+    setTab(resolved.tab);
+    if (resolved.section) setSection(resolved.section);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const { goal, kpis, metrics } = data;
   const status = STATUS_LABEL[kpis.status] || STATUS_LABEL.INSUFFICIENT_DATA;
-
-  const pendingToday = useMemo(
-    () => (strategy?.todayPlan || []).filter((t) => t.status !== "PUBLISHED").length,
-    [strategy]
-  );
-
-  const published = (kpis.postsPublished || 0) + (kpis.articlesPublished || 0);
   const autopilotOn = Boolean(goal) && goal?.autopilotMode === "AUTOPILOT" && !goal?.isAutopilotPaused;
+  const progress = Math.max(0, Math.min(100, Math.round(kpis.progressPercentage || 0)));
+  const published = (kpis.postsPublished || 0) + (kpis.articlesPublished || 0);
 
-  const counts: Partial<Record<GoalTabKey, React.ReactNode>> = {
-    today: pendingToday > 0 ? pendingToday : undefined,
-    history: data.history.length > 0 ? data.history.length : undefined,
-    leads: data.leads.length > 0 ? data.leads.length : undefined,
+  // Counts on the rail are per channel, so "3" on Social media means three
+  // social posts still to go out today — not three of something unspecified.
+  const { pendingSocial, pendingWebsite } = useMemo(() => {
+    const todayPlan: any[] = strategy?.todayPlan || [];
+    const open = todayPlan.filter((t) => t.status !== "PUBLISHED");
+    return {
+      pendingSocial: open.filter((t) => t.channel !== "WEBSITE").length,
+      pendingWebsite: open.filter((t) => t.channel === "WEBSITE").length,
+    };
+  }, [strategy]);
+
+  const counts: Partial<Record<GoalTabKey, number>> = {
+    social: pendingSocial || undefined,
+    website: pendingWebsite || undefined,
   };
 
-  const progress = Math.max(0, Math.min(100, Math.round(kpis.progressPercentage || 0)));
+  const sourceSentence = usesWebsite && usesSocial
+    ? "from social posts and your website"
+    : usesWebsite
+      ? "from your website"
+      : "from social posts";
 
   return (
     <div className="space-y-5">
       {/* ── Header ── */}
-      <section className="rounded-2xl bg-gradient-to-r from-primary to-secondary p-6 text-white">
+      <section className="rounded-2xl border border-border bg-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold sm:text-2xl">Lead Goal HQ</h1>
+              <h1 className="text-xl font-bold text-foreground sm:text-2xl">Lead goal</h1>
               {goal && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold">
-                  {autopilotOn ? <Zap className="h-3 w-3" /> : null}
+                <Chip tone={autopilotOn ? "primary" : "muted"}>
                   {autopilotOn ? "Autopilot on" : "Manual"}
-                </span>
+                </Chip>
               )}
+              {goal && <Chip tone={status.tone}>{status.text}</Chip>}
+              <InfoDot
+                text="You say how many leads you want and by when. This page works out how many posts a day that takes, writes them, publishes them, and then counts only what it can actually measure — real clicks on your links and leads you or your website tag confirmed."
+              />
             </div>
 
             {goal ? (
-              <p className="mt-1.5 max-w-2xl text-sm text-white/85 leading-relaxed">
-                {goal.leadTarget} {String(goal.leadType || "leads").toLowerCase().replace(/_/g, " ")} in{" "}
-                {goal.timeframeDays} days for {data.workspaceName}
-                {(goal.leadSources || []).includes("WEBSITE") && (goal.leadSources || []).includes("SOCIAL")
-                  ? " — from social posts and your website"
-                  : (goal.leadSources || []).includes("WEBSITE")
-                    ? " — from your website"
-                    : " — from social posts"}
-                .
+              <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground leading-relaxed">
+                <span className="font-semibold text-foreground">
+                  {goal.leadTarget} {leadTypeLabel(goal.leadType, goal.leadTarget === 1 ? 1 : 2)}
+                </span>{" "}
+                in {goal.timeframeDays} day{goal.timeframeDays === 1 ? "" : "s"}
+                {data.workspaceName ? ` for ${data.workspaceName}` : ""} — {sourceSentence}.
               </p>
             ) : (
-              <p className="mt-1.5 max-w-2xl text-sm text-white/85 leading-relaxed">
-                Tell it how many leads you want and by when. It works out how many posts a day that takes,
-                then does them for you — and every number you see afterwards is one it actually measured.
+              <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground leading-relaxed">
+                Set a target on the Goal tab. Nothing is written, posted or counted until you do.
               </p>
             )}
           </div>
@@ -166,7 +229,8 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
               type="button"
               onClick={refresh}
               disabled={refreshing}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 px-3 text-xs font-semibold hover:bg-white/25 disabled:opacity-60"
+              title="Re-read the numbers from the database"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-60"
             >
               {refreshing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -179,7 +243,7 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
               <button
                 type="button"
                 onClick={() => goToTab("goal")}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-semibold text-primary hover:bg-white/90"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
               >
                 <Settings2 className="h-3.5 w-3.5" />
                 Edit goal
@@ -189,25 +253,44 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
         </div>
 
         {goal && (
-          <div className="mt-5">
+          <div className="mt-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="font-semibold">
+              <span className="flex items-center gap-1.5 font-semibold text-foreground">
                 {kpis.achievedLeads} of {kpis.targetLeads} confirmed
+                <InfoDot text="Only leads that exist as a record count here: one you confirmed on a published post, or one your website tag captured. Nothing is estimated into this number." />
               </span>
-              <span className="text-white/80">
+              <span className="text-muted-foreground">
                 {kpis.daysLeft > 0 ? `${kpis.daysLeft} days left` : "Window closed"} · {progress}%
               </span>
             </div>
-            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-white/20">
+            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-white transition-all duration-500"
+                className="h-full rounded-full bg-primary transition-all duration-500"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <p className="mt-2 text-[11px] text-white/80 leading-relaxed">{kpis.statusReason}</p>
+            {kpis.statusReason && (
+              <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">{kpis.statusReason}</p>
+            )}
           </div>
         )}
       </section>
+
+      {/* ── The three steps, shown only until a plan exists ── */}
+      {!strategy && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-border bg-muted/30 px-4 py-3 text-[11px] text-muted-foreground">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-foreground">How this works</span>
+          <span className="font-semibold text-foreground">1. Set the target</span>
+          <ArrowRight className="h-3 w-3 shrink-0" />
+          <span className="font-semibold text-foreground">2. The AI picks the channels and writes the posts</span>
+          <ArrowRight className="h-3 w-3 shrink-0" />
+          <span className="font-semibold text-foreground">3. It publishes daily and counts the clicks and leads</span>
+          <InfoDot
+            align="right"
+            text="You only fill in step 1. Step 2 happens on the Social media and Website tabs, where the AI proposes where to post and what to say. Step 3 runs by itself once Autopilot is on — every post keeps a tracked link, so the clicks and leads on this page are counted, not guessed."
+          />
+        </div>
+      )}
 
       {/* ── Brand DNA gate ── */}
       {!data.hasBrandDNA && (
@@ -215,12 +298,12 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
           <div className="flex min-w-0 items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-secondary" />
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-foreground">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                 Your brand is not described yet
+                <InfoDot text="The AI needs your business name, industry and audience before it can write anything about you. Without them it stops instead of inventing a business." />
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
-                Without a brand name, industry and audience the AI would have to guess what your business
-                sells — so it refuses to. Fill in Brand DNA and the plan becomes about your business.
+                Fill in Brand DNA and the plan becomes about your business.
               </p>
             </div>
           </div>
@@ -241,7 +324,8 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
             value={kpis.achievedLeads}
             hint={`${kpis.socialLeads || 0} from social · ${kpis.websiteLeads || 0} from your website`}
             icon={<UserPlus className="h-4 w-4" />}
-            onClick={() => goToTab("leads")}
+            info="Every lead here is a saved record — one you confirmed yourself on a post, or one your website tag captured when somebody submitted a form or tapped WhatsApp. Click to open the list."
+            onClick={() => goToTab(usesSocial ? "leads" : "website")}
           />
           <StatTile
             label="Clicks measured"
@@ -249,18 +333,20 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
             hint={`${metrics.uniqueClicks} unique · counted from real redirects`}
             icon={<MousePointerClick className="h-4 w-4" />}
             accent="secondary"
-            onClick={() => goToTab("history")}
+            info="Every AI post carries a short link that passes through this app before reaching your page. That redirect is what gets counted, so this is a real number rather than a platform estimate."
+            onClick={() => goToTab("published")}
           />
           <StatTile
             label="Published"
             value={published}
             hint={
               kpis.publishFailures
-                ? `${kpis.publishFailures} failed — retry them in History`
+                ? `${kpis.publishFailures} failed — retry them under Published`
                 : `${kpis.postsPublished || 0} posts · ${kpis.articlesPublished || 0} articles`
             }
             icon={<Send className="h-4 w-4" />}
-            onClick={() => goToTab("history")}
+            info="Posts and articles that reached the platform, each kept permanently with its live link so you can open the real post any time."
+            onClick={() => goToTab("published")}
           />
           <StatTile
             label="Pace needed"
@@ -268,6 +354,7 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
             hint={`You are at ${(kpis.currentPace || 0).toFixed(1)}/day · ${status.text.toLowerCase()}`}
             icon={<CalendarClock className="h-4 w-4" />}
             accent="secondary"
+            info="Leads per day still needed to finish the goal inside the window, next to the rate you are actually running at. If the first number is far above the second, the target is too high for the time left."
           />
         </div>
       )}
@@ -277,92 +364,107 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
         {TABS.map((t) => {
           const active = tab === t.key;
           const count = counts[t.key];
+          // A channel the user did not pick still opens — it explains itself and
+          // offers to switch on — but it is dimmed so the rail matches the goal.
+          const muted =
+            (t.key === "social" && !usesSocial) || (t.key === "website" && !usesWebsite);
           return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={`inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-colors ${
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              {t.icon}
-              {t.label}
-              {count !== undefined && (
-                <span
-                  className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    active ? "bg-white/20" : "bg-muted text-foreground"
-                  }`}
-                >
-                  {count}
-                </span>
-              )}
-              {t.key === "autopilot" && !active && (
-                <span
-                  className={`ml-0.5 h-1.5 w-1.5 rounded-full ${
-                    autopilotOn ? "bg-primary" : "bg-muted-foreground/40"
-                  }`}
-                  title={autopilotOn ? "Autopilot is running" : "Autopilot is off"}
-                />
-              )}
-            </button>
+            <span key={t.key} className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : `border border-border hover:bg-muted hover:text-foreground ${
+                        muted ? "text-muted-foreground/60" : "text-muted-foreground"
+                      }`
+                }`}
+              >
+                {t.icon}
+                {t.label}
+                {count !== undefined && (
+                  <span
+                    className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                      active ? "bg-black/15" : "bg-muted text-foreground"
+                    }`}
+                    title={`${count} still to publish today`}
+                  >
+                    {count}
+                  </span>
+                )}
+                {t.key === "autopilot" && (
+                  <span
+                    className={`ml-0.5 h-1.5 w-1.5 rounded-full ${
+                      autopilotOn ? (active ? "bg-primary-foreground" : "bg-primary") : "bg-muted-foreground/40"
+                    }`}
+                    title={autopilotOn ? "Autopilot is running" : "Autopilot is off"}
+                  />
+                )}
+              </button>
+              <InfoDot text={t.info} />
+            </span>
           );
         })}
-        {data.needsSetup && (
-          <Chip tone="secondary" title="No goal saved yet.">
-            Start on the Goal tab
-          </Chip>
-        )}
+        {data.needsSetup && <Chip tone="secondary">Start on the Goal tab</Chip>}
       </div>
 
       {/* ── Panels ── */}
       {tab === "goal" && (
-        <GoalWizardTab
-          data={data}
-          onSaved={() => {
-            refresh();
-            goToTab("plan");
-          }}
-          onToast={push}
-          onGoToTab={goToTab}
-        />
+        <GoalWizardTab data={data} onSaved={refresh} onToast={push} onGoToTab={goToTab} />
       )}
 
-      {tab === "plan" && (
-        <PlanTab
-          data={data}
-          strategy={strategy}
-          onStrategy={(next) => setStrategy(next)}
-          onToast={push}
-          onGoToTab={goToTab}
-        />
-      )}
+      {(tab === "social" || tab === "website") &&
+        (data.needsSetup ? (
+          <NeedsGoal onGoToTab={goToTab} />
+        ) : (
+          <ChannelTab
+            key={tab}
+            channel={tab === "social" ? "SOCIAL" : "WEBSITE"}
+            enabled={tab === "social" ? usesSocial : usesWebsite}
+            data={data}
+            strategy={strategy}
+            onStrategy={setStrategy}
+            section={section}
+            onSection={setSection}
+            onToast={push}
+            onGoToTab={goToTab}
+            onRefresh={refresh}
+          />
+        ))}
 
-      {tab === "today" && (
-        <TodayTab
-          data={data}
-          strategy={strategy}
-          onToast={push}
-          onGoToTab={goToTab}
-          onRefresh={refresh}
-        />
-      )}
-
-      {tab === "history" && (
-        <HistoryTab data={data} onToast={push} onGoToTab={goToTab} onRefresh={refresh} />
-      )}
-
-      {tab === "leads" && (
-        <LeadsTab data={data} onToast={push} onGoToTab={goToTab} onRefresh={refresh} />
-      )}
-
-      {tab === "autopilot" && (
-        <AutopilotTab data={data} onToast={push} onGoToTab={goToTab} onRefresh={refresh} />
-      )}
+      {tab === "autopilot" &&
+        (data.needsSetup ? (
+          <NeedsGoal onGoToTab={goToTab} />
+        ) : (
+          <AutopilotTab data={data} onToast={push} onGoToTab={goToTab} onRefresh={refresh} />
+        ))}
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
+    </div>
+  );
+}
+
+/** Shown on every tab but Goal while no target exists — there is nothing to run yet. */
+function NeedsGoal({ onGoToTab }: { onGoToTab: (tab: string) => void }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+      <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <Target className="h-5 w-5" />
+      </span>
+      <p className="mt-3 text-sm font-bold text-foreground">No goal saved yet</p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground leading-relaxed">
+        Everything on this page is built from your target, so there is nothing to show until you set
+        one. It takes two numbers: how many leads, and by when.
+      </p>
+      <button
+        type="button"
+        onClick={() => onGoToTab("goal")}
+        className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        <Target className="h-4 w-4" />
+        Set the goal
+      </button>
     </div>
   );
 }

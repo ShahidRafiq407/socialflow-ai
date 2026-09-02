@@ -9,6 +9,7 @@ import type {
   PublishHistoryItem,
   TrackingStatus,
 } from "@/lib/types/growth";
+import type { ChannelAdvice } from "@/lib/growth/channelAdvisor";
 import type { WordPressSiteView } from "@/actions/wordpressSite";
 
 /**
@@ -34,6 +35,9 @@ export interface GoalHQData {
 
   connectedPlatforms: string[];
 
+  /** "Post here" advice, so the user never has to guess at a checkbox list. */
+  advice: ChannelAdvice;
+
   activity: GrowthActivityItem[];
   history: PublishHistoryItem[];
   leads: LeadEventItem[];
@@ -45,8 +49,15 @@ export interface GoalHQData {
   tracking: TrackingStatus;
   wordpress: WordPressSiteView;
 
-  /** Absolute app origin, used to show the external-cron URL and the tag snippet. */
+  /** Absolute app origin, used to build the website tag snippet. */
   appBaseUrl: string;
 }
 
-export type GoalTabKey = "goal" | "plan" | "today" | "history" | "leads" | "autopilot";
+/**
+ * Four tabs, and only four: what you want, the two places leads can come from,
+ * and the switch that runs it. Everything else is a section inside one of them.
+ */
+export type GoalTabKey = "goal" | "social" | "website" | "autopilot";
+
+/** The inner rail shared by both channel tabs. */
+export type ChannelSection = "plan" | "today" | "published" | "leads";

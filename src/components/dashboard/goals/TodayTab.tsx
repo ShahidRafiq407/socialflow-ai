@@ -12,6 +12,7 @@ import {
   Link2,
   Loader2,
   Pencil,
+  Plug,
   RefreshCw,
   Send,
   Sparkles,
@@ -20,12 +21,13 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import type { GrowthPlanTask, GrowthStrategy } from "@/lib/types/growth";
+import type { GrowthPlanTask, GrowthStrategy, LeadChannel } from "@/lib/types/growth";
 import {
   updateGrowthTaskCaption,
   setGrowthTaskMedia,
   deleteGrowthTaskPost,
   publishGrowthTaskNow,
+  removeGrowthTask,
 } from "@/actions/goals";
 import {
   ActionButton,
@@ -33,6 +35,7 @@ import {
   ConfirmButton,
   CopyButton,
   EmptyState,
+  InfoDot,
   LiveLink,
   MediaPreview,
   SectionCard,
@@ -42,12 +45,20 @@ import {
 import type { GoalHQData } from "./types";
 
 /**
- * Today tab — the work that actually goes out today.
+ * Today tab — the work that actually goes out today, for one lead channel.
+ *
+ * The tab is opened from inside either Social or Website, so it only ever shows
+ * that channel's tasks and "Run all" only ever runs that channel's tasks. You
+ * cannot end up generating five articles because you pressed a button on the
+ * social side.
  *
  * Generation runs through the SSE execute route with an AbortController per
  * task plus one for the whole batch, so every Generate has a Stop that really
- * cancels the upstream call. Media has Regenerate / Replace / Remove, captions
- * have Edit / Save / Cancel, and Delete is two-step.
+ * cancels the upstream call. How many run at once is decided by the server, so
+ * this component does not promise a number it cannot keep. Media has
+ * Regenerate / Replace / Remove, captions have Edit / Save / Cancel, and
+ * everything on screen can be removed: Delete throws away what was generated,
+ * Remove from plan takes the task off today's list.
  */
 
 interface Runtime {
@@ -85,18 +96,21 @@ type TaskView = Omit<
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export function TodayTab({
+  channel,
   data,
   strategy,
   onToast,
   onGoToTab,
   onRefresh,
 }: {
+  channel: LeadChannel;
   data: GoalHQData;
   strategy: GrowthStrategy | null;
   onToast: (tone: "success" | "error" | "info", text: string) => void;
   onGoToTab: (tab: string) => void;
   onRefresh: () => void;
 }) {
+  const isSocial = channel === "SOCIAL";
   const [runtime, setRuntime] = useState<Record<string, Runtime>>({});
   const [progress, setProgress] = useState<Record<string, string>>({});
   const [runningTasks, setRunningTasks] = useState<string[]>([]);
@@ -125,7 +139,11 @@ export function TodayTab({
     return map;
   }, [data.activity]);
 
-  const tasks = (strategy?.todayPlan || []).filter((t) => !runtime[t.id]?.deleted);
+  // Only this channel's work. A task with `channel: "WEBSITE"` is an article;
+  // everything else is a social post.
+  const tasks = (strategy?.todayPlan || []).filter(
+    (t) => (t.channel === "WEBSITE") === !isSocial && !runtime[t.id]?.deleted
+  );
 
   const merged = (task: GrowthPlanTask): TaskView => {
     const r = runtime[task.id] || {};
@@ -156,7 +174,6 @@ export function TodayTab({
         taskIds,
         generateVisuals,
         scheduleNow,
-        concurrency: 3,
       }),
       signal: controller.signal,
     });
@@ -192,13 +209,26 @@ export function TodayTab({
         }
 
         if (event === "batch_started") {
-          setBatchNote(
-            payload.skippedByCap > 0
-              ? `${payload.message} ${payload.skippedByCap} task${
-                  payload.skippedByCap === 1 ? "" : "s"
-                } held back by your daily cap of ${payload.dailyCap}.`
-              : payload.message
-          );
+          // The server tells us two different reasons a task was left out. Both
+          // are the user's business: one is their own cap, the other is a
+          // platform they have not connected yet (sent as the list of names).
+          const notConnected: string[] = Array.isArray(payload.skippedNotConnected)
+            ? payload.skippedNotConnected
+            : [];
+          const notes: string[] = [payload.message];
+          if (payload.skippedByCap > 0) {
+            notes.push(
+              `${payload.skippedByCap} held back by your daily cap of ${payload.dailyCap}.`
+            );
+          }
+          if (notConnected.length > 0 && payload.total > 0) {
+            notes.push(
+              `Skipped ${notConnected.join(", ")} — ${
+                notConnected.length === 1 ? "that account is" : "those accounts are"
+              } not connected yet.`
+            );
+          }
+          setBatchNote(notes.filter(Boolean).join(" "));
         } else if (event === "task_started") {
           setProgress((p) => ({ ...p, [payload.taskId]: "Starting…" }));
           patch(payload.taskId, { status: "GENERATING", error: null });
@@ -250,7 +280,19 @@ export function TodayTab({
   const runAll = async () => {
     if (!strategy?.todayPlan?.length) {
       onToast("error", "Build the plan first.");
-      onGoToTab("plan");
+      onGoToTab(isSocial ? "plan" : "website-plan");
+      return;
+    }
+    // Explicit ids, not "everything pending": this tab is one channel, so
+    // pressing Run all here must never generate the other channel's work.
+    const ids = tasks
+      .filter((t) => {
+        const s = merged(t).status;
+        return s !== "SCHEDULED" && s !== "PUBLISHED";
+      })
+      .map((t) => t.id);
+    if (ids.length === 0) {
+      onToast("info", isSocial ? "Every post for today is done." : "Every article for today is done.");
       return;
     }
     const controller = new AbortController();
@@ -258,7 +300,7 @@ export function TodayTab({
     setRunningAll(true);
     setBatchNote(null);
     try {
-      await run(undefined, controller);
+      await run(ids, controller);
     } catch (err: any) {
       if (err?.name !== "AbortError") onToast("error", err?.message || "Generation failed.");
     } finally {
@@ -306,6 +348,18 @@ export function TodayTab({
     onToast("info", "Stopped.");
   };
 
+  // Takes a task off today's list entirely — the counterpart to it appearing.
+  const removeFromPlan = async (taskId: string) => {
+    const res = await removeGrowthTask(data.workspaceId, taskId);
+    if (!res.success) {
+      onToast("error", res.error || "Could not remove it.");
+      return;
+    }
+    patch(taskId, { deleted: true });
+    onToast("info", "Removed from today. Rebuilding the plan can bring it back.");
+    onRefresh();
+  };
+
   // ── Empty states ──────────────────────────────────────────────────────────
   if (!data.goal) {
     return (
@@ -326,27 +380,34 @@ export function TodayTab({
     );
   }
 
-  if (!strategy?.todayPlan?.length) {
+  if (tasks.length === 0) {
+    const planExists = Boolean(strategy?.todayPlan?.length);
     return (
       <EmptyState
         icon={<Sparkles className="w-5 h-5" />}
-        title="No plan for today"
-        description="Build the plan and the AI will lay out exactly what to post today across your platforms, plus any SEO articles."
+        title={planExists ? "Nothing on this side today" : "No plan for today"}
+        description={
+          planExists
+            ? isSocial
+              ? "Today's plan has no social posts in it. Rebuild the plan if you want posts scheduled for today."
+              : "Today's plan has no articles in it. Articles are only planned on the days the AI picked, so this is normal — check the Plan tab for which days they land on."
+            : isSocial
+              ? "Build the plan and the AI will lay out exactly what to post today, on which account, at what time."
+              : "Build the plan and the AI will pick the keywords and lay out which articles get written this week."
+        }
         action={
           <button
             type="button"
-            onClick={() => onGoToTab("plan")}
-            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold hover:bg-secondary/90"
+            onClick={() => onGoToTab(isSocial ? "plan" : "website-plan")}
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
           >
-            Build the plan
+            {planExists ? "Open the plan" : "Build the plan"}
           </button>
         }
       />
     );
   }
 
-  const socialTasks = tasks.filter((t) => t.channel !== "WEBSITE");
-  const articleTasks = tasks.filter((t) => t.channel === "WEBSITE");
   const pendingCount = tasks.filter((t) => {
     const s = merged(t).status;
     return s !== "SCHEDULED" && s !== "PUBLISHED";
@@ -358,16 +419,31 @@ export function TodayTab({
       <section className="rounded-2xl border border-border bg-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-foreground">
+            <h3 className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
               {pendingCount === 0
-                ? "Everything for today is done"
-                : `${pendingCount} task${pendingCount === 1 ? "" : "s"} left for today`}
+                ? isSocial
+                  ? "Every post for today is done"
+                  : "Every article for today is done"
+                : `${pendingCount} ${isSocial ? "post" : "article"}${
+                    pendingCount === 1 ? "" : "s"
+                  } left for today`}
+              <InfoDot
+                text={
+                  isSocial
+                    ? "One card per post the plan wants out today. Generate writes the caption and makes the visual; nothing reaches your account until it is scheduled or you press Publish now."
+                    : "One card per article the plan wants written today. Write & publish researches the keyword, writes the article with schema and puts it live on your site."
+                }
+              />
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              {socialTasks.length} social post{socialTasks.length === 1 ? "" : "s"}
-              {articleTasks.length > 0 &&
-                ` and ${articleTasks.length} website article${articleTasks.length === 1 ? "" : "s"}`}
-              . Three run at a time, so the whole day is generated in one go.
+              {isSocial
+                ? `${tasks.length} post${tasks.length === 1 ? "" : "s"} across ${
+                    new Set(tasks.map((t) => (t.platform || "").toLowerCase())).size
+                  } account${
+                    new Set(tasks.map((t) => (t.platform || "").toLowerCase())).size === 1 ? "" : "s"
+                  }.`
+                : `${tasks.length} article${tasks.length === 1 ? "" : "s"} for your site.`}{" "}
+              Run all starts them together and every one of them has its own Stop.
             </p>
           </div>
 
@@ -375,7 +451,7 @@ export function TodayTab({
             running={runningAll}
             onRun={runAll}
             onStop={stopAll}
-            label="Run all in parallel"
+            label="Run all"
             runningLabel="Stop all"
             icon={<Wand2 className="w-3.5 h-3.5" />}
             disabled={pendingCount === 0 || runningTasks.length > 0}
@@ -384,51 +460,66 @@ export function TodayTab({
                 ? "Nothing left to run today."
                 : runningTasks.length > 0
                   ? "A single task is already running."
-                  : "Generate everything for today"
+                  : isSocial
+                    ? "Generate every post for today"
+                    : "Write and publish every article for today"
             }
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-border">
-          <label className="inline-flex items-center gap-2 text-xs text-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={generateVisuals}
-              onChange={(e) => setGenerateVisuals(e.target.checked)}
-              className="accent-[var(--color-primary)]"
-            />
-            Generate the visual too
-          </label>
-          <label className="inline-flex items-center gap-2 text-xs text-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={scheduleNow}
-              onChange={(e) => setScheduleNow(e.target.checked)}
-              className="accent-[var(--color-primary)]"
-            />
-            Schedule at the best time automatically
-          </label>
-          {!scheduleNow && (
-            <span className="text-[11px] text-secondary">
-              Posts will be created but not scheduled — you publish them yourself.
-            </span>
-          )}
-        </div>
+        {isSocial && (
+          <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-border">
+            <label className="inline-flex items-center gap-2 text-xs text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={generateVisuals}
+                onChange={(e) => setGenerateVisuals(e.target.checked)}
+                className="accent-[var(--color-primary)]"
+              />
+              Generate the visual too
+            </label>
+            <InfoDot text="On: the AI makes an image or video for each post. Off: captions only, and you add your own media on the card." />
+            <label className="inline-flex items-center gap-2 text-xs text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={scheduleNow}
+                onChange={(e) => setScheduleNow(e.target.checked)}
+                className="accent-[var(--color-primary)]"
+              />
+              Schedule at the best time automatically
+            </label>
+            <InfoDot text="On: each post is queued for the time the plan picked for that account. Off: the post is written and left sitting here until you press Publish now." />
+            {!scheduleNow && (
+              <span className="text-[11px] text-secondary">
+                Posts will be created but not scheduled — you publish them yourself.
+              </span>
+            )}
+          </div>
+        )}
 
         {batchNote && (
           <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">{batchNote}</p>
         )}
       </section>
 
-      {/* ── Social tasks ── */}
-      {socialTasks.length > 0 && (
-        <SectionCard
-          title="Social posts for today"
-          subtitle="Each caption carries a tracked link, so clicks and leads from it are counted for real."
-          icon={<Sparkles className="w-4 h-4" />}
-        >
-          <div className="space-y-3">
-            {socialTasks.map((task) => (
+      {/* ── The day's cards ── */}
+      <SectionCard
+        title={isSocial ? "Posts for today" : "Articles for today"}
+        subtitle={
+          isSocial
+            ? "Each caption carries a tracked link, so clicks and leads from it are counted for real."
+            : "Written for keywords the AI picked, given JSON-LD schema, and published straight to your site."
+        }
+        icon={isSocial ? <Sparkles className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+        info={
+          isSocial
+            ? "These come from the plan, so if a card looks wrong the fix is usually in the Plan tab. Anything you do not want can be removed from the day."
+            : "One article per card. If a keyword is off, rebuild the plan in the Plan tab — the AI picks keywords from what is actually trending for your business."
+        }
+      >
+        <div className="space-y-3">
+          {tasks.map((task) =>
+            isSocial ? (
               <SocialTaskCard
                 key={task.id}
                 task={merged(task)}
@@ -440,28 +531,18 @@ export function TodayTab({
                   runtime[task.id]?.caption ??
                   (merged(task).postId ? captionByPostId[merged(task).postId!] : undefined)
                 }
+                connected={data.connectedPlatforms.some(
+                  (p) => p.toLowerCase() === (task.platform || "").toLowerCase()
+                )}
                 onRun={() => runOne(task.id)}
                 onStop={() => stopOne(task.id)}
                 onPatch={(next) => patch(task.id, next)}
+                onRemoveFromPlan={() => removeFromPlan(task.id)}
                 onToast={onToast}
                 onGoToTab={onGoToTab}
                 onRefresh={onRefresh}
               />
-            ))}
-          </div>
-        </SectionCard>
-      )}
-
-      {/* ── Article tasks ── */}
-      {articleTasks.length > 0 && (
-        <SectionCard
-          title="Website articles for today"
-          subtitle="Written for keywords the AI picked, given JSON-LD schema, and published straight to your site."
-          icon={<Globe className="w-4 h-4" />}
-          accent="secondary"
-        >
-          <div className="space-y-3">
-            {articleTasks.map((task) => (
+            ) : (
               <ArticleTaskCard
                 key={task.id}
                 task={merged(task)}
@@ -471,12 +552,12 @@ export function TodayTab({
                 wordpressConnected={data.wordpress.connected}
                 onRun={() => runOne(task.id)}
                 onStop={() => stopOne(task.id)}
-                onGoToTab={onGoToTab}
+                onRemoveFromPlan={() => removeFromPlan(task.id)}
               />
-            ))}
-          </div>
-        </SectionCard>
-      )}
+            )
+          )}
+        </div>
+      </SectionCard>
     </div>
   );
 }
@@ -492,9 +573,11 @@ function SocialTaskCard({
   blocked,
   progress,
   seedCaption,
+  connected,
   onRun,
   onStop,
   onPatch,
+  onRemoveFromPlan,
   onToast,
   onGoToTab,
   onRefresh,
@@ -505,9 +588,11 @@ function SocialTaskCard({
   blocked: boolean;
   progress?: string;
   seedCaption?: string;
+  connected: boolean;
   onRun: () => void;
   onStop: () => void;
   onPatch: (next: Runtime) => void;
+  onRemoveFromPlan: () => Promise<void>;
   onToast: (tone: "success" | "error" | "info", text: string) => void;
   onGoToTab: (tab: string) => void;
   onRefresh: () => void;
@@ -518,6 +603,7 @@ function SocialTaskCard({
   const [mediaBusy, setMediaBusy] = useState<"regenerate" | "upload" | "remove" | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const mediaAbort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
@@ -663,6 +749,15 @@ function SocialTaskCard({
     }
   };
 
+  const dropFromPlan = async () => {
+    setRemoving(true);
+    try {
+      await onRemoveFromPlan();
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-border p-4">
       {/* header */}
@@ -699,6 +794,23 @@ function SocialTaskCard({
       )}
 
       {/* problems */}
+      {!connected && !isLive && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="text-[11px] text-foreground leading-relaxed">
+            {task.platform} is not connected, so this post cannot be generated or published. Connect the
+            account and it runs with the rest of the day.
+          </p>
+          <a
+            href={`/dashboard/integrations?platform=${encodeURIComponent(
+              (task.platform || "").toLowerCase()
+            )}`}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90 shrink-0"
+          >
+            <Plug className="w-3 h-3" />
+            Connect {task.platform}
+          </a>
+        </div>
+      )}
       {task.needsDestination && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
           <p className="text-[11px] text-foreground leading-relaxed">
@@ -815,15 +927,17 @@ function SocialTaskCard({
           runningLabel="Stop"
           icon={generated ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
           size="sm"
-          disabled={blocked || isLive}
+          disabled={blocked || isLive || !connected}
           title={
             isLive
               ? "This one is already live."
-              : blocked
-                ? "A batch run is in progress."
-                : generated
-                  ? "Write it again from scratch"
-                  : "Write the caption and make the visual"
+              : !connected
+                ? `${task.platform} is not connected, so there is nothing to generate for yet.`
+                : blocked
+                  ? "A batch run is in progress."
+                  : generated
+                    ? "Write it again from scratch"
+                    : "Write the caption and make the visual"
           }
         />
 
@@ -893,7 +1007,12 @@ function SocialTaskCard({
             <button
               type="button"
               onClick={publishNow}
-              disabled={publishing}
+              disabled={publishing || !connected}
+              title={
+                !connected
+                  ? `Connect ${task.platform} first — there is nowhere to publish to.`
+                  : "Skip the schedule and post it right now"
+              }
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50"
             >
               {publishing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
@@ -909,6 +1028,27 @@ function SocialTaskCard({
             />
           </>
         )}
+
+        {!isLive && (
+          <ConfirmButton
+            onConfirm={dropFromPlan}
+            busy={removing}
+            label="Remove from plan"
+            confirmLabel="Remove it"
+            icon={<X className="w-3 h-3" />}
+          />
+        )}
+
+        <span className="ml-auto">
+          <InfoDot
+            align="right"
+            text={
+              generated
+                ? "Delete throws away this caption and visual but keeps the task, so you can generate it again. Remove from plan takes the whole task off today — a Rebuild in the Plan tab can bring it back."
+                : "Remove from plan takes this task off today's list. A Rebuild in the Plan tab can bring it back, because the goal still needs the post."
+            }
+          />
+        </span>
       </div>
     </div>
   );
@@ -926,7 +1066,7 @@ function ArticleTaskCard({
   wordpressConnected,
   onRun,
   onStop,
-  onGoToTab,
+  onRemoveFromPlan,
 }: {
   task: TaskView;
   running: boolean;
@@ -935,9 +1075,19 @@ function ArticleTaskCard({
   wordpressConnected: boolean;
   onRun: () => void;
   onStop: () => void;
-  onGoToTab: (tab: string) => void;
+  onRemoveFromPlan: () => Promise<void>;
 }) {
+  const [removing, setRemoving] = useState(false);
   const published = task.status === "PUBLISHED" || Boolean(task.liveUrl);
+
+  const dropFromPlan = async () => {
+    setRemoving(true);
+    try {
+      await onRemoveFromPlan();
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   return (
     <div className="rounded-xl border border-border p-4">
@@ -990,13 +1140,13 @@ function ArticleTaskCard({
           <p className="text-[11px] text-foreground leading-relaxed">
             No verified WordPress site is connected, so this article cannot be published anywhere.
           </p>
-          <button
-            type="button"
-            onClick={() => onGoToTab("goal")}
-            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-secondary text-secondary-foreground text-[11px] font-semibold hover:bg-secondary/90 shrink-0"
+          <a
+            href="/dashboard/plugins?connector=wordpress"
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90 shrink-0"
           >
+            <Plug className="w-3 h-3" />
             Connect the site
-          </button>
+          </a>
         </div>
       )}
 
@@ -1049,6 +1199,27 @@ function ArticleTaskCard({
           </a>
         ) : null}
         {task.liveUrl && <CopyButton value={task.liveUrl} label="Copy article URL" />}
+
+        {!published && (
+          <ConfirmButton
+            onConfirm={dropFromPlan}
+            busy={removing}
+            label="Remove from plan"
+            confirmLabel="Remove it"
+            icon={<X className="w-3 h-3" />}
+          />
+        )}
+
+        <span className="ml-auto">
+          <InfoDot
+            align="right"
+            text={
+              published
+                ? "This article is live on your site. Deleting it here would not remove it from your site, so it is not offered — delete it in WordPress if you want it gone."
+                : "Remove from plan takes this article off today's list. A Rebuild in the Plan tab can bring it back, because the goal still needs the traffic."
+            }
+          />
+        </span>
       </div>
     </div>
   );

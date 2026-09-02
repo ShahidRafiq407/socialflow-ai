@@ -18,7 +18,7 @@ import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { generateMediaAsset } from "@/lib/agents/mediaGenerator";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
-import { getGrowthMetrics, GrowthMetrics } from "@/lib/growth/metrics";
+import { EMPTY_METRICS, getGrowthMetrics, GrowthMetrics } from "@/lib/growth/metrics";
 import {
   LINK_PLACEHOLDER,
   createTrackedLink,
@@ -28,22 +28,54 @@ import {
   stripLinkPlaceholder,
 } from "@/lib/growth/ctaLinks";
 import { AUTOPILOT_ORIGIN, recordPublishLog } from "@/lib/publishing/dispatch";
+import { auth } from "@clerk/nextjs/server";
+import { isInternalCall, INTERNAL_CALL_TOKEN } from "@/lib/growth/internalCall";
+import { leadTypeLabel } from "@/lib/types/growth";
 
 /**
  * Lead Goal HQ server actions.
  *
- * Two rules hold everywhere in this file:
+ * Three rules hold everywhere in this file:
  *  1. Nothing about the user's business is hard-coded. If Brand DNA / the goal /
  *     a CTA destination is missing, the caller is told — no placeholder brand,
  *     no invented URL.
  *  2. No number is fabricated. Clicks, leads and published counts come from
  *     LinkClick / LeadEvent / PublishLog rows. Reach is the only estimate and it
  *     is labelled as one.
+ *  3. Every export is a public HTTP endpoint that takes a workspace id from the
+ *     caller, so each one proves the signed-in user owns that workspace before
+ *     touching it. The two server-internal callers (autopilot cron, SSE execute
+ *     route) pass INTERNAL_CALL_TOKEN instead, because they have already
+ *     authenticated by other means.
  */
 
 // ============================================================================
 // INTERNAL HELPERS (not exported — a "use server" module may only export async fns)
 // ============================================================================
+
+const NOT_YOURS = "You do not have access to this workspace.";
+
+/**
+ * How many generation tasks run at the same time. This is a Vertex AI rate-limit
+ * guard, not a product setting, so it lives here instead of being sent from the
+ * browser — the UI just says "in parallel" and does not invent a number.
+ */
+const GENERATION_LANES = 3;
+
+/** True when the signed-in user owns `workspaceId`, or the caller is our own server code. */
+async function ownsWorkspace(workspaceId: string, internalToken?: string | null): Promise<boolean> {
+  if (!workspaceId) return false;
+  if (isInternalCall(internalToken)) return true;
+
+  const { userId } = await auth().catch(() => ({ userId: null }) as any);
+  if (!userId) return false;
+
+  const owned = await prisma.workspace
+    .findFirst({ where: { id: workspaceId, userId }, select: { id: true } })
+    .catch(() => null);
+
+  return Boolean(owned);
+}
 
 /** Runs `fn` over `items` with at most `limit` in flight. Order of results is preserved. */
 async function runWithConcurrency<T, R>(
@@ -187,6 +219,16 @@ export async function getWorkspaceGrowthGoal(workspaceId: string): Promise<Works
     computeGrowthKPIs({ leadTarget: 0, startDate: new Date(), timeframeDays: 1 }, null);
 
   try {
+    if (!(await ownsWorkspace(workspaceId))) {
+      return {
+        goal: null,
+        kpis: zeroKpis(),
+        strategy: null,
+        metrics: EMPTY_METRICS,
+        needsSetup: true,
+      };
+    }
+
     const goalRow = await Promise.race([
       (prisma as any).growthGoal?.findUnique({ where: { workspaceId } }).catch(() => null),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
@@ -309,6 +351,8 @@ export async function saveGrowthGoal(
   data: SaveGoalInput
 ): Promise<{ success: boolean; goal?: any; error?: string; feasibility?: GoalFeasibilityResult }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const leadTarget = Math.max(1, Math.round(Number(data.leadTarget) || 0));
     const timeframeDays = Math.max(1, Math.round(Number(data.timeframeDays) || 0));
     const leadSources = normalizeLeadSources(data.leadSources);
@@ -335,7 +379,7 @@ export async function saveGrowthGoal(
       return {
         success: false,
         feasibility,
-        error: `${leadTarget} ${String(data.leadType).replace(/_/g, " ").toLowerCase()} in ${timeframeDays} days is not achievable organically. Realistic range is ${feasibility.estimatedRealisticMin}–${feasibility.estimatedRealisticMax}. Recommended target: ${feasibility.recommendedTarget}.`,
+        error: `${leadTarget} ${leadTypeLabel(data.leadType, leadTarget === 1 ? 1 : 2)} in ${timeframeDays} days is not achievable organically. The honest range at this pace is ${feasibility.estimatedRealisticMin}–${feasibility.estimatedRealisticMax}. Recommended target: ${feasibility.recommendedTarget}.`,
       };
     }
 
@@ -398,6 +442,7 @@ export async function saveGrowthGoal(
 /** "Reset" counterpart of Save — removes the goal and its cached strategy. */
 export async function resetGrowthGoal(workspaceId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     await (prisma as any).growthGoal.delete({ where: { workspaceId } }).catch(() => null);
     const { cacheSet } = await import("@/lib/redis");
     await cacheSet(`growth:strategy:${workspaceId}`, null as any, 1).catch(() => null);
@@ -422,6 +467,8 @@ export async function toggleAutopilot(
   }
 ) {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const updateData: any = {};
     if (options.mode !== undefined) updateData.autopilotMode = options.mode;
     if (options.isAutopilotPaused !== undefined) updateData.isAutopilotPaused = options.isAutopilotPaused;
@@ -455,6 +502,8 @@ export async function saveCtaDestination(
   destination: string
 ): Promise<{ success: boolean; error?: string; ctaDestinations?: Record<string, string> }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const key = (platform || "default").toLowerCase();
     const trimmed = (destination || "").trim();
 
@@ -491,6 +540,7 @@ export async function persistGrowthStrategy(
   strategy: GrowthStrategy
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     await storeStrategy(workspaceId, strategy);
     revalidatePath("/dashboard/goals");
     return { success: true };
@@ -522,6 +572,7 @@ export async function validateGoalAction(
   let metrics: GrowthMetrics | null = null;
 
   try {
+    if (!(await ownsWorkspace(workspaceId))) throw new Error(NOT_YOURS);
     const [accounts, m] = await Promise.all([
       prisma.socialAccount.count({ where: { workspaceId } }).catch(() => 0),
       getGrowthMetrics(workspaceId, null).catch(() => null),
@@ -529,7 +580,7 @@ export async function validateGoalAction(
     if (accounts > 0) channelCount = accounts;
     metrics = m;
   } catch {
-    /* falls through to benchmark-only validation */
+    /* falls through to benchmark-only validation, which reads nothing */
   }
 
   const base = validateGoalFeasibility({
@@ -568,7 +619,7 @@ export async function validateGoalAction(
     estimatedRealisticMax: realisticMax,
     recommendedTarget: recommended,
     dailyPaceRealistic: Number((recommended / Math.max(1, timeframeDays)).toFixed(2)),
-    explanation: `Based on your own tracked data (${metrics.lifetimeLeads} confirmed leads from ${metrics.lifetimePosts} published posts, ${metrics.lifetimeClicks} clicks), ${realisticMin}–${realisticMax} leads in ${timeframeDays} days is what this account currently produces.`,
+    explanation: `Based on your own tracked data (${metrics.lifetimeLeads} confirmed leads from ${metrics.lifetimePosts} published posts, ${metrics.lifetimeClicks} clicks), ${realisticMin}–${realisticMax} ${leadTypeLabel(leadType)} in ${timeframeDays} days is what this account currently produces.`,
     isMeasured: true,
     measuredNote: `Measured from ${metrics.lifetimePosts} posts, ${metrics.lifetimeClicks} clicks, ${metrics.lifetimeLeads} confirmed leads.`,
   };
@@ -612,9 +663,15 @@ export async function executeGrowthPlanTask(
     /** Server-side only (SSE route / cron) — enables a real Stop. */
     signal?: AbortSignal;
     onProgress?: (message: string) => void;
+    /** INTERNAL_CALL_TOKEN when called by the cron / SSE route instead of a user. */
+    internalToken?: string;
   }
 ): Promise<ExecuteTaskResult> {
   try {
+    if (!(await ownsWorkspace(workspaceId, options?.internalToken))) {
+      return { success: false, taskId: task.id, error: NOT_YOURS };
+    }
+
     const [workspace, goal] = await Promise.all([
       prisma.workspace.findUnique({ where: { id: workspaceId }, include: { brandDNA: true } }),
       (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null),
@@ -898,11 +955,19 @@ export interface ExecuteArticleResult {
 export async function executeGrowthArticleTask(
   workspaceId: string,
   task: GrowthPlanTask,
-  options?: { signal?: AbortSignal; onProgress?: (message: string) => void }
+  options?: {
+    signal?: AbortSignal;
+    onProgress?: (message: string) => void;
+    /** INTERNAL_CALL_TOKEN when called by the cron / SSE route instead of a user. */
+    internalToken?: string;
+  }
 ): Promise<ExecuteArticleResult> {
   const keyword = (task.keyword || task.topic || "").trim();
 
   try {
+    if (!(await ownsWorkspace(workspaceId, options?.internalToken))) {
+      return { success: false, taskId: task.id, error: NOT_YOURS };
+    }
     if (!keyword) {
       return { success: false, taskId: task.id, error: "This article task has no keyword." };
     }
@@ -1090,12 +1155,17 @@ export async function executeTodayPlanBatch(
   options?: {
     generateVisuals?: boolean;
     taskIds?: string[];
-    concurrency?: number;
     signal?: AbortSignal;
     onProgress?: (message: string) => void;
+    /** INTERNAL_CALL_TOKEN when called by the cron / SSE route instead of a user. */
+    internalToken?: string;
   }
 ) {
   try {
+    if (!(await ownsWorkspace(workspaceId, options?.internalToken))) {
+      return { success: false, error: NOT_YOURS };
+    }
+
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     const strategy = await loadStrategy(workspaceId, goalRow);
 
@@ -1121,7 +1191,7 @@ export async function executeTodayPlanBatch(
       return { success: true, count: 0, tasks: [], message: "Nothing left to run in today's plan." };
     }
 
-    const results = await runWithConcurrency(queue, options?.concurrency ?? 3, async (task) => {
+    const results = await runWithConcurrency(queue, GENERATION_LANES, async (task) => {
       if (options?.signal?.aborted) {
         return { success: false, taskId: task.id, error: "Stopped by user." };
       }
@@ -1129,6 +1199,7 @@ export async function executeTodayPlanBatch(
         return executeGrowthArticleTask(workspaceId, task, {
           signal: options?.signal,
           onProgress: options?.onProgress,
+          internalToken: INTERNAL_CALL_TOKEN,
         });
       }
       return executeGrowthPlanTask(workspaceId, task, {
@@ -1136,6 +1207,7 @@ export async function executeTodayPlanBatch(
         scheduleNow: true,
         signal: options?.signal,
         onProgress: options?.onProgress,
+        internalToken: INTERNAL_CALL_TOKEN,
       });
     });
 
@@ -1175,6 +1247,7 @@ export async function updateGrowthTaskCaption(
   caption: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     const strategy = await loadStrategy(workspaceId, goalRow);
     const task = findTask(strategy, taskId);
@@ -1200,6 +1273,7 @@ export async function setGrowthTaskMedia(
   mediaType?: "image" | "video"
 ): Promise<{ success: boolean; mediaUrl?: string | null; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     const strategy = await loadStrategy(workspaceId, goalRow);
     const task = findTask(strategy, taskId);
@@ -1235,6 +1309,7 @@ export async function regenerateGrowthTaskMedia(
   options?: { prompt?: string; signal?: AbortSignal }
 ): Promise<{ success: boolean; mediaUrl?: string; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     const strategy = await loadStrategy(workspaceId, goalRow);
     const task = findTask(strategy, taskId);
@@ -1281,6 +1356,7 @@ export async function deleteGrowthTaskPost(
   taskId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     const strategy = await loadStrategy(workspaceId, goalRow);
     const task = findTask(strategy, taskId);
@@ -1307,12 +1383,66 @@ export async function deleteGrowthTaskPost(
   }
 }
 
+/**
+ * Drops a task out of the plan entirely — the counterpart to "it appeared on my
+ * screen and I do not want it".
+ *
+ * `deleteGrowthTaskPost` only throws away what was generated and leaves the task
+ * waiting to be generated again; this removes the row itself, so neither you nor
+ * autopilot will see it today. The plan is rebuilt from the goal, so a removed
+ * task comes back on the next Rebuild — which is the honest behaviour: the goal
+ * still needs that post to be reachable.
+ */
+export async function removeGrowthTask(
+  workspaceId: string,
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
+    const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
+    const strategy = await loadStrategy(workspaceId, goalRow);
+    if (!strategy) return { success: false, error: "There is no plan to remove it from." };
+
+    const task = findTask(strategy, taskId);
+    if (!task) return { success: false, error: "That task is not in the plan any more." };
+    if (task.status === "PUBLISHED") {
+      return {
+        success: false,
+        error: "This one is already live, so it cannot be removed from the plan. Delete it under Published instead.",
+      };
+    }
+
+    // A scheduled post would still fire from the queue after the task is gone.
+    if (task.postId) {
+      const { removeFromScheduleQueue } = await import("@/lib/redis");
+      await removeFromScheduleQueue(task.postId).catch(() => {});
+      await prisma.post.delete({ where: { id: task.postId } }).catch(() => null);
+    }
+
+    const drop = (list: GrowthPlanTask[] | undefined) =>
+      Array.isArray(list) ? list.filter((t) => t.id !== taskId) : [];
+
+    await storeStrategy(workspaceId, {
+      ...strategy,
+      todayPlan: drop(strategy.todayPlan),
+      weeklyPlan: drop(strategy.weeklyPlan),
+    });
+
+    revalidateGoalSurfaces();
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || "Failed to remove that task." };
+  }
+}
+
 /** Publish now — skips the remaining grace window for one task. */
 export async function publishGrowthTaskNow(
   workspaceId: string,
   taskId: string
 ): Promise<{ success: boolean; liveUrl?: string | null; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null);
     if (goalRow?.isPublishingPaused) {
       return { success: false, error: "Publishing is paused. Resume it in the Autopilot tab first." };
@@ -1363,6 +1493,7 @@ export async function applyGrowthRecommendation(
   recommendationId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } });
     if (!goalRow) return { success: false, error: "No goal to apply this to." };
 
@@ -1399,6 +1530,7 @@ export async function dismissGrowthRecommendation(
   recommendationId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } });
     const strategy = await loadStrategy(workspaceId, goalRow);
     if (!strategy?.recommendations) return { success: false, error: "Nothing to dismiss." };
@@ -1451,6 +1583,7 @@ export interface GrowthActivityItem {
  */
 export async function getRecentGrowthActivity(workspaceId: string): Promise<GrowthActivityItem[]> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return [];
     const { getPublishHistory } = await import("@/lib/growth/metrics");
 
     const [history, upcoming, goalRow] = await Promise.all([
@@ -1572,6 +1705,7 @@ export async function buildGrowthStrategyAction(
   userId: string
 ): Promise<{ success: boolean; strategy?: GrowthStrategy; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
     const goalRow = await (prisma as any).growthGoal.findUnique({ where: { workspaceId } });
     if (!goalRow) return { success: false, error: "Save your goal first." };
 

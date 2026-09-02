@@ -68,18 +68,26 @@ function humanise(value?: string | null): string {
 }
 
 export function LeadsTab({
+  lockChannel,
   data,
   onToast,
   onGoToTab,
   onRefresh,
 }: {
+  /**
+   * Set when the tab is opened from inside one lead channel, so the channel
+   * filter is fixed and hidden and new leads are logged against that channel.
+   */
+  lockChannel?: LeadChannel;
   data: GoalHQData;
   onToast: (tone: "success" | "error" | "info", text: string, undo?: () => void) => void;
   onGoToTab: (tab: string) => void;
   onRefresh: () => void;
 }) {
-  const [leads, setLeads] = useState<LeadEventItem[]>(data.leads);
-  const [channel, setChannel] = useState<LeadChannel | "ALL">("ALL");
+  const [leads, setLeads] = useState<LeadEventItem[]>(
+    lockChannel ? data.leads.filter((l) => l.channel === lockChannel) : data.leads
+  );
+  const [channel, setChannel] = useState<LeadChannel | "ALL">(lockChannel ?? "ALL");
   const [status, setStatus] = useState<string>("ALL");
   const [loading, startLoading] = useTransition();
   const [exporting, startExporting] = useTransition();
@@ -225,7 +233,25 @@ export function LeadsTab({
     }
   };
 
-  const filtersActive = channel !== "ALL" || status !== "ALL";
+  const filtersActive = (!lockChannel && channel !== "ALL") || status !== "ALL";
+
+  // When the tab is scoped to one channel the tiles have to be too, otherwise
+  // the Website side would show clicks that came from social posts.
+  const channelRow = lockChannel
+    ? data.attribution.byChannel.find((r) => r.key.toUpperCase() === lockChannel) || null
+    : null;
+  const shownClicks = lockChannel ? channelRow?.clicks ?? 0 : metrics.clicks;
+  const shownLeads = lockChannel
+    ? lockChannel === "WEBSITE"
+      ? metrics.websiteLeads
+      : metrics.socialLeads
+    : metrics.leads;
+  const shownConversion =
+    lockChannel
+      ? shownClicks > 0
+        ? `${((shownLeads / shownClicks) * 100).toFixed(1)}%`
+        : "—"
+      : conversion;
 
   return (
     <div className="space-y-5">
@@ -233,35 +259,61 @@ export function LeadsTab({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Clicks"
-          value={metrics.clicks}
-          hint={`${metrics.uniqueClicks} unique · counted from real redirects`}
+          value={shownClicks}
+          hint={
+            lockChannel
+              ? "Counted from real redirects on this channel's tracked links"
+              : `${metrics.uniqueClicks} unique · counted from real redirects`
+          }
           icon={<MousePointerClick className="w-3.5 h-3.5" />}
+          info="A click is only counted when somebody actually followed one of your tracked links. Nothing here is estimated."
         />
         <StatTile
           label="Leads confirmed"
-          value={metrics.leads}
-          hint={`${metrics.socialLeads} from social · ${metrics.websiteLeads} from your site`}
+          value={shownLeads}
+          hint={
+            lockChannel === "WEBSITE"
+              ? "Captured by your website tag or added by you"
+              : lockChannel === "SOCIAL"
+                ? "Confirmed by you against a post"
+                : `${metrics.socialLeads} from social · ${metrics.websiteLeads} from your site`
+          }
           icon={<Users className="w-3.5 h-3.5" />}
           accent="secondary"
+          info="A lead exists only because your website tag captured it or you confirmed it yourself. It is never guessed from clicks."
         />
         <StatTile
           label="Click → lead"
-          value={conversion}
+          value={shownConversion}
           hint={
-            metrics.clicks > 0
+            shownClicks > 0
               ? "Your own conversion rate, not a benchmark"
               : "Needs at least one click to compute"
           }
           icon={<BarChart3 className="w-3.5 h-3.5" />}
+          info="Leads divided by clicks, from your own numbers. This is what the plan uses to work out how many posts your goal needs."
         />
         <StatTile
           label="Published"
-          value={metrics.postsPublished + metrics.articlesPublished}
-          hint={`${metrics.postsPublished} posts · ${metrics.articlesPublished} articles${
-            metrics.publishFailures > 0 ? ` · ${metrics.publishFailures} failed` : ""
-          }`}
+          value={
+            lockChannel === "WEBSITE"
+              ? metrics.articlesPublished
+              : lockChannel === "SOCIAL"
+                ? metrics.postsPublished
+                : metrics.postsPublished + metrics.articlesPublished
+          }
+          hint={
+            lockChannel
+              ? metrics.publishFailures > 0
+                ? `${metrics.publishFailures} failed attempt${metrics.publishFailures === 1 ? "" : "s"}`
+                : "Every attempt succeeded"
+              : `${metrics.postsPublished} posts · ${metrics.articlesPublished} articles${
+                  metrics.publishFailures > 0 ? ` · ${metrics.publishFailures} failed` : ""
+                }`
+          }
           icon={<Check className="w-3.5 h-3.5" />}
           accent="secondary"
+          info="Counted from the permanent publish record, so it stays accurate even after the drafts themselves are cleaned up."
         />
       </div>
 
@@ -313,6 +365,7 @@ export function LeadsTab({
           <AddLeadForm
             platforms={data.connectedPlatforms}
             defaultLeadType={data.goal?.leadType || "QUALIFIED_LEADS"}
+            lockChannel={lockChannel}
             onCancel={() => setAdding(false)}
             onSubmit={async (input) => {
               const ok = await addLead(input);
@@ -326,19 +379,21 @@ export function LeadsTab({
             <Filter className="w-3 h-3" />
             Filter
           </span>
-          <select
-            value={channel}
-            onChange={(e) => {
-              const v = e.target.value as LeadChannel | "ALL";
-              setChannel(v);
-              reload({ channel: v });
-            }}
-            className="h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="ALL">All channels</option>
-            <option value="SOCIAL">From social</option>
-            <option value="WEBSITE">From the website</option>
-          </select>
+          {!lockChannel && (
+            <select
+              value={channel}
+              onChange={(e) => {
+                const v = e.target.value as LeadChannel | "ALL";
+                setChannel(v);
+                reload({ channel: v });
+              }}
+              className="h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="ALL">All channels</option>
+              <option value="SOCIAL">From social</option>
+              <option value="WEBSITE">From the website</option>
+            </select>
+          )}
           <select
             value={status}
             onChange={(e) => {
@@ -358,9 +413,9 @@ export function LeadsTab({
             <button
               type="button"
               onClick={() => {
-                setChannel("ALL");
+                setChannel(lockChannel ?? "ALL");
                 setStatus("ALL");
-                reload({ channel: "ALL", status: "ALL" });
+                reload({ channel: lockChannel ?? "ALL", status: "ALL" });
               }}
               className="text-[11px] font-semibold text-primary hover:underline"
             >
@@ -387,7 +442,7 @@ export function LeadsTab({
             !filtersActive ? (
               <button
                 type="button"
-                onClick={() => onGoToTab("history")}
+                onClick={() => onGoToTab(lockChannel === "WEBSITE" ? "website-published" : "published")}
                 className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
               >
                 Mark a lead from history
@@ -417,24 +472,30 @@ export function LeadsTab({
       )}
 
       {/* ── Attribution ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <AttributionCard
-          title="By platform"
-          subtitle="Which platform is actually producing"
-          rows={data.attribution.byPlatform}
-        />
+      {/* On the Website side "by platform" would just say "Website", so that card
+          is dropped and the channel comparison takes its place. */}
+      <div className={`grid gap-4 ${lockChannel ? "lg:grid-cols-2" : "lg:grid-cols-3"}`}>
+        {lockChannel !== "WEBSITE" && (
+          <AttributionCard
+            title="By platform"
+            subtitle="Which platform is actually producing"
+            rows={data.attribution.byPlatform}
+          />
+        )}
         <AttributionCard
           title="By content pillar"
           subtitle="Which theme converts best"
           rows={data.attribution.byPillar}
           accent="secondary"
         />
-        <AttributionCard
-          title="By channel"
-          subtitle="Social posts vs. your website"
-          rows={data.attribution.byChannel}
-          accent="secondary"
-        />
+        {lockChannel !== "SOCIAL" && (
+          <AttributionCard
+            title="By channel"
+            subtitle="Social posts vs. your website"
+            rows={data.attribution.byChannel}
+            accent="secondary"
+          />
+        )}
       </div>
     </div>
   );
@@ -447,15 +508,18 @@ export function LeadsTab({
 function AddLeadForm({
   platforms,
   defaultLeadType,
+  lockChannel,
   onSubmit,
   onCancel,
 }: {
   platforms: string[];
   defaultLeadType: string;
+  /** When set, the lead is logged against this channel and the picker is hidden. */
+  lockChannel?: LeadChannel;
   onSubmit: (input: Parameters<typeof logLead>[1]) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [channel, setChannel] = useState<LeadChannel>("SOCIAL");
+  const [channel, setChannel] = useState<LeadChannel>(lockChannel ?? "SOCIAL");
   const [platform, setPlatform] = useState(platforms[0] || "");
   const [leadType, setLeadType] = useState(defaultLeadType);
   const [status, setStatus] = useState("CONFIRMED");
@@ -488,17 +552,19 @@ function AddLeadForm({
   return (
     <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label className="block">
-          <span className="text-[11px] font-semibold text-foreground">Came from</span>
-          <select
-            value={channel}
-            onChange={(e) => setChannel(e.target.value as LeadChannel)}
-            className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <option value="SOCIAL">A social post</option>
-            <option value="WEBSITE">My website</option>
-          </select>
-        </label>
+        {!lockChannel && (
+          <label className="block">
+            <span className="text-[11px] font-semibold text-foreground">Came from</span>
+            <select
+              value={channel}
+              onChange={(e) => setChannel(e.target.value as LeadChannel)}
+              className="mt-1 w-full h-9 rounded-xl border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="SOCIAL">A social post</option>
+              <option value="WEBSITE">My website</option>
+            </select>
+          </label>
+        )}
 
         {channel === "SOCIAL" && (
           <label className="block">

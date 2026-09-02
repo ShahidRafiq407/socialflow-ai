@@ -97,25 +97,13 @@ export async function fetchWPCategories(config: WPConfig): Promise<WPCategory[]>
       }
     }
     const categories = Array.from(catMap.values());
-    if (categories.length === 0) {
-      return [
-        { id: 1, name: "Uncategorized", slug: "uncategorized" },
-        { id: 2, name: "Technology", slug: "technology" },
-        { id: 3, name: "AI & Robotics", slug: "ai-robotics" },
-        { id: 4, name: "Business", slug: "business" },
-        { id: 5, name: "Marketing", slug: "marketing" },
-      ];
-    }
+    // Return exactly what the site has. Never fabricate category ids — a made-up
+    // id would map to whatever real category happens to hold that id on the
+    // user's site, filing the post in the wrong place.
     return categories;
   } catch (error) {
     console.error("WP fetchWPCategories error:", error);
-    return [
-      { id: 1, name: "Uncategorized", slug: "uncategorized" },
-      { id: 2, name: "Technology", slug: "technology" },
-      { id: 3, name: "AI & Robotics", slug: "ai-robotics" },
-      { id: 4, name: "Business", slug: "business" },
-      { id: 5, name: "Marketing", slug: "marketing" },
-    ];
+    return [];
   }
 }
 

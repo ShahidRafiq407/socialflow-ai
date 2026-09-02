@@ -34,6 +34,13 @@ async function runWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * How many tasks are generated at once. A Vertex AI rate-limit guard, so it is
+ * fixed here rather than accepted from the request body — a client cannot raise
+ * it and start getting 429s.
+ */
+const GENERATION_LANES = 3;
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -44,7 +51,6 @@ export async function POST(req: Request) {
     const taskIds: string[] | undefined = Array.isArray(body.taskIds) ? body.taskIds : undefined;
     const generateVisuals: boolean = body.generateVisuals !== false;
     const scheduleNow: boolean = body.scheduleNow !== false;
-    const concurrency = Math.max(1, Math.min(4, Number(body.concurrency) || 3));
 
     if (!workspaceId) {
       return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });
@@ -94,11 +100,26 @@ export async function POST(req: Request) {
     );
     const dailyCap = Math.max(1, Number(goalRow?.dailyPostCap ?? 8));
 
+    // A social task for a platform with no connected account can only ever fail
+    // at publish time, so it is reported as skipped instead of being generated.
+    const accounts = await prisma.socialAccount
+      .findMany({ where: { workspaceId }, select: { platform: true } })
+      .catch(() => [] as { platform: string }[]);
+    const connected = new Set(accounts.map((a) => String(a.platform).toLowerCase()));
+
+    const skippedNotConnected: string[] = [];
+
     const eligible = strategy.todayPlan.filter((t: GrowthPlanTask) => {
       if (taskIds?.length && !taskIds.includes(t.id)) return false;
       if (t.status === "SCHEDULED" || t.status === "PUBLISHED") return false;
-      if (t.channel !== "WEBSITE" && pausedPlatforms.includes(String(t.platform || "").toLowerCase()))
-        return false;
+      if (t.channel !== "WEBSITE") {
+        const key = String(t.platform || "").toLowerCase();
+        if (pausedPlatforms.includes(key)) return false;
+        if (!connected.has(key)) {
+          if (!skippedNotConnected.includes(t.platform)) skippedNotConnected.push(t.platform);
+          return false;
+        }
+      }
       return true;
     });
 
@@ -128,6 +149,7 @@ export async function POST(req: Request) {
 
     (async () => {
       const { executeGrowthPlanTask, executeGrowthArticleTask } = await import("@/actions/goals");
+      const { INTERNAL_CALL_TOKEN } = await import("@/lib/growth/internalCall");
 
       try {
         await send("batch_started", {
@@ -135,12 +157,16 @@ export async function POST(req: Request) {
           social: socialTasks.length,
           articles: articleTasks.length,
           skippedByCap,
+          skippedNotConnected,
           dailyCap,
-          concurrency,
           message:
             queue.length === 0
-              ? "Nothing left to run in today's plan."
-              : `Running ${queue.length} task${queue.length === 1 ? "" : "s"}, ${concurrency} at a time.`,
+              ? skippedNotConnected.length
+                ? `Nothing to run — ${skippedNotConnected.join(", ")} ${
+                    skippedNotConnected.length === 1 ? "is" : "are"
+                  } not connected yet.`
+                : "Nothing left to run in today's plan."
+              : `Running ${queue.length} task${queue.length === 1 ? "" : "s"} in parallel.`,
         });
 
         if (queue.length === 0) {
@@ -148,7 +174,7 @@ export async function POST(req: Request) {
           return;
         }
 
-        const results = await runWithConcurrency(queue, concurrency, async (task) => {
+        const results = await runWithConcurrency(queue, GENERATION_LANES, async (task) => {
           if (controller.signal.aborted) {
             await send("task_done", { taskId: task.id, success: false, error: "Stopped by user." });
             return { success: false, taskId: task.id, error: "Stopped by user." };
@@ -172,12 +198,14 @@ export async function POST(req: Request) {
               ? await executeGrowthArticleTask(workspaceId, task, {
                   signal: controller.signal,
                   onProgress,
+                  internalToken: INTERNAL_CALL_TOKEN,
                 })
               : await executeGrowthPlanTask(workspaceId, task, {
                   generateVisuals,
                   scheduleNow,
                   signal: controller.signal,
                   onProgress,
+                  internalToken: INTERNAL_CALL_TOKEN,
                 });
 
           await send("task_done", { ...result, taskId: task.id });
