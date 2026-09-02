@@ -34,6 +34,28 @@ const ALWAYS_LOAD_IMPORTANCE = 5;
 const MAX_ALWAYS_LOAD = 40;
 const MAX_CONTENT_CHARS = 1200;
 
+// ---------------------------------------------------------------------------
+// Not-a-fact categories
+//
+// The Memory table is also used as a schema-free store for system JSON: billing
+// history, the active plan, checkout intents, and now captured feature requests.
+// None of those are things the user "told us to remember", so none of them may
+// ever be injected into the prompt as a remembered fact or shown in the memory
+// browser. Every recall path filters these out.
+// ---------------------------------------------------------------------------
+export const NON_FACT_CATEGORIES = [
+  "billing_event",
+  "subscription_plan",
+  "checkout_intent",
+  "feature_request",
+] as const;
+
+/** Prisma `where` fragment excluding system rows from a fact query. */
+const NOT_A_FACT = { category: { notIn: NON_FACT_CATEGORIES as unknown as string[] } };
+
+/** SQL fragment (raw pgvector queries can't use the Prisma filter). */
+const NOT_A_FACT_SQL = `"category" NOT IN (${NON_FACT_CATEGORIES.map((c) => `'${c}'`).join(", ")})`;
+
 let vectorReady: Promise<void> | null = null;
 
 async function ensureMemoryVector(): Promise<void> {
@@ -183,7 +205,11 @@ export async function loadMemoryContext(
 
     // 1. Always-load: pinned or importance 5.
     const always = await (prisma as any).memory.findMany({
-      where: { workspaceId, OR: [{ pinned: true }, { importance: { gte: ALWAYS_LOAD_IMPORTANCE } }] },
+      where: {
+        workspaceId,
+        ...NOT_A_FACT,
+        OR: [{ pinned: true }, { importance: { gte: ALWAYS_LOAD_IMPORTANCE } }],
+      },
       orderBy: [{ importance: "desc" }, { updatedAt: "desc" }],
       take: MAX_ALWAYS_LOAD,
     });
@@ -202,7 +228,7 @@ export async function loadMemoryContext(
           `SELECT id, category, content, importance, pinned, source, "createdAt",
                   (1 - (embedding <=> $1::vector)) AS similarity
              FROM "Memory"
-            WHERE "workspaceId" = $2 AND embedding IS NOT NULL
+            WHERE "workspaceId" = $2 AND embedding IS NOT NULL AND ${NOT_A_FACT_SQL}
             ORDER BY embedding <=> $1::vector
             LIMIT $3`,
           toVectorString(vec),
@@ -222,7 +248,7 @@ export async function loadMemoryContext(
   if (byId.size < Math.max(4, Math.min(topK, 6))) {
     try {
       const recent = await (prisma as any).memory.findMany({
-        where: { workspaceId },
+        where: { workspaceId, ...NOT_A_FACT },
         orderBy: { updatedAt: "desc" },
         take: Math.max(4, topK),
       });
@@ -268,7 +294,9 @@ export async function searchMemories(
     const rows = await (prisma as any).memory.findMany({
       where: {
         workspaceId,
-        ...(options.category ? { category: options.category } : {}),
+        // An explicit category is honoured as-is; otherwise the system rows
+        // (billing, plan, feature requests) are never shown as "memory".
+        ...(options.category ? { category: options.category } : NOT_A_FACT),
         ...(options.query ? { content: { contains: options.query, mode: "insensitive" } } : {}),
       },
       orderBy: [{ pinned: "desc" }, { importance: "desc" }, { updatedAt: "desc" }],

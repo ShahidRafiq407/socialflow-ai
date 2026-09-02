@@ -40,7 +40,7 @@ export const MEMORY_TOOLS: ToolDef[] = [
         importance: args.importance,
         pinned: args.pinned === true,
         source: "user",
-        sessionId: (ctx as any).sessionId ?? null,
+        sessionId: ctx.sessionId ?? null,
       });
       if (!res.saved) return { error: "Could not store that memory." };
       return {

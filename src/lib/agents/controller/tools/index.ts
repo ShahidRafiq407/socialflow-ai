@@ -18,6 +18,8 @@ import { NAVIGATION_TOOLS } from "./navigation";
 import { MEMORY_TOOLS } from "./memory";
 import { ANALYSIS_TOOLS } from "./analysis";
 import { PLUGIN_TOOLS } from "./plugins";
+import { LIMIT_TOOLS } from "./limits";
+import { REPORT_LIMITATION_TOOL } from "../limits";
 
 export type { ToolContext, ToolDef };
 
@@ -67,6 +69,9 @@ export async function buildToolRegistry(
     ...MEMORY_TOOLS,
     ...ANALYSIS_TOOLS,
     ...PLUGIN_TOOLS,
+    // Always present, on purpose: the one tool that must survive every switch
+    // being off, since that is exactly when the model needs to admit a limit.
+    ...LIMIT_TOOLS,
   ];
 
   let mcpTools: ToolDef[] = [];
@@ -249,6 +254,7 @@ export function describeToolsForPrompt(tools: ToolDef[]): string {
     { title: "Memory", match: (n) => ["remember", "recall", "list_memories", "forget"].includes(n) },
     { title: "Attachment analysis", match: (n) => ["analyze_media", "inspect_project", "read_uploaded_files"].includes(n) },
     { title: "Plugins & capabilities", match: (n) => n === "list_capabilities" || isPluginTool(n) },
+    { title: "When you cannot do something", match: (n) => n === REPORT_LIMITATION_TOOL },
   ];
 
   const claimed = new Set<string>();

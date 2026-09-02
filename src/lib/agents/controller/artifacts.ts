@@ -185,6 +185,26 @@ export function artifactsFromToolResult(toolName: string, result: unknown): Arti
       break;
     }
 
+    case "report_limitation": {
+      // Only surface a card when there's somewhere for the user to actually go —
+      // a "turn it on" / "connect it" / "see plans" link. A plain apology needs
+      // no card; the prose already carries it.
+      const fix = asRecord(r.fix);
+      const href = fix ? truthyString(fix.href) : undefined;
+      if (!href) break;
+      const tab = fix ? truthyString(fix.tab) : undefined;
+      out.push({
+        id: artifactId("link"),
+        kind: "link",
+        title: truthyString(fix?.label) || "Lift this limit",
+        subtitle: "Here's where to change that.",
+        href,
+        hrefLabel: truthyString(fix?.label) || "Open",
+        tab: tab && isDashboardTab(tab) ? (tab as DashboardTab) : undefined,
+      });
+      break;
+    }
+
     default:
       break;
   }

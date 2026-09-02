@@ -20,12 +20,18 @@ function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 3000): Promise<T>
 export default async function AutomateTaskPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ session?: string }>;
+  searchParams?: Promise<{ session?: string; panel?: string }>;
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
   const params = (await searchParams) || {};
+
+  // Deep links like ?panel=settings / ?panel=requests open that panel on load.
+  const PANELS = ["settings", "memory", "requests"] as const;
+  const initialPanel = PANELS.includes(params.panel as (typeof PANELS)[number])
+    ? (params.panel as (typeof PANELS)[number])
+    : undefined;
 
   const workspace = await withTimeout(
     prisma.workspace.findFirst({
@@ -83,6 +89,7 @@ export default async function AutomateTaskPage({
         initialMessages={initialMessages}
         initialSessions={sessions}
         initialSettings={settings || DEFAULT_CHAT_SETTINGS}
+        initialPanel={initialPanel}
       />
     </div>
   );

@@ -75,7 +75,7 @@ export const PLUGIN_TOOLS: ToolDef[] = [
         })),
         wordpress: wordpress
           ? { connected: true, siteUrl: wordpress.siteUrl, lastVerifiedAt: wordpress.lastVerifiedAt }
-          : { connected: false, setupUrl: buildDeepLink("goals") },
+          : { connected: false, setupUrl: buildDeepLink("plugins") },
         pluginsUrl: buildDeepLink("plugins"),
         integrationsUrl: buildDeepLink("integrations"),
       };

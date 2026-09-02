@@ -11,6 +11,7 @@ import { describeDashboardTabs } from "./navigation";
 import { formatMemoryForPrompt, type ControllerMemoryFact } from "./memory";
 import type { ToolDef } from "./tools";
 import { describeToolsForPrompt } from "./tools";
+import { describeLimitsForPrompt, LIMITATION_RULE, type CapabilityLimit } from "./limits";
 
 export interface WorkspaceSnapshot {
   workspaceName: string;
@@ -76,10 +77,13 @@ export function buildSystemPrompt(params: {
   memory: ControllerMemoryFact[];
   tools: ToolDef[];
   attachments: { name: string; kind: string; summary: string }[];
+  /** The live edge of what this workspace can do. Empty means "nothing is blocked". */
+  limits?: CapabilityLimit[];
   sessionSummary?: string | null;
   now?: Date;
 }): string {
   const { settings, snapshot, memory, tools, attachments } = params;
+  const limits = params.limits || [];
   const now = params.now || new Date();
 
   const sections: string[] = [];
@@ -102,7 +106,8 @@ Today is ${now.toISOString().slice(0, 10)}.`
 5. **Always hand back a link.** After creating, editing, scheduling, or publishing anything, call open_tab so the user gets a button that opens that exact object in its own tab. This is the product's core promise — a post you generated is worthless if the user can't reach it.
 6. **Ask only when blocked.** If one reasonable assumption lets you proceed, take it, state it in one line, and continue. Ask a question only when getting it wrong would waste real work or publish something wrong.
 7. **Remember what matters.** When the user tells you something durable about themselves, their brand, or their preferences, call remember. When they reference something from before, call recall rather than guessing.
-8. **You don't draw or film anything yourself.** Images, video and voice come from dedicated media models behind generate_image, generate_video and heygen_generate_video. You decide the prompt, the platform and the format, then call the tool and use the URL it returns. Never describe an image as if you had made one without a tool result to show.`);
+8. **You don't draw or film anything yourself.** Images, video and voice come from dedicated media models behind generate_image, generate_video and heygen_generate_video. You decide the prompt, the platform and the format, then call the tool and use the URL it returns. Never describe an image as if you had made one without a tool result to show.
+9. ${LIMITATION_RULE}`);
 
   sections.push(`## Dashboard tabs you can link to
 
@@ -117,6 +122,14 @@ ${describeToolsForPrompt(tools)}`);
   sections.push(`## This workspace right now
 
 ${formatSnapshot(snapshot)}`);
+
+  sections.push(`## What you cannot do right now
+
+This is the real boundary of this workspace at this moment, not a general disclaimer. Every line is something a user could plausibly ask for and you would have to decline — so if a request lands on one of these, you already know the exact reason and the exact link, and there is no excuse for improvising or for a vague "I'm unable to help with that".
+
+${describeLimitsForPrompt(limits)}
+
+Anything here is a fact about this workspace, not a fact about the user: never volunteer the whole list, never apologise for a limit nobody hit, and re-check it rather than assuming a limit you mentioned last turn is still there.`);
 
   if (settings.memoryEnabled) {
     sections.push(`## What you remember about this user

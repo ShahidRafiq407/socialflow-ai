@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Brain,
+  Inbox,
   Info,
   PanelLeftClose,
   PanelLeftOpen,
@@ -29,6 +30,7 @@ import { Composer } from "./Composer";
 import { SessionRail } from "./SessionRail";
 import { SettingsPanel } from "./SettingsPanel";
 import { MemoryPanel } from "./MemoryPanel";
+import { RequestsPanel } from "./RequestsPanel";
 import { EmptyState } from "./EmptyState";
 
 interface ChatWorkbenchProps {
@@ -38,9 +40,11 @@ interface ChatWorkbenchProps {
   initialMessages: ChatMessage[];
   initialSessions: ChatSessionSummary[];
   initialSettings: ChatSettings;
+  /** Panel to open on load, from a `?panel=` deep link (e.g. open_tab → settings). */
+  initialPanel?: SidePanel;
 }
 
-type SidePanel = "none" | "settings" | "memory";
+type SidePanel = "none" | "settings" | "memory" | "requests";
 
 export function ChatWorkbench({
   workspaceId,
@@ -49,6 +53,7 @@ export function ChatWorkbench({
   initialMessages,
   initialSessions,
   initialSettings,
+  initialPanel,
 }: ChatWorkbenchProps) {
   const router = useRouter();
 
@@ -57,7 +62,7 @@ export function ChatWorkbench({
   const [sessions, setSessions] = useState<ChatSessionSummary[]>(initialSessions);
   const [showArchived, setShowArchived] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
-  const [panel, setPanel] = useState<SidePanel>("none");
+  const [panel, setPanel] = useState<SidePanel>(initialPanel || "none");
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [localNotice, setLocalNotice] = useState<string | null>(null);
@@ -271,6 +276,16 @@ export function ChatWorkbench({
           </button>
           <button
             type="button"
+            onClick={() => setPanel((p) => (p === "requests" ? "none" : "requests"))}
+            title="Requests — what the chat couldn't do yet"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:mkt-bg2 ${
+              panel === "requests" ? "mkt-accent-text mkt-bg2" : "mkt-faint hover:mkt-text"
+            }`}
+          >
+            <Inbox className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => setPanel((p) => (p === "settings" ? "none" : "settings"))}
             title="Settings"
             className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:mkt-bg2 ${
@@ -344,19 +359,10 @@ export function ChatWorkbench({
         />
       </main>
 
-      {/* Settings / memory */}
+      {/* Settings / memory / requests */}
       {panel !== "none" && (
         <aside className="hidden w-[320px] shrink-0 border-l mkt-border xl:block">
-          {panel === "settings" ? (
-            <SettingsPanel
-              settings={settings}
-              saving={savingSettings}
-              onChange={updateSettings}
-              onClose={() => setPanel("none")}
-            />
-          ) : (
-            <MemoryPanel workspaceId={workspaceId} onClose={() => setPanel("none")} />
-          )}
+          {renderPanel(panel)}
         </aside>
       )}
 
@@ -369,20 +375,29 @@ export function ChatWorkbench({
             className="flex-1"
             onClick={() => setPanel("none")}
           />
-          <div className="h-full w-[min(340px,88vw)] mkt-bg shadow-2xl">
-            {panel === "settings" ? (
-              <SettingsPanel
-                settings={settings}
-                saving={savingSettings}
-                onChange={updateSettings}
-                onClose={() => setPanel("none")}
-              />
-            ) : (
-              <MemoryPanel workspaceId={workspaceId} onClose={() => setPanel("none")} />
-            )}
-          </div>
+          <div className="h-full w-[min(340px,88vw)] mkt-bg shadow-2xl">{renderPanel(panel)}</div>
         </div>
       )}
     </div>
   );
+
+  function renderPanel(which: SidePanel) {
+    if (which === "settings") {
+      return (
+        <SettingsPanel
+          settings={settings}
+          saving={savingSettings}
+          onChange={updateSettings}
+          onClose={() => setPanel("none")}
+        />
+      );
+    }
+    if (which === "requests") {
+      return <RequestsPanel workspaceId={workspaceId} onClose={() => setPanel("none")} />;
+    }
+    if (which === "memory") {
+      return <MemoryPanel workspaceId={workspaceId} onClose={() => setPanel("none")} />;
+    }
+    return null;
+  }
 }

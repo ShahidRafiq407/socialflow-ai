@@ -27,6 +27,8 @@ import { artifactsFromToolResult, dedupeArtifacts } from "./artifacts";
 import type { Artifact, ControllerEvent, ToolRun } from "./types";
 import { getChatModel } from "./models";
 import { batchCalls, settleRuns } from "./turnFlow";
+import { computeLimits, type CapabilityLimit } from "./limits";
+import { BILLING_ENABLED, getWorkspacePlan } from "@/lib/billing/gate";
 
 const MAX_TOOL_RESULT_CHARS = 24_000;
 
@@ -127,6 +129,8 @@ function toolLabel(name: string, args: Record<string, unknown>): string {
       return `Pushing files to ${s("repo")}`;
     case "read_uploaded_files":
       return "Reading the attached files";
+    case "report_limitation":
+      return `Logging a request we can't do yet: ${s("title") || "unnamed"}`;
     default:
       if (name.startsWith("mcp__")) {
         const parts = name.split("__");
@@ -167,6 +171,9 @@ function summarizeResult(name: string, result: unknown): string {
       return `${r.fileCount ?? 0} file(s) mapped`;
     case "analyze_media":
       return typeof r.analysis === "string" ? `${r.analysis.length.toLocaleString()} chars of analysis` : "Analysed";
+    case "report_limitation":
+      if (!r.recorded) return "Could not be logged";
+      return r.firstTime ? "Logged for the product team" : `Logged — asked ${r.timesAsked} times now`;
     default:
       break;
   }
@@ -258,12 +265,24 @@ export async function runController(params: RunControllerParams): Promise<RunCon
   emit({ type: "status", step: "context", label: "Loading workspace context", state: "start" });
 
   let memory: ControllerMemoryFact[] = [];
+  let planTier: string | null = null;
   const [snapshot, registry] = await Promise.all([
     buildWorkspaceSnapshot(params.workspaceId),
     buildToolRegistry(params.workspaceId, settings),
     (async () => {
       if (!settings.memoryEnabled) return;
       memory = await loadMemoryContext(params.workspaceId, params.message, settings.memoryRecallTopK);
+    })(),
+    (async () => {
+      // Only when billing is actually enforced. With the kill-switch off every
+      // plan feature works, so telling the user their plan blocks something
+      // would be a lie in the other direction.
+      if (!BILLING_ENABLED) return;
+      try {
+        planTier = (await getWorkspacePlan(params.workspaceId)).plan;
+      } catch {
+        planTier = null;
+      }
     })(),
   ]);
 
@@ -295,12 +314,25 @@ export async function runController(params: RunControllerParams): Promise<RunCon
 
   const { declarations, nameMap } = toFunctionDeclarations(registry.tools);
 
+  // The live boundary, computed from the same snapshot the prompt already shows,
+  // plus the settings toggles and (only when billing is enforced) the plan tier.
+  const limits: CapabilityLimit[] = computeLimits({
+    settings,
+    snapshot: {
+      connectedPlatforms: snapshot.connectedPlatforms,
+      connectedConnectors: snapshot.connectedConnectors,
+      hasWordPress: snapshot.hasWordPress,
+    },
+    planTier,
+  });
+
   const systemInstruction = buildSystemPrompt({
     settings,
     snapshot,
     memory,
     tools: registry.tools,
     attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, summary: a.summary })),
+    limits,
     sessionSummary: params.sessionSummary,
   });
 

@@ -24,6 +24,8 @@ export interface ToolContext {
   brandDNA?: any;
   uploadedFiles?: { name: string; content: string; type: string; size?: number }[];
   onProgress?: (message: string) => void;
+  /** Chat session the call belongs to, for provenance on anything a tool writes. */
+  sessionId?: string;
   /**
    * Aborted when the user presses Stop (or closes the tab). Every tool that waits
    * on something slow — an image render, a video poll — must honour it, otherwise
