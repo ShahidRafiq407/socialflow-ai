@@ -158,9 +158,10 @@ const DEFAULT_PHASES: PhaseInfo[] = [
     status: "waiting",
   },
   // Writing and rendering are two stages, not two peers: the visualizer cannot render
-  // a format until the content creator has handed it that format's visual prompt. Each
-  // stage then fans out across formats internally, which is where the real parallelism
-  // is — every platform's media renders at the same time.
+  // a format until the content creator has handed it that format's visual prompt.
+  // Content writing fans out over formats in parallel (the text model's quota is roomy).
+  // Media production does NOT: it renders one format family at a time so the image
+  // model's small per-minute quota is never tripped — hence no PARALLEL badge on it.
   {
     phase: "copy",
     label: "Content writing",
@@ -173,8 +174,8 @@ const DEFAULT_PHASES: PhaseInfo[] = [
     phase: "render",
     label: "Media production",
     agents: ["visualizer"],
-    parallel: true,
-    mode: "parallel",
+    parallel: false,
+    mode: "sequential",
     status: "waiting",
   },
   {
@@ -896,10 +897,11 @@ export default function MultiAgentStreamModal({
                           {phase.label}
                         </span>
                         {/* Parallel work really is simultaneous in the graph — the badge
-                            and the spinners are not decorative. A single-agent phase can
-                            be parallel too: the visualizer renders every platform's media
-                            at the same time. `PIPELINED` marks the older shape, where two
-                            agents overlap but one feeds the other. */}
+                            and the spinners are not decorative. Content writing fans out
+                            over formats at once; media production does NOT (it renders one
+                            family at a time to stay under the image quota) so its phase is
+                            sequential and carries no badge. `PIPELINED` marks the older
+                            shape, where two agents overlap but one feeds the other. */}
                         {phase.mode !== "sequential" && (
                           <span
                             className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${

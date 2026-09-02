@@ -1481,20 +1481,26 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
    */
   const attachedAssetKeys = new Set<string>();
 
-  const renderFamilyMedia = async (family: FormatFamily) => {
+  const renderFamilyMedia = async (family: FormatFamily, familyIndex: number, familyTotal: number) => {
     checkProductionRunnable();
 
     const primary = family.members[0];
     const item = state.generatedContent!.platforms[primary.platform][primary.contentType] as any;
     const shared = family.members.length > 1;
+    // Families render strictly one at a time, so a running position ("Format 2/3") makes
+    // the sequential flow legible in the thinking panel: each family announces itself,
+    // renders, then reports complete before the next one starts.
+    const position = `Format ${familyIndex + 1}/${familyTotal}`;
 
     emit({
       type: "agent_action",
       agentId: "visualizer",
       data: {
-        label: shared
-          ? `Rendering ONE ${family.label} for ${describeMembers(family)}`
-          : `Rendering ${family.label} for ${primary.platform} ${primary.contentType}`,
+        label:
+          `${position} — ` +
+          (shared
+            ? `now rendering ${family.label} for ${describeMembers(family)} (one render covers all ${family.members.length}, no duplicate)`
+            : `now rendering ${family.label} for ${primary.platform} ${primary.contentType}`),
         scope: family.label,
       },
     });
@@ -1551,9 +1557,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     }
 
     markRenderDone(
-      shared
-        ? `Shared ${family.label} rendered for ${family.members.length} formats`
-        : `${family.label} rendered for ${primary.platform} ${primary.contentType}`
+      `${position} complete — ` +
+      (shared
+        ? `${family.label} rendered once for ${family.members.length} formats`
+        : `${family.label} rendered for ${primary.platform} ${primary.contentType}`)
     );
     completeScope("visualizer", family.label);
   };
@@ -1678,7 +1685,11 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   // from a single generation, and the members stay in sync by construction.
   // =========================================================================
   checkCancelled();
-  startPhase("render", "Media production", ["visualizer"], "parallel");
+  // Media renders one family at a time (mediaConcurrency defaults to 1), so this phase
+  // is genuinely sequential — no PARALLEL badge. The old "parallel" label was left over
+  // from when families fanned out at once; that tripped the image model's per-minute
+  // quota, which is exactly why rendering was made one-at-a-time.
+  startPhase("render", "Media production", ["visualizer"], "sequential");
   emit({ type: "agent_started", agentId: "visualizer" });
   emit({
     type: "agent_action",
@@ -1716,8 +1727,8 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   const renderFailures: { label: string; message: string }[] = [];
 
   const renderOutcomes = await Promise.allSettled(
-    visualFamilies.map((family) =>
-      mediaLimiter(() => renderFamilyMedia(family)).catch((mediaErr: any) => {
+    visualFamilies.map((family, familyIndex) =>
+      mediaLimiter(() => renderFamilyMedia(family, familyIndex, visualFamilies.length)).catch((mediaErr: any) => {
         if (mediaErr?.isCancelled) throw mediaErr;
         // Deliberately not re-thrown, and deliberately NOT setting productionHalted:
         // one family hitting a quota wall must not take its siblings — or the copy
