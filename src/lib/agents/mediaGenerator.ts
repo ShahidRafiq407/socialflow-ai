@@ -594,9 +594,14 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
   // Typesetting several text blocks takes noticeably longer than a plain photo render.
   // Both ceilings are deployment facts (region, model tier), not pipeline constants.
+  //
+  // gemini-3-pro-image routinely takes 30-120s for one render on Vertex — the old
+  // 40s default made the pipeline give up on prompts that are still rendering fine
+  // (a single-prompt render squeaks under the cap, the campaign's longer art-direction
+  // prompts do not), so the budget has to fit the model, not the other way round.
   const imageTimeoutMs = isInfographic
-    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 90000, { min: 10000, max: 300000 })
-    : envInt("IMAGE_TIMEOUT_MS", 40000, { min: 10000, max: 300000 });
+    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 150000, { min: 10000, max: 300000 })
+    : envInt("IMAGE_TIMEOUT_MS", 120000, { min: 10000, max: 300000 });
   // Spacing between slides of one deck keeps a burst of renders inside the model's
   // per-minute allowance instead of provoking the 429 the retry then has to absorb.
   const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 1000, { min: 0, max: 30000 });
