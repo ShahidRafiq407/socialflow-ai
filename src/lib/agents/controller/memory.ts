@@ -18,6 +18,7 @@
 import prisma from "@/lib/db";
 import { embedText } from "../embeddings";
 import { ensureControllerSchema } from "./schema";
+import { rankFacts } from "./memoryRank";
 
 export interface ControllerMemoryFact {
   id: string;
@@ -28,6 +29,8 @@ export interface ControllerMemoryFact {
   source: string;
   similarity: number;
   createdAt: Date | null;
+  hitCount: number;
+  lastUsedAt: Date | null;
 }
 
 const ALWAYS_LOAD_IMPORTANCE = 5;
@@ -89,6 +92,8 @@ function normalizeRow(row: any, similarity = 0): ControllerMemoryFact {
     source: String(row.source || "auto"),
     similarity: Number(similarity ?? 0),
     createdAt: row.createdAt ? new Date(row.createdAt) : null,
+    hitCount: Number(row.hitCount ?? 0),
+    lastUsedAt: row.lastUsedAt ? new Date(row.lastUsedAt) : null,
   };
 }
 
@@ -225,7 +230,7 @@ export async function loadMemoryContext(
       if (vec.length > 0) {
         await ensureMemoryVector();
         const rows = await prisma.$queryRawUnsafe<any[]>(
-          `SELECT id, category, content, importance, pinned, source, "createdAt",
+          `SELECT id, category, content, importance, pinned, source, "createdAt", "hitCount", "lastUsedAt",
                   (1 - (embedding <=> $1::vector)) AS similarity
              FROM "Memory"
             WHERE "workspaceId" = $2 AND embedding IS NOT NULL AND ${NOT_A_FACT_SQL}
@@ -260,11 +265,9 @@ export async function loadMemoryContext(
     }
   }
 
-  const facts = Array.from(byId.values()).sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    if (a.importance !== b.importance) return b.importance - a.importance;
-    return b.similarity - a.similarity;
-  });
+  // Hard tiers (pinned, importance) first; within a tier, semantic similarity
+  // plus the reinforcement nudge from hitCount / lastUsedAt (see memoryRank).
+  const facts = rankFacts(Array.from(byId.values()), Date.now());
 
   // Fire-and-forget usage stats so hot facts rank higher next time.
   if (facts.length > 0) {
