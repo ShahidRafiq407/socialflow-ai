@@ -8,7 +8,7 @@ interface GenerationProgressIndicatorProps {
   stage?: string;
   title?: string;
   isVertical?: boolean;
-  accentColor?: "indigo" | "pink" | "red" | "emerald";
+  accentColor?: "indigo" | "pink" | "red" | "emerald" | "blue";
   mediaType?: "video" | "image" | "carousel" | "ideapin" | "document";
 }
 
@@ -104,6 +104,15 @@ export default function GenerationProgressIndicator({
       badgeBg: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
       barGrad: "from-emerald-500 via-teal-500 to-cyan-500",
       ringGlow: "ring-emerald-500/30",
+    },
+    // LinkedIn's brand blue — used by the document/carousel editors so the
+    // progress ring matches the platform being published to.
+    blue: {
+      stroke: "#0a66c2",
+      glow: "rgba(10, 102, 194, 0.5)",
+      badgeBg: "bg-blue-500/20 text-blue-300 border-blue-500/40",
+      barGrad: "from-blue-600 via-sky-500 to-cyan-400",
+      ringGlow: "ring-blue-500/30",
     },
   };
 

@@ -22,7 +22,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
@@ -148,7 +147,6 @@ export default function InstagramCarouselEditor({
   const [slideQuality, setSlideQuality] = useState("studio_4k");
   const [slideAspectRatio, setSlideAspectRatio] = useState("auto");
   const [location, setLocation] = useState("");
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(true);
   const formatKey = `${capability.platform}-${capability.format}`;
 
   const effectiveSlides = slides.length > 0 ? slides : [

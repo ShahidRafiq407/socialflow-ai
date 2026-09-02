@@ -97,6 +97,8 @@ export interface PlatformEditorRouterProps {
   isRegeneratingSlide: boolean;
   onGenerateFullCarouselAI: () => void;
   isGeneratingFullCarousel: boolean;
+  /** TRUE when the one-press action also renders the format's graphics (deck formats). */
+  generatesMediaWithPost?: boolean;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
   onUploadPDF?: (file: File) => void;
@@ -227,6 +229,11 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingAI={props.isGeneratingFullCarousel}
         onRegeneratePageAI={props.onRegenerateSlideAI}
         isRegeneratingPage={props.isRegeneratingSlide}
+        onRenderPageMedia={props.onRenderAI}
+        isRenderingPageMedia={props.isRenderingMedia}
+        onAIRefine={props.onAIRefine}
+        isRefiningCaption={props.isRefiningCaption}
+        refiningAction={props.refiningAction}
         onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
         onGenerateField={props.onGenerateField}
@@ -346,6 +353,19 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
         isExportingPDF={props.isExportingPDF}
+        onRenderSlideMedia={props.onRenderAI}
+        isRenderingSlideMedia={props.isRenderingMedia}
+        generationProgress={props.generationProgress}
+        generationStage={props.generationStage}
+        renderError={props.renderError}
+        onOpenUpload={props.onOpenUpload}
+        onOpenStock={props.onOpenStock}
+        onEnhancePrompt={props.onEnhancePrompt}
+        isEnhancingPrompt={props.isEnhancingPrompt}
+        originalPrompt={props.originalPrompt}
+        onRestoreOriginalPrompt={props.onRestoreOriginalPrompt}
+        onCaptionToPrompt={props.onCaptionToPrompt}
+        isGeneratingPromptFromScript={props.isGeneratingPromptFromScript}
         onAnalyzeMedia={props.onAnalyzeMedia}
         isAnalyzingMedia={props.isAnalyzingMedia}
         hasUserMedia={props.hasUserMedia}
@@ -381,6 +401,7 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         isGeneratingCopy={props.isGeneratingCopy}
         onGenerateAllMediaAI={props.onGenerateFullCarouselAI}
         isGeneratingAllMedia={props.isGeneratingFullCarousel}
+        generatesMediaWithPost={props.generatesMediaWithPost}
         onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
