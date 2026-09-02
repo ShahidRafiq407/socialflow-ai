@@ -213,3 +213,35 @@
     transparent 40%
   );
 }
+
+/* The controller is working but has not written a word yet. */
+.thinking-dots {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background-color: var(--mkt-accent);
+  animation: thinking-pulse 1.15s ease-in-out infinite;
+  box-shadow:
+    12px 0 0 -1px var(--mkt-accent),
+    24px 0 0 -1px var(--mkt-accent);
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots {
+    animation: none;
+    opacity: 0.7;
+  }
+}

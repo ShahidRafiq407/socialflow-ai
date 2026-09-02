@@ -5,6 +5,7 @@ import Link from "next/link";
 import { create } from "zustand";
 import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
+import { getPostForStudio } from "@/actions/content";
 import { saveAllMediaToIndexedDB, loadAllMediaFromIndexedDB, removeMediaFromIndexedDB, removeMediaKeysFromIndexedDB } from "@/lib/indexedDbMedia";
 import { detectMediaUrlKind } from "@/lib/media/urls";
 import PlatformPreviewWrapper from "@/components/previews/PlatformPreviewWrapper";
@@ -526,6 +527,97 @@ export default function AIStudioPage() {
         setLoadingConnections(false);
       }
     })();
+  }, []);
+
+  // ============================================================================
+  // DEEP LINK: /dashboard/ai-studio?postId=<id>
+  //
+  // The chat controller answers "generate an Instagram feed post and give me the
+  // link" with exactly this URL. Landing here has to open the studio ON that
+  // post — right platform tab, right format tab, its copy, hashtags and media
+  // already in the editor. The id is consumed once and stripped from the URL so
+  // a later refresh does not overwrite whatever the user has since edited.
+  // ============================================================================
+  const hydratedPostRef = useRef<string | null>(null);
+  const [deepLinkNotice, setDeepLinkNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const postId = new URLSearchParams(window.location.search).get("postId");
+    if (!postId || hydratedPostRef.current === postId) return;
+    hydratedPostRef.current = postId;
+
+    (async () => {
+      const res = await getPostForStudio(postId).catch(() => null);
+      if (!res?.success || !res.post) {
+        setDeepLinkNotice(res?.error || "That post could not be opened.");
+        return;
+      }
+
+      const post = res.post;
+      const platformDef = PLATFORMS.find(
+        (p) => p.id.toLowerCase() === (post.platform || "").toLowerCase()
+      );
+      const platform = platformDef?.id || post.platform;
+      const format =
+        platformDef?.contentTypes.find(
+          (t) => t.toLowerCase() === (post.format || "").toLowerCase()
+        ) || post.format || platformDef?.contentTypes[0] || "Feed";
+
+      const isVideo = post.mediaType === "video";
+      const media = post.mediaUrls.filter(Boolean);
+
+      const hydrated: SessionGeneratedFormat = {
+        caption: post.content || "",
+        hashtags: post.hashtags || [],
+        imagePrompt: post.imagePrompt || "",
+        visualPrompts: post.visualPrompts || [],
+        overlayText: post.overlayTexts || [],
+        bestTime: "",
+        imageUrls: isVideo ? [] : media,
+        imageUrl: isVideo ? undefined : media[0] || post.imageUrl || undefined,
+        videoUrl: isVideo ? media[0] || post.imageUrl || undefined : undefined,
+        title: post.settings?.title || undefined,
+        description: post.settings?.description || undefined,
+        destinationUrl: post.settings?.destinationUrl || undefined,
+        board: post.settings?.pinterestBoardName || undefined,
+        altText: post.settings?.altText || undefined,
+      };
+
+      setGeneratedContents((prev) => ({
+        ...prev,
+        [platform]: { ...(prev[platform] || {}), [format]: hydrated },
+      }));
+      setSelectedPlatforms((prev) => (prev.includes(platform) ? prev : [...prev, platform]));
+      setSelectedContentTypes((prev) => {
+        const existing = prev[platform] || [];
+        return { ...prev, [platform]: existing.includes(format) ? existing : [...existing, format] };
+      });
+      setActivePlatformTab(platform);
+      setActiveFormatTab((prev) => ({ ...prev, [platform]: format }));
+
+      const key = `${platform}-${format}`;
+      if (hydrated.title) setTitleDict((prev) => ({ ...prev, [key]: hydrated.title! }));
+      if (hydrated.description) setDescriptionDict((prev) => ({ ...prev, [key]: hydrated.description! }));
+      if (hydrated.destinationUrl)
+        setDestinationUrlDict((prev) => ({ ...prev, [key]: hydrated.destinationUrl! }));
+      if (hydrated.board) setBoardDict((prev) => ({ ...prev, [key]: hydrated.board! }));
+      if (hydrated.altText) setAltTextDict((prev) => ({ ...prev, [key]: hydrated.altText! }));
+      if (post.settings && Object.keys(post.settings).length > 0) {
+        setPublishSettingsDict((prev) => ({ ...prev, [key]: { ...(prev[key] || {}), ...post.settings } }));
+      }
+
+      if (post.campaignTopic) setCampaignTopic(post.campaignTopic);
+      if (post.campaignHook) setCampaignHook(post.campaignHook);
+      setGenerationState("completed");
+      setViewMode("ai");
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete("postId");
+      window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    })();
+    // Runs once per mount — the setters are stable zustand actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ============================================================================
@@ -4319,6 +4411,21 @@ export default function AIStudioPage() {
         }`}>
           {publishResult.success ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
           <span className="text-xs font-semibold">{publishResult.message}</span>
+        </div>
+      )}
+
+      {/* A chat deep link pointed at a post we could not load. */}
+      {deepLinkNotice && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-amber-800 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="text-xs font-semibold flex-1">{deepLinkNotice}</span>
+          <button
+            type="button"
+            onClick={() => setDeepLinkNotice(null)}
+            className="text-xs font-bold opacity-70 hover:opacity-100"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

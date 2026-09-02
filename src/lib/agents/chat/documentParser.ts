@@ -15,7 +15,7 @@ export const MAX_ZIP_UNCOMPRESSED = 50 * 1024 * 1024;
 export const MAX_EXTRACTED_FILES = 200;
 
 export type ParsedFileKind =
-  | "pdf" | "docx" | "xlsx" | "pptx" | "zip" | "csv" | "text" | "image" | "unsupported";
+  | "pdf" | "docx" | "xlsx" | "pptx" | "zip" | "csv" | "text" | "image" | "video" | "audio" | "unsupported";
 
 export interface DocCitation {
   locator: string; // e.g. "Page 4", "Sheet: Leads", "Slide 2"
@@ -57,6 +57,10 @@ export function detectKind(name: string, type: string): ParsedFileKind {
   const t = (type || "").toLowerCase();
   const n = (name || "").toLowerCase();
   if (t.startsWith("image/")) return "image";
+  // Video/audio carry no extractable text — they are handed to the multimodal
+  // model as inline data instead, so they only need to be recognised here.
+  if (t.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(n)) return "video";
+  if (t.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(n)) return "audio";
   if (n.endsWith(".pdf") || t === "application/pdf") return "pdf";
   if (n.endsWith(".docx") || t === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return "docx";
   if (n.endsWith(".xlsx") || n.endsWith(".xlsm") || t === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return "xlsx";
@@ -482,6 +486,22 @@ export async function parseUploadedFile(input: {
     case "image": {
       base.summary = "Image attachment";
       base.citations = [{ locator: "Image", verified: true }];
+      break;
+    }
+
+    case "video": {
+      // No text to extract; the controller sends the bytes to the multimodal
+      // model, which is what actually "watches" the video.
+      base.summary = `Video attachment (${(bytes.length / 1048576).toFixed(1)}MB) — analysed by the vision model`;
+      base.citations = [{ locator: "Video", verified: true }];
+      base.structure = { multimodal: true, mime: base.type };
+      break;
+    }
+
+    case "audio": {
+      base.summary = `Audio attachment (${(bytes.length / 1048576).toFixed(1)}MB) — transcribed by the audio model`;
+      base.citations = [{ locator: "Audio", verified: true }];
+      base.structure = { multimodal: true, mime: base.type };
       break;
     }
 

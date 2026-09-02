@@ -30,6 +30,7 @@ export function IntegrationsHQ({ initialIntegrations }: IntegrationsHQProps) {
   const [integrations, setIntegrations] =
     useState<SocialPlatformIntegration[]>(initialIntegrations);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [focusedPlatform, setFocusedPlatform] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
   // Flash messages from OAuth callback
@@ -44,6 +45,42 @@ export function IntegrationsHQ({ initialIntegrations }: IntegrationsHQProps) {
       return () => clearTimeout(timer);
     }
   }, [successMsg, errorMsg]);
+
+  // Deep link from the chat controller: /dashboard/integrations?platform=<key>.
+  // The row is scrolled to and ringed; connecting stays a deliberate click
+  // because it leaves the app for the platform's OAuth screen.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = (new URLSearchParams(window.location.search).get("platform") || "")
+      .trim()
+      .toLowerCase();
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("platform")) {
+      url.searchParams.delete("platform");
+      window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    }
+    if (!raw) return;
+
+    const match = initialIntegrations.find(
+      (i) => i.platformKey.toLowerCase() === raw || i.platform.toLowerCase() === raw
+    );
+    if (!match) return;
+
+    setFocusedPlatform(match.platformKey);
+    const scroll = setTimeout(() => {
+      document
+        .getElementById(`integration-${match.platformKey}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    const unring = setTimeout(() => setFocusedPlatform(null), 4200);
+
+    return () => {
+      clearTimeout(scroll);
+      clearTimeout(unring);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Platforms that don't have OAuth support yet
   const comingSoonPlatforms = ["reddit"];
@@ -115,10 +152,13 @@ export function IntegrationsHQ({ initialIntegrations }: IntegrationsHQProps) {
             return (
               <div
                 key={item.platformKey}
+                id={`integration-${item.platformKey}`}
                 className={`p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${
-                  isComingSoon
-                    ? "opacity-50 bg-slate-50/50 dark:bg-slate-900/50"
-                    : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                  focusedPlatform === item.platformKey
+                    ? "bg-primary/5 ring-2 ring-inset ring-primary"
+                    : isComingSoon
+                      ? "opacity-50 bg-slate-50/50 dark:bg-slate-900/50"
+                      : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
                 }`}
               >
                 {/* LEFT: PLATFORM ICON + INFO */}

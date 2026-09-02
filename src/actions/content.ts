@@ -1,6 +1,7 @@
 "use server";
 
 import prisma from "@/lib/db";
+import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { scheduleEnqueue } from "@/lib/redis";
 import { getNextBestTime } from "@/lib/bestPublishTime";
@@ -189,5 +190,83 @@ export async function editPost(
   } catch (error: any) {
     console.error("Error editing post:", error);
     throw new Error(error.message || "Failed to edit post");
+  }
+}
+
+// ============================================================================
+// DEEP LINK HYDRATION
+//
+// The chat controller hands the user a link like /dashboard/ai-studio?postId=…
+// and clicking it has to land on that exact post. This is what the studio calls
+// to rebuild its editor state from a saved post. Scoped to the caller's own
+// workspace — a post id from someone else's workspace returns not-found.
+// ============================================================================
+export interface StudioPost {
+  id: string;
+  platform: string;
+  format: string;
+  content: string;
+  hashtags: string[];
+  imageUrl: string | null;
+  imagePrompt: string | null;
+  mediaType: string | null;
+  mediaUrls: string[];
+  overlayTexts: { step: number; title: string; body: string; theme: string }[];
+  visualPrompts: string[];
+  campaignTopic: string | null;
+  campaignHook: string | null;
+  settings: Record<string, any> | null;
+  status: string;
+  scheduledFor: string | null;
+}
+
+export async function getPostForStudio(
+  postId: string
+): Promise<{ success: boolean; post?: StudioPost; error?: string }> {
+  try {
+    const { userId } = await auth();
+    if (!userId) return { success: false, error: "Unauthorized" };
+    if (!postId) return { success: false, error: "No post id" };
+
+    const workspace = await prisma.workspace.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!workspace) return { success: false, error: "Workspace not found" };
+
+    const post = await prisma.post.findFirst({
+      where: { id: postId, workspaceId: workspace.id },
+    });
+    if (!post) return { success: false, error: "Post not found" };
+
+    const history = (post.mediaHistory || {}) as any;
+    const mediaUrls: string[] = Array.isArray(history.mediaUrls)
+      ? history.mediaUrls.filter((u: unknown) => typeof u === "string" && u)
+      : [];
+
+    return {
+      success: true,
+      post: {
+        id: post.id,
+        platform: post.platform,
+        format: post.format || "Feed",
+        content: post.content || "",
+        hashtags: Array.isArray(post.hashtags) ? post.hashtags : [],
+        imageUrl: post.imageUrl,
+        imagePrompt: post.imagePrompt,
+        mediaType: post.mediaType,
+        mediaUrls: mediaUrls.length > 0 ? mediaUrls : post.imageUrl ? [post.imageUrl] : [],
+        overlayTexts: Array.isArray(history.overlayTexts) ? history.overlayTexts : [],
+        visualPrompts: Array.isArray(history.visualPrompts) ? history.visualPrompts : [],
+        campaignTopic: post.campaignTopic,
+        campaignHook: post.campaignHook,
+        settings: (post.settings as Record<string, any> | null) ?? null,
+        status: post.status,
+        scheduledFor: post.scheduledFor ? post.scheduledFor.toISOString() : null,
+      },
+    };
+  } catch (error: any) {
+    console.error("Error loading post for studio:", error);
+    return { success: false, error: error.message || "Failed to load that post" };
   }
 }

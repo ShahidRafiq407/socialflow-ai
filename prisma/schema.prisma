@@ -34,6 +34,7 @@ model Workspace {
   mediaAssets     MediaAsset[]
   hashtagGroups   HashtagGroup[]
   memories        Memory[]
+  chatSettings    ChatSettings?
   growthGoal      GrowthGoal?
   wordpressSite   WordPressSite?
   connections     UserConnection[]
@@ -118,10 +119,18 @@ model ChatSession {
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id])
   messages    Message[]
+  /// Model id the session last ran on, so reopening it restores the same brain.
+  model       String?
+  pinned      Boolean   @default(false)
+  archived    Boolean   @default(false)
+  /// Rolling LLM-written summary of everything older than the live window, so a
+  /// long session never loses its earlier context when history is truncated.
+  summary     String?   @db.Text
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
+  @@index([workspaceId, archived, updatedAt])
 }
 
 enum Role {
@@ -134,12 +143,26 @@ model Message {
   role          Role
   content       String      @db.Text
   toolCalls     Json?
+  /// Live thought-summary transcript captured from the model while it worked.
+  reasoning     String?     @db.Text
+  /// User attachments for a USER message: [{ name, type, size, kind, url? }]
+  attachments   Json?
+  /// Structured results the UI renders as cards: generated media, deep links
+  /// into other tabs, published receipts, files. [{ kind, ... }]
+  artifacts     Json?
+  /// Follow-up prompts offered under an AGENT message.
+  suggestions   Json?
+  model         String?
+  durationMs    Int?
+  /// "ok" | "error" | "cancelled"
+  finishReason  String?
   chatSessionId String
-  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id])
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   @@index([chatSessionId])
+  @@index([chatSessionId, createdAt])
 }
 
 model Memory {
@@ -148,11 +171,76 @@ model Memory {
   workspace   Workspace @relation(fields: [workspaceId], references: [id])
   category    String    @default("general")
   content     String    @db.Text
+  /// 1 (trivia) … 5 (never forget). Pinned + high-importance facts are always
+  /// injected into the controller's context regardless of semantic similarity.
+  importance  Int       @default(3)
+  /// User-pinned facts survive every prune and always load.
+  pinned      Boolean   @default(false)
+  /// "auto" (extracted from a conversation) | "user" (explicitly told to remember)
+  source      String    @default("auto")
+  /// Chat session the fact was learned in, for provenance in the memory browser.
+  sessionId   String?
+  /// Bumped every time the fact is recalled, so hot memories rank higher.
+  hitCount    Int       @default(0)
+  lastUsedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([category])
+  @@index([workspaceId, pinned])
+}
+
+/// Everything the Automate/Chat controller lets a user tune, per workspace.
+/// One row per workspace, created lazily on first read.
+model ChatSettings {
+  id          String    @id @default(uuid())
+  workspaceId String    @unique
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+
+  // --- Brain ---
+  model            String  @default("gemini-3.1-pro-preview")
+  temperature      Float   @default(0.4)
+  maxToolLoops     Int     @default(8)
+  /// "off" | "concise" | "balanced" | "deep"
+  thinkingLevel    String  @default("balanced")
+  /// "live" | "collapsed" | "hidden" — how thought summaries are displayed.
+  thinkingDisplay  String  @default("live")
+  streamTokens     Boolean @default(true)
+
+  // --- Voice ---
+  /// "auto" | "english" | "roman-urdu" | "urdu"
+  replyLanguage    String  @default("auto")
+  /// "executive" | "detailed" | "concise"
+  replyStyle       String  @default("executive")
+  /// Extra always-on instructions the user writes for the controller.
+  customInstructions String? @db.Text
+
+  // --- Autonomy ---
+  /// "auto" runs write actions immediately; "confirm" asks first for
+  /// publish/delete/push-class actions.
+  autonomy         String  @default("auto")
+  allowWebSearch   Boolean @default(true)
+  allowMediaGen    Boolean @default(true)
+  allowPublishing  Boolean @default(true)
+  allowPlugins     Boolean @default(true)
+
+  // --- Memory ---
+  memoryEnabled    Boolean @default(true)
+  memoryAutoSave   Boolean @default(true)
+  memoryRecallTopK Int     @default(8)
+
+  // --- Surface ---
+  /// "all" | "compact" | "failures" — how much of the tool timeline shows.
+  toolVisibility   String  @default("all")
+  /// Auto-navigate to the target tab when the controller produces a deep link.
+  autoOpenLinks    Boolean @default(false)
+  showSuggestions  Boolean @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
 }
 
 enum Frequency {

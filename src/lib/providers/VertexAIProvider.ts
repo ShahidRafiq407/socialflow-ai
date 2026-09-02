@@ -1,4 +1,41 @@
-import { GoogleGenAI, type Part } from "@google/genai";
+import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from "@google/genai";
+
+/** A tool call the model asked for during an agent turn. */
+export interface AgentFunctionCall {
+  id?: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+/** Result of one streamed agent turn (see `streamAgentTurn`). */
+export interface AgentTurnResult {
+  /** Visible answer text emitted on this turn (may be empty on a pure tool turn). */
+  text: string;
+  /** Concatenated thought summaries emitted on this turn. */
+  reasoning: string;
+  /** Tools the model wants executed before it continues. */
+  functionCalls: AgentFunctionCall[];
+  /**
+   * The model's raw parts, verbatim. Append these back as a `model` turn before
+   * the function responses — Gemini 3 requires its own `thoughtSignature` parts
+   * to be echoed for multi-turn tool use to keep working.
+   */
+  modelParts: Part[];
+  model: string;
+  thinkingUsed: boolean;
+  finishReason: string;
+  searchQueries: string[];
+  sources: { title: string; url: string; snippet: string }[];
+}
+
+/** How hard the model should think, mapped to the SDK's ThinkingLevel. */
+export type ThinkingEffort = "off" | "concise" | "balanced" | "deep";
+
+const THINKING_LEVEL_BY_EFFORT: Record<Exclude<ThinkingEffort, "off">, string> = {
+  concise: "LOW",
+  balanced: "MEDIUM",
+  deep: "HIGH",
+};
 
 export class VertexAIProvider {
   public ai: GoogleGenAI;
@@ -504,6 +541,196 @@ export class VertexAIProvider {
       });
       return { ...res, thinkingUsed: false };
     }
+  }
+
+  /**
+   * ONE streamed turn of a native-function-calling agent loop.
+   *
+   * This is the engine behind the Automate controller. Unlike the other stream
+   * helpers it takes a full `contents` history (so the caller owns the loop) and
+   * real `functionDeclarations` (so the model picks tools itself instead of being
+   * asked to emit planning JSON). Thought summaries arrive on the SAME request as
+   * the answer and the tool calls, which is what makes live thinking free.
+   *
+   * A turn is a success when it produced text OR at least one function call — a
+   * pure tool turn legitimately has no visible text.
+   *
+   * Model/thinking resilience mirrors `streamGenerate`: walk the fallback chain,
+   * and if a model rejects `thinkingConfig` retry it once without thinking rather
+   * than failing the run.
+   */
+  async streamAgentTurn(
+    params: {
+      contents: Content[];
+      systemInstruction?: string;
+      functionDeclarations?: FunctionDeclaration[];
+      /** Only honoured when no functionDeclarations are supplied (Vertex rejects both). */
+      enableGoogleSearch?: boolean;
+      modelName?: string;
+      temperature?: number;
+      thinkingEffort?: ThinkingEffort;
+      maxOutputTokens?: number;
+      signal?: AbortSignal;
+    },
+    callbacks: {
+      onThought?: (chunk: string) => void;
+      onText?: (chunk: string) => void;
+      onFunctionCall?: (call: AgentFunctionCall) => void;
+      /** Fired when the turn falls back to a different model than requested. */
+      onModelFallback?: (modelName: string) => void;
+    } = {}
+  ): Promise<AgentTurnResult> {
+    const requested = params.modelName || "gemini-3.1-pro-preview";
+    const candidateModels = this.getFallbackModels(requested);
+    const declarations = params.functionDeclarations || [];
+    const wantsThinking = params.thinkingEffort !== "off";
+    let lastError: any = null;
+
+    if (typeof (this.ai as any)?.models?.generateContentStream !== "function") {
+      throw new Error("Vertex AI Provider: generateContentStream is unavailable in this SDK build.");
+    }
+
+    for (const modelName of candidateModels) {
+      for (const withThinking of wantsThinking ? [true, false] : [false]) {
+        const config: any = {
+          temperature: params.temperature ?? 0.4,
+        };
+        if (params.maxOutputTokens) config.maxOutputTokens = params.maxOutputTokens;
+        if (params.systemInstruction) config.systemInstruction = params.systemInstruction;
+
+        if (declarations.length > 0) {
+          config.tools = [{ functionDeclarations: declarations }];
+          config.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
+        } else if (params.enableGoogleSearch) {
+          config.tools = [{ googleSearch: {} }];
+        }
+
+        if (withThinking) {
+          config.thinkingConfig = {
+            includeThoughts: true,
+            thinkingLevel:
+              THINKING_LEVEL_BY_EFFORT[(params.thinkingEffort || "balanced") as Exclude<ThinkingEffort, "off">] ||
+              "MEDIUM",
+          };
+        }
+
+        try {
+          if (modelName !== requested) callbacks.onModelFallback?.(modelName);
+          console.log(
+            `[Vertex Agent] ${modelName} (thoughts: ${withThinking}, tools: ${declarations.length})`
+          );
+
+          const stream = await this.ai.models.generateContentStream({
+            model: modelName,
+            contents: params.contents,
+            config,
+          });
+
+          let text = "";
+          let reasoning = "";
+          const functionCalls: AgentFunctionCall[] = [];
+          const modelParts: Part[] = [];
+          const searchQueries: string[] = [];
+          const sources: { title: string; url: string; snippet: string }[] = [];
+          let finishReason = "STOP";
+
+          for await (const chunk of stream) {
+            if (params.signal?.aborted) {
+              const abortErr: any = new Error("Generation cancelled by user");
+              abortErr.isCancelled = true;
+              throw abortErr;
+            }
+
+            for (const candidate of (chunk as any)?.candidates || []) {
+              if (candidate?.finishReason) finishReason = String(candidate.finishReason);
+
+              for (const part of (candidate?.content?.parts || []) as Part[]) {
+                modelParts.push(part);
+
+                if (part?.functionCall?.name) {
+                  const call: AgentFunctionCall = {
+                    id: part.functionCall.id,
+                    name: part.functionCall.name,
+                    args: (part.functionCall.args as Record<string, unknown>) || {},
+                  };
+                  functionCalls.push(call);
+                  callbacks.onFunctionCall?.(call);
+                  continue;
+                }
+
+                const partText = part?.text || "";
+                if (!partText) continue;
+                if (part?.thought === true) {
+                  reasoning += partText;
+                  callbacks.onThought?.(partText);
+                } else {
+                  text += partText;
+                  callbacks.onText?.(partText);
+                }
+              }
+
+              const grounding = candidate?.groundingMetadata;
+              if (grounding) {
+                if (Array.isArray(grounding.webSearchQueries)) {
+                  searchQueries.push(...grounding.webSearchQueries);
+                }
+                for (const gChunk of grounding.groundingChunks || []) {
+                  if (gChunk?.web) {
+                    sources.push({
+                      title: gChunk.web.title || "Web Source",
+                      url: gChunk.web.uri || gChunk.web.url || "",
+                      snippet: gChunk.web.snippet || "",
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          if (text.trim() || functionCalls.length > 0) {
+            return {
+              text,
+              reasoning,
+              functionCalls,
+              modelParts,
+              model: modelName,
+              thinkingUsed: withThinking && reasoning.length > 0,
+              finishReason,
+              searchQueries: Array.from(new Set(searchQueries)),
+              sources,
+            };
+          }
+
+          lastError = new Error(`${modelName} streamed neither text nor a tool call.`);
+        } catch (err: any) {
+          if (err?.isCancelled) throw err;
+          lastError = err;
+          const msg = (err?.message || "").toLowerCase();
+          const rejectedThinking =
+            withThinking &&
+            (msg.includes("thinking") ||
+              msg.includes("thought") ||
+              msg.includes("invalid_argument") ||
+              msg.includes("400"));
+
+          console.warn(
+            `[Vertex Agent] ❌ ${modelName} (thoughts: ${withThinking}) failed:`,
+            err?.message || err
+          );
+
+          if (rejectedThinking) continue; // retry same model, thinking off
+          if (this.isRateLimitOrTransientError(err)) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          break; // next candidate model
+        }
+      }
+    }
+
+    throw new Error(
+      `Vertex AI Provider Agent: ${lastError?.message || "no candidate model produced a response."}`
+    );
   }
 
   /**

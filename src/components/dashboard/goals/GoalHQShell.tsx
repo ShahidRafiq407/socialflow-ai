@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -53,6 +53,25 @@ const TABS: { key: GoalTabKey; label: string; icon: React.ReactNode }[] = [
   { key: "autopilot", label: "Autopilot", icon: <Zap className="w-3.5 h-3.5" /> },
 ];
 
+// Deep link from the chat controller: /dashboard/goals?view=<tab>. Aliases keep
+// older links (and the odd model paraphrase) landing on the right tab.
+const VIEW_ALIASES: Record<string, GoalTabKey> = {
+  strategy: "plan",
+  roadmap: "plan",
+  tasks: "today",
+  queue: "today",
+  automation: "autopilot",
+  setup: "goal",
+};
+
+function resolveGoalView(raw: string | null): GoalTabKey | null {
+  if (!raw) return null;
+  const value = raw.trim().toLowerCase();
+  const direct = TABS.find((t) => t.key === value);
+  if (direct) return direct.key;
+  return VIEW_ALIASES[value] || null;
+}
+
 export function GoalHQShell({ data }: { data: GoalHQData }) {
   const router = useRouter();
   const { toasts, push, dismiss } = useToasts();
@@ -60,6 +79,22 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
   const [tab, setTab] = useState<GoalTabKey>(data.needsSetup ? "goal" : "today");
   const [strategy, setStrategy] = useState<GrowthStrategy | null>(data.strategy);
   const [refreshing, startRefresh] = useTransition();
+
+  // A ?view= link opens straight on that tab, then the param is consumed so a
+  // later refresh does not drag the user back off whatever tab they moved to.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const target = resolveGoalView(params.get("view"));
+    if (!target) return;
+
+    setTab(target);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const refresh = () => {
     startRefresh(() => {

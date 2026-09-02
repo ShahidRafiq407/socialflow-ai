@@ -1,77 +1,88 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
-import { ChatInterface } from "@/components/dashboard/ChatInterface";
+import { DEFAULT_CHAT_SETTINGS, getChatSettings } from "@/lib/agents/controller/settings";
+import { listSessions, loadSessionMessages } from "@/lib/agents/controller/session";
+import { ChatWorkbench } from "@/components/chat/ChatWorkbench";
+import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
+import type { ChatSettings } from "@/lib/agents/controller/settings";
 
 export const dynamic = "force-dynamic";
 
-export default async function CEOChatPage() {
+/** Nothing on this page is worth a spinner-forever, so every query has a floor. */
+function withTimeout<T>(promise: Promise<T>, fallback: T, ms = 3000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]).catch(() => fallback);
+}
+
+export default async function AutomateTaskPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ session?: string }>;
+}) {
   const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
 
-  if (!userId) {
-    redirect("/sign-in");
-  }
+  const params = (await searchParams) || {};
 
-  const workspace = await Promise.race([
+  const workspace = await withTimeout(
     prisma.workspace.findFirst({
       where: { userId },
+      select: { id: true, name: true },
     }),
-    new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
-  ]).catch(() => null);
+    null
+  );
 
-  const workspaceId = workspace?.id || "default-workspace";
+  if (!workspace) {
+    return (
+      <div className="flex h-[calc(100vh-4.5rem)] items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <h1 className="text-[15px] font-semibold mkt-text">Workspace not ready</h1>
+          <p className="mt-2 text-[13px] leading-relaxed mkt-muted">
+            We could not load your workspace. Refresh the page — if it keeps happening, finish
+            onboarding first and the controller will have something to work with.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  // Load chat session and history in parallel with timeout guard
-  const [lastSession, sessions] = await Promise.all([
-    Promise.race([
-      prisma.chatSession.findFirst({
-        where: { workspaceId },
-        orderBy: { updatedAt: "desc" },
-        include: {
-          messages: {
-            orderBy: { createdAt: "asc" },
-            take: 50,
-          },
-        },
-      }),
-      new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
-    ]).catch(() => null),
-    Promise.race([
-      prisma.chatSession.findMany({
-        where: { workspaceId },
-        orderBy: { updatedAt: "desc" },
-        take: 20,
-        select: {
-          id: true,
-          title: true,
-          updatedAt: true,
-          _count: {
-            select: { messages: true },
-          },
-        },
-      }),
-      new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
-    ]).catch(() => []),
+  const [settings, sessions] = await Promise.all([
+    withTimeout<ChatSettings | null>(getChatSettings(workspace.id), null),
+    withTimeout<ChatSessionSummary[]>(listSessions(workspace.id, { limit: 40 }), []),
   ]);
 
-  const initialMessages = (lastSession?.messages || []).map((m: any) => ({
-    role: m.role === "USER" ? ("user" as const) : ("assistant" as const),
-    content: m.content,
-    toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : undefined,
-  }));
+  // Reopen whatever was last worked on — a pinned chat sorts first in the rail
+  // but "most recent" is what the user expects to land in.
+  const requested = params.session
+    ? sessions.find((s) => s.id === params.session)
+    : undefined;
+  const mostRecent = sessions.reduce<ChatSessionSummary | undefined>(
+    (latest, s) => (!latest || s.updatedAt > latest.updatedAt ? s : latest),
+    undefined
+  );
+  const target = requested || mostRecent;
+
+  let initialMessages: ChatMessage[] = [];
+  if (target) {
+    const loaded = await withTimeout(loadSessionMessages(workspace.id, target.id), {
+      session: null,
+      messages: [] as ChatMessage[],
+    });
+    initialMessages = loaded.messages;
+  }
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-4.5rem)]">
-      <ChatInterface
-        workspaceId={workspaceId}
-        initialSessionId={lastSession?.id || null}
+    <div className="h-[calc(100vh-4.5rem)] w-full">
+      <ChatWorkbench
+        workspaceId={workspace.id}
+        workspaceName={workspace.name || "your workspace"}
+        initialSessionId={target?.id || null}
         initialMessages={initialMessages}
-        initialSessionsList={(sessions || []).map((s: any) => ({
-          id: s.id,
-          title: s.title || "Untitled Chat",
-          updatedAt: s.updatedAt,
-          messageCount: s._count?.messages || 0,
-        }))}
+        initialSessions={sessions}
+        initialSettings={settings || DEFAULT_CHAT_SETTINGS}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { PostProps, PostCard } from "@/components/dashboard/PostCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -54,6 +54,38 @@ export function ContentBoardClient({
   const [activeTab, setActiveTab] = useState<StatusTab>("ALL");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+
+  // Deep link from the chat controller: /dashboard/content?focus=<postId>.
+  // Filters are reset so the post is definitely on screen, then it is scrolled
+  // to and ringed for a few seconds. The param is consumed once.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const target = new URLSearchParams(window.location.search).get("focus");
+    if (!target || !initialPosts.some((p) => p.id === target)) return;
+
+    setActiveTab("ALL");
+    setSelectedPlatform("ALL");
+    setSearch("");
+    setFocusedId(target);
+
+    const scroll = setTimeout(() => {
+      document
+        .getElementById(`post-${target}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    const unring = setTimeout(() => setFocusedId(null), 4200);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("focus");
+    window.history.replaceState({}, "", url.pathname + (url.search || ""));
+
+    return () => {
+      clearTimeout(scroll);
+      clearTimeout(unring);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const platforms: { id: string; label: string; icon: LucideIcon }[] = [
     { id: "ALL", label: "All", icon: Layers },
@@ -374,7 +406,17 @@ export function ContentBoardClient({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredPosts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <div
+              key={post.id}
+              id={`post-${post.id}`}
+              className={`rounded-2xl transition-all ${
+                focusedId === post.id
+                  ? "ring-2 ring-primary ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
+                  : ""
+              }`}
+            >
+              <PostCard post={post} />
+            </div>
           ))}
         </div>
       )}

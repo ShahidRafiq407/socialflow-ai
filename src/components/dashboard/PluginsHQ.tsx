@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition } from "react";
 import {
   Plug,
   Globe,
@@ -55,6 +55,20 @@ interface PluginsHQProps {
   mcpServers: McpServerView[];
 }
 
+// Deep link from the chat controller: /dashboard/plugins?connector=<key>.
+// WordPress lives outside CONNECTOR_REGISTRY, so it gets its own alias set.
+const WORDPRESS_ALIASES = new Set(["wordpress", "wp", "wordpress-pro", "wpsite"]);
+
+function normalizeConnectorKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const value = raw.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (!value) return null;
+  if (WORDPRESS_ALIASES.has(value)) return "wordpress";
+  if (CONNECTOR_REGISTRY.some((c) => c.key === value)) return value;
+  const byName = CONNECTOR_REGISTRY.find((c) => c.name.toLowerCase().replace(/[\s_]+/g, "-") === value);
+  return byName?.key || null;
+}
+
 export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers }: PluginsHQProps) {
   const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
@@ -65,6 +79,7 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
   const [showWpModal, setShowWpModal] = useState(false);
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
   const [showAddMcpModal, setShowAddMcpModal] = useState(false);
+  const [focusedConnector, setFocusedConnector] = useState<string | null>(null);
 
   // Live Google News Trend & Competitor Spy State
   const [spyMode, setSpyMode] = useState<"trend" | "competitor">("trend");
@@ -76,7 +91,54 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
   const [copiedTrendId, setCopiedTrendId] = useState<string | null>(null);
 
   const getConnection = (key: string) => connectionsState.find((c) => c.providerKey === key);
+
+  // A ?connector= link lands on the connectors tab with that card scrolled to and
+  // ringed. If it is not connected yet the connect dialog opens too — that link
+  // only exists because something still needs connecting. The param is consumed.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = normalizeConnectorKey(new URLSearchParams(window.location.search).get("connector"));
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("connector")) {
+      url.searchParams.delete("connector");
+      window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    }
+    if (!key) return;
+
+    setActiveTab("connectors");
+    setFocusedConnector(key);
+
+    const connected =
+      key === "wordpress"
+        ? wpSite.connected
+        : connections.find((c) => c.providerKey === key)?.status === "connected";
+
+    const scroll = setTimeout(() => {
+      document
+        .getElementById(`connector-${key}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+
+    const open = connected
+      ? undefined
+      : setTimeout(() => {
+          if (key === "wordpress") setShowWpModal(true);
+          else setActiveConnectorKey(key);
+        }, 620);
+
+    const unring = setTimeout(() => setFocusedConnector(null), 4200);
+
+    return () => {
+      clearTimeout(scroll);
+      if (open) clearTimeout(open);
+      clearTimeout(unring);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const updateConnection = (key: string, view: ConnectorView | undefined) => {
+
     setConnectionsState((prev) => {
       const rest = prev.filter((c) => c.providerKey !== key);
       if (!view) return rest;
@@ -228,7 +290,14 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* WordPress Card — real state */}
-            <div className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all">
+            <div
+              id="connector-wordpress"
+              className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all ${
+                focusedConnector === "wordpress"
+                  ? "border-indigo-500 ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
+                  : "border-slate-200 dark:border-slate-800"
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
@@ -279,7 +348,12 @@ export default function PluginsHQ({ workspaceId, wpSite, connections, mcpServers
               return (
                 <div
                   key={connector.key}
-                  className="relative rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all"
+                  id={`connector-${connector.key}`}
+                  className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all ${
+                    focusedConnector === connector.key
+                      ? "border-indigo-500 ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
