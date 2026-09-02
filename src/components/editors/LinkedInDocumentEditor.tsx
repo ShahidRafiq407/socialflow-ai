@@ -382,7 +382,7 @@ export default function LinkedInDocumentEditor({
       {/* PAGE PREVIEW (LEFT) + POST COPY & ONE-CLICK GENERATE (RIGHT) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT: THE GENERATED PAGE AT FULL PUBLISH SIZE */}
-        <div className="xl:col-span-7 space-y-3.5">
+        <div className="xl:col-span-5 space-y-3.5">
           <div
             className="relative w-full mx-auto rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center overflow-hidden shadow-2xs"
             style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
@@ -523,7 +523,7 @@ export default function LinkedInDocumentEditor({
         </div>
 
         {/* RIGHT: DOCUMENT TITLE, FEED COPY AND THE ONE ACTION THAT BUILDS THE POST */}
-        <div className="xl:col-span-5 space-y-3">
+        <div className="xl:col-span-7 space-y-3">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
@@ -567,7 +567,7 @@ export default function LinkedInDocumentEditor({
               value={commentary}
               onChange={(e) => onCommentaryChange(e.target.value)}
               placeholder="Share your executive perspective and introduce the document attached below..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed min-h-44"
             />
             {onAIRefine && (
               <CaptionRefineActions

@@ -340,7 +340,7 @@ export default function MultiMediaEditor({
           informational graphics with copy typeset into them — a 220px thumbnail made
           that text unreadable, so good media looked broken.
         */}
-        <div className="xl:col-span-7 space-y-3.5">
+        <div className="xl:col-span-5 space-y-3.5">
           <div
             className="relative w-full rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs mx-auto"
             style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
@@ -399,7 +399,7 @@ export default function MultiMediaEditor({
         </div>
 
         {/* POST COPY — caption, hashtags and the one action that builds the whole post */}
-        <div className="xl:col-span-5 space-y-3">
+        <div className="xl:col-span-7 space-y-3">
           {isThreadFormat && (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
@@ -430,7 +430,7 @@ export default function MultiMediaEditor({
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
               placeholder="Write your post caption..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed min-h-44"
             />
             {onAIRefine && (
               <CaptionRefineActions

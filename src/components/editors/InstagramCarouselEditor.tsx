@@ -336,7 +336,7 @@ export default function InstagramCarouselEditor({
       {/* ACTIVE SLIDE PREVIEW (LEFT) + POST COPY & ONE-CLICK GENERATE (RIGHT) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* LEFT COLUMN: ACTIVE SLIDE VISUAL AT FULL PUBLISH SIZE */}
-        <div className="xl:col-span-7 space-y-3.5">
+        <div className="xl:col-span-5 space-y-3.5">
           <div
             className="relative w-full mx-auto rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-2 flex flex-col items-center justify-center overflow-hidden group shadow-2xs"
             style={{ aspectRatio: previewFrame.aspectRatio, maxWidth: previewFrame.maxWidth }}
@@ -450,7 +450,7 @@ export default function InstagramCarouselEditor({
         </div>
 
         {/* RIGHT COLUMN: SHARED POST COPY + THE ONE ACTION THAT BUILDS THE WHOLE POST */}
-        <div className="xl:col-span-5 space-y-3">
+        <div className="xl:col-span-7 space-y-3">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -463,7 +463,7 @@ export default function InstagramCarouselEditor({
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
               placeholder="Write your comprehensive carousel caption, breakdown, and call to action..."
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed min-h-44"
             />
             {onAIRefine && (
               <CaptionRefineActions
