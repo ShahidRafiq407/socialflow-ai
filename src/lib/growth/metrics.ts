@@ -6,6 +6,7 @@ import {
   TrackingStatus,
 } from "@/lib/types/growth";
 import { buildShortUrl, buildTagSnippet } from "@/lib/growth/ctaLinks";
+import type { ClickBucket } from "@/lib/growth/learning";
 
 /**
  * Everything in this file is COUNTED, never estimated. If a number cannot be
@@ -345,6 +346,45 @@ export async function getAttribution(workspaceId: string): Promise<{
   } catch (error) {
     console.warn("[getAttribution] empty:", error);
     return { byPlatform: [], byPillar: [], byChannel: [] };
+  }
+}
+
+/**
+ * Click counts bucketed by (platform, local hour, local day-of-week) so the
+ * learning layer can derive when THIS workspace's audience actually clicks.
+ * Hour/day come from the server-local clock — the same basis the scheduler
+ * uses to place posts — so a learned window lines up with how it's published.
+ * Capped at the most recent 5,000 clicks to stay cheap.
+ */
+export async function getClickTimingBuckets(
+  workspaceId: string,
+  sinceDays = 90
+): Promise<ClickBucket[]> {
+  try {
+    const since = new Date(Date.now() - sinceDays * 86400000);
+    const rows = await (prisma as any).linkClick.findMany({
+      where: { workspaceId, createdAt: { gte: since } },
+      select: { platform: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    });
+
+    const map = new Map<string, ClickBucket>();
+    for (const r of rows as any[]) {
+      const platform = String(r.platform || "").toLowerCase();
+      if (!platform) continue;
+      const d = new Date(r.createdAt);
+      const hour = d.getHours();
+      const dayOfWeek = d.getDay();
+      const k = `${platform}|${hour}|${dayOfWeek}`;
+      const cur = map.get(k);
+      if (cur) cur.count += 1;
+      else map.set(k, { platform, hour, dayOfWeek, count: 1 });
+    }
+    return Array.from(map.values());
+  } catch (error) {
+    console.warn("[getClickTimingBuckets] empty:", error);
+    return [];
   }
 }
 

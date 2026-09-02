@@ -3,7 +3,21 @@ import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { PLATFORM_CAPABILITIES } from "@/lib/capabilities/platformCapabilities";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { getBestTimeSpec } from "@/lib/bestPublishTime";
-import { getGrowthMetrics, GrowthMetrics } from "@/lib/growth/metrics";
+import {
+  getGrowthMetrics,
+  getAttribution,
+  getPublishHistory,
+  getClickTimingBuckets,
+  GrowthMetrics,
+} from "@/lib/growth/metrics";
+import {
+  learnAllBestTimes,
+  pillarPerformanceBlock,
+  historicalWinnersBlock,
+  closeMeasuredExperiments,
+  rankPillars,
+  type LearnedTiming,
+} from "@/lib/growth/learning";
 import { LINK_PLACEHOLDER, isCaptionLinkClickable } from "@/lib/growth/ctaLinks";
 
 import {
@@ -401,7 +415,7 @@ export async function generateGrowthStrategy(
   // ── STAGE 1: read everything we know about the business (parallel) ─────────
   onProgress?.("Reading Brand DNA, connected accounts and measured results...", "running");
 
-  const [workspace, metrics] = await Promise.all([
+  const [workspace, metrics, attribution, publishHistory, timingBuckets] = await Promise.all([
     prisma.workspace
       .findUnique({
         where: { id: workspaceId },
@@ -413,9 +427,34 @@ export async function generateGrowthStrategy(
       })
       .catch(() => null),
     getGrowthMetrics(workspaceId, new Date(Date.now() - 90 * 86400000)),
+    getAttribution(workspaceId).catch(() => ({ byPlatform: [], byPillar: [], byChannel: [] })),
+    getPublishHistory(workspaceId, { status: "PUBLISHED", limit: 100 }).catch(() => []),
+    getClickTimingBuckets(workspaceId).catch(() => []),
   ]);
 
   abortIfCancelled(signal);
+
+  // ── learn from the workspace's own tracked data (honest, may be empty) ─────
+  // Timing: real click windows per platform, falling back to the industry table
+  // for any platform without enough of its own clicks yet.
+  const timingByPlatform: Map<string, LearnedTiming> = learnAllBestTimes(
+    targetPlatforms.map((p) => p.toLowerCase()),
+    timingBuckets
+  );
+  const bestSpecFor = (platformKey: string) =>
+    timingByPlatform.get(platformKey.toLowerCase())?.spec || getBestTimeSpec(platformKey);
+
+  // Pillar performance + past winners as prompt signal ("" when no real data).
+  const pillarBlock = pillarPerformanceBlock(attribution.byPillar);
+  const historyBlock = historicalWinnersBlock(publishHistory);
+  const rankedPillars = rankPillars(attribution.byPillar);
+  const topPillar = rankedPillars.length ? rankedPillars[0] : null;
+  if (timingByPlatform.size > 0) {
+    onProgress?.(
+      `Learned posting windows from your own clicks for ${timingByPlatform.size} platform${timingByPlatform.size === 1 ? "" : "s"}.`,
+      "info"
+    );
+  }
 
   const brand = buildBrandContext(workspace);
   const connectedPlatforms = (workspace?.socialAccounts || []).map((a: any) =>
@@ -610,7 +649,7 @@ Return between ${Math.max(2, input.articlesPerWeek || 2)} and 8 keywords.`,
     .map((pl) => {
       const key = pl.toLowerCase();
       const { formats } = platformFormats(key);
-      const spec = getBestTimeSpec(key);
+      const spec = bestSpecFor(key);
       return `- ${pl}: formats [${(formats.length ? formats : ["Feed"]).join(", ")}], best window ${spec.label} (${spec.reason}), caption link clickable: ${isCaptionLinkClickable(key) ? "yes" : "no (bio link only)"}, connected: ${connectedPlatforms.includes(key) ? "yes" : "no"}`;
     })
     .join("\n");
@@ -634,7 +673,7 @@ ${goalBlock}
 
 ${researchBlock || "(no external research available — use the business details only)"}
 
-AVAILABLE CHANNELS:
+${pillarBlock ? `${pillarBlock}\n\n` : ""}${historyBlock ? `${historyBlock}\n\n` : ""}AVAILABLE CHANNELS:
 ${capabilityBlock}
 
 Rules:
@@ -735,7 +774,7 @@ ${brandBlock(brand)}
 ${goalBlock}
 
 MEASURED SO FAR (last 90 days): ${metrics.lifetimePosts} items published, ${metrics.lifetimeClicks} tracked link clicks, ${metrics.lifetimeLeads} confirmed leads.
-${researchBlock || ""}
+${pillarBlock ? `${pillarBlock}\n` : ""}${researchBlock || ""}
 
 Rules:
 - If a number is not in the data above, do NOT state a number. Say what will be measured instead.
@@ -782,7 +821,7 @@ Return JSON only:
       generatedPlatforms.find((g: any) => String(g?.platform || "").toLowerCase() === key) || {};
     const isConnected = connectedPlatforms.includes(key);
     const { formats, mediaTypes } = platformFormats(key);
-    const spec = getBestTimeSpec(key);
+    const spec = bestSpecFor(key);
 
     const postsPerWeek = Math.max(
       1,
@@ -861,7 +900,7 @@ ${platformStrategies
 
 ${researchBlock || ""}
 
-Rules:
+${historyBlock ? `${historyBlock}\n\n` : ""}Rules:
 - dayOffset 0 = today, up to 6.
 - Total tasks must match the channel budget (about ${funnel.requiredPostsPerWeek} for the week).
 - Use only the listed platforms, and only formats listed for that platform.
@@ -889,7 +928,7 @@ Return JSON only:
             schedulablePlatforms[i % schedulablePlatforms.length];
           const offset = Math.max(0, Math.min(6, Number(t.dayOffset) || 0));
           const date = new Date(now + offset * 86400000);
-          const spec = getBestTimeSpec(platform.toLowerCase());
+          const spec = bestSpecFor(platform.toLowerCase());
           date.setHours(spec.hour, spec.minute, 0, 0);
           const pillar = contentPillars.find(
             (p) => p.name.toLowerCase() === String(t.pillarName || "").toLowerCase()
@@ -1010,6 +1049,14 @@ Return JSON only:
       sampleSize: 0,
     }));
 
+  // Settle the experiments we can actually measure from data already in hand:
+  // POSTING_TIME from the learned click windows, PILLAR from attribution. The
+  // rest stay PLANNED — no per-variant tracking exists to fake an outcome from.
+  const closedExperiments = closeMeasuredExperiments(experiments, {
+    timingByPlatform,
+    topPillar,
+  });
+
   const learningInsights = safeArray<any>((intel as any).insights)
     .filter((l) => l?.observation)
     .slice(0, 6)
@@ -1051,7 +1098,7 @@ Return JSON only:
     weeklyPlan,
     decisions,
     recommendations,
-    experiments,
+    experiments: closedExperiments,
     learningInsights,
     warnings: warnings.length ? warnings : undefined,
     needsDestinationFor: needsDestinationFor.length ? needsDestinationFor : undefined,

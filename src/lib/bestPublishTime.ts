@@ -41,7 +41,7 @@ export interface PlatformTimeEntry {
   source: BestTimeSource;
 }
 
-function formatLabel(hour: number, minute: number): string {
+export function formatLabel(hour: number, minute: number): string {
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
   const ampm = hour < 12 ? "AM" : "PM";
   return `${h12}:${minute.toString().padStart(2, "0")} ${ampm}`;

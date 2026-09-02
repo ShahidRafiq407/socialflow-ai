@@ -3,6 +3,8 @@ import prisma from "@/lib/db";
 import { acquireNamedLock, releaseNamedLock, scheduleEnqueue } from "@/lib/redis";
 import { publishDuePosts, purgePublishedPosts } from "@/lib/publishing/dispatch";
 import { getBestTimeSpec, getNextBestTimeFromSpec } from "@/lib/bestPublishTime";
+import { getClickTimingBuckets } from "@/lib/growth/metrics";
+import { learnBestTime } from "@/lib/growth/learning";
 import { generateGrowthStrategy } from "@/lib/agents/growthEngine";
 import { GrowthPlanTask, GrowthStrategy, LeadSource } from "@/lib/types/growth";
 import { normalizePlatformToEnum } from "@/lib/publishers";
@@ -217,9 +219,13 @@ export async function GET(request: Request) {
 
           // ── Grace window: nothing autopilot creates may go live instantly.
           const graceMs = Math.max(0, Number(goal.graceMinutes ?? 15)) * 60 * 1000;
+          // Learn posting windows from this workspace's own clicks, once for the
+          // batch; each platform without enough data falls back to the table.
+          const timingBuckets = await getClickTimingBuckets(goal.workspaceId).catch(() => []);
           for (const r of socialResults as any[]) {
             if (!r?.success || !r.postId) continue;
-            const spec = getBestTimeSpec(String(r.platform || "").toLowerCase());
+            const platformKey = String(r.platform || "").toLowerCase();
+            const spec = learnBestTime(platformKey, timingBuckets)?.spec || getBestTimeSpec(platformKey);
             const best = getNextBestTimeFromSpec(spec, now);
             const earliest = new Date(now.getTime() + graceMs);
             const when = best.getTime() > earliest.getTime() ? best : earliest;
