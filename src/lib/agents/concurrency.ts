@@ -12,6 +12,24 @@
 
 export type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
 
+/**
+ * Waits, but gives up the moment the campaign is cancelled. Every wait in the
+ * pipeline — slide spacing, retry backoff, quota window — has to be interruptible,
+ * or pressing Stop leaves the run sleeping for another minute before it notices.
+ */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
 export function createLimiter(concurrency: number): Limiter {
   const max = Math.max(1, Math.floor(concurrency) || 1);
   let active = 0;

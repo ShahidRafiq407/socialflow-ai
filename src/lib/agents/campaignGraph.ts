@@ -12,6 +12,8 @@ import {
   describeMembers,
   countVisualTargets,
   memberKey,
+  retagAssetForMember,
+  dedupeAttachments,
   type FormatFamily,
 } from "@/lib/agents/formatFamilies";
 import { createThoughtEmitter } from "@/lib/agents/thoughtStream";
@@ -399,8 +401,34 @@ export async function runCampaignGraph(
   const completeScope = (agentId: string, scope: string) =>
     emit({ type: "agent_scope_completed", agentId, data: { scope } });
 
-  const startPhase = (phase: string, label: string, agents: string[], parallel: boolean) =>
-    emit({ type: "phase_started", agentId: "system", data: { phase, label, agents, parallel } });
+  /**
+   * Opens a phase and says how its agents relate to each other.
+   *
+   * `"sequential"` — one agent, or several that strictly follow one another.
+   * `"parallel"`   — independent agents genuinely running side by side (research:
+   *                  the trend researcher and the competitor analyst never wait for
+   *                  each other and could finish in either order).
+   * `"pipeline"`   — both agents are live at once, but one FEEDS the other. Content
+   *                  production is this: the visualizer cannot render a family until
+   *                  the content creator has written that family's brief. It overlaps
+   *                  because family B's copy is written while family A renders — not
+   *                  because the two agents are independent. Calling that "parallel"
+   *                  overstated it, and the console showed the visualizer as running
+   *                  while it was in fact waiting for its first prompt.
+   *
+   * `parallel` stays on the wire beside `mode` for any client that only knows the flag.
+   */
+  const startPhase = (
+    phase: string,
+    label: string,
+    agents: string[],
+    mode: "sequential" | "parallel" | "pipeline"
+  ) =>
+    emit({
+      type: "phase_started",
+      agentId: "system",
+      data: { phase, label, agents, mode, parallel: mode !== "sequential" },
+    });
   const completePhase = (phase: string) =>
     emit({ type: "phase_completed", agentId: "system", data: { phase } });
 
@@ -408,7 +436,7 @@ export async function runCampaignGraph(
   // PHASE 1 — BRAND ANALYST (workspace database)
   // =========================================================================
   checkCancelled();
-  startPhase("foundation", "Brand foundation", ["brand_analyst"], false);
+  startPhase("foundation", "Brand foundation", ["brand_analyst"], "sequential");
 
   const shouldRunBrand = !state.brandData || input.resumeFromAgent === "brand_analyst";
 
@@ -513,7 +541,7 @@ export async function runCampaignGraph(
   // the phase costs max(trend, competitor) instead of the sum.
   // =========================================================================
   checkCancelled();
-  startPhase("research", "Market research", ["trend_researcher", "competitor_analyst"], true);
+  startPhase("research", "Market research", ["trend_researcher", "competitor_analyst"], "parallel");
 
   // Halt propagation: when one research agent fails (or the run is cancelled), the
   // sibling stops at its next checkpoint instead of continuing orphaned Vertex/DB
@@ -936,15 +964,22 @@ Return strictly JSON:
   completePhase("research");
 
   // =========================================================================
-  // PHASE 3 — CONTENT CREATOR ∥ VISUALIZER, pipelined over format families
+  // PHASE 3 — CONTENT CREATOR: one shared creative per format family
   //
   // Families are the unit of work: every (platform, format) target that needs the
-  // same artefact shares ONE creative and ONE render. As soon as a family's copy is
-  // written its media starts rendering, while the next family is still being written
-  // — so copy and media genuinely overlap instead of running as two blocking stages.
+  // same artefact shares ONE creative and ONE render.
+  //
+  // This used to be a single "Content production" phase with the content creator and
+  // the visualizer listed as parallel agents, pipelined so a family's render began the
+  // moment its copy landed. That reads as parallelism but misdescribes the graph: the
+  // visualizer cannot touch a family until the content creator has handed it that
+  // family's visual prompt, so the dependency is real and one-directional. The two are
+  // now separate stages — all copy, then all renders — and the parallelism lives INSIDE
+  // each stage, where it is genuine: several families written at once, then several
+  // families rendered at once.
   // =========================================================================
   checkCancelled();
-  startPhase("production", "Content production", ["content_creator", "visualizer"], true);
+  startPhase("copy", "Content writing", ["content_creator"], "parallel");
 
   const families = computeFormatFamilies(platforms, contentTypes, { deckSlides: DEFAULT_DECK_SLIDES });
   const visualFamilies = families.filter((f) => f.visualRequired);
@@ -963,7 +998,6 @@ Return strictly JSON:
     );
 
   emit({ type: "agent_started", agentId: "content_creator" });
-  emit({ type: "agent_started", agentId: "visualizer" });
 
   const totalTargets = families.reduce((acc, f) => acc + f.members.length, 0);
   emit({
@@ -972,20 +1006,6 @@ Return strictly JSON:
     data: {
       label: `${totalTargets} post(s) across ${platforms.length} platform(s) grouped into ${families.length} production famil${families.length === 1 ? "y" : "ies"}`,
       detail: families.map((f) => `${f.label}: ${describeMembers(f)}`).join(" • "),
-    },
-  });
-  emit({
-    type: "agent_action",
-    agentId: "visualizer",
-    data: {
-      label:
-        visualFamilies.length === 0
-          ? "No media required — every requested format publishes as text only"
-          : `${visualFamilies.length} shared render(s) will cover ${visualTargets} post(s)` +
-            (visualTargets > visualFamilies.length
-              ? ` — ${visualTargets - visualFamilies.length} duplicate generation(s) avoided`
-              : ""),
-      detail: visualFamilies.map((f) => `${f.label} → ${describeMembers(f)}`).join(" • "),
     },
   });
 
@@ -997,14 +1017,17 @@ Return strictly JSON:
   // Copy families DO overlap: several text families at once are different prompts on the
   // text model, whose per-minute allowance comfortably covers a handful of requests.
   //
-  // Media families DO NOT overlap by default. Every render — still, deck slide or video —
-  // queues on the SINGLE image/video model, so two families in flight only compete for
-  // the same quota window and answer with 429s, which the render then has to spend its
-  // retries absorbing. Serialising them costs little (copy for the next family is being
-  // written meanwhile) and is what makes the renders actually land. Raise it only on a
-  // project whose image quota is genuinely higher.
-  const copyLimiter = createLimiter(envConcurrency("CAMPAIGN_COPY_CONCURRENCY", 3));
-  const mediaLimiter = createLimiter(envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 1));
+  // Media families now overlap too — this is the render-side parallelism that actually
+  // saves wall-clock, because each platform's asset is a separate request to the image
+  // model. It was pinned to 1 while a burst of renders could manufacture its own 429s;
+  // `getModelRatePacer` in mediaGenerator now holds every request behind ONE shared
+  // per-minute window for the model, so several families in flight queue politely
+  // instead of racing each other into a quota wall. Lower it to 1 on a project with a
+  // very small image quota, raise it where the quota is generous.
+  const copyConcurrency = envConcurrency("CAMPAIGN_COPY_CONCURRENCY", 3);
+  const mediaConcurrency = envConcurrency("CAMPAIGN_MEDIA_CONCURRENCY", 3);
+  const copyLimiter = createLimiter(copyConcurrency);
+  const mediaLimiter = createLimiter(mediaConcurrency);
 
   let productionHalted = false;
   const checkProductionRunnable = () => {
@@ -1447,6 +1470,15 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   };
 
   /** One render for the whole family, then attached to every member. */
+  /**
+   * Every asset row already recorded, as platform|format|slide|url. Members of a family
+   * share ONE render, so the same url is legitimately attached to several platforms —
+   * but the same url must never be attached to the same target twice. Without this, a
+   * resumed run or a retried family would stack a second copy of every slide and the
+   * studio would show the deck twice.
+   */
+  const attachedAssetKeys = new Set<string>();
+
   const renderFamilyMedia = async (family: FormatFamily) => {
     checkProductionRunnable();
 
@@ -1493,12 +1525,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
 
     for (const m of family.members) {
       checkCancelled();
-      const retagged = assets.map((a) => ({
-        ...a,
-        platform: m.platform,
-        contentType: m.contentType,
-        requestedAspectRatio: m.aspectRatio,
-      }));
+      const retagged = assets.map((a) => retagAssetForMember(a, m));
 
       const target = state.generatedContent!.platforms[m.platform]?.[m.contentType] as any;
       if (target) {
@@ -1509,7 +1536,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
           if (retagged.length > 1) target.slideUrls = retagged.map((a) => a.url);
         }
       }
-      state.generatedAssets!.push(...retagged);
+      state.generatedAssets!.push(...dedupeAttachments(retagged, attachedAssetKeys));
 
       emit({
         type: "agent_action",
@@ -1529,7 +1556,55 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     completeScope("visualizer", family.label);
   };
 
-  const familyOutcomes = await Promise.allSettled(
+  /**
+   * Turns one stage's settled outcomes into the reporting the single pipelined pass
+   * used to do inline: a cancellation wins outright, a silent halt (raised only because
+   * a sibling family had already failed) is never reported as the cause, and the real
+   * failure carries the family that caused it so the console reds out that unit of work
+   * instead of every line the agent had open.
+   */
+  const reportStageFailure = (
+    outcomes: PromiseSettledResult<unknown>[],
+    stageAgentId: "content_creator" | "visualizer"
+  ) => {
+    const failures = outcomes
+      .filter((o): o is PromiseRejectedResult => o.status === "rejected")
+      .map((o) => o.reason);
+
+    const cancellation = failures.find((f) => f?.isCancelled);
+    if (cancellation) throw cancellation;
+
+    const realFailure = failures.find((f) => !f?.isSilentHalt);
+    if (!realFailure) return;
+
+    const agentId = realFailure.agentId === "content_creator" ? "content_creator" : stageAgentId;
+    const errorCode =
+      realFailure.code ||
+      (agentId === "visualizer" ? "VISUALIZER_PROVIDER_ERROR" : "CONTENT_GENERATION_FAILED");
+    const message = realFailure.message || "Production failed";
+
+    state.errors?.push(`[${errorCode}] ${message}`);
+    console.error(`[${agentId}] Production failure:`, realFailure);
+
+    emit({
+      type: "agent_error",
+      agentId,
+      data: {
+        agent: agentId,
+        status: "failed",
+        errorCode,
+        message,
+        // The failing family, so the console reds out that unit of work only.
+        scope: realFailure.scope,
+        provider: "google_vertex",
+        model: agentId === "visualizer" ? MODELS.VISUALIZER : MODELS.CONTENT_CREATOR,
+        retryable: true,
+      },
+    });
+    throw realFailure;
+  };
+
+  const copyOutcomes = await Promise.allSettled(
     families.map(async (family, index) => {
       try {
         if (contentRestored) {
@@ -1557,26 +1632,6 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
           markCopyDone(family);
           completeScope("content_creator", family.label);
         }
-
-        if (!family.visualRequired) {
-          emit({
-            type: "agent_action",
-            agentId: "visualizer",
-            data: {
-              label: `Skipped ${describeMembers(family)} — text-only format, no media to generate`,
-              scope: family.label,
-            },
-          });
-          completeScope("visualizer", family.label);
-          return;
-        }
-
-        try {
-          await mediaLimiter(() => renderFamilyMedia(family));
-        } catch (mediaErr: any) {
-          if (!mediaErr?.isSilentHalt && !mediaErr?.isCancelled) mediaErr.agentId = "visualizer";
-          throw mediaErr;
-        }
       } catch (err: any) {
         if (!err?.isSilentHalt) productionHalted = true;
         // Record WHICH family failed. Without it the console marked every in-flight line
@@ -1588,56 +1643,142 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     })
   );
 
-  const failures = familyOutcomes
-    .filter((o): o is PromiseRejectedResult => o.status === "rejected")
-    .map((o) => o.reason);
-
-  const cancellation = failures.find((f) => f?.isCancelled);
-  if (cancellation) throw cancellation;
-
-  const realFailure = failures.find((f) => !f?.isSilentHalt);
-  if (realFailure) {
-    const agentId = realFailure.agentId === "content_creator" ? "content_creator" : "visualizer";
-    const errorCode = realFailure.code || (agentId === "visualizer" ? "VISUALIZER_PROVIDER_ERROR" : "CONTENT_GENERATION_FAILED");
-    const message = realFailure.message || "Production failed";
-
-    state.errors?.push(`[${errorCode}] ${message}`);
-    console.error(`[${agentId}] Production failure:`, realFailure);
-
-    emit({
-      type: "agent_error",
-      agentId,
-      data: {
-        agent: agentId,
-        status: "failed",
-        errorCode,
-        message,
-        // The failing family, so the console reds out that unit of work only.
-        scope: realFailure.scope,
-        provider: "google_vertex",
-        model: agentId === "visualizer" ? MODELS.VISUALIZER : MODELS.CONTENT_CREATOR,
-        retryable: true,
-      },
-    });
-    throw realFailure;
-  }
+  reportStageFailure(copyOutcomes, "content_creator");
 
   if (!contentCompleted) {
     contentCompleted = true;
     emit({ type: "output_ready", agentId: "content_creator", data: state.generatedContent });
     emit({ type: "agent_completed", agentId: "content_creator" });
   }
+  completePhase("copy");
+
+  // =========================================================================
+  // PHASE 3b — VISUALIZER: every family's media rendered side by side
+  //
+  // This is the stage multi-format campaigns used to die in. ONE platform with ONE
+  // format worked because there was a single render to make. Ask for several formats
+  // and the renders raced each other into the image model's per-minute window; the
+  // first 429 failed its family, that failure set `productionHalted`, and the halt
+  // cancelled every sibling and threw the whole campaign away. Multi-format was not
+  // "slower" — it was structurally unable to finish.
+  //
+  // Two things change that:
+  //   1. Requests are paced against ONE shared per-minute window per model (the rate
+  //      pacer in mediaGenerator), so families running side by side queue politely
+  //      instead of manufacturing the 429 they then have to absorb.
+  //   2. A render failure is LOCAL to its family. That family publishes as text-only
+  //      and every other family keeps its media, because a missing image is a degraded
+  //      post, not a dead campaign.
+  //
+  // Families are also why nothing is rendered twice: `computeFormatFamilies` maps each
+  // (platform, format) target to exactly one family, and one render is retagged for
+  // every member of it — so a 9:16 video covers the Reel, the TikTok and the Short
+  // from a single generation, and the members stay in sync by construction.
+  // =========================================================================
+  checkCancelled();
+  startPhase("render", "Media production", ["visualizer"], "parallel");
+  emit({ type: "agent_started", agentId: "visualizer" });
+  emit({
+    type: "agent_action",
+    agentId: "visualizer",
+    data: {
+      label:
+        visualFamilies.length === 0
+          ? "No media required — every requested format publishes as text only"
+          : `${visualFamilies.length} shared render(s) will cover ${visualTargets} post(s)` +
+            (visualTargets > visualFamilies.length
+              ? ` — ${visualTargets - visualFamilies.length} duplicate generation(s) avoided`
+              : "") +
+            `, up to ${Math.min(mediaConcurrency, visualFamilies.length)} at a time`,
+      detail: visualFamilies.map((f) => `${f.label} → ${describeMembers(f)}`).join(" • "),
+    },
+  });
+
+  // Text-only families are closed out up front rather than inside the fan-out: there
+  // is nothing to render, nothing to wait for and nothing that can fail.
+  for (const family of families.filter((f) => !f.visualRequired)) {
+    emit({
+      type: "agent_action",
+      agentId: "visualizer",
+      data: {
+        label: `Skipped ${describeMembers(family)} — text-only format, no media to generate`,
+        scope: family.label,
+      },
+    });
+    completeScope("visualizer", family.label);
+  }
+
+  /** Families whose render failed, so the summary can name the posts going out bare. */
+  const renderFailures: { label: string; message: string }[] = [];
+
+  const renderOutcomes = await Promise.allSettled(
+    visualFamilies.map((family) =>
+      mediaLimiter(() => renderFamilyMedia(family)).catch((mediaErr: any) => {
+        if (mediaErr?.isCancelled) throw mediaErr;
+        // Deliberately not re-thrown, and deliberately NOT setting productionHalted:
+        // one family hitting a quota wall must not take its siblings — or the copy
+        // that is already written — down with it.
+        const message = mediaErr?.message || "Media generation failed";
+        renderFailures.push({ label: family.label, message });
+        state.errors?.push(`[VISUALIZER_PROVIDER_ERROR] ${family.label}: ${message}`);
+        console.error(`[visualizer] ${family.label} render failed:`, mediaErr);
+        emit({
+          type: "agent_action",
+          agentId: "visualizer",
+          data: {
+            label: `${describeMembers(family)} will publish without media — ${message}`,
+            scope: family.label,
+            severity: "warning",
+          },
+        });
+        completeScope("visualizer", family.label);
+      })
+    )
+  );
+
+  // Only a cancellation can still end the run here; every render failure was absorbed.
+  reportStageFailure(renderOutcomes, "visualizer");
+
+  const renderedFamilies = visualFamilies.length - renderFailures.length;
+  const allRendersFailed = visualFamilies.length > 0 && renderedFamilies === 0;
 
   emit({ type: "output_ready", agentId: "visualizer", data: { generatedAssets: state.generatedAssets } });
-  emitProgress("visualizer", 100, "completed", "Media generation complete", "completed");
-  emit({ type: "agent_completed", agentId: "visualizer" });
-  completePhase("production");
+  emitProgress(
+    "visualizer",
+    100,
+    "completed",
+    renderFailures.length === 0
+      ? "Media generation complete"
+      : `${renderedFamilies}/${visualFamilies.length} format(s) rendered — ${renderFailures.length} publishing without media`,
+    "completed"
+  );
+
+  if (allRendersFailed) {
+    // Nothing rendered at all. The copy is still worth delivering, so the campaign goes
+    // on to the audit — but the visualizer is reported as failed, because it did fail.
+    emit({
+      type: "agent_error",
+      agentId: "visualizer",
+      data: {
+        agent: "visualizer",
+        status: "failed",
+        errorCode: "VISUALIZER_PROVIDER_ERROR",
+        message: `No media could be produced for any of the ${visualFamilies.length} visual format(s). ${renderFailures[0].message}`,
+        provider: "google_vertex",
+        model: MODELS.VISUALIZER,
+        retryable: true,
+      },
+    });
+  } else {
+    emit({ type: "agent_completed", agentId: "visualizer" });
+  }
+  completePhase("render");
 
   // =========================================================================
   // PHASE 4 — CEO AUDITOR: verify → judge → revise → re-verify
   // =========================================================================
   checkCancelled();
-  startPhase("audit", "CEO audit", ["ceo_auditor"], false);
+  startPhase("audit", "CEO audit", ["ceo_auditor"], "sequential");
   emit({ type: "agent_started", agentId: "ceo_auditor" });
 
   const runChecks = (): QualityReport =>

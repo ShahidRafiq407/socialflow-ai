@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import Link from "next/link";
 import { create } from "zustand";
 import { useAIStudioSessionStore, type GeneratedFormat as SessionGeneratedFormat } from "@/lib/stores/aiStudioSession";
 import { saveDraft as apiSaveDraft, schedulePost as apiSchedulePost, publishNow as apiPublishNow } from "@/actions/publish";
@@ -469,7 +468,7 @@ export default function AIStudioPage() {
     generatedContents, setGeneratedContents,
     campaignTopic, setCampaignTopic,
     campaignHook, setCampaignHook,
-    campaignTrendSource, setCampaignTrendSource,
+    setCampaignTrendSource,
     aiCampaignId, setAiCampaignId,
     generationState, setGenerationState,
     brandTone, setBrandTone,
@@ -507,6 +506,13 @@ export default function AIStudioPage() {
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[]>([]);
   const [integrationsList, setIntegrationsList] = useState<any[]>([]);
   const [loadingConnections, setLoadingConnections] = useState(true);
+  /**
+   * True only when the connection list actually came back. `loadingConnections`
+   * turns false either way (its catch only warns), and an empty list from a failed
+   * fetch is indistinguishable from "nothing is connected" — so anything that
+   * REMOVES a platform has to check this flag, not just the loading flag.
+   */
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
   const [openPlatformDropdown, setOpenPlatformDropdown] = useState<string | null>(null);
   const [openEditorPlatformDropdown, setOpenEditorPlatformDropdown] = useState<boolean>(false);
 
@@ -520,6 +526,9 @@ export default function AIStudioPage() {
       try {
         const connected = await getConnectedPlatformIds();
         setConnectedPlatforms(connected);
+        // Set before the second call: integrations can fail on their own without
+        // making the platform list any less true.
+        setConnectionsLoaded(true);
         const integrations = await getWorkspaceIntegrations();
         setIntegrationsList(integrations);
       } catch (e) {
@@ -541,9 +550,20 @@ export default function AIStudioPage() {
   // ============================================================================
   const hydratedPostRef = useRef<string | null>(null);
   const [deepLinkNotice, setDeepLinkNotice] = useState<string | null>(null);
+  /**
+   * A deep-linked post may target a platform that is no longer connected. It stays
+   * readable in the editor, so the tab-snap effect must not evict it — but it must
+   * NOT join selectedPlatforms either, or the generate button counts a platform the
+   * campaign cannot run for.
+   */
+  const previewOnlyPlatformRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Waits for the connection fetch to settle: whether this post's platform may join
+    // the generation targets depends on that answer, and assuming "yes" is what put a
+    // disconnected platform in the selector and inflated the generate button's count.
+    if (loadingConnections) return;
     const postId = new URLSearchParams(window.location.search).get("postId");
     if (!postId || hydratedPostRef.current === postId) return;
     hydratedPostRef.current = postId;
@@ -589,11 +609,27 @@ export default function AIStudioPage() {
         ...prev,
         [platform]: { ...(prev[platform] || {}), [format]: hydrated },
       }));
-      setSelectedPlatforms((prev) => (prev.includes(platform) ? prev : [...prev, platform]));
-      setSelectedContentTypes((prev) => {
-        const existing = prev[platform] || [];
-        return { ...prev, [platform]: existing.includes(format) ? existing : [...existing, format] };
-      });
+
+      // Opening a post is not the same as choosing a generation target. Only a
+      // connected platform may join the selection; a disconnected one is shown
+      // read-only and flagged, instead of being force-ticked in the selector.
+      // (If the connection fetch itself failed we cannot tell, so keep the old
+      // behaviour rather than refusing to open the post.)
+      const canTarget = !connectionsLoaded || connectedPlatforms.includes(platform);
+      if (canTarget) {
+        previewOnlyPlatformRef.current = null;
+        setSelectedPlatforms((prev) => (prev.includes(platform) ? prev : [...prev, platform]));
+        setSelectedContentTypes((prev) => {
+          const existing = prev[platform] || [];
+          return { ...prev, [platform]: existing.includes(format) ? existing : [...existing, format] };
+        });
+      } else {
+        previewOnlyPlatformRef.current = platform;
+        const label = platformDef?.label || platform;
+        setDeepLinkNotice(
+          `Opened read-only — ${label} is not connected, so it is not part of the generation targets. Reconnect it in Integrations to publish this post.`
+        );
+      }
       setActivePlatformTab(platform);
       setActiveFormatTab((prev) => ({ ...prev, [platform]: format }));
 
@@ -608,18 +644,23 @@ export default function AIStudioPage() {
         setPublishSettingsDict((prev) => ({ ...prev, [key]: { ...(prev[key] || {}), ...post.settings } }));
       }
 
+      // The topic/hook travel with the post because every "regenerate" call downstream
+      // seeds itself from them. What is NOT done here is claiming a campaign finished:
+      // opening one saved post is not a workflow run, and generationState persists in
+      // sessionStorage, so faking "completed" left the studio permanently believing a
+      // campaign it never ran had just completed.
       if (post.campaignTopic) setCampaignTopic(post.campaignTopic);
       if (post.campaignHook) setCampaignHook(post.campaignHook);
-      setGenerationState("completed");
       setViewMode("ai");
 
       const url = new URL(window.location.href);
       url.searchParams.delete("postId");
       window.history.replaceState({}, "", url.pathname + (url.search || ""));
     })();
-    // Runs once per mount — the setters are stable zustand actions.
+    // Runs once per postId, after the connection fetch settles — the setters are
+    // stable zustand actions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadingConnections, connectionsLoaded, connectedPlatforms]);
 
   // ============================================================================
   // HASHTAG GROUPS DYNAMIC STATE
@@ -810,6 +851,50 @@ export default function AIStudioPage() {
       });
     }
   }, [connectedPlatforms]);
+
+  // ============================================================================
+  // PRUNE STALE SELECTIONS AGAINST THE REAL CONNECTIONS
+  //
+  // selectedPlatforms / selectedContentTypes live in the sessionStorage-persisted
+  // store, and the seeding effect above only fills an EMPTY selection — it never
+  // removes anything. So a platform that was selected while connected (or was
+  // force-selected by an older ?postId= deep link) stayed selected after the account
+  // was disconnected. That one stale entry is the whole reported glitch: the chip
+  // rendered ticked but dimmed, the generate button counted "(2)" with only one real
+  // platform, the Content Editor let you switch to it, and the campaign was asked to
+  // produce content nothing could publish.
+  //
+  // Gated on connectionsLoaded rather than !loadingConnections on purpose: the fetch's
+  // catch only warns, so a failed request leaves connectedPlatforms empty, and pruning
+  // against that would silently wipe a selection the user can still generate for.
+  // ============================================================================
+  useEffect(() => {
+    if (!connectionsLoaded) return;
+    const isUsable = (pId: string) =>
+      connectedPlatforms.includes(pId) && PLATFORMS.some((p) => p.id === pId);
+
+    const stale = selectedPlatforms.filter((pId) => !isUsable(pId));
+    if (stale.length === 0) return;
+
+    // Pruning everything would leave the generate button dead, and the seeding effect
+    // above will not re-run (its dependency did not change) — so re-seed here from the
+    // platforms that ARE connected.
+    const kept = selectedPlatforms.filter(isUsable);
+    const next = kept.length > 0 ? kept : connectedPlatforms.filter(isUsable);
+
+    setSelectedPlatforms(next);
+    setSelectedContentTypes((prev) => {
+      const merged = { ...prev };
+      for (const pId of stale) delete merged[pId];
+      for (const pId of next) {
+        if (!merged[pId] || merged[pId].length === 0) {
+          const pDef = getPlatformDef(pId);
+          if (pDef) merged[pId] = pDef.contentTypes.slice(0, 2);
+        }
+      }
+      return merged;
+    });
+  }, [connectionsLoaded, connectedPlatforms, selectedPlatforms, setSelectedPlatforms, setSelectedContentTypes]);
 
   const togglePlatform = (platformId: string) => {
     if (!connectedPlatforms.includes(platformId)) return;
@@ -1010,6 +1095,10 @@ export default function AIStudioPage() {
       }
     }
 
+    // This is the only real completion signal the studio gets — the modal owns the run
+    // and calls back here with the payload. Nothing else ever set "completed", which is
+    // why the agent console used to end on "Thinking..." after a successful campaign.
+    setGenerationState("completed");
     setPublishResult({
       success: true,
       message: "AI Multi-Agent Content generated & loaded into Content Editor!",
@@ -1051,6 +1140,10 @@ export default function AIStudioPage() {
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
 
   useEffect(() => {
+    // A read-only deep-linked post keeps its tab even though its platform is not a
+    // generation target — evicting it would send the user to a different platform's
+    // editor than the link they clicked.
+    if (previewOnlyPlatformRef.current === activePlatformTab) return;
     if (!selectedPlatforms.includes(activePlatformTab) && selectedPlatforms.length > 0) {
       setActivePlatformTab(selectedPlatforms[0]);
     }
@@ -1107,6 +1200,12 @@ export default function AIStudioPage() {
           },
         },
       }));
+      // Opened for editing, not as a generation target: it stays out of
+      // selectedPlatforms (so the generate button's count stays honest) but is exempt
+      // from the tab-snap above, or the draft the user just clicked "Open in Studio"
+      // on would be replaced by whatever platform happens to be first in the selection.
+      // Harmless when the platform IS selected — the snap does not fire then.
+      previewOnlyPlatformRef.current = basePlatform;
       setActivePlatformTab(basePlatform);
       setActiveFormatTab((prev) => ({ ...prev, [basePlatform]: fmt }));
       if (post.campaignTopic) setCampaignTopic(post.campaignTopic);
@@ -4533,26 +4632,17 @@ export default function AIStudioPage() {
             </Card>
           )}
 
-          {/* CAMPAIGN TOPIC BANNER */}
-          {campaignTopic && generationState === "completed" && (
-            <div className="rounded-xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/5 via-primary/5 to-indigo-500/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 shrink-0 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                  <CheckCircle2 className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{campaignTopic}</p>
-                  {campaignHook && <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">Hook: {campaignHook}</p>}
-                  {campaignTrendSource && <p className="text-[11px] text-slate-400 mt-1">Source: {campaignTrendSource}</p>}
-                </div>
-              </div>
-              <Link href="/dashboard/posts">
-                <Button className="h-10 px-5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shrink-0">
-                  <Briefcase className="h-4 w-4 mr-2" /> Review {store.posts.length} Saved Posts
-                </Button>
-              </Link>
-            </div>
-          )}
+          {/* CAMPAIGN TOPIC BANNER — REMOVED
+              It only ever appeared because the ?postId= deep link set campaignTopic and
+              faked generationState "completed", both of which persist in sessionStorage:
+              no campaign run sets "completed", so the banner never described a campaign,
+              it described whichever post was last opened from a chat link and then stayed
+              for the rest of the browser session. Its call-to-action counted
+              store.posts.length — an in-memory store that starts empty on every load — so
+              it always read "Review 0 Saved Posts", and its "Source:" line read a field
+              only ever written as "". Completion is already reported by the agent console
+              above and the toast from handleMultiAgentPayload. */}
+
 
           {/* FULL WIDTH TARGET PLATFORMS & FORMATS SELECTION CARD */}
           <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs !overflow-visible relative z-30">
@@ -4717,8 +4807,12 @@ export default function AIStudioPage() {
                                     const pId = pDef.id;
                                     const PIcon = pDef.icon;
                                     const isCurrent = activePlatformTab === pId;
-                                    const isPlatformSelected = selectedPlatforms.includes(pId);
-                                    
+                                    // Only a real generation target is switchable. `isCurrent`
+                                    // is the one exception: a read-only deep-linked post is on
+                                    // screen without being selected, and greying out the tab you
+                                    // are already looking at reads as a bug.
+                                    const isPlatformSelected = selectedPlatforms.includes(pId) || isCurrent;
+
                                     return (
                                       <button
                                         key={pId}

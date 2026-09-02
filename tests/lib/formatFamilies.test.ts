@@ -22,6 +22,10 @@ import {
   memberKey,
   orientationOf,
   aspectRatioValue,
+  retagAssetForMember,
+  assetAttachmentKey,
+  dedupeAttachments,
+  type FamilyMember,
 } from "@/lib/agents/formatFamilies";
 
 describe("aspectRatioValue", () => {
@@ -301,3 +305,143 @@ describe("countVisualTargets", () => {
     expect(countVisualTargets(families)).toBe(0);
   });
 });
+
+// ============================================================================
+// FAMILY SYNC — one render, attached to every member, never twice
+//
+// WHY THIS EXISTS: the user's report was that single-format/single-platform runs
+// produced media fine but multi-format runs failed, and asked that family formats
+// stay in sync with "no duplicate media or text". Grouping (above) gives one render
+// per family; these tests lock the ATTACH step — every member of the family receives
+// the same pixels relabelled for itself, and a re-run of the attach (a resume, a
+// retry, a second pass) never stacks a duplicate copy of a slide onto the same target.
+// ============================================================================
+
+function member(platform: string, contentType: string, aspectRatio: string): FamilyMember {
+  return {
+    platform,
+    contentType,
+    rawPlatform: platform,
+    rawContentType: contentType,
+    aspectRatio,
+    mediaType: "video",
+    assetType: "video",
+    visualRequired: true,
+    requiredAssets: 1,
+    description: "",
+  };
+}
+
+describe("retagAssetForMember", () => {
+  it("keeps the shared pixels but stamps the member's own labels and intended crop", () => {
+    // The family rendered ONE 9:16 video; the Facebook Reel member wants 4:5. The url
+    // is shared (that is the whole point), but the row must read as Facebook's, and it
+    // must record what Facebook actually wanted so the editor does not assume 9:16.
+    const shared = { id: "a1", type: "video", url: "https://cdn/x.mp4", aspectRatio: "9:16", slideIndex: 0 };
+    const fb = member("facebook", "reel", "4:5");
+
+    const tagged = retagAssetForMember(shared, fb);
+    expect(tagged.url).toBe("https://cdn/x.mp4"); // same render, not a re-generation
+    expect(tagged.aspectRatio).toBe("9:16"); // what was actually rendered
+    expect(tagged.platform).toBe("facebook");
+    expect(tagged.contentType).toBe("reel");
+    expect(tagged.requestedAspectRatio).toBe("4:5"); // what this member wanted
+  });
+
+  it("does not mutate the shared asset, so the next member still sees the original", () => {
+    const shared: Record<string, unknown> = { id: "a1", type: "image", url: "u", aspectRatio: "1:1" };
+    retagAssetForMember(shared, member("instagram", "feed", "1:1"));
+    expect(shared.platform).toBeUndefined();
+    expect(shared.contentType).toBeUndefined();
+  });
+});
+
+describe("assetAttachmentKey", () => {
+  it("is identical for the same url on the same target and slide", () => {
+    const a = { platform: "instagram", contentType: "reel", slideIndex: 0, url: "u" };
+    const b = { platform: "instagram", contentType: "reel", slideIndex: 0, url: "u" };
+    expect(assetAttachmentKey(a)).toBe(assetAttachmentKey(b));
+  });
+
+  it("separates the same url on different targets, so a shared render is not a duplicate", () => {
+    const ig = { platform: "instagram", contentType: "reel", slideIndex: 0, url: "u" };
+    const tt = { platform: "tiktok", contentType: "video", slideIndex: 0, url: "u" };
+    expect(assetAttachmentKey(ig)).not.toBe(assetAttachmentKey(tt));
+  });
+
+  it("separates two slides of one deck that share nothing but the target", () => {
+    const s0 = { platform: "instagram", contentType: "carousel", slideIndex: 0, url: "a" };
+    const s1 = { platform: "instagram", contentType: "carousel", slideIndex: 1, url: "b" };
+    expect(assetAttachmentKey(s0)).not.toBe(assetAttachmentKey(s1));
+  });
+
+  it("treats a missing slideIndex as slide 0", () => {
+    const withIdx = { platform: "x", contentType: "post", slideIndex: 0, url: "u" };
+    const without = { platform: "x", contentType: "post", url: "u" };
+    expect(assetAttachmentKey(without)).toBe(assetAttachmentKey(withIdx));
+  });
+});
+
+describe("dedupeAttachments", () => {
+  it("lets the same render through for different members — that is the shared-render win", () => {
+    const seen = new Set<string>();
+    const igRows = [{ platform: "instagram", contentType: "reel", slideIndex: 0, url: "u" }];
+    const ttRows = [{ platform: "tiktok", contentType: "video", slideIndex: 0, url: "u" }];
+
+    expect(dedupeAttachments(igRows, seen)).toHaveLength(1);
+    expect(dedupeAttachments(ttRows, seen)).toHaveLength(1); // same url, different member: kept
+    expect(seen.size).toBe(2);
+  });
+
+  it("drops a second attach of the same slide onto the same target — the no-duplicate rule", () => {
+    // This is the resume/retry case: the visualizer re-attaches a family that was
+    // already attached. Without the guard the studio shows the deck twice.
+    const seen = new Set<string>();
+    const rows = [
+      { platform: "instagram", contentType: "carousel", slideIndex: 0, url: "a" },
+      { platform: "instagram", contentType: "carousel", slideIndex: 1, url: "b" },
+    ];
+    expect(dedupeAttachments(rows, seen)).toHaveLength(2);
+    // Second pass over the exact same rows: nothing new.
+    expect(dedupeAttachments(rows, seen)).toHaveLength(0);
+    expect(seen.size).toBe(2);
+  });
+
+  it("keeps every distinct slide of a multi-slide deck", () => {
+    const seen = new Set<string>();
+    const deck = Array.from({ length: 6 }, (_, i) => ({
+      platform: "linkedin",
+      contentType: "document",
+      slideIndex: i,
+      url: `slide-${i}`,
+    }));
+    expect(dedupeAttachments(deck, seen)).toHaveLength(6);
+  });
+
+  it("attaches one family's deck to two platforms without either being called a duplicate", () => {
+    // End-to-end shape of the reported bug: a square deck shared by Instagram Carousel
+    // and LinkedIn Document. Both platforms get all their slides; a re-run adds nothing.
+    const seen = new Set<string>();
+    const rendered = [
+      { id: "s0", type: "image", url: "s0", aspectRatio: "1:1", slideIndex: 0 },
+      { id: "s1", type: "image", url: "s1", aspectRatio: "1:1", slideIndex: 1 },
+    ];
+    const members = [member("instagram", "carousel", "1:1"), member("linkedin", "document", "1:1")];
+
+    let total = 0;
+    for (const m of members) {
+      const retagged = rendered.map((a) => retagAssetForMember(a, m));
+      total += dedupeAttachments(retagged, seen).length;
+    }
+    expect(total).toBe(4); // 2 slides × 2 platforms, all distinct targets
+
+    // A retry of the whole attach step produces zero new rows.
+    let onRetry = 0;
+    for (const m of members) {
+      const retagged = rendered.map((a) => retagAssetForMember(a, m));
+      onRetry += dedupeAttachments(retagged, seen).length;
+    }
+    expect(onRetry).toBe(0);
+  });
+});
+

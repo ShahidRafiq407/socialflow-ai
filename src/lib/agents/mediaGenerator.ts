@@ -1,7 +1,8 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
-import { envInt } from "@/lib/agents/concurrency";
+import { envInt, sleep } from "@/lib/agents/concurrency";
+import { getModelRatePacer } from "@/lib/agents/rateLimit";
 import {
   buildDesignSystemInstruction,
   buildInfographicSlidePrompt,
@@ -10,20 +11,6 @@ import {
   pickDeckStyle,
   type SlideTextSpec,
 } from "@/lib/agents/slideDesigner";
-
-/** Waits, but gives up the moment the campaign is cancelled. */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(finish, ms);
-    function finish() {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", finish);
-      resolve();
-    }
-    signal?.addEventListener("abort", finish, { once: true });
-  });
-}
 
 /**
  * Vertex answers a quota rejection with its own `RetryInfo` ("retryDelay":"27s").
@@ -40,6 +27,20 @@ export function parseRetryDelayMs(message: string): number {
 }
 
 /**
+ * Whether a failure is the provider refusing on rate/quota grounds.
+ *
+ * This is worth telling apart from every other failure because it is the only one
+ * that is a *clock* rather than a fault: the request was fine, the window was shut.
+ * It calls for a wait sized to the window and a smaller allowance afterwards — not
+ * the exponential backoff that suits an overloaded model.
+ */
+export function isQuotaFailure(message: string): boolean {
+  return /\b429\b|quota|resource[_\s-]?exhaust|rate[_\s-]?limit|too many requests/i.test(
+    message || ""
+  );
+}
+
+/**
  * Turns a provider error into something a marketer can act on. The old
  * "failed to produce image bytes" was true of every cause and useful for none.
  */
@@ -47,7 +48,10 @@ export function describeFailure(message: string): string {
   const msg = (message || "").toLowerCase();
   if (!msg) return "no image data returned";
   if (/429|quota|exhaust|rate limit|too many requests/.test(msg)) {
-    return "image model quota reached for this minute";
+    // Spelled out because the instinct is to go and check the billing page. Vertex
+    // meters requests-per-minute per model separately from spend, so an account with
+    // credit to burn still gets refused for going too fast.
+    return "the image model's per-minute request quota is full (a rate limit, not a billing limit)";
   }
   if (/timeout|deadline/.test(msg)) return "the render exceeded its time budget";
   if (/503|unavailable|overloaded/.test(msg)) return "the image model is temporarily overloaded";
@@ -203,11 +207,26 @@ async function generateRealVideo(options: {
   // Video render budgets belong to the deployment (region, model tier), not to the code.
   const videoTimeoutMs = envInt("VIDEO_TIMEOUT_MS", 120000, { min: 20000, max: 600000 });
   const videoPollIntervalMs = envInt("VIDEO_POLL_INTERVAL_MS", 3000, { min: 500, max: 30000 });
+  // Video quotas are far tighter than image quotas — a couple of starts a minute is
+  // typical — so the same pacer guards them, with its own allowance.
+  const videoRpm = envInt("VIDEO_MODEL_RPM", 2, { min: 1, max: 120 });
 
   let lastErr: any = null;
 
   for (const targetVideoModel of candidateModels) {
     console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}" (Task: ${videoTask || "auto"})`);
+
+    // One render start per slot. Polling an operation that is already running is not
+    // metered the same way, so only the kick-off waits here.
+    const videoPacer = getModelRatePacer(targetVideoModel, { limit: videoRpm });
+    await videoPacer.acquire({
+      signal,
+      onWait: (waitMs, info) =>
+        onProgress?.(
+          `[Visualizer] ${targetVideoModel} is at its rate ceiling (${info.used}/${info.limit} this minute) — starting in ${Math.max(1, Math.round(waitMs / 1000))}s...`
+        ),
+    });
+    if (signal?.aborted) throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
 
     try {
       // 1. Primary: Google Interactions API (native endpoint for Omni-class models)
@@ -378,15 +397,22 @@ async function generateRealVideo(options: {
       }
     } catch (err: any) {
       lastErr = err;
+      if (err?.isCancelled || signal?.aborted) throw err;
+      const message = err?.message ? String(err.message) : String(err);
+      if (isQuotaFailure(message)) videoPacer.penalize(parseRetryDelayMs(message));
       console.warn(`[Visualizer] Video synthesis on ${targetVideoModel} failed:`, err?.message || err);
     }
   }
 
   // If every candidate model failed, throw the actual last error
   if (lastErr) {
+    const message = lastErr?.message ? String(lastErr.message) : String(lastErr);
     throw new VisualizerError(
       "VIDEO_GENERATION_FAILED",
-      `Video synthesis failed on all candidate models (${candidateModels.join(", ")}). Last error: ${lastErr?.message || lastErr}`
+      `Video synthesis failed on all candidate models (${candidateModels.join(", ")}). Last error: ${message}` +
+        (isQuotaFailure(message)
+          ? ` — this is a per-minute rate limit on the video model, not a billing limit; raise the quota in Google Cloud or lower VIDEO_MODEL_RPM (currently ${videoRpm}).`
+          : "")
     );
   }
 
@@ -605,6 +631,12 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   // Spacing between slides of one deck keeps a burst of renders inside the model's
   // per-minute allowance instead of provoking the 429 the retry then has to absorb.
   const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 1000, { min: 0, max: 30000 });
+  // Requests per minute the deployment's quota actually allows for the image model.
+  // Sending slower than the wall is the only thing that reliably clears a 429 — Vertex
+  // meters rate per model independently of the account balance, so no amount of credit
+  // substitutes for pacing. Raise it on a project with a lifted quota or provisioned
+  // throughput; the pacer lowers itself on its own if the provider disagrees.
+  const imageRpm = envInt("IMAGE_MODEL_RPM", 6, { min: 1, max: 600 });
 
   for (let idx = 0; idx < assetCount; idx++) {
     if (input.signal?.aborted) {
@@ -667,8 +699,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       let lastFailure = "";
       let attemptsUsed = 0;
 
-      // Use the targetImageModel as requested instead of hardcoding
-      const modelName = targetImageModel;
+      // Use the targetImageModel as requested instead of hardcoding. It stays a
+      // `let` only so the record of which model actually drew the asset is truthful
+      // when the ladder below had to step down.
+      let modelName = targetImageModel;
 
       // 1. generateContent with responseModalities (Official Google Gemini Image Generation API)
       if (typeof ai?.models?.generateContent === "function") {
@@ -678,20 +712,63 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         // single 429 consumed a shape instead of being retried and the whole campaign
         // died with "no image bytes" after about six seconds of patience.
         const modalityCombos = [["TEXT", "IMAGE"], ["IMAGE"]];
-        const maxAttempts = envInt("IMAGE_MAX_ATTEMPTS", 5, { min: 1, max: 12 });
+        const maxRungAttempts = envInt("IMAGE_MAX_ATTEMPTS", 5, { min: 1, max: 12 });
         const baseBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MS", 2000, { min: 250, max: 60000 });
         const maxBackoffMs = envInt("IMAGE_RETRY_BACKOFF_MAX_MS", 24000, {
           min: baseBackoffMs,
           max: 120000,
         });
 
+        // A quota wall on the configured model is not a reason to publish a post with
+        // no image at all. The configured model is always tried first and keeps every
+        // one of its attempts; only once it has none left does a lighter image model
+        // get a short pass, so a hard wall degrades the render instead of losing it.
+        // `IMAGE_FALLBACK_MODELS=""` turns the step-down off entirely.
+        const fallbackModels = (process.env.IMAGE_FALLBACK_MODELS ?? "gemini-2.5-flash-image")
+          .split(",")
+          .map((m) => m.trim())
+          .filter((m) => m && m !== targetImageModel);
+
+        // The whole retry sequence, flattened: one entry per request we are willing to
+        // send, in order. Flat beats nested loops here because "attempt 6 of 7" stays
+        // meaningful to the person watching even when attempt 6 is on another model.
+        const plan = [
+          { model: targetImageModel, attempts: maxRungAttempts },
+          ...fallbackModels.map((m) => ({ model: m, attempts: Math.min(2, maxRungAttempts) })),
+        ].flatMap((rung) =>
+          Array.from({ length: rung.attempts }, (_, i) => ({
+            model: rung.model,
+            modalities: modalityCombos[i % modalityCombos.length],
+            isFallback: rung.model !== targetImageModel,
+          }))
+        );
+
+        const maxAttempts = plan.length;
+
         for (let attempt = 1; attempt <= maxAttempts && !imageUrl; attempt++) {
           if (input.signal?.aborted) {
             throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
           }
 
-          const modalities = modalityCombos[(attempt - 1) % modalityCombos.length];
+          const step = plan[attempt - 1];
+          const modalities = step.modalities;
+          modelName = step.model;
           attemptsUsed = attempt;
+
+          // Hold here until this model's per-minute window has room. Doing it before
+          // the request rather than after the rejection is the difference between
+          // pacing the deck and manufacturing our own 429s eight slides in a row.
+          const pacer = getModelRatePacer(modelName, { limit: imageRpm });
+          await pacer.acquire({
+            signal: input.signal,
+            onWait: (waitMs, info) =>
+              onProgress?.(
+                `[Visualizer] ${modelName} is at its rate ceiling (${info.used}/${info.limit} this minute) — resuming in ${Math.max(1, Math.round(waitMs / 1000))}s...`
+              ),
+          });
+          if (input.signal?.aborted) {
+            throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+          }
 
           try {
             const slideNoun = isInfographic
@@ -802,21 +879,45 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             if (e?.isCancelled || input.signal?.aborted) {
               throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
             }
+            // Teach the pacer what the provider just proved: our estimate of this
+            // model's allowance was too high. It shrinks the window for everyone,
+            // including the families rendering alongside this one.
+            if (isQuotaFailure(lastFailure)) {
+              pacer.penalize(parseRetryDelayMs(lastFailure));
+            }
           }
 
           // Back off before the next attempt whether the call threw or simply came back
           // empty — both mean the model needs a moment, and an instant retry against a
           // throttled image model only burns the remaining attempts.
           if (!imageUrl && attempt < maxAttempts) {
-            const hinted = parseRetryDelayMs(lastFailure);
-            const waitMs = Math.min(
-              maxBackoffMs,
-              Math.max(hinted, baseBackoffMs * Math.pow(2, attempt - 1))
-            );
-            onProgress?.(
-              `[Visualizer] ${modelName} unavailable (${describeFailure(lastFailure)}) — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${maxAttempts})...`
-            );
-            await sleep(waitMs, input.signal);
+            const next = plan[attempt];
+            if (next.model !== modelName) {
+              // Stepping down to another model. Its quota is its own, so the wait the
+              // previous model earned does not apply — and its pacer will hold the
+              // request anyway if that model is busy too.
+              onProgress?.(
+                `[Visualizer] ${modelName} could not deliver (${describeFailure(lastFailure)}) — stepping down to ${next.model} for this render...`
+              );
+            } else if (isQuotaFailure(lastFailure)) {
+              // A quota wall is a clock, not congestion. The pacer was just told when
+              // the window reopens, so it owns this wait: sleeping here as well would
+              // double it, and `maxBackoffMs` (tuned for an overloaded model) would
+              // cut a 60s window short and waste the attempt.
+              onProgress?.(
+                `[Visualizer] ${modelName} hit its per-minute quota — waiting for the next window (attempt ${attempt + 1}/${maxAttempts})...`
+              );
+            } else {
+              const hinted = parseRetryDelayMs(lastFailure);
+              const waitMs = Math.min(
+                maxBackoffMs,
+                Math.max(hinted, baseBackoffMs * Math.pow(2, attempt - 1))
+              );
+              onProgress?.(
+                `[Visualizer] ${modelName} unavailable (${describeFailure(lastFailure)}) — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${maxAttempts})...`
+              );
+              await sleep(waitMs, input.signal);
+            }
           }
         }
       }
@@ -824,6 +925,19 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       // 2. interactions.create fallback if available
       if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
         try {
+          // Still the same model on the same quota, so this request queues in the same
+          // window as the attempts above rather than jumping it.
+          const pacer = getModelRatePacer(modelName, { limit: imageRpm });
+          await pacer.acquire({
+            signal: input.signal,
+            onWait: (waitMs) =>
+              onProgress?.(
+                `[Visualizer] Waiting ${Math.max(1, Math.round(waitMs / 1000))}s for ${modelName}'s quota window before the fallback render...`
+              ),
+          });
+          if (input.signal?.aborted) {
+            throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+          }
           let interactionTimeout: ReturnType<typeof setTimeout> | undefined;
           const interaction = await Promise.race([
             (ai as any).interactions.create({
@@ -857,6 +971,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             console.log(`[Visualizer] ✅ Image asset ready via interactions.create on ${modelName}`);
           }
         } catch (e: any) {
+          if (e?.isCancelled || input.signal?.aborted || e instanceof VisualizerError) throw e;
           // The primary path's failure is the real story. Keep it ahead of the
           // fallback's own error so a quota wall is never masked by a 400.
           const fallbackFailure = e?.message ? String(e.message) : "";
@@ -864,17 +979,27 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             lastFailure && fallbackFailure
               ? `${lastFailure} | interactions fallback: ${fallbackFailure}`
               : fallbackFailure || lastFailure;
+          if (isQuotaFailure(fallbackFailure)) {
+            getModelRatePacer(modelName, { limit: imageRpm }).penalize(
+              parseRetryDelayMs(fallbackFailure)
+            );
+          }
           console.warn(`[Visualizer] interactions.create on ${modelName} failed:`, e?.message || e);
         }
       }
 
       if (!imageUrl) {
-        // Say what actually went wrong. "failed to produce image bytes" told nobody
-        // whether it was a quota wall, a blocked prompt or a timeout.
+        // Say what actually went wrong, and — for the one cause a person can act on —
+        // where the lever is. "failed to produce image bytes" told nobody whether it
+        // was a quota wall, a blocked prompt or a timeout.
+        const quotaWall = isQuotaFailure(lastFailure);
         throw new VisualizerError(
           "IMAGE_GENERATION_FAILED",
           `${modelName} produced no image after ${attemptsUsed || 1} attempt(s)` +
-            (lastFailure ? `: ${describeFailure(lastFailure)}` : "."),
+            (lastFailure ? `: ${describeFailure(lastFailure)}` : ".") +
+            (quotaWall
+              ? ` Vertex meters image requests per minute per model, separately from your credit balance, so adding credit will not clear this. Either raise the quota for ${modelName} in Google Cloud (IAM & Admin → Quotas) or lower IMAGE_MODEL_RPM (currently ${imageRpm}) and CAMPAIGN_MEDIA_CONCURRENCY so the pipeline sends slower.`
+              : ""),
         );
       }
 

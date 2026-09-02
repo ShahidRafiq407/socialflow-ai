@@ -225,6 +225,66 @@ export function describeMembers(family: FormatFamily): string {
   return family.members.map((m) => `${m.platform}/${m.contentType}`).join(", ");
 }
 
+// ============================================================================
+// ATTACHING ONE FAMILY RENDER TO EVERY MEMBER
+//
+// This is where "the family stays in sync" is actually enforced. The render happens
+// once for the family; each member then receives the SAME urls, relabelled with its
+// own platform/format and its own intended crop. Producing per-member renders here
+// instead is what would make one campaign ship visibly different creative for the
+// same idea.
+// ============================================================================
+
+/** The subset of a media asset that identifies where it was attached. */
+export interface AssetAttachment {
+  platform?: string;
+  contentType?: string;
+  slideIndex?: number;
+  url?: string;
+}
+
+/**
+ * Copies one shared asset onto one member: same pixels, that member's labels, and the
+ * ratio that member actually wanted (the render used the family's compromise ratio, so
+ * the editor needs the intended crop recorded separately).
+ */
+export function retagAssetForMember<T extends object>(
+  asset: T,
+  member: FamilyMember
+): T & { platform: string; contentType: string; requestedAspectRatio: string } {
+  return {
+    ...asset,
+    platform: member.platform,
+    contentType: member.contentType,
+    requestedAspectRatio: member.aspectRatio,
+  };
+}
+
+/** One url, on one target, at one slide position. */
+export function assetAttachmentKey(asset: AssetAttachment): string {
+  return `${asset.platform ?? ""}|${asset.contentType ?? ""}|${asset.slideIndex ?? 0}|${asset.url ?? ""}`;
+}
+
+/**
+ * Returns only the rows not already attached, RECORDING them in `seen` as it goes.
+ *
+ * Members of a family share one render, so the same url legitimately lands on several
+ * platforms — that is the point. What must never happen is the same url landing on the
+ * same target twice: a resumed run, a retried family, or a second pass over the members
+ * would otherwise stack a duplicate copy of every slide and the studio would show the
+ * deck twice with duplicated captions beside it.
+ */
+export function dedupeAttachments<T extends AssetAttachment>(rows: T[], seen: Set<string>): T[] {
+  const fresh: T[] = [];
+  for (const row of rows) {
+    const key = assetAttachmentKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fresh.push(row);
+  }
+  return fresh;
+}
+
 /** How many separate renders the naive one-per-format approach would have needed. */
 export function countVisualTargets(families: FormatFamily[]): number {
   return families.reduce((acc, f) => acc + (f.visualRequired ? f.members.length : 0), 0);

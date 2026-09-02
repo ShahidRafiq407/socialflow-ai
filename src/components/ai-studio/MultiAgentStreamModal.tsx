@@ -121,8 +121,17 @@ interface PhaseInfo {
   phase: string;
   label: string;
   agents: string[];
-  /** True when the agents in this phase genuinely run at the same time. */
+  /** True when the work in this phase genuinely happens at the same time. */
   parallel: boolean;
+  /**
+   * How the work overlaps, so the badge can be honest about it.
+   *  - `sequential`: one thing at a time.
+   *  - `parallel`: independent units side by side — either several agents that never
+   *    wait for each other, or one agent fanning out over several targets at once
+   *    (the visualizer rendering every platform's media simultaneously).
+   *  - `pipeline`: overlapping but dependent — kept for streams that still send it.
+   */
+  mode: "sequential" | "parallel" | "pipeline";
   status: "waiting" | "running" | "completed";
 }
 
@@ -132,22 +141,50 @@ interface PhaseInfo {
  * ends up showing the graph the backend actually executed.
  */
 const DEFAULT_PHASES: PhaseInfo[] = [
-  { phase: "foundation", label: "Brand foundation", agents: ["brand_analyst"], parallel: false, status: "waiting" },
+  {
+    phase: "foundation",
+    label: "Brand foundation",
+    agents: ["brand_analyst"],
+    parallel: false,
+    mode: "sequential",
+    status: "waiting",
+  },
   {
     phase: "research",
     label: "Market research",
     agents: ["trend_researcher", "competitor_analyst"],
     parallel: true,
+    mode: "parallel",
+    status: "waiting",
+  },
+  // Writing and rendering are two stages, not two peers: the visualizer cannot render
+  // a format until the content creator has handed it that format's visual prompt. Each
+  // stage then fans out across formats internally, which is where the real parallelism
+  // is — every platform's media renders at the same time.
+  {
+    phase: "copy",
+    label: "Content writing",
+    agents: ["content_creator"],
+    parallel: true,
+    mode: "parallel",
     status: "waiting",
   },
   {
-    phase: "production",
-    label: "Content production",
-    agents: ["content_creator", "visualizer"],
+    phase: "render",
+    label: "Media production",
+    agents: ["visualizer"],
     parallel: true,
+    mode: "parallel",
     status: "waiting",
   },
-  { phase: "audit", label: "CEO audit", agents: ["ceo_auditor"], parallel: false, status: "waiting" },
+  {
+    phase: "audit",
+    label: "CEO audit",
+    agents: ["ceo_auditor"],
+    parallel: false,
+    mode: "sequential",
+    status: "waiting",
+  },
 ];
 
 /** Keeps the console bounded on long campaigns without losing the recent history. */
@@ -431,6 +468,14 @@ export default function MultiAgentStreamModal({
             label: data?.label || phase,
             agents: Array.isArray(data?.agents) ? data.agents : [],
             parallel: Boolean(data?.parallel),
+            // `mode` is the newer, more precise field; fall back to the flag for any
+            // stream that only sends `parallel`.
+            mode:
+              data?.mode === "parallel" || data?.mode === "pipeline" || data?.mode === "sequential"
+                ? data.mode
+                : data?.parallel
+                  ? "parallel"
+                  : "sequential",
             status: "running",
           };
           const idx = prev.findIndex((p) => p.phase === phase);
@@ -673,13 +718,12 @@ export default function MultiAgentStreamModal({
   const activeAgentOutput = agentOutputs[selectedAgentId];
   const activeAgentStatus = agentStatuses[selectedAgentId] || "waiting";
   const activeAgentProgress = agentProgress[selectedAgentId] ?? 0;
-  // The console shows the whole parallel phase, not one agent at a time. In the
-  // production phase the Content Creator writes the next family's copy while the
-  // Visualizer renders the current one; filtering to the selected agent hid half the
-  // run, so the second agent's reasoning only appeared once the first had finished.
+  // The console shows the whole phase, not one agent at a time. Where a phase really
+  // does have two agents live at once, filtering to the selected one hid half the run,
+  // so the second agent's reasoning only appeared after the first had finished.
   const selectedPhase = phases.find((p) => p.agents.includes(selectedAgentId));
   const consoleAgentIds =
-    selectedPhase?.parallel && selectedPhase.agents.length > 1
+    selectedPhase && selectedPhase.mode !== "sequential" && selectedPhase.agents.length > 1
       ? selectedPhase.agents
       : [selectedAgentId];
   const consoleSpansAgents = consoleAgentIds.length > 1;
@@ -841,18 +885,21 @@ export default function MultiAgentStreamModal({
                         >
                           {phase.label}
                         </span>
-                        {/* Parallel phases really do run at the same time in the graph —
-                            the badge and the simultaneous spinners are not decorative. */}
-                        {phase.parallel && phaseAgents.length > 1 && (
+                        {/* Parallel work really is simultaneous in the graph — the badge
+                            and the spinners are not decorative. A single-agent phase can
+                            be parallel too: the visualizer renders every platform's media
+                            at the same time. `PIPELINED` marks the older shape, where two
+                            agents overlap but one feeds the other. */}
+                        {phase.mode !== "sequential" && (
                           <span
                             className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                              runningInPhase > 1
+                              runningInPhase > 1 || (runningInPhase === 1 && phaseAgents.length === 1)
                                 ? "bg-[#8B5CF6]/15 text-[#A78BFA] border-[#8B5CF6]/30"
                                 : "bg-[#1A1D24] text-[#6B7280] border-[#252A32]"
                             }`}
                           >
                             <Zap className="w-2.5 h-2.5" />
-                            PARALLEL
+                            {phase.mode === "pipeline" ? "PIPELINED" : "PARALLEL"}
                           </span>
                         )}
                         <div className="flex-1 h-px bg-[#252A32]" />

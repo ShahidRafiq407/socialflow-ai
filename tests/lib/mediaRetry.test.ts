@@ -14,7 +14,7 @@
  * retry budget out of the code and into the deployment's quota.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import { parseRetryDelayMs, describeFailure } from "@/lib/agents/mediaGenerator";
+import { parseRetryDelayMs, describeFailure, isQuotaFailure } from "@/lib/agents/mediaGenerator";
 import { envInt } from "@/lib/agents/concurrency";
 
 describe("parseRetryDelayMs", () => {
@@ -38,14 +38,16 @@ describe("parseRetryDelayMs", () => {
 });
 
 describe("describeFailure", () => {
-  it("names a quota wall as a quota wall", () => {
+  it("names a quota wall as a quota wall, and says it is not a billing wall", () => {
     // The whole point: a marketer reading the console can tell "wait a minute" from
-    // "your credentials are wrong" without opening a log.
+    // "your credentials are wrong" without opening a log. The parenthetical is load
+    // bearing — the first instinct on seeing "quota" is to go and top up the credit
+    // card, and that buys tokens, not requests per minute.
     expect(describeFailure("429 RESOURCE_EXHAUSTED: Quota exceeded")).toBe(
-      "image model quota reached for this minute"
+      "the image model's per-minute request quota is full (a rate limit, not a billing limit)"
     );
     expect(describeFailure("Rate limit reached for this model")).toBe(
-      "image model quota reached for this minute"
+      "the image model's per-minute request quota is full (a rate limit, not a billing limit)"
     );
   });
 
@@ -79,6 +81,39 @@ describe("describeFailure", () => {
     const described = describeFailure(long);
     expect(described).toHaveLength(181);
     expect(described.endsWith("…")).toBe(true);
+  });
+});
+
+describe("isQuotaFailure", () => {
+  // This predicate decides whether a failure gets the pacer's clock or the retry
+  // loop's exponential backoff. Getting it wrong in either direction is expensive:
+  // a missed 429 means retrying instantly into a shut window, and a false positive
+  // means waiting a whole minute for a prompt that was simply blocked.
+  it("recognises every spelling Vertex uses for a rate rejection", () => {
+    for (const msg of [
+      "429 Too Many Requests",
+      "RESOURCE_EXHAUSTED",
+      "resource exhausted",
+      "Quota exceeded for aiplatform.googleapis.com",
+      "rate_limit_exceeded",
+      "Rate limit reached",
+      "too many requests",
+    ]) {
+      expect(isQuotaFailure(msg)).toBe(true);
+    }
+  });
+
+  it("leaves the failures that are faults rather than clocks alone", () => {
+    for (const msg of [
+      "",
+      "Image generation timeout after 120s",
+      "503 Service Unavailable",
+      "403 PERMISSION_DENIED",
+      "Response blocked: SAFETY",
+      "404 model not found",
+    ]) {
+      expect(isQuotaFailure(msg)).toBe(false);
+    }
   });
 });
 
