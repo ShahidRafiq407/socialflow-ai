@@ -13,9 +13,35 @@ import {
   publishToWordPress,
   createWPCategory,
 } from "@/actions/wordpress";
+import { getWordPressConfig } from "@/lib/wordpress/siteConfig";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+/**
+ * One WordPress connection per workspace, shared with the Lead Goal engine.
+ *
+ * Credentials sent from the browser are only honoured while the user is
+ * actively testing a site in this tab; otherwise the saved (encrypted)
+ * connection is used, so the app password never has to leave the server.
+ */
+async function resolveWpConfig(
+  userId: string,
+  wpConfig: any
+): Promise<{ config: any | null; fromSaved: boolean }> {
+  if (wpConfig?.siteUrl && wpConfig?.username && wpConfig?.appPassword) {
+    return { config: wpConfig, fromSaved: false };
+  }
+
+  const workspace = await prisma.workspace.findFirst({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!workspace) return { config: null, fromSaved: false };
+
+  const saved = await getWordPressConfig(workspace.id);
+  return { config: saved, fromSaved: Boolean(saved) };
+}
 
 export async function POST(req: Request) {
   try {
@@ -63,15 +89,18 @@ export async function POST(req: Request) {
     // STEP: WordPress Connect & Fetch Metadata
     // =========================================================================
     if (step === "wp-connect") {
-      const { wpConfig } = body;
-      if (!wpConfig?.siteUrl || !wpConfig?.username || !wpConfig?.appPassword) {
+      const { config, fromSaved } = await resolveWpConfig(userId, body.wpConfig);
+      if (!config) {
         return NextResponse.json(
-          { error: "WordPress credentials are required." },
+          {
+            error:
+              "No WordPress connection. Connect your site once in Plugins, or fill in the site URL, username and application password here.",
+          },
           { status: 400 }
         );
       }
 
-      const connected = await testWPConnection(wpConfig);
+      const connected = await testWPConnection(config);
       if (!connected) {
         return NextResponse.json({
           wpConnected: false,
@@ -80,9 +109,9 @@ export async function POST(req: Request) {
       }
 
       const [categories, authors, postTypes] = await Promise.all([
-        fetchWPCategories(wpConfig),
-        fetchWPAuthors(wpConfig),
-        fetchWPPostTypes(wpConfig),
+        fetchWPCategories(config),
+        fetchWPAuthors(config),
+        fetchWPPostTypes(config),
       ]);
 
       return NextResponse.json({
@@ -90,6 +119,8 @@ export async function POST(req: Request) {
         categories,
         authors,
         postTypes,
+        usingSavedConnection: fromSaved,
+        siteUrl: config.siteUrl,
       });
     }
 
@@ -97,15 +128,20 @@ export async function POST(req: Request) {
     // STEP: WordPress Publish
     // =========================================================================
     if (step === "wp-publish") {
-      const { wpConfig, publishPayload } = body;
-      if (!wpConfig || !publishPayload) {
+      const { publishPayload } = body;
+      if (!publishPayload) {
+        return NextResponse.json({ error: "Publish payload is required." }, { status: 400 });
+      }
+
+      const { config } = await resolveWpConfig(userId, body.wpConfig);
+      if (!config) {
         return NextResponse.json(
-          { error: "WordPress config and publish payload are required." },
+          { error: "No WordPress connection. Connect your site in Plugins first." },
           { status: 400 }
         );
       }
 
-      const result = await publishToWordPress(wpConfig, publishPayload);
+      const result = await publishToWordPress(config, publishPayload);
       return NextResponse.json(result);
     }
 
@@ -113,14 +149,20 @@ export async function POST(req: Request) {
     // STEP: Create WordPress Category
     // =========================================================================
     if (step === "create-category") {
-      const { wpConfig, name } = body;
-      if (!wpConfig || !name) {
+      const { name } = body;
+      if (!name) {
+        return NextResponse.json({ error: "Category name is required." }, { status: 400 });
+      }
+
+      const { config } = await resolveWpConfig(userId, body.wpConfig);
+      if (!config) {
         return NextResponse.json(
-          { error: "WordPress config and category name are required." },
+          { error: "No WordPress connection. Connect your site in Plugins first." },
           { status: 400 }
         );
       }
-      const newCat = await createWPCategory(wpConfig, name);
+
+      const newCat = await createWPCategory(config, name);
       if (!newCat) {
         return NextResponse.json(
           { error: "Failed to create category in WordPress." },

@@ -1,6 +1,7 @@
 "use server";
 
 import prisma from "@/lib/db";
+import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { encryptSecret, decryptSecret, isEncryptionConfigured } from "@/lib/crypto";
 import {
@@ -10,6 +11,7 @@ import {
   fetchWPAuthors,
   fetchWPPostTypes,
 } from "@/actions/wordpress";
+import { getWordPressConfig } from "@/lib/wordpress/siteConfig";
 
 /**
  * Real WordPress connection storage.
@@ -17,7 +19,26 @@ import {
  * The app password is encrypted with APP_ENCRYPTION_KEY and is never sent back
  * to the browser — reads only report `hasPassword`. Both the Article Writer and
  * the Lead Goal autopilot read this one record, so a site is connected once.
+ *
+ * Every export here is a public HTTP endpoint that takes a workspace id from the
+ * caller, so each one first proves the signed-in user owns that workspace —
+ * otherwise any tenant could read, overwrite or delete another tenant's site
+ * connection just by guessing an id.
  */
+
+async function ownsWorkspace(workspaceId: string): Promise<boolean> {
+  if (!workspaceId) return false;
+  const { userId } = await auth();
+  if (!userId) return false;
+
+  const owned = await prisma.workspace
+    .findFirst({ where: { id: workspaceId, userId }, select: { id: true } })
+    .catch(() => null);
+
+  return Boolean(owned);
+}
+
+const NOT_YOURS = "You do not have access to this workspace.";
 
 function normalizeSiteUrl(raw: string): string {
   const trimmed = (raw || "").trim().replace(/\/+$/, "");
@@ -57,6 +78,10 @@ const EMPTY_VIEW: WordPressSiteView = {
 
 export async function getWordPressSite(workspaceId: string): Promise<WordPressSiteView> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) {
+      return { ...EMPTY_VIEW, encryptionConfigured: isEncryptionConfigured() };
+    }
+
     const row = await (prisma as any).wordPressSite.findUnique({ where: { workspaceId } });
     if (!row) return { ...EMPTY_VIEW, encryptionConfigured: isEncryptionConfigured() };
 
@@ -77,36 +102,6 @@ export async function getWordPressSite(workspaceId: string): Promise<WordPressSi
   } catch (error) {
     console.warn("[getWordPressSite] unavailable:", error);
     return { ...EMPTY_VIEW, encryptionConfigured: isEncryptionConfigured() };
-  }
-}
-
-/**
- * Server-only: resolves the decrypted config for publishing. Never call this
- * from a client component.
- */
-export async function getWordPressConfig(
-  workspaceId: string
-): Promise<(WPConfig & { defaultStatus: string; defaultCategoryId: number | null; defaultAuthorId: number | null; postType: string; enableYoastSeo: boolean }) | null> {
-  try {
-    const row = await (prisma as any).wordPressSite.findUnique({ where: { workspaceId } });
-    if (!row?.siteUrl || !row?.username || !row?.appPassword) return null;
-
-    const appPassword = decryptSecret(row.appPassword);
-    if (!appPassword) return null;
-
-    return {
-      siteUrl: row.siteUrl,
-      username: row.username,
-      appPassword,
-      defaultStatus: row.defaultStatus || "publish",
-      defaultCategoryId: row.defaultCategoryId ?? null,
-      defaultAuthorId: row.defaultAuthorId ?? null,
-      postType: row.postType || "posts",
-      enableYoastSeo: row.enableYoastSeo !== false,
-    };
-  } catch (error) {
-    console.warn("[getWordPressConfig] unavailable:", error);
-    return null;
   }
 }
 
@@ -137,6 +132,7 @@ export async function connectWordPressSite(
   const siteUrl = normalizeSiteUrl(data.siteUrl);
   const username = (data.username || "").trim();
 
+  if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
   if (!siteUrl) return { success: false, error: "Enter your WordPress site URL." };
   if (!username) return { success: false, error: "Enter the WordPress username." };
 
@@ -262,6 +258,8 @@ export async function testWordPressSite(workspaceId: string): Promise<{
   lastVerifiedAt?: string;
 }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     const config = await getWordPressConfig(workspaceId);
     if (!config) {
       return { success: false, error: "No WordPress site connected yet." };
@@ -300,6 +298,8 @@ export async function disconnectWordPressSite(
   workspaceId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!(await ownsWorkspace(workspaceId))) return { success: false, error: NOT_YOURS };
+
     await (prisma as any).wordPressSite.delete({ where: { workspaceId } }).catch(() => null);
     revalidatePath("/dashboard/plugins");
     revalidatePath("/dashboard/goals");
@@ -320,6 +320,10 @@ export async function fetchWordPressTaxonomies(workspaceId: string): Promise<{
 }> {
   const empty = { categories: [], authors: [], postTypes: [] };
   try {
+    if (!(await ownsWorkspace(workspaceId))) {
+      return { success: false, ...empty, error: NOT_YOURS };
+    }
+
     const config = await getWordPressConfig(workspaceId);
     if (!config) return { success: false, ...empty, error: "No WordPress site connected." };
 

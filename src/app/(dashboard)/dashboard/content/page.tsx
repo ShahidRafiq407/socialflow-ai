@@ -10,30 +10,32 @@ export default async function ContentLibraryPage() {
     redirect("/sign-in");
   }
 
-  const workspace = await Promise.race([
-    prisma.workspace.findFirst({
-      where: { userId },
-    }),
-    new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
-  ]).catch(() => null);
+  const workspace = await prisma.workspace.findFirst({
+    where: { userId },
+  });
 
-  const workspaceId = workspace?.id || "default-workspace";
-  const workspaceName = workspace?.name || "SMB Robotics";
+  // No workspace means onboarding never finished; showing a placeholder
+  // library under someone else's brand name is worse than sending them back.
+  if (!workspace) {
+    redirect("/onboarding");
+  }
+
+  const workspaceId = workspace.id;
+  const workspaceName = workspace.name || "";
 
   // Content Library = everything the user owns: drafts, needs-review,
   // scheduled, published (kept 1 hour as a receipt, then auto-cleaned by
-  // the dispatcher/cron), failed (retryable) and rejected. Only the
-  // transient PUBLISHING state is hidden.
-  const posts = await Promise.race([
-    prisma.post.findMany({
+  // the dispatcher/cron — autopilot posts are kept 3 days), failed
+  // (retryable) and rejected. Only the transient PUBLISHING state is hidden.
+  const posts = await prisma.post
+    .findMany({
       where: {
         workspaceId,
         status: { notIn: ["PUBLISHING"] },
       },
       orderBy: { createdAt: "desc" },
-    }),
-    new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2500)),
-  ]).catch(() => []);
+    })
+    .catch(() => [] as any[]);
 
   // Urgency-first ordering for the "All" view: what needs action now sits on
   // top, the published history sinks to the bottom.

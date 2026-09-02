@@ -907,7 +907,7 @@ export async function executeGrowthArticleTask(
       return { success: false, taskId: task.id, error: "This article task has no keyword." };
     }
 
-    const { getWordPressConfig } = await import("@/actions/wordpressSite");
+    const { getWordPressConfig } = await import("@/lib/wordpress/siteConfig");
     const [workspace, goal, wp] = await Promise.all([
       prisma.workspace.findUnique({ where: { id: workspaceId }, include: { brandDNA: true } }),
       (prisma as any).growthGoal.findUnique({ where: { workspaceId } }).catch(() => null),

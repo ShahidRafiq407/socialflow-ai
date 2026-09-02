@@ -2,6 +2,7 @@
 
 import { useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import {
   AlertTriangle,
   FileEdit,
   MessageCircle,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -67,6 +69,8 @@ export interface PostProps {
   source?: string | null;
   publishError?: string | null;
   publishedAt?: Date | null;
+  /** Set by the generators; `origin: "growth-autopilot"` marks a lead-goal post. */
+  settings?: any;
 }
 
 const QUICK_REJECT_REASONS = [
@@ -103,6 +107,13 @@ function toLocalInputValue(d: Date | string | null | undefined) {
 export function PostCard({ post }: { post: PostProps }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Written by the lead-goal engine rather than by hand. Autopilot posts are
+  // also kept 3 days instead of 1 hour after publishing.
+  const isAutopilot =
+    typeof post.settings === "object" &&
+    post.settings !== null &&
+    (post.settings as any).origin === "growth-autopilot";
   const [loadingAction, setLoadingAction] = useState<
     "approve" | "reject" | "delete" | "edit" | "retry" | null
   >(null);
@@ -465,6 +476,16 @@ export function PostCard({ post }: { post: PostProps }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {isAutopilot && (
+              <Link
+                href="/dashboard/goals"
+                title="Created by your lead goal's autopilot. Open Lead Goal HQ."
+                className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary hover:bg-primary/20"
+              >
+                <Zap className="h-2.5 w-2.5" />
+                Autopilot
+              </Link>
+            )}
             {renderStatusBadge()}
 
             {/* DELETE BUTTON - ALWAYS REMAINS ON THE CARD */}

@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { connectWordPressSite, getWordPressSite } from "@/actions/wordpressSite";
 
 // ============================================================================
 // TYPES
@@ -586,6 +587,48 @@ export function ArticleWriterHQ({
     }
   }, []);
 
+  /**
+   * One WordPress connection per workspace, shared with the Lead Goal engine.
+   *
+   * The saved site lives on the server with its application password encrypted,
+   * so the entry seeded here deliberately carries no password: the API route
+   * falls back to the stored credentials whenever the browser sends none.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const site = await getWordPressSite(workspaceId).catch(() => null);
+      if (cancelled || !site?.connected || !site.siteUrl) return;
+
+      const serverSite: ConnectedWPSite = {
+        id: `workspace-${workspaceId}`,
+        siteUrl: site.siteUrl,
+        username: site.username,
+        appPassword: "",
+        categories: [],
+        authors: [],
+        postTypes: [
+          { slug: "post", name: "post" },
+          { slug: "page", name: "page" },
+        ],
+        connectedAt: site.lastVerifiedAt || new Date().toISOString(),
+      };
+
+      setConnectedSites((prev) => {
+        if (prev.some((s) => s.siteUrl === serverSite.siteUrl)) return prev;
+        return [serverSite, ...prev];
+      });
+
+      setTargetWebsite((prev) => (prev === "none" ? serverSite.siteUrl : prev));
+      syncLiveWPCategories(serverSite);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
   const applyConnectedSiteData = (site: ConnectedWPSite) => {
     const cats = site.categories && site.categories.length > 0
       ? site.categories
@@ -720,12 +763,20 @@ export function ArticleWriterHQ({
         );
       }
 
-      // Successfully authorized!
+      // Successfully authorized! Save it once on the server (password encrypted
+      // there) so the Lead Goal engine publishes through the same connection,
+      // and keep no copy of the password in this browser.
+      const savedOnServer = await connectWordPressSite(workspaceId, {
+        siteUrl: cleanUrl,
+        username: modalUsername.trim(),
+        appPassword: modalAppPassword.trim(),
+      }).catch(() => null);
+
       const newSite: ConnectedWPSite = {
         id: Date.now().toString(),
         siteUrl: cleanUrl,
         username: modalUsername.trim(),
-        appPassword: modalAppPassword.trim(),
+        appPassword: savedOnServer?.success ? "" : modalAppPassword.trim(),
         categories: data.categories || [],
         authors: data.authors || [],
         postTypes: data.postTypes || [
