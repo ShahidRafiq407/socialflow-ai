@@ -8,12 +8,18 @@ import { createRunControls, type RunControls } from "@/lib/agents/runControls";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-// A campaign renders its media one format at a time, and a single image can need a
-// couple of minutes on a small quota. At the old 300s the function was killed
-// mid-render: the stream just stopped, so the user watched a spinner that would never
-// resolve and never errored either. This is the ceiling for the run, not a target —
-// `CAMPAIGN_FAMILY_DEADLINE_MS` is what actually stops a stuck family.
-export const maxDuration = 800;
+// 300 is a hard platform ceiling, not a tuning choice: Vercel's Hobby plan rejects any
+// higher value at DEPLOY time ("maxDuration must be between 1 and 300"), so an 800 here
+// does not buy a longer run — it stops the whole app from shipping. Pro allows 800; until
+// the project is on it, this is the number.
+//
+// A campaign renders its media one format at a time and a single image can need a couple
+// of minutes, so a big run genuinely does not fit. It is made to fit rather than killed:
+// `CAMPAIGN_RUN_BUDGET_MS` in campaignGraph keeps the whole run inside this ceiling and
+// abandons the formats that do not fit, each reported as skipped. Being killed by the
+// platform instead means the stream just stops — a spinner that never resolves and never
+// errors, which is the failure this pairing exists to prevent.
+export const maxDuration = 300;
 
 // Zod schema for structured request validation
 const GenerateCampaignSchema = z.object({

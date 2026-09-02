@@ -338,6 +338,27 @@ export async function runCampaignGraph(
     max: 900000,
   });
 
+  /**
+   * How long the WHOLE run may take, measured from this moment.
+   *
+   * The serverless function has its own ceiling (300s on Vercel Hobby — see
+   * api/ai-studio-v2/route.ts), and the platform does not end a run politely: it kills
+   * the function, the stream stops mid-sentence, and the user is left with a spinner that
+   * never resolves and never errors. So the run tracks its own budget and stops first.
+   * Whatever does not fit is abandoned the same way a Skip is — named, reported, and the
+   * campaign still finishes with the copy it has written.
+   *
+   * Deliberately under the platform ceiling: the audit, the CEO's verdict and the final
+   * save all happen after the last render and still need room.
+   */
+  const runBudgetMs = envInt("CAMPAIGN_RUN_BUDGET_MS", 255000, { min: 60000, max: 840000 });
+
+  /** Below this there is no point starting a render — it would be killed mid-flight. */
+  const MIN_RENDER_WINDOW_MS = 25000;
+
+  const runStartedAt = Date.now();
+  const runMsLeft = () => runBudgetMs - (Date.now() - runStartedAt);
+
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentDateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -1551,6 +1572,20 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   ) => {
     checkProductionRunnable();
 
+    // The run's own ceiling comes first. A family that cannot finish inside what is left
+    // is abandoned before it starts, which costs the user one format; starting it anyway
+    // costs them the whole stream when the platform kills the function mid-render.
+    const msLeft = runMsLeft();
+    if (msLeft < MIN_RENDER_WINDOW_MS) {
+      throw skipError(
+        family.label,
+        "the run reached its time limit before this format — skipped so the campaign could be saved with what it had"
+      );
+    }
+    // Never longer than what the run has left, so the family deadline can still fire
+    // (and report honestly) inside the function's lifetime.
+    const deadlineMs = Math.min(familyDeadlineMs, msLeft);
+
     const agentId = options?.agentId ?? "visualizer";
     const primary = family.members[0];
     const item = state.generatedContent!.platforms[primary.platform][primary.contentType] as any;
@@ -1572,7 +1607,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     const deadline = setTimeout(() => {
       deadlineHit = true;
       abandon();
-    }, familyDeadlineMs);
+    }, deadlineMs);
 
     const releaseScope = () => {
       clearTimeout(deadline);
@@ -1592,9 +1627,15 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         return cancelled;
       }
       if (deadlineHit) {
+        // The number quoted is the deadline this family actually got, which may be shorter
+        // than the configured one because the run was already part-way through its budget.
+        const spent =
+          deadlineMs >= 60000
+            ? `${Math.round(deadlineMs / 60000)} min`
+            : `${Math.round(deadlineMs / 1000)}s`;
         return skipError(
           family.label,
-          `no media after ${Math.round(familyDeadlineMs / 60000)} min — skipped automatically so the rest of the campaign could finish`
+          `no media after ${spent} — skipped automatically so the rest of the campaign could finish`
         );
       }
       if (controls?.isSkipRequested(family.label) || familyAbort.signal.aborted) {
