@@ -21,6 +21,7 @@ import {
   Brain,
   Zap,
   AlertTriangle,
+  SkipForward,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -191,6 +192,57 @@ const DEFAULT_PHASES: PhaseInfo[] = [
 /** Keeps the console bounded on long campaigns without losing the recent history. */
 const MAX_TIMELINE_ENTRIES = 400;
 
+/**
+ * Puts rendered media back onto the copy it belongs to.
+ *
+ * The content creator's payload is streamed BEFORE any media exists, and the visualizer
+ * streams its assets separately — so the two have to be joined here. Without it, a run
+ * that ends early hands the editor captions with no images even though the images
+ * rendered, and a retry re-renders media the previous attempt already paid for.
+ */
+function mergeAssetsIntoContent(content: any, assets: any[]): any {
+  if (!content?.platforms || !Array.isArray(assets) || assets.length === 0) return content;
+
+  const merged = {
+    ...content,
+    platforms: Object.fromEntries(
+      Object.entries(content.platforms as Record<string, Record<string, any>>).map(
+        ([platform, formats]) => [
+          platform,
+          Object.fromEntries(
+            Object.entries(formats || {}).map(([format, item]) => [format, { ...(item as any) }])
+          ),
+        ]
+      )
+    ),
+  };
+
+  for (const asset of assets) {
+    const item = merged.platforms?.[asset?.platform]?.[asset?.contentType];
+    if (!item || !asset?.url) continue;
+    if (asset.type === "video") {
+      item.videoUrl = item.videoUrl || asset.url;
+      continue;
+    }
+    // Slides arrive as one asset per slide, in order, so a carousel rebuilds by appending.
+    item.imageUrl = item.imageUrl || asset.url;
+    const slides: string[] = Array.isArray(item.slideUrls) ? item.slideUrls : [];
+    if (!slides.includes(asset.url)) item.slideUrls = [...slides, asset.url];
+  }
+
+  // A single image is not a carousel: drop the one-entry slide list so the editor does not
+  // render a one-slide deck for a plain feed post.
+  for (const formats of Object.values(merged.platforms as Record<string, Record<string, any>>)) {
+    for (const item of Object.values(formats || {})) {
+      if (Array.isArray((item as any).slideUrls) && (item as any).slideUrls.length < 2) {
+        delete (item as any).slideUrls;
+      }
+    }
+  }
+
+  return merged;
+}
+
 
 export default function MultiAgentStreamModal({
   isOpen,
@@ -225,6 +277,26 @@ export default function MultiAgentStreamModal({
   // When the stream opened. The console labels each step with its offset from this, so
   // it has to be state the render can read — not a ref.
   const [runStartedAt, setRunStartedAt] = useState(0);
+  // Seconds since the last event arrived. A render can legitimately be quiet for a
+  // minute or two, but a stream that has gone silent for a long time is the failure the
+  // user experienced as "stuck": the server was killed mid-render, so no error ever came
+  // and the spinner span forever. Surfacing the silence lets them skip or retry.
+  const [secondsSinceEvent, setSecondsSinceEvent] = useState(0);
+  const [skipRequested, setSkipRequested] = useState<string | null>(null);
+  const [skipNotice, setSkipNotice] = useState<string | null>(null);
+  /**
+   * The format family being rendered right now, mirrored out of the ref so the UI can name
+   * it on the Skip button. Without it the button would have to say "this step", and the
+   * user could not tell which post they were about to ship without media.
+   */
+  const [activeScope, setActiveScope] = useState<string | null>(null);
+  /**
+   * Whether a stream is still being read. An agent failure does not always end the run —
+   * "no media rendered at all" reports the visualizer as failed and carries on to the
+   * audit — so the error banner has to know whether there is still a run in flight before
+   * it offers to restart one.
+   */
+  const [isStreamLive, setIsStreamLive] = useState(false);
 
   const agentOutputsRef = useRef<Record<string, any>>({});
   const agentProgressRef = useRef<Record<string, number>>({});
@@ -237,6 +309,14 @@ export default function MultiAgentStreamModal({
   // a "+1 each second" counter drifts badly — a 25-minute run showed as 7. Recomputing from
   // the timestamp is immune to that and snaps to the true value the moment the tab refocuses.
   const runStartedAtRef = useRef<number>(0);
+  /** When the last SSE event landed, for the stall detector. Same wall-clock reasoning. */
+  const lastEventAtRef = useRef<number>(0);
+  /**
+   * The scope (format family) the visualizer is currently working on, tracked from the
+   * scoped events. A skip has to name what it is abandoning, and the user should not have
+   * to tell the server something the stream already said.
+   */
+  const activeScopeRef = useRef<string | null>(null);
   // Event dedup: the backend stamps every event with a monotonic `seq`, so identity is
   // exact. Deriving the key from the payload (as this used to) collapsed two genuinely
   // different steps that happened to produce the same label, and real progress vanished
@@ -289,6 +369,10 @@ export default function MultiAgentStreamModal({
       setPhases(DEFAULT_PHASES);
       setAuditResult(null);
       setFailedAgentId(null);
+      setSkipRequested(null);
+      setSkipNotice(null);
+      setActiveScope(null);
+      activeScopeRef.current = null;
       manualSelectionRef.current = false;
       const startedAtNow = Date.now();
       runStartedAtRef.current = startedAtNow;
@@ -340,21 +424,35 @@ export default function MultiAgentStreamModal({
     const runId = `run_${Date.now()}`;
     runIdRef.current = runId;
 
+    // A retry must not leave the previous stream reading in the background: two readers
+    // would interleave two runs' events into one console, and the abandoned run would keep
+    // burning quota server-side. Aborting also tells the server that client is gone.
+    abortControllerRef.current?.abort();
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
+    setIsStreamLive(true);
 
     if (timerRef.current) clearInterval(timerRef.current);
     // A retry keeps the original start (so elapsed is cumulative); only a fresh run reset it.
     if (!runStartedAtRef.current) runStartedAtRef.current = Date.now();
+    lastEventAtRef.current = Date.now();
+    setSecondsSinceEvent(0);
     timerRef.current = setInterval(() => {
       setElapsedTime(Math.max(0, Math.round((Date.now() - runStartedAtRef.current) / 1000)));
+      setSecondsSinceEvent(Math.max(0, Math.round((Date.now() - lastEventAtRef.current) / 1000)));
     }, 1000);
 
     const resumeState = isRetry && targetResumeAgent ? {
       brandData: agentOutputsRef.current?.brand_analyst,
       trendResearch: agentOutputsRef.current?.trend_researcher,
       competitorAnalysis: agentOutputsRef.current?.competitor_analyst,
-      generatedContent: agentOutputsRef.current?.content_creator,
+      // Media is joined back onto the copy before it goes up. The server needs it ON the
+      // items, not just in a separate asset list, to know which formats already have
+      // media and must not be rendered again.
+      generatedContent: mergeAssetsIntoContent(
+        agentOutputsRef.current?.content_creator,
+        agentOutputsRef.current?.visualizer?.generatedAssets || []
+      ),
       generatedAssets: agentOutputsRef.current?.visualizer?.generatedAssets || [],
     } : undefined;
 
@@ -421,11 +519,39 @@ export default function MultiAgentStreamModal({
         console.error("Stream error:", err);
         setErrorMessage(err.message || "Pipeline execution failed");
       }
+    } finally {
+      // Only the current stream may report itself closed. A retry opens a new one and
+      // swaps the ref, so the old reader finishing must not mark the live run as dead.
+      if (abortControllerRef.current === abortController) setIsStreamLive(false);
     }
   }, [platforms, contentTypes]);
 
   const handleStreamEvent = (event: any) => {
     const { type, agentId, data } = event;
+
+    // Any event at all means the stream is alive, so the stall clock restarts here —
+    // before the dedup check, since even a duplicate proves the connection is up.
+    lastEventAtRef.current = Date.now();
+    setSecondsSinceEvent(0);
+
+    // The scope the render is on, so Skip can name it. Both agents that render media
+    // report it: the visualizer in the production phase, and the CEO when it re-renders a
+    // format it found missing during review.
+    if (
+      (agentId === "visualizer" || agentId === "ceo_auditor") &&
+      typeof data?.scope === "string" &&
+      data.scope
+    ) {
+      if (type === "agent_scope_completed") {
+        if (activeScopeRef.current === data.scope) {
+          activeScopeRef.current = null;
+          setActiveScope(null);
+        }
+      } else {
+        activeScopeRef.current = data.scope;
+        setActiveScope(data.scope);
+      }
+    }
 
     // Dedup. `seq` is a monotonic counter the backend stamps on every event, so two
     // steps with identical text are still distinct. Replayed events on a resume are
@@ -678,6 +804,58 @@ export default function MultiAgentStreamModal({
     startStream({ resumeFromAgent: targetAgent });
   };
 
+  /**
+   * Abandons the format the render is stuck on and lets the campaign carry on.
+   *
+   * Deliberately not a cancel: the stream stays open, every family that already rendered
+   * keeps its media, and the skipped post ships with its copy for the user to add media
+   * to in the content editor. The scope comes from the stream itself, so the click
+   * targets the family the console is actually showing.
+   */
+  const handleSkipStep = async () => {
+    const scope = activeScopeRef.current;
+    setSkipRequested(scope || "current step");
+    setSkipNotice(null);
+    try {
+      const res = await fetch("/api/ai-studio-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "skip-step", runId: runIdRef.current, scope }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        // Honest failure. The run lives in the server instance that opened the stream, so
+        // a skip can miss it; saying so beats a button that silently does nothing.
+        setSkipRequested(null);
+        setSkipNotice(
+          json?.message ||
+            "Could not reach this run to skip it. Use Cancel Campaign, or wait for the step's own timeout."
+        );
+      }
+    } catch {
+      setSkipRequested(null);
+      setSkipNotice("Could not reach the server to skip this step.");
+    }
+  };
+
+  /**
+   * The skip for a step that has already failed and taken the stream down with it.
+   *
+   * A live skip is impossible then — there is no run left to steer — so this skips the
+   * FAILED STEP instead of the stalled one: if media generation is what broke, restart at
+   * the review with whatever rendered, and let the campaign finish and report the gaps.
+   * Once the review itself is the failure there is no step left after it, so the honest
+   * move is to hand over everything that did generate.
+   */
+  const handleSkipFailedStep = () => {
+    const failed = failedAgentId || selectedAgentId;
+    if (failed === "visualizer") {
+      startStream({ resumeFromAgent: "ceo_auditor" });
+      return;
+    }
+    handleApplyToEditors();
+  };
+
   const handleCancelCampaign = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -695,7 +873,15 @@ export default function MultiAgentStreamModal({
   };
 
   const handleApplyToEditors = () => {
-    const payload = completedPayload || agentOutputs?.content_creator;
+    // A completed run already carries its media on the copy. A run that ended early does
+    // not, so the visualizer's assets are joined back on here — otherwise a failure at the
+    // audit would hand the editor captions with no images, even though the images rendered.
+    const payload =
+      completedPayload ||
+      mergeAssetsIntoContent(
+        agentOutputs?.content_creator,
+        agentOutputs?.visualizer?.generatedAssets || []
+      );
     if (payload) {
       onCompletePayload(payload);
     }
@@ -729,6 +915,27 @@ export default function MultiAgentStreamModal({
   const activeAgentOutput = agentOutputs[selectedAgentId];
   const activeAgentStatus = agentStatuses[selectedAgentId] || "waiting";
   const activeAgentProgress = agentProgress[selectedAgentId] ?? 0;
+  // Skipping only means something while media is being produced: that is the one stage that
+  // can sit on a single slow provider call for minutes, and the only work a post can ship
+  // without. It covers the CEO too — it re-renders the formats it finds missing in review.
+  // A dead stream cannot be steered, so a skip is only offered while one is being read.
+  const isRenderingMedia =
+    isStreamLive &&
+    (agentStatuses.visualizer === "running" ||
+      (agentStatuses.ceo_auditor === "running" && !!activeScope));
+  // Long enough that a legitimately slow image render is never mistaken for a stall, short
+  // enough that the user is not left guessing. The server's own family deadline is minutes
+  // away, so this fires first and gives them the choice.
+  const STALL_AFTER_SECONDS = 100;
+  const isStalled =
+    !isCompleted && secondsSinceEvent >= STALL_AFTER_SECONDS && (isRenderingMedia || !errorMessage);
+  const mediaGaps: { platform: string; contentType: string; format: string; reason: string }[] =
+    Array.isArray(auditResult?.mediaGaps) ? auditResult.mediaGaps : [];
+  // Skipping a FAILED step only makes sense once the run is actually over and there is copy
+  // worth keeping — while a run is still streaming, the live Skip in the footer is the right
+  // control, and restarting from here would abandon a run that is still working.
+  const canSkipFailedStep =
+    Boolean(errorMessage) && !isStreamLive && Boolean(agentOutputs?.content_creator?.platforms);
   // The console shows the whole phase, not one agent at a time. Where a phase really
   // does have two agents live at once, filtering to the selected one hid half the run,
   // so the second agent's reasoning only appeared after the first had finished.
@@ -1407,6 +1614,66 @@ export default function MultiAgentStreamModal({
                       </div>
                     )}
 
+                    {/*
+                      A stalled run used to look exactly like a slow one: a spinner with no
+                      way out. Now the silence itself is reported, with a way forward that
+                      matches what is actually wrong — skip this one format while the run is
+                      alive, or restart / keep what exists once the stream has dropped.
+                    */}
+                    {isStalled && (
+                      <div className="p-3 bg-[#F59E0B]/10 border border-[#F59E0B]/25 rounded-xl text-xs space-y-2.5">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-[#F59E0B] shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-semibold text-[#F59E0B]">
+                              No update for {formatTime(secondsSinceEvent)}
+                            </p>
+                            <p className="text-[#9CA3AF] mt-0.5">
+                              {isRenderingMedia
+                                ? `${activeScope ? `“${activeScope}”` : "This format"} is still rendering. You can skip it and keep the rest of the campaign — the post ships with its copy, and you add the media yourself in the content editor.`
+                                : isStreamLive
+                                ? "This step is taking longer than usual. You can retry it, or cancel the campaign."
+                                : "The connection to this run has dropped, so nothing further will arrive. Retry the step, or take everything that finished into the editor."}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pl-6">
+                          {isRenderingMedia && (
+                            <Button
+                              size="sm"
+                              disabled={!!skipRequested}
+                              onClick={handleSkipStep}
+                              className="bg-[#F59E0B] hover:bg-[#D97706] disabled:opacity-60 text-[#111318] text-xs px-3 py-1.5 h-8 rounded-lg flex items-center gap-1.5 font-semibold"
+                            >
+                              <SkipForward className="w-3.5 h-3.5" />
+                              {skipRequested ? "Skipping…" : "Skip this format"}
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRetry(failedAgentId || selectedAgentId)}
+                            className="bg-transparent border-[#252A32] text-slate-300 hover:bg-white/5 text-xs px-3 py-1.5 h-8 rounded-lg flex items-center gap-1.5 font-medium"
+                          >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            Retry this step
+                          </Button>
+                          {!isStreamLive && Boolean(agentOutputs?.content_creator?.platforms) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleApplyToEditors}
+                              className="bg-transparent border-[#252A32] text-slate-300 hover:bg-white/5 text-xs px-3 py-1.5 h-8 rounded-lg flex items-center gap-1.5 font-medium"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              Use what&apos;s ready
+                            </Button>
+                          )}
+                        </div>
+                        {skipNotice && <p className="text-[11px] text-[#EF4444] pl-6">{skipNotice}</p>}
+                      </div>
+                    )}
+
                     {errorMessage && (
                       <div className="p-3 bg-[#EF4444]/10 border border-[#EF4444]/25 rounded-xl text-xs text-[#EF4444] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-red-950/20">
                         <div className="flex items-center gap-2">
@@ -1422,14 +1689,33 @@ export default function MultiAgentStreamModal({
                             Upgrade Plan
                           </button>
                         ) : (
-                          <Button
-                            size="sm"
-                            onClick={() => handleRetry(failedAgentId || selectedAgentId)}
-                            className="bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 transition-all font-medium"
-                          >
-                            <RotateCw className="w-3.5 h-3.5" />
-                            Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
-                          </Button>
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <Button
+                              size="sm"
+                              onClick={() => handleRetry(failedAgentId || selectedAgentId)}
+                              className="bg-[#EF4444] hover:bg-[#DC2626] text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 transition-all font-medium"
+                            >
+                              <RotateCw className="w-3.5 h-3.5" />
+                              Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
+                            </Button>
+                            {/*
+                              Retry is not always what the user wants: a provider that just
+                              failed will often fail again. Skipping the failed step keeps
+                              everything that did generate — the missing media gets added by
+                              hand in the content editor.
+                            */}
+                            {canSkipFailedStep && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleSkipFailedStep}
+                                className="bg-transparent border-[#F59E0B]/40 text-[#F59E0B] hover:bg-[#F59E0B]/10 text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 font-medium"
+                              >
+                                <SkipForward className="w-3.5 h-3.5" />
+                                {failedAgentId === "visualizer" ? "Skip media, finish campaign" : "Skip & use what's ready"}
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
@@ -1439,9 +1725,9 @@ export default function MultiAgentStreamModal({
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-between bg-[#0B0D10] shrink-0">
-              <div>
-                {errorMessage && (
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-[#252A32] flex items-center justify-between gap-3 bg-[#0B0D10] shrink-0">
+              <div className="min-w-0">
+                {errorMessage ? (
                   <Button
                     className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors flex items-center gap-1.5 shrink-0 font-medium shadow-md shadow-indigo-950/30"
                     onClick={() => handleRetry(failedAgentId || selectedAgentId)}
@@ -1449,15 +1735,37 @@ export default function MultiAgentStreamModal({
                     <RotateCw className="w-3.5 h-3.5" />
                     Retry from {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
                   </Button>
+                ) : (
+                  skipNotice && <p className="text-[11px] text-[#EF4444] truncate">{skipNotice}</p>
                 )}
               </div>
-              <Button
-                variant="outline"
-                className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors shrink-0"
-                onClick={handleCancelCampaign}
-              >
-                Cancel Campaign
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/*
+                  Skip lives beside Cancel, and only while media is being produced: the two
+                  are the same gesture at different cost. Cancel throws the campaign away;
+                  skip gives up one format's media and keeps everything else. It stays
+                  available after a visualizer failure, because the CEO renders media too.
+                */}
+                {isRenderingMedia && (
+                  <Button
+                    variant="outline"
+                    disabled={!!skipRequested}
+                    onClick={handleSkipStep}
+                    title={activeScope ? `Skip ${activeScope} and continue the campaign` : "Skip the format being rendered and continue"}
+                    className="bg-transparent border-[#F59E0B]/30 text-[#F59E0B] hover:bg-[#F59E0B]/10 hover:border-[#F59E0B]/50 disabled:opacity-50 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <SkipForward className="w-3.5 h-3.5" />
+                    {skipRequested ? "Skipping…" : "Skip this format"}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="bg-transparent border-[#252A32] text-[#EF4444] hover:bg-[#EF4444]/10 hover:border-[#EF4444]/30 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors shrink-0"
+                  onClick={handleCancelCampaign}
+                >
+                  Cancel Campaign
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1483,9 +1791,44 @@ export default function MultiAgentStreamModal({
               </div>
               <div>
                 <h3 className="text-xl sm:text-2xl font-bold mb-1.5">Campaign Ready!</h3>
-                <p className="text-xs sm:text-sm text-[#6B7280]">Your content has been successfully created.</p>
+                <p className="text-xs sm:text-sm text-[#6B7280]">
+                  {mediaGaps.length > 0
+                    ? `Every post is written. ${mediaGaps.length} of them still need media.`
+                    : "Your content has been successfully created."}
+                </p>
               </div>
             </div>
+
+            {/*
+              A campaign that shipped without some of its media must say so HERE, by post.
+              The run itself is a success — the copy is done and the rest of the media
+              rendered — but the user has to know exactly which posts to open in the editor
+              and generate an image for, or they will publish a blank one.
+            */}
+            {mediaGaps.length > 0 && (
+              <div className="rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3 sm:p-4 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
+                  <p className="text-xs sm:text-sm font-semibold text-[#92400E]">
+                    Add media for {mediaGaps.length} post{mediaGaps.length === 1 ? "" : "s"} in the content editor
+                  </p>
+                </div>
+                <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {mediaGaps.map((gap, gIdx) => (
+                    <li
+                      key={`${gap.platform}-${gap.contentType}-${gIdx}`}
+                      className="text-[11px] sm:text-xs bg-white/70 border border-[#F59E0B]/20 rounded-lg px-2.5 py-2"
+                    >
+                      <span className="font-semibold capitalize text-[#111318]">
+                        {gap.platform} — {gap.contentType}
+                      </span>
+                      <span className="text-[#6B7280]"> ({gap.format})</span>
+                      <span className="block text-[#6B7280] mt-0.5">{gap.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Actions */}
             <div className="mt-4 sm:mt-6">

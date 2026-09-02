@@ -15,9 +15,11 @@ import {
   retagAssetForMember,
   dedupeAttachments,
   type FormatFamily,
+  type FamilyMember,
 } from "@/lib/agents/formatFamilies";
 import { createThoughtEmitter } from "@/lib/agents/thoughtStream";
 import { createLimiter, envConcurrency, envInt } from "@/lib/agents/concurrency";
+import type { RunControls } from "@/lib/agents/runControls";
 import {
   runDeterministicChecks,
   groupIssuesByPost,
@@ -68,6 +70,11 @@ export interface CampaignGraphInput {
   workspaceData?: any;
   resumeState?: Partial<CampaignState>;
   resumeFromAgent?: string;
+  /**
+   * Live user steering. Lets a stuck render be abandoned without losing the run — see
+   * `RunControls`. Optional so every existing caller (and every test) keeps working.
+   */
+  controls?: RunControls;
 }
 
 export interface GroundingSource {
@@ -153,6 +160,13 @@ export interface CampaignState {
     revisionRounds?: number;
     /** True when the subjective LLM review could not be obtained. */
     judgementUnavailable?: boolean;
+    /**
+     * Posts that ship without their media because every render attempt (the
+     * visualizer's, then the CEO's recovery pass) failed or was skipped. The campaign
+     * is still delivered: the user finishes these in the content editor. Present so the
+     * UI can name them instead of the run dying with one generic error.
+     */
+    mediaGaps?: { platform: string; contentType: string; format: string; reason: string }[];
   };
   errors?: string[];
 }
@@ -308,6 +322,21 @@ export async function runCampaignGraph(
   onEvent: AgentEventCallback
 ): Promise<CampaignState> {
   const { userId, workspaceId, platforms, contentTypes, signal } = input;
+  const controls = input.controls;
+
+  /**
+   * How long one family may hold the pipeline before it is abandoned automatically.
+   *
+   * This is a backstop, not a leash. A single image can legitimately need a couple of
+   * minutes, and a deck renders its slides one after another, so the ceiling is
+   * generous. It exists because a hung provider call used to hold the whole campaign
+   * until the serverless function itself was killed — at which point the stream simply
+   * stopped and the user was left watching a spinner with no error and no result.
+   */
+  const familyDeadlineMs = envInt("CAMPAIGN_FAMILY_DEADLINE_MS", 300000, {
+    min: 60000,
+    max: 900000,
+  });
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -974,9 +1003,9 @@ Return strictly JSON:
   // moment its copy landed. That reads as parallelism but misdescribes the graph: the
   // visualizer cannot touch a family until the content creator has handed it that
   // family's visual prompt, so the dependency is real and one-directional. The two are
-  // now separate stages — all copy, then all renders — and the parallelism lives INSIDE
-  // each stage, where it is genuine: several families written at once, then several
-  // families rendered at once.
+  // now separate stages — all copy, then all renders — and each stage runs at the width
+  // its provider can take: several families written at once, then one family rendered at
+  // a time (the image model's per-minute quota cannot take more).
   // =========================================================================
   checkCancelled();
   startPhase("copy", "Content writing", ["content_creator"], "parallel");
@@ -997,6 +1026,17 @@ Return strictly JSON:
       input.resumeFromAgent || ""
     );
 
+  /**
+   * A retry that starts at the audit keeps the media the previous attempt produced.
+   *
+   * Re-rendering it would spend the image quota — the actual bottleneck of this pipeline —
+   * on work that is already done. It is also how the user skips a media step that keeps
+   * failing: resume at the audit, keep whatever rendered, and let the campaign finish with
+   * the still-missing formats reported as gaps to fill in the content editor.
+   */
+  const mediaRestored =
+    input.resumeFromAgent === "ceo_auditor" && (state.generatedAssets?.length ?? 0) > 0;
+
   emit({ type: "agent_started", agentId: "content_creator" });
 
   const totalTargets = families.reduce((acc, f) => acc + f.members.length, 0);
@@ -1010,7 +1050,9 @@ Return strictly JSON:
   });
 
   state.generatedContent = state.generatedContent || { platforms: {} };
-  state.generatedAssets = [];
+  // Only a run that is going to render clears the asset list; a resume at the audit is
+  // carrying last attempt's media and must not throw it away.
+  state.generatedAssets = mediaRestored ? state.generatedAssets || [] : [];
 
   // Parallelism is applied only where the work genuinely runs on different resources.
   //
@@ -1481,20 +1523,94 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
    */
   const attachedAssetKeys = new Set<string>();
 
-  const renderFamilyMedia = async (family: FormatFamily, familyIndex: number, familyTotal: number) => {
+  /**
+   * Raised when a family is abandoned on purpose — the user pressed Skip, or the family
+   * blew its deadline. Never fatal: the campaign carries on and the post ships without
+   * its media for the user to finish in the content editor.
+   */
+  const skipError = (scope: string, reason: string) => {
+    const err: any = new Error(reason);
+    err.isSkipped = true;
+    err.scope = scope;
+    return err;
+  };
+
+  /** Families abandoned rather than failed, so the summary can tell the two apart. */
+  const skippedFamilies: { label: string; reason: string }[] = [];
+
+  const renderFamilyMedia = async (
+    family: FormatFamily,
+    familyIndex: number,
+    familyTotal: number,
+    /**
+     * The CEO's recovery pass re-renders a family the visualizer could not finish. It is
+     * the same render, so it reuses this function — only the agent the console attributes
+     * it to, and the wording, differ.
+     */
+    options?: { agentId?: "visualizer" | "ceo_auditor"; positionLabel?: string }
+  ) => {
     checkProductionRunnable();
 
+    const agentId = options?.agentId ?? "visualizer";
     const primary = family.members[0];
     const item = state.generatedContent!.platforms[primary.platform][primary.contentType] as any;
     const shared = family.members.length > 1;
     // Families render strictly one at a time, so a running position ("Format 2/3") makes
     // the sequential flow legible in the thinking panel: each family announces itself,
     // renders, then reports complete before the next one starts.
-    const position = `Format ${familyIndex + 1}/${familyTotal}`;
+    const position = options?.positionLabel ?? `Format ${familyIndex + 1}/${familyTotal}`;
+
+    // One controller per family, chained to the run's. Aborting it abandons THIS family
+    // only; aborting the run's still cancels everything. That distinction is the whole
+    // reason Skip can exist alongside Cancel.
+    const familyAbort = new AbortController();
+    const abandon = () => familyAbort.abort();
+    const onRunAbort = () => familyAbort.abort();
+    signal?.addEventListener("abort", onRunAbort, { once: true });
+    controls?.bindScope(family.label, abandon);
+    let deadlineHit = false;
+    const deadline = setTimeout(() => {
+      deadlineHit = true;
+      abandon();
+    }, familyDeadlineMs);
+
+    const releaseScope = () => {
+      clearTimeout(deadline);
+      signal?.removeEventListener("abort", onRunAbort);
+      controls?.releaseScope(family.label);
+    };
+
+    /**
+     * Turns an aborted render into the right kind of failure. Order matters: a run-level
+     * cancel must win, or pressing Cancel would look like a skip and the campaign would
+     * carry on after the user asked it to stop.
+     */
+    const classifyAbort = (err: any) => {
+      if (signal?.aborted) {
+        const cancelled: any = new Error("Workflow cancelled by user");
+        cancelled.isCancelled = true;
+        return cancelled;
+      }
+      if (deadlineHit) {
+        return skipError(
+          family.label,
+          `no media after ${Math.round(familyDeadlineMs / 60000)} min — skipped automatically so the rest of the campaign could finish`
+        );
+      }
+      if (controls?.isSkipRequested(family.label) || familyAbort.signal.aborted) {
+        return skipError(family.label, "skipped by you");
+      }
+      return err;
+    };
+
+    if (controls?.isSkipRequested(family.label)) {
+      releaseScope();
+      throw skipError(family.label, "skipped by you");
+    }
 
     emit({
       type: "agent_action",
-      agentId: "visualizer",
+      agentId,
       data: {
         label:
           `${position} — ` +
@@ -1504,6 +1620,40 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         scope: family.label,
       },
     });
+
+    try {
+      return await renderFamilyBody(family, familyIndex, {
+        agentId,
+        position,
+        item,
+        primary,
+        shared,
+        familySignal: familyAbort.signal,
+      });
+    } catch (err: any) {
+      throw classifyAbort(err);
+    } finally {
+      releaseScope();
+    }
+  };
+
+  /**
+   * The render itself. Split out from `renderFamilyMedia` so the skip/deadline wiring
+   * above stays readable and applies identically to the CEO's recovery pass.
+   */
+  const renderFamilyBody = async (
+    family: FormatFamily,
+    familyIndex: number,
+    ctx: {
+      agentId: "visualizer" | "ceo_auditor";
+      position: string;
+      item: any;
+      primary: FamilyMember;
+      shared: boolean;
+      familySignal: AbortSignal;
+    }
+  ) => {
+    const { agentId, position, item, primary, shared, familySignal } = ctx;
 
     const assets = await generateMediaAsset({
       platform: primary.platform,
@@ -1522,9 +1672,11 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
       brandName: state.brandData?.name,
       brandColors: state.brandData?.primaryColors,
       industry: state.brandData?.industry,
-      signal,
+      // The family's signal, not the run's: a skip must cut this render and only this
+      // render, so the very next family still gets a live request.
+      signal: familySignal,
       onProgress: (msg) =>
-        emit({ type: "agent_action", agentId: "visualizer", data: { label: msg, scope: family.label } }),
+        emit({ type: "agent_action", agentId, data: { label: msg, scope: family.label } }),
     });
 
     if (assets.length === 0) {
@@ -1548,7 +1700,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
 
       emit({
         type: "agent_action",
-        agentId: "visualizer",
+        agentId,
         data: {
           label: `${m.platform.toUpperCase()} ${m.contentType} media attached${shared ? " (shared render — no extra generation)" : ""}`,
           scope: family.label,
@@ -1556,13 +1708,17 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
       });
     }
 
-    markRenderDone(
+    const doneLabel =
       `${position} complete — ` +
       (shared
         ? `${family.label} rendered once for ${family.members.length} formats`
-        : `${family.label} rendered for ${primary.platform} ${primary.contentType}`)
-    );
-    completeScope("visualizer", family.label);
+        : `${family.label} rendered for ${primary.platform} ${primary.contentType}`);
+
+    // Only the visualizer owns the render progress bar. The CEO's recovery pass reports
+    // through its own progress, so it must not push the visualizer past 100%.
+    if (agentId === "visualizer") markRenderDone(doneLabel);
+    else emit({ type: "agent_action", agentId, data: { label: doneLabel, scope: family.label } });
+    completeScope(agentId, family.label);
   };
 
   /**
@@ -1662,7 +1818,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   completePhase("copy");
 
   // =========================================================================
-  // PHASE 3b — VISUALIZER: every family's media rendered side by side
+  // PHASE 3b — VISUALIZER: one format family's media at a time
   //
   // This is the stage multi-format campaigns used to die in. ONE platform with ONE
   // format worked because there was a single render to make. Ask for several formats
@@ -1672,9 +1828,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   // "slower" — it was structurally unable to finish.
   //
   // Two things change that:
-  //   1. Requests are paced against ONE shared per-minute window per model (the rate
-  //      pacer in mediaGenerator), so families running side by side queue politely
-  //      instead of manufacturing the 429 they then have to absorb.
+  //   1. Families render one at a time (`mediaConcurrency` defaults to 1) and every
+  //      request is paced against ONE shared per-minute window per model (the rate
+  //      pacer in mediaGenerator), so they queue politely instead of manufacturing the
+  //      429 they then have to absorb.
   //   2. A render failure is LOCAL to its family. That family publishes as text-only
   //      and every other family keeps its media, because a missing image is a degraded
   //      post, not a dead campaign.
@@ -1695,8 +1852,9 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     type: "agent_action",
     agentId: "visualizer",
     data: {
-      label:
-        visualFamilies.length === 0
+      label: mediaRestored
+        ? `Keeping the ${state.generatedAssets?.length || 0} asset(s) already rendered — this retry starts at the review, so nothing is generated twice`
+        : visualFamilies.length === 0
           ? "No media required — every requested format publishes as text only"
           : `${visualFamilies.length} shared render(s) will cover ${visualTargets} post(s)` +
             (visualTargets > visualFamilies.length
@@ -1726,45 +1884,99 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
   /** Families whose render failed, so the summary can name the posts going out bare. */
   const renderFailures: { label: string; message: string }[] = [];
 
-  const renderOutcomes = await Promise.allSettled(
-    visualFamilies.map((family, familyIndex) =>
-      mediaLimiter(() => renderFamilyMedia(family, familyIndex, visualFamilies.length)).catch((mediaErr: any) => {
-        if (mediaErr?.isCancelled) throw mediaErr;
-        // Deliberately not re-thrown, and deliberately NOT setting productionHalted:
-        // one family hitting a quota wall must not take its siblings — or the copy
-        // that is already written — down with it.
-        const message = mediaErr?.message || "Media generation failed";
-        renderFailures.push({ label: family.label, message });
-        state.errors?.push(`[VISUALIZER_PROVIDER_ERROR] ${family.label}: ${message}`);
-        console.error(`[visualizer] ${family.label} render failed:`, mediaErr);
-        emit({
-          type: "agent_action",
-          agentId: "visualizer",
-          data: {
-            label: `${describeMembers(family)} will publish without media — ${message}`,
-            scope: family.label,
-            severity: "warning",
-          },
-        });
-        completeScope("visualizer", family.label);
-      })
-    )
-  );
+  if (mediaRestored) {
+    // Nothing to render: this run resumed at the audit with the previous attempt's media
+    // in hand. Each family still gets a line, because "kept" and "still missing" are the
+    // two facts the user needs before the CEO decides what to re-render.
+    for (const family of visualFamilies) {
+      const hasMedia = family.members.some((m) => {
+        const target = state.generatedContent?.platforms?.[m.platform]?.[m.contentType] as any;
+        return Boolean(target?.imageUrl || target?.videoUrl || target?.slideUrls?.length);
+      });
+      emit({
+        type: "agent_action",
+        agentId: "visualizer",
+        data: {
+          label: hasMedia
+            ? `${describeMembers(family)} — media kept from the previous attempt, not re-rendered`
+            : `${describeMembers(family)} — still has no media; the CEO will try it during review`,
+          scope: family.label,
+          ...(hasMedia ? {} : { severity: "warning" as const }),
+        },
+      });
+      completeScope("visualizer", family.label);
+    }
+  } else {
+    const renderOutcomes = await Promise.allSettled(
+      visualFamilies.map((family, familyIndex) =>
+        mediaLimiter(() => renderFamilyMedia(family, familyIndex, visualFamilies.length)).catch((mediaErr: any) => {
+          if (mediaErr?.isCancelled) throw mediaErr;
 
-  // Only a cancellation can still end the run here; every render failure was absorbed.
-  reportStageFailure(renderOutcomes, "visualizer");
+          // A skip is a decision, not a fault. It gets its own wording and stays out of
+          // `renderFailures`, so the run is never reported as broken because the user chose
+          // to move on — and the CEO's recovery pass will not fight that choice by
+          // re-rendering what was deliberately abandoned.
+          if (mediaErr?.isSkipped) {
+            const reason = mediaErr?.message || "skipped";
+            skippedFamilies.push({ label: family.label, reason });
+            emit({
+              type: "agent_action",
+              agentId: "visualizer",
+              data: {
+                label: `${describeMembers(family)} — ${reason}. Moving on to the next format; add this media later in the content editor.`,
+                scope: family.label,
+                severity: "warning",
+              },
+            });
+            completeScope("visualizer", family.label);
+            return;
+          }
 
-  const renderedFamilies = visualFamilies.length - renderFailures.length;
-  const allRendersFailed = visualFamilies.length > 0 && renderedFamilies === 0;
+          // Deliberately not re-thrown, and deliberately NOT setting productionHalted:
+          // one family hitting a quota wall must not take its siblings — or the copy
+          // that is already written — down with it.
+          const message = mediaErr?.message || "Media generation failed";
+          renderFailures.push({ label: family.label, message });
+          state.errors?.push(`[VISUALIZER_PROVIDER_ERROR] ${family.label}: ${message}`);
+          console.error(`[visualizer] ${family.label} render failed:`, mediaErr);
+          emit({
+            type: "agent_action",
+            agentId: "visualizer",
+            data: {
+              label: `${describeMembers(family)} will publish without media — ${message}`,
+              scope: family.label,
+              severity: "warning",
+            },
+          });
+          completeScope("visualizer", family.label);
+        })
+      )
+    );
+
+    // Only a cancellation can still end the run here; every render failure was absorbed.
+    reportStageFailure(renderOutcomes, "visualizer");
+  }
+
+  const skippedCount = skippedFamilies.length;
+  const renderedFamilies = visualFamilies.length - renderFailures.length - skippedCount;
+  // "Nothing rendered" must not include what the user chose to skip: a run where every
+  // family was skipped on purpose did exactly what it was told, and reporting the agent
+  // as failed for obeying would be wrong.
+  const allRendersFailed =
+    visualFamilies.length > 0 && renderedFamilies === 0 && renderFailures.length > 0;
 
   emit({ type: "output_ready", agentId: "visualizer", data: { generatedAssets: state.generatedAssets } });
   emitProgress(
     "visualizer",
     100,
     "completed",
-    renderFailures.length === 0
+    mediaRestored
+      ? `${state.generatedAssets?.length || 0} asset(s) kept from the previous attempt`
+      : renderFailures.length === 0 && skippedCount === 0
       ? "Media generation complete"
-      : `${renderedFamilies}/${visualFamilies.length} format(s) rendered — ${renderFailures.length} publishing without media`,
+      : `${renderedFamilies}/${visualFamilies.length} format(s) rendered` +
+        (renderFailures.length ? ` — ${renderFailures.length} failed` : "") +
+        (skippedCount ? ` — ${skippedCount} skipped` : ""),
     "completed"
   );
 
@@ -1803,8 +2015,134 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
       forbiddenWords: brandForbidden,
     });
 
-  emitProgress("ceo_auditor", 15, "verifying", "Verifying assets, platform limits and brand rules");
+  emitProgress("ceo_auditor", 10, "verifying", "Verifying assets, platform limits and brand rules");
   let report = runChecks();
+
+  /** The issues that belong to one family, so the review can be reported per family. */
+  const issuesForFamily = (family: FormatFamily, rep: QualityReport) =>
+    rep.issues.filter((i) =>
+      family.members.some((m) => m.platform === i.platform && m.contentType === i.contentType)
+    );
+
+  const isMissingMediaIssue = (i: QualityIssue) =>
+    i.severity === "blocker" &&
+    (i.code === "IMAGE_ASSET_MISSING" ||
+      i.code === "VIDEO_ASSET_MISSING" ||
+      i.code === "DECK_ASSET_MISSING" ||
+      i.code === "DECK_TOO_SHORT");
+
+  /** Which family a bare (platform, format) belongs to, for naming a gap. */
+  const familyOfMissing = (platform: string, contentType: string) =>
+    families.find((f) =>
+      f.members.some((m) => m.platform === platform && m.contentType === contentType)
+    );
+
+  /** Posts that will ship without media. Recorded, reported, never fatal. */
+  const mediaGaps: NonNullable<CampaignState["auditResult"]>["mediaGaps"] = [];
+  const skippedLabels = new Set(skippedFamilies.map((s) => s.label));
+
+  // How many families the CEO may re-render before giving up and handing the rest to the
+  // user. Unbounded recovery would let one dead quota stretch the audit by many minutes
+  // for renders that are all going to fail the same way.
+  const recoveryBudget = envInt("CAMPAIGN_CEO_MEDIA_RECOVERY_MAX", 2, { min: 0, max: 10 });
+  let recoveriesLeft = process.env.CAMPAIGN_CEO_MEDIA_RECOVERY === "0" ? 0 : recoveryBudget;
+
+  // ── Family-by-family review ──────────────────────────────────────────────────
+  // The CEO walks the campaign the same way the visualizer rendered it: one format
+  // family at a time, saying which family it is on and what it found there. Where media
+  // is missing this is also where the CEO tries to produce it, so the review and the fix
+  // land on the same family instead of the console reporting a gap nothing acts on.
+  emitProgress("ceo_auditor", 20, "verifying", "Reviewing each format family in turn");
+
+  for (const [familyIndex, family] of families.entries()) {
+    checkCancelled();
+    const mine = issuesForFamily(family, report);
+    const missingMedia = mine.some(isMissingMediaIssue);
+    const position = `Review ${familyIndex + 1}/${families.length}`;
+
+    emit({
+      type: "agent_action",
+      agentId: "ceo_auditor",
+      data: {
+        label:
+          `${position} — ${describeMembers(family)}: copy + ` +
+          (!family.visualRequired
+            ? "no media required (text-only format)"
+            : missingMedia
+              ? "MEDIA MISSING"
+              : "media present") +
+          ` — ${mine.length === 0 ? "no issues" : `${mine.length} issue(s) found`}`,
+        detail: mine.slice(0, 4).map((i) => `${i.code}: ${i.message}`).join(" | ") || undefined,
+        scope: family.label,
+        severity: missingMedia ? "warning" : undefined,
+      },
+    });
+
+    if (missingMedia) {
+      if (skippedLabels.has(family.label)) {
+        // The user chose to abandon this one. Re-rendering it here would override that
+        // decision and re-impose the wait they just skipped out of.
+        emit({
+          type: "agent_action",
+          agentId: "ceo_auditor",
+          data: {
+            label: `${describeMembers(family)} — you skipped this format, so the CEO is leaving it for you to finish in the content editor`,
+            scope: family.label,
+            severity: "warning",
+          },
+        });
+      } else if (recoveriesLeft > 0) {
+        recoveriesLeft -= 1;
+        emit({
+          type: "agent_action",
+          agentId: "ceo_auditor",
+          data: {
+            label: `${describeMembers(family)} has no media — the CEO is generating it now (recovery attempt)`,
+            scope: family.label,
+          },
+        });
+        try {
+          await mediaLimiter(() =>
+            renderFamilyMedia(family, familyIndex, families.length, {
+              agentId: "ceo_auditor",
+              positionLabel: `${position} recovery`,
+            })
+          );
+          report = runChecks();
+        } catch (recoverErr: any) {
+          if (recoverErr?.isCancelled) throw recoverErr;
+          const reason = recoverErr?.isSkipped
+            ? recoverErr.message || "skipped"
+            : recoverErr?.message || "media generation failed again";
+          emit({
+            type: "agent_action",
+            agentId: "ceo_auditor",
+            data: {
+              label: `${describeMembers(family)} — CEO recovery could not produce media (${reason}). Shipping the copy; add the media in the content editor.`,
+              scope: family.label,
+              severity: "warning",
+            },
+          });
+        }
+      } else {
+        emit({
+          type: "agent_action",
+          agentId: "ceo_auditor",
+          data: {
+            label: `${describeMembers(family)} — recovery budget spent, shipping without media. Add it in the content editor.`,
+            scope: family.label,
+            severity: "warning",
+          },
+        });
+      }
+    }
+
+    completeScope("ceo_auditor", family.label);
+  }
+
+  // Re-verified after every recovery attempt, so the verdict below judges what the
+  // campaign actually holds now rather than what it held before the CEO stepped in.
+  report = runChecks();
 
   emit({
     type: "agent_action",
@@ -1815,14 +2153,40 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     },
   });
 
-  if (report.blockers.length > 0) {
-    // Unpublishable: no rewrite can conjure a missing asset. Fail loudly instead of
-    // approving a broken campaign.
+  // ── Missing media is a gap, not a dead campaign ───────────────────────────────
+  // This used to throw, which meant one unrendered image destroyed the whole run —
+  // every caption, every hook, every family that DID render, gone, with nothing to show
+  // for 20 minutes of work. A post without its image is a post the user can finish in
+  // the content editor in seconds, so the gap is recorded and the campaign ships.
+  for (const issue of report.blockers.filter(isMissingMediaIssue)) {
+    const family = issue.platform && issue.contentType
+      ? familyOfMissing(issue.platform, issue.contentType)
+      : undefined;
+    mediaGaps.push({
+      platform: issue.platform || "unknown",
+      contentType: issue.contentType || "unknown",
+      format: family?.label || "media",
+      reason: skippedLabels.has(family?.label || "") ? "skipped by you" : issue.message,
+    });
+  }
+
+  // Only a campaign with nothing publishable at all is still fatal: if not one post was
+  // produced there is genuinely nothing to hand back.
+  const fatalBlockers = report.blockers.filter((i) => !isMissingMediaIssue(i));
+  const publishablePosts = Object.values(state.generatedContent?.platforms || {}).reduce(
+    (acc, formats) => acc + Object.keys(formats || {}).length,
+    0
+  );
+
+  if (publishablePosts === 0 || fatalBlockers.length > 0) {
     state.auditResult = {
       passed: false,
       score: report.score,
       notes: `CEO audit failed verification: ${summarizeReport(report)}`,
-      issues: report.blockers.map((i) => `${i.code}: ${i.message}`),
+      issues: (fatalBlockers.length ? fatalBlockers : report.blockers).map(
+        (i) => `${i.code}: ${i.message}`
+      ),
+      mediaGaps,
     };
     emit({ type: "output_ready", agentId: "ceo_auditor", data: state.auditResult });
     emit({
@@ -1831,6 +2195,18 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
       data: { message: `CEO Audit FAILED: ${state.auditResult.issues.join(" | ")}` },
     });
     throw new Error(`Campaign CEO Audit Failed: ${state.auditResult.issues.join("; ")}`);
+  }
+
+  if (mediaGaps.length > 0) {
+    emit({
+      type: "agent_action",
+      agentId: "ceo_auditor",
+      data: {
+        label: `${mediaGaps.length} post(s) will publish without media — everything else is complete and ready`,
+        detail: mediaGaps.map((g) => `${g.platform}/${g.contentType} (${g.format}): ${g.reason}`).join(" | "),
+        severity: "warning",
+      },
+    });
   }
 
   // ── Subjective review (the part that genuinely needs a model) ─────────────────
@@ -2117,7 +2493,10 @@ Include a field only if you rewrote it.`,
       },
     });
 
-    if (report.blockers.length > 0) break; // structural regression — stop rewriting
+    // A structural regression means rewriting made things worse — stop. Media gaps do not
+    // count: they were already there, they are reported separately, and treating them as a
+    // regression would abandon revision after the first round on every gapped campaign.
+    if (report.blockers.some((i) => !isMissingMediaIssue(i))) break;
     // LLM-raised issues are not re-checkable in code, so they are considered addressed
     // once the rewrite has been applied; deterministic ones must actually clear.
     pending = remaining;
@@ -2126,16 +2505,29 @@ Include a field only if you rewrote it.`,
 
   // ── Final verdict ────────────────────────────────────────────────────────────
   const finalDeterministic = report;
+  // Media gaps are reported on their own channel (`mediaGaps`) and the user closes them
+  // in the editor, so they must not ALSO be scored as unfixed quality defects: a campaign
+  // whose copy is excellent should not read as 20/100 because one image never rendered.
+  // The 40-point blocker penalty is handed back for exactly those issues, and nothing else.
+  const gapPenaltyRefund =
+    finalDeterministic.blockers.filter(isMissingMediaIssue).length * 40;
+  const deterministicScore = Math.min(100, finalDeterministic.score + gapPenaltyRefund);
   const combinedScore =
     llmScore === null
-      ? finalDeterministic.score
-      : Math.round(finalDeterministic.score * 0.5 + llmScore * 0.5);
-  const outstanding = finalDeterministic.issues.map((i) => `${i.code}: ${i.message}`);
-  const passed = finalDeterministic.blockers.length === 0 && combinedScore >= 80;
+      ? deterministicScore
+      : Math.round(deterministicScore * 0.5 + llmScore * 0.5);
+  const outstanding = finalDeterministic.issues
+    .filter((i) => !isMissingMediaIssue(i))
+    .map((i) => `${i.code}: ${i.message}`);
+  const unresolvedBlockers = finalDeterministic.blockers.filter((i) => !isMissingMediaIssue(i));
+  const passed = unresolvedBlockers.length === 0 && combinedScore >= 80;
 
   const noteParts = [
     summarizeReport(finalDeterministic),
     revisionRounds > 0 ? `${revisionRounds} revision round(s) applied and re-verified.` : "No revision needed.",
+    mediaGaps.length
+      ? `${mediaGaps.length} post(s) ship without media — add it in the content editor.`
+      : "",
     llmNotes || (judgementUnavailable ? "Subjective quality review was unavailable this run." : ""),
   ].filter(Boolean);
 
@@ -2146,6 +2538,7 @@ Include a field only if you rewrote it.`,
     issues: outstanding,
     revisionRounds,
     judgementUnavailable,
+    mediaGaps,
   };
 
   emit({
@@ -2153,7 +2546,8 @@ Include a field only if you rewrote it.`,
     agentId: "ceo_auditor",
     data: {
       label: passed
-        ? `CEO verdict: APPROVED at ${combinedScore}/100${revisionRounds ? ` after ${revisionRounds} revision round(s)` : ""}`
+        ? `CEO verdict: APPROVED at ${combinedScore}/100${revisionRounds ? ` after ${revisionRounds} revision round(s)` : ""}` +
+          (mediaGaps.length ? ` — ${mediaGaps.length} post(s) still need media` : "")
         : `CEO verdict: ${combinedScore}/100 — ${outstanding.length} issue(s) still open`,
       detail: outstanding.slice(0, 5).join(" | ") || undefined,
     },

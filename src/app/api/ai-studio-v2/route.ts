@@ -4,10 +4,16 @@ import { z } from "zod";
 import prisma from "@/lib/db";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
+import { createRunControls, type RunControls } from "@/lib/agents/runControls";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 300;
+// A campaign renders its media one format at a time, and a single image can need a
+// couple of minutes on a small quota. At the old 300s the function was killed
+// mid-render: the stream just stopped, so the user watched a spinner that would never
+// resolve and never errored either. This is the ceiling for the run, not a target —
+// `CAMPAIGN_FAMILY_DEADLINE_MS` is what actually stops a stuck family.
+export const maxDuration = 800;
 
 // Zod schema for structured request validation
 const GenerateCampaignSchema = z.object({
@@ -20,10 +26,18 @@ const GenerateCampaignSchema = z.object({
   topic: z.string().optional(),
   resumeState: z.any().optional(),
   resumeFromAgent: z.string().optional(),
+  /** Which unit of work a skip targets (a format family label). Optional. */
+  scope: z.string().optional(),
 });
 
 // Registry to track active run abort controllers for user cancellation
 const activeRuns = new Map<string, AbortController>();
+/**
+ * Live steering handles for the same runs. Kept beside `activeRuns` because a skip and a
+ * cancel arrive the same way — a second request naming the runId — and differ only in how
+ * much they throw away.
+ */
+const activeControls = new Map<string, RunControls>();
 
 export async function POST(req: Request) {
   try {
@@ -48,9 +62,29 @@ export async function POST(req: Request) {
       if (targetRunId && activeRuns.has(targetRunId)) {
         activeRuns.get(targetRunId)?.abort();
         activeRuns.delete(targetRunId);
+        activeControls.delete(targetRunId);
         return NextResponse.json({ success: true, message: "Campaign workflow cancelled." });
       }
       return NextResponse.json({ success: true, message: "Workflow signal terminated." });
+    }
+
+    // Skip the unit of work the run is stuck on, WITHOUT ending the run. The stream stays
+    // open, every finished family keeps its media, and the campaign carries on at the next
+    // format — the post that was skipped simply ships without media for the user to
+    // finish in the content editor.
+    if (action === "skip-step") {
+      const targetRunId = runId || body.campaignId;
+      const controls = targetRunId ? activeControls.get(targetRunId) : undefined;
+      if (!controls) {
+        // The run is not on this instance (or already finished). Say so rather than
+        // reporting a success the user will never see take effect.
+        return NextResponse.json(
+          { success: false, message: "This run is no longer accepting a skip." },
+          { status: 409 }
+        );
+      }
+      controls.requestSkip(body.scope);
+      return NextResponse.json({ success: true, message: "Skipping the current step." });
     }
 
     if (step === "generate-campaign") {
@@ -86,12 +120,15 @@ export async function POST(req: Request) {
 
       const currentRunId = runId || `run_${Date.now()}`;
       const abortController = new AbortController();
+      const runControls = createRunControls();
       activeRuns.set(currentRunId, abortController);
+      activeControls.set(currentRunId, runControls);
 
       // Listen for HTTP client disconnect
       req.signal.addEventListener("abort", () => {
         abortController.abort();
         activeRuns.delete(currentRunId);
+        activeControls.delete(currentRunId);
       });
 
       const encoder = new TextEncoder();
@@ -125,6 +162,7 @@ export async function POST(req: Request) {
                 contentTypes,
                 topic,
                 signal: abortController.signal,
+                controls: runControls,
                 workspaceData: workspace,
                 resumeState: body.resumeState,
                 resumeFromAgent: body.resumeFromAgent,
@@ -161,9 +199,11 @@ export async function POST(req: Request) {
             });
 
             activeRuns.delete(currentRunId);
+            activeControls.delete(currentRunId);
             controller.close();
           } catch (err: any) {
             activeRuns.delete(currentRunId);
+            activeControls.delete(currentRunId);
 
             if (err?.isCancelled || abortController.signal.aborted) {
               sendSSE({
