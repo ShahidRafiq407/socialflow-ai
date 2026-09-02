@@ -10,6 +10,7 @@ import type { ChatSettings } from "./settings";
 import { describeDashboardTabs } from "./navigation";
 import { formatMemoryForPrompt, type ControllerMemoryFact } from "./memory";
 import { formatPlaybooksForPrompt } from "./playbooks";
+import { formatOutcomesForPrompt, type OutcomeEvent } from "./outcomes";
 import type { ToolDef } from "./tools";
 import { describeToolsForPrompt } from "./tools";
 import { describeLimitsForPrompt, LIMITATION_RULE, type CapabilityLimit } from "./limits";
@@ -78,6 +79,8 @@ export function buildSystemPrompt(params: {
   memory: ControllerMemoryFact[];
   /** Proven tool sequences from past turns that match this request. */
   playbooks?: { content: string }[];
+  /** Counted publish/discard events for this workspace's own content. */
+  outcomes?: OutcomeEvent[];
   tools: ToolDef[];
   attachments: { name: string; kind: string; summary: string }[];
   /** The live edge of what this workspace can do. Empty means "nothing is blocked". */
@@ -150,6 +153,19 @@ Treat these as established fact. Do not re-ask what is already here.`);
 You have completed similar tasks before. These are the tool sequences that worked — use the closest one as your starting plan and adapt it. It is a hint from your own track record, not a rule: if this request differs, deviate.
 
 ${playbookBlock}`);
+    }
+  }
+
+  if (settings.memoryEnabled && params.outcomes && params.outcomes.length > 0) {
+    const outcomeBlock = formatOutcomesForPrompt(params.outcomes);
+    if (outcomeBlock) {
+      sections.push(`## What this user keeps vs throws away
+
+Counted from what actually happened to this workspace's own content: a draft that went live is kept, a draft deleted before it ever went live is discarded. A publish the platform rejected counts as neither. Only patterns with a real sample appear here, so treat every line as evidence about their taste, not as a rule about the product.
+
+${outcomeBlock}
+
+Lean toward what gets kept and away from what gets discarded when you choose a platform, a format, or whether to attach media. If the user explicitly asks for something on the discard side, make it anyway — this is your read on their habits, and their instruction outranks it. Never quote these counts back at the user unless they ask why you made a choice.`);
     }
   }
 

@@ -1,5 +1,6 @@
 import prisma from "@/lib/db";
 import { embedText } from "./embeddings";
+import { NOT_A_FACT_SQL } from "./controller/memory";
 
 // ============================================================================
 // PGVECTOR LONG-TERM MEMORY STORE
@@ -68,6 +69,11 @@ export async function saveMemory(
 
 /**
  * Semantic recall: returns the most relevant stored facts for a query.
+ *
+ * The Memory table doubles as a schema-free store for system rows (playbooks,
+ * content outcomes, billing), so those categories are excluded here too — this
+ * path feeds the `recall_memory` tool, and a stored recipe surfacing as a
+ * remembered fact would be a lie about what the user told us.
  */
 export async function recallMemories(
   workspaceId: string,
@@ -82,7 +88,7 @@ export async function recallMemories(
     const rows = await prisma.$queryRawUnsafe<any[]>(
       `SELECT id, category, content, (1 - (embedding <=> $1::vector)) AS similarity
        FROM "Memory"
-       WHERE "workspaceId" = $2 AND embedding IS NOT NULL
+       WHERE "workspaceId" = $2 AND embedding IS NOT NULL AND ${NOT_A_FACT_SQL}
        ORDER BY embedding <=> $1::vector
        LIMIT $3`,
       toVectorString(vec),

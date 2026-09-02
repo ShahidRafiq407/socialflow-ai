@@ -143,9 +143,32 @@ export async function retryPost(postId: string) {
 
 export async function deletePost(postId: string) {
   try {
+    // Read before deleting: the outcome ledger needs to know what was thrown
+    // away, and after the delete there is nothing left to read it from.
+    const existing = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { workspaceId: true, platform: true, format: true, mediaType: true, status: true },
+    });
+
     await prisma.post.delete({
       where: { id: postId },
     });
+
+    // A draft the user deleted is the clearest "not this" signal there is. A
+    // published post being removed is library cleanup, so it says nothing.
+    if (existing && existing.status !== "PUBLISHED") {
+      const { recordOutcome } = await import("@/lib/agents/controller/outcomeStore");
+      void recordOutcome({
+        workspaceId: existing.workspaceId,
+        event: {
+          outcome: "discarded",
+          platform: existing.platform,
+          format: existing.format,
+          mediaType: existing.mediaType,
+        },
+      }).catch(() => {});
+    }
+
     revalidatePath("/dashboard/content");
     return { success: true };
   } catch (error: any) {

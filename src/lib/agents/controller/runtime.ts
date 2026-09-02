@@ -23,6 +23,8 @@ import { buildWorkspaceSnapshot } from "./snapshot";
 import { buildSystemPrompt } from "./prompt";
 import { loadMemoryContext, loadPlaybooks, rememberFact, savePlaybook, type ControllerMemoryFact } from "./memory";
 import { extractSequence, isPlaybookWorthy } from "./playbooks";
+import { summarizeOutcomes, type OutcomeEvent } from "./outcomes";
+import { loadOutcomeEvents } from "./outcomeStore";
 import { buildToolRegistry, toFunctionDeclarations, MUTATING_TOOLS, type ToolDef } from "./tools";
 import { artifactsFromToolResult, dedupeArtifacts } from "./artifacts";
 import type { Artifact, ControllerEvent, ToolRun } from "./types";
@@ -267,6 +269,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
 
   let memory: ControllerMemoryFact[] = [];
   let playbooks: ControllerMemoryFact[] = [];
+  let outcomes: OutcomeEvent[] = [];
   let planTier: string | null = null;
   const [snapshot, registry] = await Promise.all([
     buildWorkspaceSnapshot(params.workspaceId),
@@ -282,6 +285,12 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       playbooks = await loadPlaybooks(params.workspaceId, params.message);
     })(),
     (async () => {
+      // Which of this workspace's own drafts got published and which got thrown
+      // away, so generation leans toward what this user actually keeps.
+      if (!settings.memoryEnabled) return;
+      outcomes = await loadOutcomeEvents(params.workspaceId);
+    })(),
+    (async () => {
       // Only when billing is actually enforced. With the kill-switch off every
       // plan feature works, so telling the user their plan blocks something
       // would be a lie in the other direction.
@@ -294,6 +303,13 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     })(),
   ]);
 
+  // Only the patterns that clear the honesty floor are worth telling the user
+  // about — the raw event count would overstate what was actually learned.
+  const outcomeSignals = (() => {
+    const { kept, discarded } = summarizeOutcomes(outcomes);
+    return kept.length + discarded.length;
+  })();
+
   emit({
     type: "status",
     step: "context",
@@ -303,7 +319,8 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       `${registry.tools.length} tools` +
       (registry.mcpCount > 0 ? `, ${registry.mcpCount} from MCP` : "") +
       (memory.length > 0 ? `, ${memory.length} memories` : "") +
-      (playbooks.length > 0 ? `, ${playbooks.length} playbook${playbooks.length === 1 ? "" : "s"}` : ""),
+      (playbooks.length > 0 ? `, ${playbooks.length} playbook${playbooks.length === 1 ? "" : "s"}` : "") +
+      (outcomeSignals > 0 ? `, ${outcomeSignals} taste signal${outcomeSignals === 1 ? "" : "s"}` : ""),
   });
 
   if (memory.length > 0) {
@@ -340,6 +357,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     snapshot,
     memory,
     playbooks,
+    outcomes,
     tools: registry.tools,
     attachments: attachments.map((a) => ({ name: a.name, kind: a.kind, summary: a.summary })),
     limits,

@@ -47,6 +47,11 @@ export interface PublishLogInput {
 /**
  * Writes one permanent history row. Never throws — a logging failure must not
  * roll back a successful publish.
+ *
+ * This is also where the controller's "kept" signal is recorded, because every
+ * publish path in the product funnels through here. Only a real PUBLISHED row
+ * counts: a FAILED publish is a platform error, not a judgment on the content,
+ * so it contributes to neither side of the ledger.
  */
 export async function recordPublishLog(input: PublishLogInput): Promise<string | null> {
   try {
@@ -70,6 +75,26 @@ export async function recordPublishLog(input: PublishLogInput): Promise<string |
         publishedAt: input.publishedAt || new Date(),
       },
     });
+
+    if (input.status === "PUBLISHED") {
+      void (async () => {
+        try {
+          const { recordOutcome } = await import("@/lib/agents/controller/outcomeStore");
+          await recordOutcome({
+            workspaceId: input.workspaceId,
+            event: {
+              outcome: "published",
+              platform: input.platform,
+              format: input.format,
+              mediaType: input.mediaType,
+            },
+          });
+        } catch {
+          /* non-fatal */
+        }
+      })();
+    }
+
     return row?.id || null;
   } catch (err) {
     console.warn("[recordPublishLog] skipped:", err);

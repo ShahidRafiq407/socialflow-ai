@@ -10,6 +10,7 @@ import { generateMediaAsset } from "../mediaGenerator";
 import { getPlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { removeFromScheduleQueue, scheduleEnqueue } from "@/lib/redis";
 import { getNextBestTime } from "@/lib/bestPublishTime";
+import { recordOutcome } from "@/lib/agents/controller/outcomeStore";
 import { parseAllUploadedFiles } from "./documentParser";
 
 // ============================================================================
@@ -903,6 +904,20 @@ INSTRUCTIONS:
       // Clean up Redis schedule queue if it was scheduled
       if (existing.status === "SCHEDULED" && existing.scheduledFor) {
         try { await removeFromScheduleQueue(args.id); } catch { /* non-fatal */ }
+      }
+      // Throwing away a draft is the clearest "not this" the user can give us.
+      // A published post being removed is library cleanup, not a rejection.
+      if (existing.status !== "PUBLISHED") {
+        void recordOutcome({
+          workspaceId: ctx.workspaceId,
+          event: {
+            outcome: "discarded",
+            platform: existing.platform,
+            format: existing.format,
+            mediaType: existing.mediaType,
+          },
+          sessionId: ctx.sessionId,
+        }).catch(() => {});
       }
       return { deleted: true, id: args.id, platform: existing.platform, format: existing.format };
     },

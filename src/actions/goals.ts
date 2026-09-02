@@ -1350,6 +1350,31 @@ export async function regenerateGrowthTaskMedia(
   }
 }
 
+/**
+ * Records "the AI generated this and I threw it away" for the controller's
+ * outcome ledger, so the next round of generation leans away from the platform /
+ * format / media mix this workspace keeps rejecting. Anything already live is
+ * skipped: removing a published post is cleanup, not a judgment on the content.
+ * Best-effort — never allowed to fail the delete the user actually asked for.
+ */
+async function recordTaskDiscard(workspaceId: string, task: GrowthPlanTask): Promise<void> {
+  if (!task || task.status === "PUBLISHED") return;
+  try {
+    const { recordOutcome } = await import("@/lib/agents/controller/outcomeStore");
+    await recordOutcome({
+      workspaceId,
+      event: {
+        outcome: "discarded",
+        platform: task.platform,
+        format: task.format,
+        mediaType: task.mediaType,
+      },
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /** Delete — removes the generated post and puts the task back to pending. */
 export async function deleteGrowthTaskPost(
   workspaceId: string,
@@ -1365,6 +1390,7 @@ export async function deleteGrowthTaskPost(
       const { removeFromScheduleQueue } = await import("@/lib/redis");
       await removeFromScheduleQueue(task.postId).catch(() => {});
       await prisma.post.delete({ where: { id: task.postId } }).catch(() => null);
+      await recordTaskDiscard(workspaceId, task);
     }
 
     await patchStrategyTask(workspaceId, taskId, {
@@ -1419,6 +1445,9 @@ export async function removeGrowthTask(
       await removeFromScheduleQueue(task.postId).catch(() => {});
       await prisma.post.delete({ where: { id: task.postId } }).catch(() => null);
     }
+    // Reached only for a task that is not PUBLISHED (guarded above), so this is
+    // always "the AI made this and I do not want it" — a real discard signal.
+    await recordTaskDiscard(workspaceId, task);
 
     const drop = (list: GrowthPlanTask[] | undefined) =>
       Array.isArray(list) ? list.filter((t) => t.id !== taskId) : [];

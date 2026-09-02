@@ -20,6 +20,7 @@ import { embedText } from "../embeddings";
 import { ensureControllerSchema } from "./schema";
 import { rankFacts } from "./memoryRank";
 import { PLAYBOOK_CATEGORY, buildPlaybookContent } from "./playbooks";
+import { OUTCOME_CATEGORY } from "./outcomes";
 
 export interface ControllerMemoryFact {
   id: string;
@@ -42,12 +43,13 @@ const MAX_CONTENT_CHARS = 1200;
 // Not-a-fact categories
 //
 // The Memory table is also used as a schema-free store for system JSON: billing
-// history, the active plan, checkout intents, captured feature requests — and
-// playbooks (procedural recipes recalled through their own path, loadPlaybooks).
-// None of those are things the user "told us to remember", so none of them may
-// ever be injected into the prompt as a remembered fact or shown in the memory
-// browser. Every fact-recall path filters these out; loadPlaybooks queries the
-// playbook category explicitly instead.
+// history, the active plan, checkout intents, captured feature requests, and
+// playbooks (procedural recipes recalled through their own path, loadPlaybooks)
+// — plus content-outcome events (publish/discard tallies aggregated by
+// outcomeStore). None of those are things the user "told us to remember", so
+// none of them may ever be injected into the prompt as a remembered fact or
+// shown in the memory browser. Every fact-recall path filters these out;
+// loadPlaybooks / loadOutcomeEvents query their own category explicitly instead.
 // ---------------------------------------------------------------------------
 export const NON_FACT_CATEGORIES = [
   "billing_event",
@@ -55,13 +57,14 @@ export const NON_FACT_CATEGORIES = [
   "checkout_intent",
   "feature_request",
   PLAYBOOK_CATEGORY,
+  OUTCOME_CATEGORY,
 ] as const;
 
 /** Prisma `where` fragment excluding system rows from a fact query. */
 const NOT_A_FACT = { category: { notIn: NON_FACT_CATEGORIES as unknown as string[] } };
 
 /** SQL fragment (raw pgvector queries can't use the Prisma filter). */
-const NOT_A_FACT_SQL = `"category" NOT IN (${NON_FACT_CATEGORIES.map((c) => `'${c}'`).join(", ")})`;
+export const NOT_A_FACT_SQL = `"category" NOT IN (${NON_FACT_CATEGORIES.map((c) => `'${c}'`).join(", ")})`;
 
 let vectorReady: Promise<void> | null = null;
 
