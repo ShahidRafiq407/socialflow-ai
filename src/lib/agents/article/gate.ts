@@ -28,6 +28,7 @@ import {
   readSchemaArtifact,
   readSearchIntent,
   readSeoReport,
+  readTrustReport,
   type GateCheck,
   type PublishGateReport,
 } from "@/lib/article/artifacts";
@@ -170,6 +171,7 @@ export const runGateStage: StageRunner = async (ctx: StageContext): Promise<Stag
   const schema = readArtifact(ctx, "schema", readSchemaArtifact);
   const score = readArtifact(ctx, "score", readQualityScore);
   const intent = readArtifact(ctx, "intent", readSearchIntent);
+  const trust = readArtifact(ctx, "eeat", readTrustReport);
   const checks: GateCheck[] = [];
 
   // ── 1. There is a page ────────────────────────────────────────────────────
@@ -353,13 +355,27 @@ export const runGateStage: StageRunner = async (ctx: StageContext): Promise<Stag
   );
 
   // ── 11. No business fact nobody can prove ─────────────────────────────────
-  const unproven = facts?.unprovenBusinessFacts ?? [];
+  // Two stages look for this, and the check reads both. The fact check tests what
+  // the page states against the material it was written from; the trust pass looks
+  // for borrowed authority in particular — years trading, job counts, client
+  // names, awards. A claim only one of them caught is still a claim this business
+  // cannot make, so neither list is allowed to be the one nobody reads.
+  const seenClaim = new Set<string>();
+  const unproven = [
+    ...(facts?.unprovenBusinessFacts ?? []),
+    ...(trust?.unsupportedExperience ?? []),
+  ].filter((row) => {
+    const key = row.trim().toLowerCase();
+    if (!key || seenClaim.has(key)) return false;
+    seenClaim.add(key);
+    return true;
+  });
   checks.push(
-    !facts
+    !facts && !trust
       ? skip(
           "no_unproven_business_facts",
           "Every business claim is one the business can make",
-          "No fact check ran, so the business facts in this page were never tested against the profile."
+          "Neither the fact check nor the trust pass ran, so the business claims in this page were never tested against the profile."
         )
       : unproven.length === 0
         ? pass("no_unproven_business_facts", "Every business claim is one the business can make")

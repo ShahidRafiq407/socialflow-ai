@@ -47,7 +47,9 @@ import type { StageContext, StageResult, StageRunner, WorkspaceFacts } from "./c
 import { newMeter } from "./router";
 
 import { runBusinessStage } from "./business";
+import { runCannibalizationStage } from "./cannibalization";
 import { runContentTypeStage } from "./contentType";
+import { runEeatStage } from "./eeat";
 import { runEvidenceGateStage } from "./evidenceGate";
 import { runFactCheckStage } from "./factcheck";
 import { runGapsStage } from "./gaps";
@@ -56,6 +58,7 @@ import { runIntentStage } from "./intent";
 import { runInventoryStage } from "./inventory";
 import { runLinksStage } from "./links";
 import { runOpportunityStage } from "./opportunity";
+import { runOriginalityStage } from "./originality";
 import { runOutlineStage } from "./outline";
 import { runResearchStage } from "./research";
 import { runSchemaStage } from "./schema";
@@ -86,8 +89,11 @@ const STAGE_RUNNERS: Partial<Record<ArticleStageKey, StageRunner>> = {
   research: runResearchStage,
   evidence_gate: runEvidenceGateStage,
   write: runWriteStage,
+  originality: runOriginalityStage,
   factcheck: runFactCheckStage,
+  eeat: runEeatStage,
   seo: runSeoStage,
+  cannibalization: runCannibalizationStage,
   links: runLinksStage,
   schema: runSchemaStage,
   score: runScoreStage,

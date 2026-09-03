@@ -12,7 +12,10 @@
  * The judged five are then capped by facts. A page whose claims were never checked
  * cannot score full marks for trust however well it reads, and a page whose
  * competitors could not be read cannot score highly for saying what they do not —
- * that would be an opinion about pages nobody looked at.
+ * that would be an opinion about pages nobody looked at. Where the differentiation
+ * stage did read them, its arithmetic is the ceiling: a number computed from those
+ * pages section by section outranks an impression formed from their headings, and
+ * the grader is never shown it, so the two signals stay independent.
  *
  * Word count is absent, deliberately and permanently. Length is a planning input,
  * not evidence of quality, and adding it here would be a bug rather than a tweak.
@@ -28,10 +31,12 @@ import {
   readBusinessProfile,
   readFactCheckReport,
   readInternalLinkReport,
+  readOriginalityReport,
   readQualityScore,
   readSearchIntent,
   readSeoReport,
   readSerpResearch,
+  readTrustReport,
   type InternalLinkReport,
   type QualityScoreArtifact,
   type ScoredDimension,
@@ -410,6 +415,34 @@ function judgedPrompt(ctx: StageContext, text: string): string {
 }
 
 /**
+ * How far above the measured distinctiveness the graded number may sit.
+ *
+ * Ours, and stated as ours. The differentiation stage read the ranking pages in
+ * full and judged this draft section by section; the grader below sees their
+ * headings. When both have an opinion the measurement wins, but not absolutely:
+ * its arithmetic is section-level and coarse — a section that adds something real
+ * still counts as half — so a page can be more distinctive than its sections make
+ * it look. It cannot be twenty points more.
+ */
+const MEASURED_ALLOWANCE = 20;
+
+/** Business claims nothing on file proves, from both stages that look for them. */
+function borrowedClaims(
+  facts: { unprovenBusinessFacts: string[] } | null,
+  trust: { unsupportedExperience: string[] } | null
+): string[] {
+  const seen = new Set<string>();
+  return [...(facts?.unprovenBusinessFacts ?? []), ...(trust?.unsupportedExperience ?? [])].filter(
+    (row) => {
+      const key = row.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }
+  );
+}
+
+/**
  * The ceilings facts put on judgements.
  *
  * A grader reading well-written prose will call it trustworthy, because that is
@@ -421,7 +454,12 @@ function applyCaps(ctx: StageContext, judged: Graded[]): Graded[] {
   const serp = readArtifact(ctx, "serp", readSerpResearch);
   const facts = readArtifact(ctx, "factcheck", readFactCheckReport);
   const business = readArtifact(ctx, "business", readBusinessProfile);
+  const trust = readArtifact(ctx, "eeat", readTrustReport);
+  const overlap = readArtifact(ctx, "originality", readOriginalityReport);
   const sawCompetitors = Boolean(serp && serp.competitors.length > 0);
+  // Only a comparison that really read pages is a measurement. `comparedAgainst`
+  // is on that artifact precisely so this line can tell the difference.
+  const measured = overlap && overlap.comparedAgainst > 0 ? overlap : null;
 
   return judged.map((row) => {
     if (row.key === "trust") {
@@ -441,23 +479,42 @@ function applyCaps(ctx: StageContext, judged: Graded[]): Graded[] {
           } unsupported by the material it was written from.`
         );
       }
-      if (facts.unprovenBusinessFacts.length > 0) {
+      const borrowed = borrowedClaims(facts, trust);
+      if (borrowed.length > 0) {
         return capped(
           row,
           80,
-          `the page asserts ${facts.unprovenBusinessFacts.length} business fact${
-            facts.unprovenBusinessFacts.length === 1 ? "" : "s"
+          `the page asserts ${borrowed.length} business fact${
+            borrowed.length === 1 ? "" : "s"
           } nothing on file proves.`
         );
       }
       return row;
     }
-    if (row.key === "differentiation" && !sawCompetitors) {
-      return capped(
-        row,
-        50,
-        "the ranking pages could not be read, so there is nothing to say this page differs from."
-      );
+    if (row.key === "differentiation") {
+      if (!sawCompetitors) {
+        return capped(
+          row,
+          50,
+          "the ranking pages could not be read, so there is nothing to say this page differs from."
+        );
+      }
+      if (measured) {
+        // The one place in this file where a measurement overrules the grader on
+        // the grader's own dimension. It has to: the differentiation stage read
+        // those pages and this one only saw their headings.
+        const covered = measured.overlaps.length;
+        return capped(
+          row,
+          measured.distinctiveness + MEASURED_ALLOWANCE,
+          `the differentiation pass read ${measured.comparedAgainst} of the ranking pages in full and found ${
+            measured.distinctiveness
+          }% of this page's sections say something they do not${
+            covered ? `, with ${covered} passage${covered === 1 ? "" : "s"} they already cover` : ""
+          }. ${measured.caveat}`
+        );
+      }
+      return row;
     }
     if (row.key === "relevance" && !business) {
       return capped(

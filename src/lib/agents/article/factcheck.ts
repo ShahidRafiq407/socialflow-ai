@@ -24,7 +24,6 @@ import {
   type BusinessProfile,
   type FactCheckReport,
 } from "@/lib/article/artifacts";
-import { stripHtml } from "@/lib/agents/workers/articleAssembly";
 import {
   assertLive,
   blocked,
@@ -35,6 +34,7 @@ import {
   type StageResult,
   type StageRunner,
 } from "./contract";
+import { draftBlocks } from "./draftBlocks";
 import { askJson } from "./router";
 const SYSTEM = `You check a finished page against the material it was written from. You are not the writer and you do not rewrite anything.
 
@@ -89,21 +89,6 @@ function materialLines(ctx: StageContext, business: BusinessProfile | null): str
   );
   return parts;
 }
-/** The draft as `## heading` + prose, split where its own H2s are. */
-function toBlocks(html: string): { heading: string; text: string }[] {
-  const parts = html.split(/(?=<h2)/i).filter((part) => part.trim());
-  return parts
-    .map((part) => {
-      const match = part.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
-      const heading = match ? stripHtml(match[1]).replace(/\s+/g, " ").trim() : "";
-      const text = stripHtml(match ? part.replace(match[0], "") : part)
-        .replace(/\s+/g, " ")
-        .trim();
-      return { heading, text };
-    })
-    .filter((block) => block.text.length > 0 || block.heading.length > 0);
-}
-
 /** Blocks grouped into calls, so one long page does not become one huge prompt. */
 const CHUNK_CHARS = 16_000;
 
@@ -153,7 +138,7 @@ export const runFactCheckStage: StageRunner = async (ctx: StageContext): Promise
   const business = readArtifact(ctx, "business", readBusinessProfile);
   const strategy = readArtifact(ctx, "strategy", readArticleStrategy);
   const material = materialLines(ctx, business);
-  const chunks = toChunks(toBlocks(draft.html));
+  const chunks = toChunks(draftBlocks(draft.html));
 
   let report: FactCheckReport = { entries: [], unsupported: 0, uncertain: 0, unprovenBusinessFacts: [] };
   const unchecked: string[] = [];
