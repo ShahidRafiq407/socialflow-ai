@@ -41,6 +41,12 @@ export const MUTATING_TOOLS = new Set([
   "github_create_repo",
   "github_push_files",
   "heygen_generate_video",
+  // Plugin writes that land in someone else's system: a live storefront, the
+  // user's mailbox, their Drive.
+  "woocommerce_create_product",
+  "woocommerce_update_product",
+  "gmail_send_email",
+  "gdrive_upload_file",
   "forget",
   // Attaching an outside server is the one mutation with its own hard gate on
   // top of this flag: connect_tool_server reads the user's real reply.
@@ -52,7 +58,15 @@ export const MEDIA_TOOLS = new Set(["generate_image", "generate_video", "heygen_
 
 const WEB_TOOLS = new Set(["search_web", "fetch_serp", "scrape_url"]);
 const PUBLISH_TOOLS = new Set(["publish_post", "approve_content", "schedule_post", "reschedule_post"]);
-const PLUGIN_TOOL_PREFIXES = ["github_", "heygen_", "mcp__"];
+const PLUGIN_TOOL_PREFIXES = [
+  "github_",
+  "heygen_",
+  "woocommerce_",
+  "gmail_",
+  "gdrive_",
+  "canva_",
+  "mcp__",
+];
 
 /**
  * Self-connect counts as a plugin tool, which does two jobs at once: it is

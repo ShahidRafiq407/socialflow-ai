@@ -1,19 +1,14 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import {
   Plug,
-  Globe,
-  Video,
-  Zap,
-  ShoppingCart,
   Server as ServerIcon,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
   Search,
   RefreshCw,
-  GitBranch,
   TrendingUp,
   Copy,
   Check,
@@ -21,24 +16,44 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { fetchLiveTrendingNews, TrendItem } from "@/actions/trends";
-import { CONNECTOR_REGISTRY, ConnectorCategory } from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import type { ConnectorView } from "@/actions/connections";
 import type { McpServerView } from "@/actions/mcpServers";
 import type { TrackingStatus } from "@/lib/types/growth";
+import {
+  PLUGIN_CATALOG,
+  PLUGIN_SECTIONS,
+  getPluginEntry,
+  pluginsInSection,
+  resolvePluginKey,
+  type PluginCatalogEntry,
+} from "@/lib/plugins/catalog";
 import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
+import { ConnectCmsTargetModal } from "./plugins/ConnectCmsTargetModal";
 import { AddMcpServerModal } from "./plugins/AddMcpServerModal";
 import { McpServerCard } from "./plugins/McpServerCard";
 import { WebsiteTagCard } from "./plugins/WebsiteTagCard";
+import { PluginLogoTile } from "./plugins/BrandLogos";
+import { PluginSection, type PluginRowStatus } from "./plugins/PluginDirectory";
 import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
 import type { PublishTargetsView } from "./article-writer/PublishTargetsPanel";
 import CustomSiteGuide from "./plugins/CustomSiteGuide";
 
-const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
-  dev: GitBranch,
-  media: Video,
-  ecommerce: ShoppingCart,
-  automation: Zap,
-};
+/** How many rows a category shows before the rest fold into an overflow row. */
+const VISIBLE_PER_SECTION = 4;
+
+/**
+ * MCP servers are matched to their catalog row by hostname, not by the whole URL:
+ * Zapier hands out a personal URL and GitMCP takes a repo path, so the paths
+ * differ per workspace while the host is what identifies the service.
+ */
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
 
 interface PluginsHQProps {
   workspaceId: string;
@@ -49,30 +64,9 @@ interface PluginsHQProps {
 }
 
 // Deep link from the chat controller or the Goal page:
-// /dashboard/plugins?connector=<key>. WordPress and the website lead tag live
-// outside CONNECTOR_REGISTRY, so each gets its own alias set.
-const WORDPRESS_ALIASES = new Set(["wordpress", "wp", "wordpress-pro", "wpsite"]);
-const WEBSITE_TAG_ALIASES = new Set([
-  "website-tag",
-  "websitetag",
-  "website",
-  "lead-tag",
-  "leadtag",
-  "tracking",
-  "tracking-tag",
-  "lead-capture",
-]);
-
-function normalizeConnectorKey(raw: string | null): string | null {
-  if (!raw) return null;
-  const value = raw.trim().toLowerCase().replace(/[\s_]+/g, "-");
-  if (!value) return null;
-  if (WORDPRESS_ALIASES.has(value)) return "wordpress";
-  if (WEBSITE_TAG_ALIASES.has(value)) return "website-tag";
-  if (CONNECTOR_REGISTRY.some((c) => c.key === value)) return value;
-  const byName = CONNECTOR_REGISTRY.find((c) => c.name.toLowerCase().replace(/[\s_]+/g, "-") === value);
-  return byName?.key || null;
-}
+// /dashboard/plugins?connector=<key>. Every spelling it might use — "wp",
+// "Google Drive", "lead-tag" — resolves through the catalog's own alias table, so
+// a new one is a line in the catalog instead of another Set in this file.
 
 export default function PluginsHQ({
   workspaceId,
@@ -88,9 +82,12 @@ export default function PluginsHQ({
   const [trackingState, setTrackingState] = useState<TrackingStatus>(tracking);
 
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
+  const [activeCmsKey, setActiveCmsKey] = useState<string | null>(null);
+  const [mcpPresetKey, setMcpPresetKey] = useState<string | null>(null);
   const [showAddMcpModal, setShowAddMcpModal] = useState(false);
   const [focusedConnector, setFocusedConnector] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [publishTargetsState, setPublishTargetsState] = useState(publishTargets);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
 
@@ -104,19 +101,117 @@ export default function PluginsHQ({
   const [copiedTrendId, setCopiedTrendId] = useState<string | null>(null);
 
   const getConnection = (key: string) => connectionsState.find((c) => c.providerKey === key);
-  const visibleConnectors = CONNECTOR_REGISTRY.filter((connector) =>
-    `${connector.name} ${connector.tagline}`.toLowerCase().includes(searchQuery.toLowerCase().trim())
-  );
-  const connectedCount = connectionsState.filter((connection) => connection.status === "connected").length;
-  const connectedCmsTargets = publishTargetsState.targets.filter((target) => target.status === "connected");
-  const installedCount = connectedCount + connectedCmsTargets.length;
 
-  // A ?connector= link lands on the connectors tab with that card scrolled to and
+  /** Which MCP hosts this workspace already has a server for. */
+  const mcpByHost = useMemo(() => {
+    const map = new Map<string, McpServerView>();
+    for (const server of mcpServersState) {
+      const host = hostOf(server.url);
+      if (host) map.set(host, server);
+    }
+    return map;
+  }, [mcpServersState]);
+
+  /**
+   * One status per directory row, whichever of the four backends owns it. A row
+   * does not know which table it came from, and it should not have to.
+   */
+  const statusFor = (entry: PluginCatalogEntry): PluginRowStatus => {
+    if (entry.backend === "connector") {
+      const conn = getConnection(entry.key);
+      if (conn?.status === "connected") return "connected";
+      if (conn?.status === "failed" && conn.hasCredentials) return "error";
+      return "idle";
+    }
+    if (entry.backend === "cms") {
+      const target = publishTargetsState.targets.find((t) => t.providerKey === entry.key);
+      if (target?.status === "connected") return "connected";
+      return target?.status === "error" ? "error" : "idle";
+    }
+    if (entry.backend === "mcp") {
+      const host = entry.mcp ? hostOf(entry.mcp.url) : null;
+      const server = host ? mcpByHost.get(host) : undefined;
+      if (!server) return "idle";
+      return server.lastError ? "error" : "connected";
+    }
+    return trackingState.installed ? "connected" : "idle";
+  };
+
+  const search = searchQuery.trim().toLowerCase();
+  const sections = useMemo(
+    () =>
+      PLUGIN_SECTIONS.map((section) => ({
+        ...section,
+        entries: pluginsInSection(section.key).filter(
+          (entry) =>
+            !search ||
+            `${entry.name} ${entry.blurb} ${entry.can.join(" ")}`.toLowerCase().includes(search)
+        ),
+      })).filter((section) => section.entries.length > 0),
+    [search]
+  );
+
+  const installedEntries = PLUGIN_CATALOG.filter((entry) => statusFor(entry) === "connected");
+  /** A hand-typed MCP server has no catalog row to sit under, so it gets its own tile. */
+  const customMcpServers = mcpServersState.filter((server) => {
+    const host = hostOf(server.url);
+    return !host || !PLUGIN_CATALOG.some((e) => e.mcp && hostOf(e.mcp.url) === host);
+  });
+  const installedCount = installedEntries.length + customMcpServers.length;
+
+  /**
+   * Only the platforms that are actually connected need publishing defaults —
+   * the connect forms themselves live in the directory rows above.
+   */
+  const connectedCmsProviders = publishTargetsState.providers.filter((provider) =>
+    publishTargetsState.targets.some((target) => target.providerKey === provider.key)
+  );
+
+  /** A row click opens whichever dialog that plugin's backend needs. */
+  const openPlugin = (entry: PluginCatalogEntry) => {
+    setActiveTab("connectors");
+
+    if (entry.backend === "connector") {
+      setActiveConnectorKey(entry.key);
+      return;
+    }
+    if (entry.backend === "cms") {
+      setActiveCmsKey(entry.key);
+      return;
+    }
+    if (entry.backend === "mcp") {
+      const host = entry.mcp ? hostOf(entry.mcp.url) : null;
+      const existing = host ? mcpByHost.get(host) : undefined;
+      if (existing) {
+        // Already attached: its own card owns re-checking, disabling and removal,
+        // and adding it twice would just fail on the duplicate URL.
+        setFocusedConnector(null);
+        document
+          .getElementById(`mcp-${existing.id}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      setMcpPresetKey(entry.key);
+      setShowAddMcpModal(true);
+      return;
+    }
+
+    // The lead tag has no dialog — the snippet and the install check are the card.
+    setFocusedConnector("website-tag");
+    setTimeout(() => {
+      document
+        .getElementById("connector-website-tag")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+    setTimeout(() => setFocusedConnector(null), 4200);
+  };
+
+  // A ?connector= link lands on the connectors tab with that row scrolled to and
   // ringed. If it is not connected yet the connect dialog opens too — that link
   // only exists because something still needs connecting. The param is consumed.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const key = normalizeConnectorKey(new URLSearchParams(window.location.search).get("connector"));
+    const key = resolvePluginKey(new URLSearchParams(window.location.search).get("connector"));
 
     const url = new URL(window.location.href);
     if (url.searchParams.has("connector")) {
@@ -125,30 +220,27 @@ export default function PluginsHQ({
     }
     if (!key) return;
 
+    const entry = getPluginEntry(key);
+    if (!entry) return;
+
     setActiveTab("connectors");
     setFocusedConnector(key);
-
-    const connected =
-      key === "wordpress"
-      ? publishTargetsState.targets.some((target) => target.providerKey === "wordpress" && target.status === "connected")
-        : key === "website-tag"
-          ? tracking.installed
-          : connections.find((c) => c.providerKey === key)?.status === "connected";
+    // The row may be folded into "see more" — scrolling to something hidden looks
+    // like a dead link, so open its category first.
+    setExpandedSections((prev) => (prev.includes(entry.section) ? prev : [...prev, entry.section]));
 
     const scroll = setTimeout(() => {
       document
-        .getElementById(`connector-${key}`)
+        .getElementById(entry.backend === "tag" ? "connector-website-tag" : `plugin-${key}`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 120);
 
     // The website tag has no dialog — its whole form is on the card, so landing
     // on it is enough.
     const open =
-      connected || key === "website-tag"
+      statusFor(entry) === "connected" || entry.backend === "tag"
         ? undefined
-        : setTimeout(() => {
-            if (key !== "wordpress") setActiveConnectorKey(key);
-          }, 620);
+        : setTimeout(() => openPlugin(entry), 620);
 
     const unring = setTimeout(() => setFocusedConnector(null), 4200);
 
@@ -228,6 +320,12 @@ export default function PluginsHQ({
     ? CONNECTOR_REGISTRY.find((c) => c.key === activeConnectorKey)
     : null;
 
+  const activeCmsProvider = activeCmsKey
+    ? publishTargetsState.providers.find((p) => p.key === activeCmsKey)
+    : undefined;
+
+  const mcpPreset = mcpPresetKey ? getPluginEntry(mcpPresetKey) : undefined;
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -246,17 +344,60 @@ export default function PluginsHQ({
       <div className="flex items-end justify-between border-b border-slate-200 pb-4 dark:border-slate-800">
         <div>
           <h2 className="text-base font-semibold text-slate-950 dark:text-white">Installed</h2>
-          <p className="mt-1 text-xs text-slate-500">{installedCount} plugin{installedCount === 1 ? "" : "s"} connected</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {installedCount} plugin{installedCount === 1 ? "" : "s"} connected — mention them by name
+            in{" "}
+            <a
+              href="/dashboard/chat"
+              className="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+            >
+              AI CEO chat
+            </a>
+            .
+          </p>
         </div>
-        <button onClick={() => setShowAddMcpModal(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"><ServerIcon className="h-4 w-4" /> Add MCP</button>
+        <button
+          onClick={() => {
+            setMcpPresetKey(null);
+            setShowAddMcpModal(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          <ServerIcon className="h-4 w-4" /> Add MCP
+        </button>
       </div>
       <div className="flex flex-wrap gap-3">
-        {connectionsState.filter((connection) => connection.status === "connected").map((connection) => {
-          const connector = CONNECTOR_REGISTRY.find((item) => item.key === connection.providerKey);
-          return <button key={connection.providerKey} title={connector?.name} onClick={() => setFocusedConnector(connection.providerKey)} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-indigo-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900">{connector?.name.slice(0, 1)}</button>;
-        })}
-        {connectedCmsTargets.filter((target) => target.providerKey !== "wordpress").map((target) => <button key={target.id} title={target.providerName} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-emerald-600 shadow-sm dark:border-slate-700 dark:bg-slate-900">{target.providerName.slice(0, 1)}</button>)}
-        {installedCount === 0 && <span className="text-sm text-slate-400">Connect a plugin below to see it here.</span>}
+        {installedEntries.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            title={`${entry.name} — ${entry.blurb}`}
+            onClick={() => openPlugin(entry)}
+            className="rounded-2xl transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <PluginLogoTile id={entry.logo} size="lg" className="shadow-sm" />
+            <span className="sr-only">{entry.name}</span>
+          </button>
+        ))}
+        {customMcpServers.map((server) => (
+          <button
+            key={server.id}
+            type="button"
+            title={`${server.name} — ${server.toolCount} tool${server.toolCount === 1 ? "" : "s"}`}
+            onClick={() =>
+              document
+                .getElementById(`mcp-${server.id}`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" })
+            }
+            className="rounded-2xl transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <PluginLogoTile id="mcp" size="lg" className="shadow-sm" />
+            <span className="sr-only">{server.name}</span>
+          </button>
+        ))}
+        {installedCount === 0 && (
+          <span className="text-sm text-slate-400">Connect a plugin below to see it here.</span>
+        )}
       </div>
 
       {/* Navigation Tabs */}
@@ -290,141 +431,124 @@ export default function PluginsHQ({
 
       {/* TAB 1: CONNECTIONS */}
       {activeTab === "connectors" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Website lead tag — the other half of the website channel */}
-            <WebsiteTagCard
-              workspaceId={workspaceId}
-              status={trackingState}
-              onStatus={setTrackingState}
-              focused={focusedConnector === "website-tag"}
-            />
+        <div className="space-y-8">
+          {sections.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                Nothing in the directory matches &ldquo;{searchQuery.trim()}&rdquo;. Any MCP server
+                can still be added by URL with the button above.
+              </p>
+            </div>
+          ) : (
+            sections.map((section) => (
+              <PluginSection
+                key={section.key}
+                title={section.title}
+                entries={section.entries}
+                statusFor={statusFor}
+                focusedKey={focusedConnector}
+                visible={VISIBLE_PER_SECTION}
+                expanded={!!search || expandedSections.includes(section.key)}
+                onExpand={() =>
+                  setExpandedSections((prev) =>
+                    prev.includes(section.key) ? prev : [...prev, section.key]
+                  )
+                }
+                onOpen={openPlugin}
+              />
+            ))
+          )}
 
-            {/* Registry-driven connector cards */}
-            {visibleConnectors.map((connector) => {
-              const conn = getConnection(connector.key);
-              const Icon = CATEGORY_ICONS[connector.category] || Plug;
-              const isConnected = conn?.status === "connected";
-              const isFailed = conn?.status === "failed" && conn?.hasCredentials;
-              return (
-                <div
-                  key={connector.key}
-                  id={`connector-${connector.key}`}
-                  className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all ${
-                    focusedConnector === connector.key
-                      ? "border-indigo-500 ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
-                      : "border-slate-200 dark:border-slate-800"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-white dark:bg-slate-800">
-                        <Icon className="h-6 w-6 text-emerald-400" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white">{connector.name}</h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{connector.tagline}</p>
-                      </div>
-                    </div>
-                    {isConnected ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="h-3 w-3" /> Connected
-                      </span>
-                    ) : isFailed ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                        <AlertCircle className="h-3 w-3" /> Failed
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                        Not connected
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                    {connector.description}
-                  </p>
-                  <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                    <span className="text-xs font-medium text-slate-500 truncate max-w-[55%]">
-                      {isConnected && conn?.accountLabel ? `@${conn.accountLabel}` : "Not connected"}
-                    </span>
-                    <button
-                      onClick={() => setActiveConnectorKey(connector.key)}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                    >
-                      {isConnected ? "Manage →" : "Connect →"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <PublishTargetsPanel
+          {/* The lead tag is the one plugin whose whole form is its card, so the
+              directory row scrolls here instead of opening a dialog. */}
+          <WebsiteTagCard
             workspaceId={workspaceId}
-            targets={publishTargetsState.targets}
-            providers={publishTargetsState.providers}
-            encryptionReady={publishTargetsState.encryptionReady}
-            selectedTargetId={selectedTargetId}
-            onSelect={setSelectedTargetId}
-            onChange={setPublishTargetsState}
-            onNotify={(tone, text) => {
-              if (tone === "error") console.error(text);
-            }}
+            status={trackingState}
+            onStatus={setTrackingState}
+            focused={focusedConnector === "website-tag"}
           />
+
+          {/* Publishing defaults for the platforms that are already connected.
+              Connecting happens in the directory above, so only connected
+              providers are passed in — two connect forms for one platform is how
+              a user ends up with two half-filled ones. */}
+          {connectedCmsProviders.length > 0 && (
+            <PublishTargetsPanel
+              workspaceId={workspaceId}
+              targets={publishTargetsState.targets}
+              providers={connectedCmsProviders}
+              encryptionReady={publishTargetsState.encryptionReady}
+              selectedTargetId={selectedTargetId}
+              onSelect={setSelectedTargetId}
+              onChange={setPublishTargetsState}
+              onNotify={(tone, text) => {
+                if (tone === "error") console.error(text);
+              }}
+            />
+          )}
+
 
           {/* The receiving end, for the sites that have to write one themselves. */}
           <CustomSiteGuide />
 
-          {/* MCP Servers — user-added external tool servers */}
+          {/* Attached MCP servers. Connecting one is a directory row above; this is
+              where the ones already attached are re-checked, paused and removed. */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                MCP Servers — bring your own tools
+                Attached MCP servers
               </h3>
               <button
-                onClick={() => setShowAddMcpModal(true)}
+                onClick={() => {
+                  setMcpPresetKey(null);
+                  setShowAddMcpModal(true);
+                }}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-violet-600/30 hover:bg-violet-500 transition-all"
               >
                 <ServerIcon className="h-3.5 w-3.5" />
-                Add MCP Server
+                Add by URL
               </button>
             </div>
 
             {mcpServersState.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-violet-400/40 bg-violet-500/5 p-6">
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                  Connect any MCP server and your AI CEO can use its tools
+                  Nothing attached yet — the free servers are in the directory above
                 </p>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                  Add any service that speaks the Model Context Protocol — docs search, GitHub,
-                  Notion, databases, HeyGen-style generators, or your own custom server. We verify
-                  the connection and discover its tools; the AI CEO can then call them straight from
-                  chat.
+                  Pick one from <strong>Free MCP servers</strong> and its URL is filled in for you.
+                  Anything else that speaks the Model Context Protocol — your own server, a private
+                  one, a Zapier endpoint — goes in by URL. We connect, list its tools and only then
+                  save it, so the AI CEO can call them straight from chat.
                 </p>
                 <button
-                  onClick={() => setShowAddMcpModal(true)}
+                  onClick={() => {
+                    setMcpPresetKey(null);
+                    setShowAddMcpModal(true);
+                  }}
                   className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-500 transition-all"
                 >
                   <ServerIcon className="h-3.5 w-3.5" />
-                  Add your first MCP server
+                  Add a server by URL
                 </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {mcpServersState.map((server) => (
-                  <McpServerCard
-                    key={server.id}
-                    workspaceId={workspaceId}
-                    server={server}
-                    onUpdated={(updated) =>
-                      setMcpServersState((prev) =>
-                        prev.map((s) => (s.id === updated.id ? updated : s))
-                      )
-                    }
-                    onDeleted={(id) =>
-                      setMcpServersState((prev) => prev.filter((s) => s.id !== id))
-                    }
-                  />
+                  <div key={server.id} id={`mcp-${server.id}`}>
+                    <McpServerCard
+                      workspaceId={workspaceId}
+                      server={server}
+                      onUpdated={(updated) =>
+                        setMcpServersState((prev) =>
+                          prev.map((s) => (s.id === updated.id ? updated : s))
+                        )
+                      }
+                      onDeleted={(id) =>
+                        setMcpServersState((prev) => prev.filter((s) => s.id !== id))
+                      }
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -620,7 +744,7 @@ export default function PluginsHQ({
         </div>
       )}
 
-      {/* Generic Connector Modal */}
+      {/* Connectors: an API key or an OAuth triple, stored write-only. */}
       {activeConnector && (
         <ConnectConnectorModal
           workspaceId={workspaceId}
@@ -631,11 +755,27 @@ export default function PluginsHQ({
         />
       )}
 
-      {/* Add MCP Server Modal */}
+      {/* Publishing platforms: same dialog shape, different backend. */}
+      {activeCmsProvider && (
+        <ConnectCmsTargetModal
+          workspaceId={workspaceId}
+          provider={activeCmsProvider}
+          target={publishTargetsState.targets.find((t) => t.providerKey === activeCmsProvider.key)}
+          encryptionReady={publishTargetsState.encryptionReady}
+          onClose={() => setActiveCmsKey(null)}
+          onUpdate={setPublishTargetsState}
+        />
+      )}
+
+      {/* MCP servers, prefilled when the click came from a directory row. */}
       {showAddMcpModal && (
         <AddMcpServerModal
           workspaceId={workspaceId}
-          onClose={() => setShowAddMcpModal(false)}
+          preset={mcpPreset}
+          onClose={() => {
+            setShowAddMcpModal(false);
+            setMcpPresetKey(null);
+          }}
           onAdded={(server) => setMcpServersState((prev) => [server, ...prev])}
         />
       )}

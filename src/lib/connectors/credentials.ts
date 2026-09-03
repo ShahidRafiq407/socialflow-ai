@@ -55,3 +55,37 @@ export async function getConnectorCredentials(
     return null;
   }
 }
+
+/**
+ * Merges a few keys into a stored credential map and re-encrypts it.
+ *
+ * This exists for one reason: some providers rotate a refresh token every time
+ * you use it (Canva does), and the old one stops working. Without writing the
+ * new one back, the connector would break on its second call. Nothing here is
+ * ever returned to the browser.
+ */
+export async function patchConnectorCredentials(
+  workspaceId: string,
+  providerKey: string,
+  patch: Record<string, string>
+): Promise<boolean> {
+  const entries = Object.entries(patch).filter(([, v]) => typeof v === "string" && v);
+  if (entries.length === 0) return false;
+
+  try {
+    const current = await getConnectorCredentials(workspaceId, providerKey);
+    if (!current) return false;
+
+    const merged = { ...current.credentials, ...Object.fromEntries(entries) };
+    const { encryptSecret } = await import("@/lib/crypto");
+
+    await (prisma as any).userConnection.update({
+      where: { workspaceId_providerKey: { workspaceId, providerKey } },
+      data: { credentials: encryptSecret(JSON.stringify(merged)) },
+    });
+    return true;
+  } catch (error) {
+    console.warn(`[patchConnectorCredentials] ${providerKey} not updated:`, error);
+    return false;
+  }
+}

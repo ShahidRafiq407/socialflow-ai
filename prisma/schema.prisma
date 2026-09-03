@@ -43,6 +43,7 @@ model Workspace {
   linkClicks      LinkClick[]
   leadEvents      LeadEvent[]
   publishLogs     PublishLog[]
+  articleRuns     ArticleRun[]
 
   // Website lead-capture tag (one site per workspace)
   trackingKey        String?   @unique
@@ -564,4 +565,146 @@ model McpServerConnection {
   @@unique([workspaceId, name])
   @@index([workspaceId])
 }
+
+// ===========================================================================
+// ARTICLE PIPELINE
+//
+// One article is one ArticleRun advanced a stage at a time, because the platform
+// kills a function at 300s and twenty-three stages do not fit in one request.
+// Each stage is its own row: what it produced, how long it took, and — when it
+// failed — the named reason. The screen reads these rows, so it can only ever
+// show work that actually happened.
+// ===========================================================================
+
+model ArticleRun {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+
+  /// quick (12 stages) | deep (23). Chosen per run, never derived from the plan.
+  mode        String    @default("quick")
+  /// idle | running | blocked | done | failed
+  status      String    @default("idle")
+  /// The stage key from src/lib/article/stages.ts that runs next.
+  currentStage String   @default("business")
+
+  /// The brief: keyword, title, market, language, length, toggles.
+  brief       Json
+  /// Inputs accumulated by earlier stages and read by later ones.
+  state       Json?
+  /// quality, differentiation, trust, relevance. Absent until `score` runs.
+  scores      Json?
+
+  /// Set when a stage blocks the run (evidence gate, publish gate).
+  blockedBy    String?
+  /// The blocker's own words. Never a generic "SEO failed".
+  blockedReason String? @db.Text
+
+  startedAt      DateTime?
+  stageStartedAt DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  stages   ArticleStage[]
+  sources  ResearchSource[]
+  claims   EvidenceClaim[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status])
+}
+
+model ArticleStage {
+  id     String     @id @default(uuid())
+  runId  String
+  run    ArticleRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  /// Stage key from src/lib/article/stages.ts.
+  stage  String
+  /// Its 1-based position in this run's list, so the UI can order without a join.
+  order  Int
+  /// pending | running | done | blocked | failed | skipped
+  status String     @default("pending")
+
+  /// What the stage produced. The shape is the stage's contract in the plan.
+  artifact Json?
+  /// Why it failed or blocked, in the words the user should read.
+  error    String?  @db.Text
+  /// Model calls this stage spent, for the cost the user is shown.
+  modelCalls Int    @default(0)
+  durationMs Int?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([runId, stage])
+  @@index([runId, order])
+}
+
+// A source the research stage found. Kept as a row because a claim's provenance
+// has to survive the run: months later the question is "where did this come
+// from", and a JSON blob inside an artifact cannot answer it.
+model ResearchSource {
+  id     String     @id @default(uuid())
+  runId  String
+  run    ArticleRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  url       String  @db.Text
+  title     String? @db.Text
+  publisher String?
+  /// The date the source itself carries, not the date we fetched it.
+  publishedAt DateTime?
+  fetchedAt   DateTime  @default(now())
+  /// The passage the claim rests on, quoted, so a human can check it.
+  excerpt     String?   @db.Text
+  /// primary | official | journalism | vendor | forum | unknown
+  sourceType  String    @default("unknown")
+  /// 200-level fetch, or the reason it could not be read.
+  reachable   Boolean   @default(false)
+  fetchError  String?   @db.Text
+
+  claims EvidenceClaim[]
+
+  @@index([runId])
+}
+
+// One factual claim the article wants to make, and the five checks it has to
+// pass. `status` is what the writer reads: a blocked claim is never handed to it.
+model EvidenceClaim {
+  id       String          @id @default(uuid())
+  runId    String
+  run      ArticleRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sourceId String?
+  source   ResearchSource? @relation(fields: [sourceId], references: [id])
+
+  /// The claim as the article would state it.
+  claim  String @db.Text
+  /// statistic | fact | quote | recommendation | business_fact
+  kind   String @default("fact")
+
+  /// The five checks, each true only when it was actually performed and passed.
+  sourceExists   Boolean @default(false)
+  sourceReachable Boolean @default(false)
+  /// The source says this, not merely something adjacent to it.
+  sourceSupports Boolean @default(false)
+  /// Recent enough for a claim of this kind.
+  current        Boolean @default(false)
+  trustworthy    Boolean @default(false)
+
+  /// allowed | blocked
+  status  String  @default("blocked")
+  /// Which check failed, in words: "the 2019 figure is too old to state as current".
+  reason  String? @db.Text
+  /// Where the claim ended up in the draft, once the writer used it.
+  usedIn  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([runId, status])
+  @@index([sourceId])
+}
+
 

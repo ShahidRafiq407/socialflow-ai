@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plug, ExternalLink, Loader2, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
+import { ExternalLink, Loader2, CheckCircle2, AlertCircle, Trash2 } from "lucide-react";
 import type { ConnectorDef } from "@/lib/connectors/registry";
 import {
   connectConnector,
@@ -9,6 +9,9 @@ import {
   disconnectConnector,
 } from "@/actions/connections";
 import type { ConnectorView } from "@/actions/connections";
+import { getPluginEntry } from "@/lib/plugins/catalog";
+import { PluginLogoTile } from "./BrandLogos";
+import { PluginCanChips, PluginSetupSteps } from "./PluginSetupSteps";
 
 interface ConnectConnectorModalProps {
   workspaceId: string;
@@ -33,6 +36,7 @@ export function ConnectConnectorModal({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const connected = connection?.status === "connected";
+  const entry = getPluginEntry(connector.key);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,14 +102,18 @@ export function ConnectConnectorModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-              <Plug className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-white">{connector.name} Connection</h3>
-              <p className="text-xs text-slate-500">{connector.tagline}</p>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex min-w-0 items-center gap-3">
+            {entry ? (
+              <PluginLogoTile id={entry.logo} size="md" />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                {connector.name.slice(0, 1)}
+              </div>
+            )}
+            <div className="min-w-0">
+              <h3 className="truncate font-bold text-slate-900 dark:text-white">{connector.name}</h3>
+              <p className="truncate text-xs text-slate-500">{entry?.blurb || connector.tagline}</p>
             </div>
           </div>
           <button
@@ -117,6 +125,12 @@ export function ConnectConnectorModal({
           </button>
         </div>
 
+        {entry && entry.can.length > 0 && (
+          <div className="mt-4">
+            <PluginCanChips can={entry.can} />
+          </div>
+        )}
+
         {connected && connection?.accountLabel && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4" />
@@ -126,6 +140,27 @@ export function ConnectConnectorModal({
                 Verified {new Date(connection.lastVerifiedAt).toLocaleString()}
               </span>
             )}
+          </div>
+        )}
+
+        {entry && entry.setup.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Where to get this
+              </p>
+              {entry.docsUrl && (
+                <a
+                  href={entry.docsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+                >
+                  Docs <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </div>
+            <PluginSetupSteps steps={entry.setup} accent="indigo" />
           </div>
         )}
 
@@ -216,23 +251,23 @@ export function ConnectConnectorModal({
         </form>
 
         {connector.chatTools && connector.chatTools.length > 0 && (
-          <div className="mt-5 rounded-xl bg-slate-50 dark:bg-slate-800/50 p-4">
-            <p className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wide">
-              AI CEO tools unlocked
+          <div className="mt-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 p-4">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Tools this unlocks in AI CEO chat
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {connector.chatTools.map((tool) => (
                 <code
                   key={tool}
-                  className="rounded-md bg-white dark:bg-slate-900 px-2 py-1 text-[11px] font-mono text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700"
+                  className="rounded-md bg-white dark:bg-slate-900 px-2 py-1 text-[10.5px] font-mono text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700"
                 >
                   {tool}
                 </code>
               ))}
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Once connected, just ask in AI Chat — e.g. &ldquo;Create a GitHub repo called
-              my-project and push a README&rdquo;.
+              You never type these. Mention {connector.name} in chat and the AI CEO picks the right
+              one.
             </p>
           </div>
         )}

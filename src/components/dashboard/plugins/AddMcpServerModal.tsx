@@ -1,9 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { Server, Plus, Loader2, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
+import { Server, Plus, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { addMcpServer } from "@/actions/mcpServers";
 import type { McpServerView, McpToolSummary } from "@/actions/mcpServers";
+import { pluginsForBackend, type PluginCatalogEntry } from "@/lib/plugins/catalog";
+import { PluginLogoTile } from "./BrandLogos";
+import { PluginCanChips, PluginSetupSteps } from "./PluginSetupSteps";
 
 interface HeaderPair {
   key: string;
@@ -14,22 +17,41 @@ interface AddMcpServerModalProps {
   workspaceId: string;
   onClose: () => void;
   onAdded: (server: McpServerView) => void;
+  /**
+   * A catalog row the user picked from the directory. Its URL, name and auth
+   * header are prefilled so connecting a free server is a confirm rather than a
+   * copy-paste job — but nothing is stored until they press the button, because
+   * the ones that need a key would fail if we saved them silently.
+   */
+  preset?: PluginCatalogEntry;
 }
 
-const EXAMPLE_SERVERS = [
-  { name: "Context7 · free", url: "https://mcp.context7.com/mcp" },
-  { name: "DeepWiki · free", url: "https://mcp.deepwiki.com/mcp" },
-  { name: "Higress · free", url: "https://mcp.higress.ai/mcp" },
-];
+/** The catalog's own MCP rows, so the shortcuts can never drift from the directory. */
+const CATALOG_PRESETS = pluginsForBackend("mcp").filter((entry) => entry.mcp);
 
-export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServerModalProps) {
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [headerPairs, setHeaderPairs] = useState<HeaderPair[]>([]);
+export function AddMcpServerModal({
+  workspaceId,
+  onClose,
+  onAdded,
+  preset,
+}: AddMcpServerModalProps) {
+  const [name, setName] = useState(preset?.mcp?.suggestedName || "");
+  const [url, setUrl] = useState(preset?.mcp?.urlIsPersonal ? "" : preset?.mcp?.url || "");
+  const [headerPairs, setHeaderPairs] = useState<HeaderPair[]>(
+    preset?.mcp?.authHeader ? [{ key: preset.mcp.authHeader, value: "" }] : []
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [discoveredTools, setDiscoveredTools] = useState<McpToolSummary[] | null>(null);
+
+  /** Filling the form from a shortcut resets the headers that came with the last one. */
+  const applyPreset = (entry: PluginCatalogEntry) => {
+    setName(entry.mcp?.suggestedName || entry.name);
+    setUrl(entry.mcp?.urlIsPersonal ? "" : entry.mcp?.url || "");
+    setHeaderPairs(entry.mcp?.authHeader ? [{ key: entry.mcp.authHeader, value: "" }] : []);
+    setError(null);
+  };
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +60,10 @@ export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServe
     setSuccessMsg(null);
     setDiscoveredTools(null);
     try {
-      const res = await addMcpServer(workspaceId, { name, url, headers: headerPairs });
+      // A header the user left blank is not a header — sending "Authorization: "
+      // makes the server reject the handshake instead of treating it as absent.
+      const headers = headerPairs.filter((p) => p.key.trim() && p.value.trim());
+      const res = await addMcpServer(workspaceId, { name, url, headers });
       if (res.success && res.server) {
         onAdded(res.server);
         setDiscoveredTools(res.tools || []);
@@ -56,15 +81,21 @@ export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServe
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
-              <Server className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 dark:text-white">Add MCP Server</h3>
-              <p className="text-xs text-slate-500">
-                Connect free or private MCP servers for the AI CEO
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex min-w-0 items-center gap-3">
+            {preset ? (
+              <PluginLogoTile id={preset.logo} size="md" />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                <Server className="h-5 w-5" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h3 className="truncate font-bold text-slate-900 dark:text-white">
+                {preset ? `Connect ${preset.name}` : "Add MCP server"}
+              </h3>
+              <p className="truncate text-xs text-slate-500">
+                {preset?.blurb || "Attach a free or private MCP server for the AI CEO"}
               </p>
             </div>
           </div>
@@ -76,6 +107,21 @@ export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServe
             ✕
           </button>
         </div>
+
+        {preset && preset.can.length > 0 && (
+          <div className="mt-4">
+            <PluginCanChips can={preset.can} />
+          </div>
+        )}
+
+        {preset && preset.setup.length > 0 && (
+          <div className="mt-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 p-4">
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              Before you connect
+            </p>
+            <PluginSetupSteps steps={preset.setup} accent="violet" />
+          </div>
+        )}
 
         <form onSubmit={handleConnect} className="mt-5 space-y-4">
           <div>
@@ -106,24 +152,25 @@ export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServe
               className="mt-1 w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:border-violet-500 focus:outline-none"
             />
             <p className="mt-1.5 text-[11px] text-slate-500">
-              The server must support the Streamable HTTP transport. We connect and list its tools
-              before saving — nothing is stored until the connection is verified.
+              {preset?.mcp?.urlIsPersonal
+                ? "This server gives you a personal URL that contains your own key — paste that one, not the example from their docs."
+                : "The server must support the Streamable HTTP transport. We connect and list its tools before saving — nothing is stored until the connection is verified."}
             </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {EXAMPLE_SERVERS.map((ex) => (
-                <button
-                  key={ex.url}
-                  type="button"
-                  onClick={() => {
-                    setName(ex.name);
-                    setUrl(ex.url);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                >
-                  <ExternalLink className="h-2.5 w-2.5" /> {ex.name}
-                </button>
-              ))}
-            </div>
+            {!preset && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {CATALOG_PRESETS.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    onClick={() => applyPreset(entry)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <PluginLogoTile id={entry.logo} size="sm" className="h-4 w-4 rounded-[5px]" />
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>

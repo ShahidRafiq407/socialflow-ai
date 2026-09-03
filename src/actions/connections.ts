@@ -71,11 +71,20 @@ export async function listConnections(workspaceId: string): Promise<ConnectorVie
 /**
  * Runs the provider's real verification call. Returns the account label on
  * success. Add new providers here as they get API clients.
+ *
+ * `credentialPatch` exists for providers that hand back a new secret while you
+ * are using the old one (Canva rotates its refresh token on every exchange). The
+ * caller stores the patch, otherwise the connection dies after one call.
  */
 async function verifyProvider(
   providerKey: string,
   credentials: Record<string, string>
-): Promise<{ ok: boolean; accountLabel?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  accountLabel?: string;
+  error?: string;
+  credentialPatch?: Record<string, string>;
+}> {
   if (providerKey === "github") {
     const res = await getGitHubAccount(credentials.personalAccessToken);
     return res.success
@@ -89,6 +98,59 @@ async function verifyProvider(
     const label =
       res.quota?.remaining != null ? `${res.quota.remaining} credits left` : "verified";
     return { ok: true, accountLabel: label };
+  }
+  if (providerKey === "woocommerce") {
+    const { getWooStore } = await import("@/lib/connectors/woocommerce");
+    const res = await getWooStore({
+      storeUrl: credentials.storeUrl,
+      consumerKey: credentials.consumerKey,
+      consumerSecret: credentials.consumerSecret,
+    });
+    return res.success
+      ? { ok: true, accountLabel: res.label ?? undefined }
+      : { ok: false, error: res.error };
+  }
+  if (providerKey === "gmail") {
+    const { getGmailAccount } = await import("@/lib/connectors/google");
+    const res = await getGmailAccount({
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+      refreshToken: credentials.refreshToken,
+    });
+    return res.success
+      ? { ok: true, accountLabel: res.email ?? undefined }
+      : { ok: false, error: res.error };
+  }
+  if (providerKey === "google-drive") {
+    const { getDriveAccount } = await import("@/lib/connectors/google");
+    const res = await getDriveAccount({
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+      refreshToken: credentials.refreshToken,
+    });
+    return res.success
+      ? { ok: true, accountLabel: res.email || res.name || undefined }
+      : { ok: false, error: res.error };
+  }
+  if (providerKey === "canva") {
+    const { getCanvaAccount } = await import("@/lib/connectors/canva");
+    let rotated = "";
+    const res = await getCanvaAccount(
+      {
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        refreshToken: credentials.refreshToken,
+      },
+      (next) => {
+        rotated = next;
+      }
+    );
+    if (!res.success) return { ok: false, error: res.error };
+    return {
+      ok: true,
+      accountLabel: res.label ?? undefined,
+      ...(rotated ? { credentialPatch: { refreshToken: rotated } } : {}),
+    };
   }
   return { ok: false, error: `Provider "${providerKey}" has no verification implemented yet.` };
 }
@@ -136,6 +198,20 @@ export async function connectConnector(
       return { success: false, error: "Enter your credentials first." };
     }
 
+    if (!isEncryptionConfigured()) {
+      return {
+        success: false,
+        error:
+          "APP_ENCRYPTION_KEY is not set on the server, so credentials cannot be stored securely. Add it to your environment variables and try again.",
+      };
+    }
+
+    // REAL verification before we mark anything connected. It runs before the
+    // encrypt so a provider that rotates a secret mid-check (Canva) has its new
+    // value stored, not the one it just invalidated.
+    const verification = await verifyProvider(providerKey, merged);
+    Object.assign(merged, verification.credentialPatch || {});
+
     const encrypted = encryptSecret(JSON.stringify(merged));
     if (!encrypted) {
       return {
@@ -144,9 +220,6 @@ export async function connectConnector(
           "APP_ENCRYPTION_KEY is not set on the server, so credentials cannot be stored securely. Add it to your environment variables and try again.",
       };
     }
-
-    // REAL verification before we mark anything connected.
-    const verification = await verifyProvider(providerKey, merged);
 
     await (prisma as any).userConnection.upsert({
       where: { workspaceId_providerKey: { workspaceId, providerKey } },
@@ -215,6 +288,12 @@ export async function testConnector(
 
     const verification = await verifyProvider(providerKey, credentials);
 
+    // A rotated secret has to be stored or the next call fails with the old one.
+    const rotatedCredentials =
+      verification.credentialPatch && Object.keys(verification.credentialPatch).length > 0
+        ? encryptSecret(JSON.stringify({ ...credentials, ...verification.credentialPatch }))
+        : null;
+
     await (prisma as any).userConnection
       .update({
         where: { workspaceId_providerKey: { workspaceId, providerKey } },
@@ -224,6 +303,7 @@ export async function testConnector(
               accountLabel: verification.accountLabel || row.accountLabel,
               lastVerifiedAt: new Date(),
               lastError: null,
+              ...(rotatedCredentials ? { credentials: rotatedCredentials } : {}),
             }
           : { status: "failed", lastVerifiedAt: null, lastError: verification.error || "Connection test failed." },
       })
