@@ -73,6 +73,8 @@ export interface ArticleEditorProps {
   excerpt?: string;
   featuredImageUrl?: string;
   featuredImageAlt?: string;
+  /** The brief's language label, so an Urdu or Arabic page previews right-to-left. */
+  language?: string;
 }
 const MEDIA_SELECTOR = "figure, img, iframe";
 
@@ -95,6 +97,7 @@ const ArticleEditor = forwardRef<ArticleEditorHandle, ArticleEditorProps>(functi
     excerpt,
     featuredImageUrl,
     featuredImageAlt,
+    language,
   },
   ref
 ) {
@@ -429,13 +432,15 @@ const ArticleEditor = forwardRef<ArticleEditorHandle, ArticleEditorProps>(functi
         <PagePreview
           html={html}
           title={title || ""}
-          siteName={siteName || "My Site"}
+          // No invented site name: with none on file the page just shows no masthead.
+          siteName={siteName || ""}
           siteUrl={siteUrl}
           slug={slug}
           authorName={authorName}
           excerpt={excerpt}
           featuredImageUrl={featuredImageUrl}
           featuredImageAlt={featuredImageAlt}
+          language={language}
           wordCount={wordCount}
         />
       )}

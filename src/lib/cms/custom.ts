@@ -6,8 +6,8 @@
  * with HMAC-SHA256 so their handler can prove the request came from us and not
  * from anyone who guessed the URL.
  *
- * The payload is stable and documented in `CUSTOM_TARGET_CONTRACT` below, which
- * the UI shows next to the field, so the receiving handler can be written once.
+ * The payload is stable and documented in `CUSTOM_TARGET_CONTRACT`, which the UI
+ * shows next to the field, so the receiving handler can be written once.
  *
  * Two safeguards worth naming: the endpoint must be a public address (see
  * assertPublicHttpUrl — otherwise the publish button becomes a request proxy into
@@ -15,6 +15,11 @@
  */
 
 import crypto from "crypto";
+import {
+  CUSTOM_TARGET_CONTRACT,
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+} from "./customContract";
 import {
   assertPublicHttpUrl,
   type CmsProvider,
@@ -24,25 +29,9 @@ import {
   type CmsVerifyResult,
 } from "./types";
 
-export const SIGNATURE_HEADER = "x-postloom-signature";
-export const TIMESTAMP_HEADER = "x-postloom-timestamp";
-
-export const CUSTOM_TARGET_CONTRACT = `POST <your endpoint>
-Content-Type: application/json
-${TIMESTAMP_HEADER}: <unix seconds>
-${SIGNATURE_HEADER}: sha256=<hex HMAC of "<timestamp>.<raw body>" using your signing secret>
-
-{
-  "event": "article.publish" | "ping",
-  "contentType": "post" | "page",
-  "status": "publish" | "draft" | "pending",
-  "title": "...", "slug": "...", "html": "...", "excerpt": "...",
-  "seo": { "metaTitle": "...", "metaDescription": "...", "focusKeyword": "...", "schema": "<json-ld or empty>" },
-  "tags": ["..."],
-  "featuredImage": { "url": "...", "alt": "..." } | null
-}
-
-Reply 2xx. Return {"url":"https://...","id":"..."} to have the live link shown in the app.`;
+// Re-exported so nothing that already imports them from here has to move. The
+// definitions live in `customContract.ts`, which the client-side guide can read.
+export { CUSTOM_TARGET_CONTRACT, SIGNATURE_HEADER, TIMESTAMP_HEADER };
 
 /** `sha256=<hex>` over `${timestamp}.${body}` — the scheme the contract documents. */
 export function signPayload(secret: string, timestamp: number, body: string): string {

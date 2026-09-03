@@ -19,6 +19,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowRight,
   BookOpen,
@@ -30,11 +31,13 @@ import {
   ImagePlus,
   Loader2,
   PenLine,
+  Plug,
   Plus,
   RefreshCw,
   Search,
   Send,
   Settings2,
+  ShieldAlert,
   Sparkles,
   Star,
   Tag,
@@ -42,12 +45,13 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import { listPublishTargets } from "@/actions/cmsTargets";
 import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
 import { describeBrandFacts } from "@/lib/brand/profile";
 import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/ArticleEditor";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
-import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
 import SeoSidebar from "./article-writer/SeoSidebar";
+import { describeTargets, relativeTime, statusDot } from "./article-writer/targetStatus";
 import {
   AI_IMAGE_SHAPES,
   ARTICLE_SIZE_PRESETS,
@@ -293,13 +297,13 @@ export function ArticleWriterHQ({
   const [metaBusy, setMetaBusy] = useState(false);
 
   // ---- publishing --------------------------------------------------------
+  // Destinations are connected in the Plugins tab. This screen only reads them,
+  // so it holds no provider descriptors and no credential form state.
   const [targets, setTargets] = useState<CmsTargetSummary[]>(initialTargets?.targets || []);
-  const [providers, setProviders] = useState<CmsProviderDescriptor[]>(
-    initialTargets?.providers || []
-  );
   const [encryptionReady, setEncryptionReady] = useState(
     initialTargets?.encryptionReady !== false
   );
+  const [targetsBusy, setTargetsBusy] = useState(false);
   const [targetPick, setTargetPick] = useState<string | null>(null);
   const [taxonomy, setTaxonomy] = useState<TargetTaxonomy | null>(null);
   const [taxonomyBusy, setTaxonomyBusy] = useState(false);
@@ -334,6 +338,24 @@ export function ArticleWriterHQ({
     () => targets.find((t) => t.id === targetId) || null,
     [targets, targetId]
   );
+
+  /**
+   * Re-reads the destinations. The list arrives with the page, so this exists for
+   * one case: the user connects a site in the Plugins tab in another tab and comes
+   * back here expecting to see it.
+   */
+  const refreshTargets = useCallback(async () => {
+    setTargetsBusy(true);
+    try {
+      const view = await listPublishTargets(workspaceId);
+      setTargets(view.targets);
+      setEncryptionReady(view.encryptionReady);
+    } catch {
+      push("error", "The destination list could not be re-read. Try again in a moment.");
+    } finally {
+      setTargetsBusy(false);
+    }
+  }, [workspaceId, push]);
 
   const targetMeta: Record<string, any> = selectedTarget?.meta || {};
   const contentTypes = (
@@ -1407,6 +1429,15 @@ export function ArticleWriterHQ({
               onNotify={push}
               wordCount={liveWordCount}
               targetWordCount={article.seoMetrics.targetWordCount}
+              title={draftTitle || title}
+              siteName={workspaceName}
+              siteUrl={website}
+              slug={slug}
+              authorName={authorName}
+              excerpt={excerpt}
+              featuredImageUrl={featuredUrl}
+              featuredImageAlt={featuredAlt}
+              language={language}
             />
           )}
 
@@ -1422,8 +1453,9 @@ export function ArticleWriterHQ({
             >
               {targets.length === 0 ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  No destination is connected yet. Add WordPress, Shopify or your own coded site in
-                  the panel below — the article stays here either way, so nothing is lost.
+                  No destination is connected yet. WordPress, Shopify and hand-coded sites are
+                  all connected in the Plugins tab — the article stays here either way, so
+                  nothing is lost.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -1631,20 +1663,85 @@ export function ArticleWriterHQ({
             </Card>
           )}
 
-          <PublishTargetsPanel
-            workspaceId={workspaceId}
-            targets={targets}
-            providers={providers}
-            encryptionReady={encryptionReady}
-            selectedTargetId={targetId}
-            onSelect={setTargetPick}
-            onChange={(view) => {
-              setTargets(view.targets);
-              setProviders(view.providers);
-              setEncryptionReady(view.encryptionReady);
-            }}
-            onNotify={push}
-          />
+          {/*
+            Connecting a site lives in the Plugins tab, next to every other
+            connector. Two copies of a credential form means two places to debug
+            one broken password, so this card only reports what is there.
+          */}
+          <Card
+            title="Where it publishes"
+            icon={Plug}
+            right={
+              <>
+                <span className="text-[11px] text-muted-foreground">
+                  {describeTargets(targets)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void refreshTargets()}
+                  disabled={targetsBusy}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-50"
+                  title="Re-read the destinations"
+                >
+                  <RefreshCw className={`h-3 w-3 ${targetsBusy ? "animate-spin" : ""}`} />
+                </button>
+              </>
+            }
+          >
+            <div className="space-y-2.5">
+              {targets.length === 0 ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Nothing is connected yet. Paste your site&apos;s address in the Plugins tab and
+                  it will appear here, with its verification status.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {targets.map((t) => (
+                    <li
+                      key={t.id}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl border border-border bg-background px-3 py-2"
+                    >
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(t.status)}`} />
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                        {t.label}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {t.providerName}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {relativeTime(t.lastVerifiedAt)}
+                      </span>
+                      {t.lastError && (
+                        <p className="w-full text-[10px] leading-snug text-destructive">
+                          {t.lastError}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {!encryptionReady && (
+                <p className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[11px] leading-snug text-foreground">
+                  <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                  <span>
+                    <code className="font-mono">APP_ENCRYPTION_KEY</code> is not set on this
+                    deployment, so no credential can be stored. Set it, then connect the site in
+                    Plugins.
+                  </span>
+                </p>
+              )}
+
+              <Link
+                href="/dashboard/plugins"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
+              >
+                <Plug className="h-3.5 w-3.5" />
+                {targets.length ? "Manage in Plugins" : "Connect a site in Plugins"}
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          </Card>
         </div>
         <div className="min-w-0 space-y-3">
           <Card
@@ -1793,6 +1890,7 @@ export function ArticleWriterHQ({
         open={mediaOpen}
         onClose={() => setMediaOpen(false)}
         seed={keyword.trim() || draftTitle || title.trim()}
+        fallbackSeeds={[industry, workspaceName]}
         allowVideo={mediaSlot === "body"}
         title={mediaSlot === "featured" ? "Choose the featured image" : "Add media to the article"}
         onInsert={insertMedia}

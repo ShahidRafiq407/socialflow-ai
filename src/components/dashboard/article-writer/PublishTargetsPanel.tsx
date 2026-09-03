@@ -36,6 +36,7 @@ import {
 } from "@/actions/cmsTargets";
 import { ConfirmButton } from "@/components/dashboard/goals/shared";
 import { CONTENT_TYPE_LABELS, PUBLISH_STATUS_LABELS } from "./constants";
+import { relativeTime, statusTone } from "./targetStatus";
 import type {
   CmsContentType,
   CmsProviderDescriptor,
@@ -66,23 +67,6 @@ export interface PublishTargetsPanelProps {
   onNotify: (tone: "success" | "error" | "info", text: string) => void;
 }
 
-function statusTone(status: string): string {
-  if (status === "connected") return "bg-primary/10 text-primary border-primary/30";
-  if (status === "error") return "bg-destructive/10 text-destructive border-destructive/30";
-  return "bg-muted text-muted-foreground border-border";
-}
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "never checked";
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return "never checked";
-  const minutes = Math.round((Date.now() - then) / 60000);
-  if (minutes < 1) return "checked just now";
-  if (minutes < 60) return `checked ${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `checked ${hours}h ago`;
-  return `checked ${Math.round(hours / 24)}d ago`;
-}
 export default function PublishTargetsPanel({
   workspaceId,
   targets,

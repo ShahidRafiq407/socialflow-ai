@@ -31,6 +31,7 @@ import { McpServerCard } from "./plugins/McpServerCard";
 import { WebsiteTagCard } from "./plugins/WebsiteTagCard";
 import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
 import type { PublishTargetsView } from "./article-writer/PublishTargetsPanel";
+import CustomSiteGuide from "./plugins/CustomSiteGuide";
 
 const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
   dev: GitBranch,
@@ -370,6 +371,9 @@ export default function PluginsHQ({
               if (tone === "error") console.error(text);
             }}
           />
+
+          {/* The receiving end, for the sites that have to write one themselves. */}
+          <CustomSiteGuide />
 
           {/* MCP Servers — user-added external tool servers */}
           <div>

@@ -143,6 +143,48 @@ export const LANGUAGES: string[] = [
   "Persian",
 ];
 
+/**
+ * BCP-47 code and writing direction for each label above.
+ *
+ * The page preview needs both: `lang` is what a screen reader and a search
+ * engine read, and an Arabic or Urdu article laid out left-to-right is not a
+ * preview of anything. Anything missing from this map falls back to English
+ * rather than guessing a code.
+ */
+export const LANGUAGE_LOCALES: Record<string, { code: string; rtl?: boolean }> = {
+  English: { code: "en" },
+  Spanish: { code: "es" },
+  French: { code: "fr" },
+  German: { code: "de" },
+  Italian: { code: "it" },
+  Portuguese: { code: "pt" },
+  Dutch: { code: "nl" },
+  Swedish: { code: "sv" },
+  Polish: { code: "pl" },
+  Turkish: { code: "tr" },
+  Arabic: { code: "ar", rtl: true },
+  Urdu: { code: "ur", rtl: true },
+  Hindi: { code: "hi" },
+  Bengali: { code: "bn" },
+  Indonesian: { code: "id" },
+  Malay: { code: "ms" },
+  Filipino: { code: "fil" },
+  Vietnamese: { code: "vi" },
+  Thai: { code: "th" },
+  Japanese: { code: "ja" },
+  Korean: { code: "ko" },
+  "Chinese (Simplified)": { code: "zh-Hans" },
+  Russian: { code: "ru" },
+  Ukrainian: { code: "uk" },
+  Hebrew: { code: "he", rtl: true },
+  Persian: { code: "fa", rtl: true },
+};
+
+export function resolveLanguage(label: string): { code: string; rtl: boolean } {
+  const found = LANGUAGE_LOCALES[(label || "").trim()];
+  return { code: found?.code || "en", rtl: Boolean(found?.rtl) };
+}
+
 // ---------------------------------------------------------------------------
 // VOICE
 // ---------------------------------------------------------------------------
@@ -224,7 +266,13 @@ export const CONTENT_TYPE_LABELS: Record<string, string> = {
 // EDITOR
 // ---------------------------------------------------------------------------
 
-export type EditorView = "preview" | "html" | "schema";
+/**
+ * The editor's tabs. `page` is the read-only one: the article inside a real page,
+ * at real viewport widths, which the editing surface cannot show because it
+ * inherits the dashboard's theme and column.
+ */
+export type EditorView = "preview" | "page" | "html" | "schema";
+
 
 /** Extracts the 11-character video id from any YouTube URL shape. */
 const YOUTUBE_ID = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i;
