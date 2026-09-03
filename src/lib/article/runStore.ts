@@ -15,6 +15,7 @@
  */
 
 import prisma from "@/lib/db";
+import type { ArticleBrief } from "./brief";
 import {
   firstStage,
   isArticleStageKey,
@@ -46,8 +47,15 @@ const db = prisma as any;
  */
 const STAGE_LEASE_MS = 300_000;
 
-/** Whatever the brief screen collected, stored verbatim so a rerun is faithful. */
+/**
+ * A stored brief as it comes back off the row.
+ *
+ * Read as loose JSON rather than as `ArticleBrief`, because a row written by an
+ * older build is not guaranteed to match today's interface. `readBriefRow` is what
+ * turns it back into the shape a stage can rely on.
+ */
 export type ArticleRunBrief = Record<string, unknown>;
+
 /** A row as the untyped client hands it back. Read through the coercions below. */
 type RunRow = Record<string, any>;
 type StageRow = Record<string, any>;
@@ -187,7 +195,8 @@ export function toRunView(run: RunRow): ArticleRunView {
 export async function createArticleRun(input: {
   workspaceId: string;
   mode: ArticleRunMode;
-  brief: ArticleRunBrief;
+  /** Normalised at the door and stored verbatim, so a rerun is faithful. */
+  brief: ArticleBrief;
 }): Promise<ArticleRunView> {
   const list = stagesFor(input.mode);
   const run = await db.articleRun.create({

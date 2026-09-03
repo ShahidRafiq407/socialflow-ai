@@ -27,13 +27,30 @@ import {
 } from "@/actions/wordpress";
 import { fetchSerpAnalysis } from "@/actions/serp";
 import { llm } from "@/lib/agents/llm";
+import {
+  advanceArticleRun,
+  modeUnavailableReason,
+  STAGE_BUDGET_MS,
+  workspaceFacts,
+} from "@/lib/agents/article/articleGraph";
 import { generateSeoArticle } from "@/lib/agents/workers/article-generator";
+import { normalizeBrief, readBriefRow } from "@/lib/article/brief";
+import {
+  createArticleRun,
+  listArticleRuns,
+  loadArticleRun,
+  loadStageArtifact,
+  readBrief,
+  toRunView,
+} from "@/lib/article/runStore";
+import { isArticleRunMode, isArticleStageKey, stageSpec } from "@/lib/article/stages";
 import {
   listCmsTargetSummaries,
   loadCmsTarget,
   publishToCmsTarget,
   resolveDefaultCmsTarget,
 } from "@/lib/cms";
+
 import { describeCmsProviders } from "@/lib/cms/registry";
 import { buildBrandProfile, splitBrandList } from "@/lib/brand/profile";
 import { isEncryptionConfigured } from "@/lib/crypto";
@@ -54,7 +71,15 @@ const AI_STEPS = new Set([
   "suggest-title",
   "suggest-categories",
   "enhance-seo",
+  // A run is a pipeline of paid calls. `run-start` spends nothing itself, but it
+  // is gated too: better to say "this plan does not include it" at the door than
+  // to let someone create a run they will not be allowed to advance. The two read
+  // steps are deliberately not here — a lapsed plan must still be able to open a
+  // run it already paid for.
+  "run-start",
+  "advance",
 ]);
+
 
 // ---------------------------------------------------------------------------
 // WORKSPACE + TARGET RESOLUTION
@@ -120,6 +145,36 @@ function brandParams(workspace: OwnedWorkspace) {
 }
 
 /**
+ * The site an article is being written for, and the target it will publish to.
+ *
+ * Resolved in one place because three steps need it and they must agree: the
+ * internal-link crawl, the staged pipeline's brief, and the old one-shot
+ * generator. The order is deliberate — an explicit website in the body wins, then
+ * the connected target's own URL, then the workspace's website. Empty string
+ * means no site is connected, which is a fact the caller reports rather than
+ * papers over.
+ */
+async function resolvePublishSite(
+  workspaceId: string,
+  body: any,
+  workspaceWebsite?: string | null
+) {
+  const target =
+    typeof body?.targetId === "string" && body.targetId.trim()
+      ? await loadCmsTarget(workspaceId, body.targetId.trim())
+      : await resolveDefaultCmsTarget(workspaceId);
+
+  const siteUrl =
+    String(body?.targetWebsite || "").trim() ||
+    target?.meta.siteUrl ||
+    (target?.meta.shopDomain ? `https://${target.meta.shopDomain}` : "") ||
+    String(workspaceWebsite || "").trim() ||
+    "";
+
+  return { target, siteUrl };
+}
+
+/**
  * The WordPress credentials behind a target, for the taxonomy calls that only
  * WordPress has. Other platforms answer honestly that they have no categories.
  */
@@ -171,6 +226,10 @@ function unfence(raw: unknown): string {
 
 export async function POST(req: Request) {
   try {
+    // The stage budget is measured from here, not from where the stage starts, so
+    // the deadline it honours is the platform's ceiling minus this handler's own
+    // work rather than a fresh 240 seconds.
+    const requestStartedAt = Date.now();
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -202,6 +261,150 @@ export async function POST(req: Request) {
           { status: 403 }
         );
       }
+    }
+
+    // =====================================================================
+    // STEP: start a run
+    //
+    // Creates the run and one row per stage it intends to execute, and runs
+    // nothing. The mode is taken from the request and stored on the row — quick or
+    // deep, chosen by the person — and is never derived from a plan code or a
+    // subscription tier. A mode this build cannot finish is refused here rather
+    // than discovered at the stage that is missing.
+    // =====================================================================
+    if (step === "run-start") {
+      const mode = isArticleRunMode(body?.mode) ? body.mode : "quick";
+      const unavailable = modeUnavailableReason(mode);
+      if (unavailable) return NextResponse.json({ error: unavailable }, { status: 400 });
+
+      // The form may post its fields flat or nested under `brief`. Both are read
+      // the same way, and the normaliser is the only thing that decides what a
+      // field means.
+      const raw = (body?.brief && typeof body.brief === "object" ? body.brief : body) as any;
+      const { target, siteUrl } = await resolvePublishSite(workspaceId, raw, workspace.website);
+      const brief = normalizeBrief({
+        ...raw,
+        // Resolved server-side so all twenty-three stages read the same site the
+        // publish step will use, instead of each one guessing from a row.
+        targetId: target?.id,
+        targetWebsite: siteUrl || undefined,
+      });
+      if (!brief) {
+        return NextResponse.json(
+          { error: "A focus keyword is required to start a run." },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        run: await createArticleRun({ workspaceId, mode, brief }),
+        brief,
+        // Connection status only. Connecting a site belongs in the Plugins tab, and
+        // the Article Writer reports what is there rather than asking again.
+        site: {
+          url: siteUrl,
+          connected: Boolean(siteUrl),
+          target: target
+            ? { id: target.id, providerKey: target.providerKey, label: target.label }
+            : null,
+        },
+      });
+    }
+
+    // =====================================================================
+    // STEP: advance a run by exactly one stage
+    //
+    // Twenty-three stages cannot share a function the platform kills at 300
+    // seconds, so each request runs one and returns the row it wrote. The stage is
+    // read from the run, never from the body: a browser holding stale state cannot
+    // re-run a stage that has already been paid for, and two tabs pressing
+    // continue cannot both buy the same one.
+    // =====================================================================
+    if (step === "advance") {
+      const outcome = await advanceArticleRun({
+        workspace: workspaceFacts(workspace),
+        runId: String(body?.runId || "").trim(),
+        // A closed tab or a pressed Stop aborts the stage. The row goes back to
+        // claimable, so nothing is lost and continue runs it again.
+        signal: req.signal,
+        deadline: requestStartedAt + STAGE_BUDGET_MS,
+      });
+      if (!outcome) {
+        return NextResponse.json(
+          { error: "That run could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({
+        // Blocked is not a failed request: the stage did its job and refused the
+        // page. Only a stage that threw reports failure.
+        success: outcome.outcome !== "failed",
+        run: outcome.view,
+        stage: outcome.stage,
+        outcome: outcome.outcome,
+        next: outcome.next,
+        message: outcome.message,
+        stopped: outcome.stopped,
+        modelCalls: outcome.modelCalls,
+      });
+    }
+
+    // =====================================================================
+    // STEP: read a run, or the recent ones
+    //
+    // The only thing the progress list is ever drawn from — every tick on screen
+    // is a row that said done. Deliberately outside the AI entitlement: a plan
+    // that has lapsed still has to be able to open the runs it paid for.
+    // =====================================================================
+    if (step === "run-state") {
+      const runId = String(body?.runId || "").trim();
+      if (!runId) {
+        return NextResponse.json({
+          success: true,
+          runs: await listArticleRuns(workspaceId, Number(body?.limit) || 10),
+        });
+      }
+      const run = await loadArticleRun(workspaceId, runId);
+      if (!run) {
+        return NextResponse.json(
+          { error: "That run could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        run: toRunView(run),
+        // The brief comes back too, so a reload can redraw the form and the publish
+        // panel from the run itself instead of whatever the browser was holding.
+        brief: readBriefRow(readBrief(run)),
+      });
+    }
+
+    // =====================================================================
+    // STEP: one stage's artifact
+    //
+    // Artifacts are not inlined into the run view — some are large, and the panel
+    // that knows how to read one asks for it by name.
+    // =====================================================================
+    if (step === "run-artifact") {
+      const stage = body?.stage;
+      if (!isArticleStageKey(stage)) {
+        return NextResponse.json(
+          { error: "That is not a stage of this pipeline." },
+          { status: 400 }
+        );
+      }
+      const artifact = await loadStageArtifact(workspaceId, body?.runId, stage);
+      return NextResponse.json({
+        success: true,
+        stage,
+        artifact,
+        note:
+          artifact === null
+            ? `“${stageSpec(stage).label}” has not produced anything for this run.`
+            : undefined,
+      });
     }
 
     // =====================================================================
@@ -360,17 +563,7 @@ export async function POST(req: Request) {
       const keyword = String(body?.keyword || "").trim();
       if (!keyword) return NextResponse.json({ error: "A keyword is required." }, { status: 400 });
 
-      const target =
-        typeof body?.targetId === "string" && body.targetId.trim()
-          ? await loadCmsTarget(workspaceId, body.targetId.trim())
-          : await resolveDefaultCmsTarget(workspaceId);
-
-      const siteUrl =
-        String(body?.targetWebsite || "").trim() ||
-        target?.meta.siteUrl ||
-        (target?.meta.shopDomain ? `https://${target.meta.shopDomain}` : "") ||
-        workspace.website ||
-        "";
+      const { siteUrl } = await resolvePublishSite(workspaceId, body, workspace.website);
 
       const found = await discoverInternalLinkCandidates({
         siteUrl,
@@ -379,6 +572,7 @@ export async function POST(req: Request) {
         limit: Number(body?.limit) > 0 ? Number(body.limit) : 8,
       });
       return NextResponse.json({ success: true, siteUrl, ...found });
+
     }
 
     // =====================================================================
@@ -615,17 +809,11 @@ Return ONLY JSON: {"metaTitle":"...","metaDescription":"...","slug":"...","tags"
       );
     }
 
-    const target =
-      typeof body?.targetId === "string" && body.targetId.trim()
-        ? await loadCmsTarget(workspaceId, body.targetId.trim())
-        : await resolveDefaultCmsTarget(workspaceId);
-
-    const targetWebsite =
-      String(body?.targetWebsite || "").trim() ||
-      target?.meta.siteUrl ||
-      (target?.meta.shopDomain ? `https://${target.meta.shopDomain}` : "") ||
-      workspace.website ||
-      "";
+    const { target, siteUrl: targetWebsite } = await resolvePublishSite(
+      workspaceId,
+      body,
+      workspace.website
+    );
 
     const wantsInternal = body?.enableInternalLinks !== false;
     const wantsExternal = body?.enableExternalLinks !== false;

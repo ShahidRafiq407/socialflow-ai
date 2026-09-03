@@ -531,6 +531,13 @@ export interface SchemaInput {
   faqItems: { question: string; answer: string }[];
   wordCount: number;
   publishedAt?: string;
+  /**
+   * BCP-47 tag for `inLanguage`. Defaults to "en".
+   *
+   * A page written in Urdu that declares itself English is a wrong statement
+   * about the page, so the caller passes what it actually wrote.
+   */
+  language?: string;
 }
 
 /**
@@ -555,7 +562,7 @@ export function buildSchemaMarkup(input: SchemaInput): string {
     wordCount: input.wordCount,
     datePublished: published,
     dateModified: published,
-    inLanguage: "en",
+    inLanguage: (input.language || "en").trim() || "en",
   };
   if (pageUrl) {
     article["@id"] = `${pageUrl}#article`;

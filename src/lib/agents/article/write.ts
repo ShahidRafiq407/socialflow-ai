@@ -29,7 +29,15 @@ import {
   type BusinessProfile,
   type OutlineSection,
 } from "@/lib/article/artifacts";
-import { countHtmlWords, sanitizeModelHtml, stripHtml } from "@/lib/agents/workers/articleAssembly";
+import {
+  buildFaqSection,
+  buildKeyTakeaways,
+  buildTableOfContents,
+  countHtmlWords,
+  injectHeadingIds,
+  sanitizeModelHtml,
+  stripHtml,
+} from "@/lib/agents/workers/articleAssembly";
 import {
   assertLive,
   blocked,
@@ -40,7 +48,7 @@ import {
   type StageResult,
   type StageRunner,
 } from "./contract";
-import { askText } from "./router";
+import { askJson, askText } from "./router";
 const SYSTEM = `You write one section of a page, in HTML, for a business publishing under its own name.
 
 How you write:
@@ -213,7 +221,124 @@ async function writeSection(
   }
   return "";
 }
-/** A writing call is the most expensive thing here, so it needs real headroom. */
+const EXTRAS_SYSTEM = `You finish a page you have just been shown: the questions at the end, and the takeaways at the top.
+
+answers — one per question you were given, in the order given:
+- Two to four sentences. Directly, with the specific detail.
+- Never contradict the page. If the page already answers it, say the same thing shorter.
+- No "Great question", no restating the question, no cross-selling.
+
+takeaways — what a reader who reads nothing else needs:
+- Three to five, one line each, each a statement rather than a topic.
+- Only what the page actually establishes. A takeaway the page does not support is a lie in the most-read part of it.
+
+Rules:
+- Never introduce a statistic, price, date or regulation that is not in the page.
+- Return an empty list for anything you were not asked for.
+
+Return JSON only:
+{"answers":[{"question":"...","answer":"..."}],"takeaways":["..."]}`;
+
+interface Extras {
+  answers: { question: string; answer: string }[];
+  takeaways: string[];
+}
+
+function readExtras(value: unknown): Extras | null {
+  const raw = (value as Record<string, unknown> | null) || null;
+  if (!raw || typeof raw !== "object") return null;
+  const answers = (Array.isArray(raw.answers) ? raw.answers : [])
+    .map((row) => {
+      const entry = (row && typeof row === "object" ? row : {}) as Record<string, unknown>;
+      return {
+        question: String(entry.question ?? "").trim(),
+        answer: String(entry.answer ?? "").trim(),
+      };
+    })
+    .filter((row) => row.question && row.answer);
+  const takeaways = (Array.isArray(raw.takeaways) ? raw.takeaways : [])
+    .map((item) => String(item ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  if (answers.length === 0 && takeaways.length === 0) return null;
+  return { answers, takeaways };
+}
+
+/**
+ * The FAQ answers and the takeaways, both written from the finished page.
+ *
+ * One call for both, because both are summaries of the same prose and two calls
+ * would pay twice to read it. The FAQ is a reader convenience and structured data
+ * and nothing more: the FAQ rich result was retired on 7 May 2026, so no stage
+ * here treats having one as a ranking or rich-result win.
+ *
+ * A failure costs the extras, not the page. The caller records what is missing.
+ */
+async function writeExtras(
+  ctx: StageContext,
+  faq: string[],
+  wantTakeaways: boolean,
+  body: string
+): Promise<{ faqHtml: string; takeaways: string[]; note?: string }> {
+  if (faq.length === 0 && !wantTakeaways) return { faqHtml: "", takeaways: [] };
+  const asks: string[] = [];
+  if (faq.length) asks.push(`QUESTIONS TO ANSWER:\n${faq.map((q, i) => `${i + 1}. ${q}`).join("\n")}`);
+  asks.push(
+    wantTakeaways ? "TAKEAWAYS: write three to five." : "TAKEAWAYS: none wanted. Return an empty list."
+  );
+
+  try {
+    const extras = await askJson(
+      "writing",
+      "FAQ and takeaways",
+      {
+        system: EXTRAS_SYSTEM,
+        prompt: `${asks.join("\n\n")}\n\nTHE PAGE:\n${stripHtml(body).slice(0, 14_000)}`,
+        meter: ctx.meter,
+        signal: ctx.signal,
+      },
+      readExtras
+    );
+    return {
+      faqHtml: faq.length ? buildFaqSection(extras.answers, "Frequently asked questions") : "",
+      takeaways: wantTakeaways ? extras.takeaways : [],
+    };
+  } catch {
+    if (ctx.signal?.aborted) throw Object.assign(new Error("The run was stopped."), { isCancelled: true });
+    return {
+      faqHtml: "",
+      takeaways: [],
+      note: "The FAQ and takeaways could not be written, so the page ends at its last section.",
+    };
+  }
+}
+/**
+ * The mechanical parts, added once the prose exists.
+ *
+ * Heading ids first, because the contents list has to point at ids that are
+ * actually in the document — building it from the outline instead would produce
+ * anchors for sections the writer may not have written.
+ */
+function assemble(
+  body: string,
+  options: { toc: boolean; takeaways: string[]; faqHtml: string }
+): { html: string; tocItems: number } {
+  const withIds = injectHeadingIds(body);
+  const parts: string[] = [];
+
+  if (options.takeaways.length) {
+    parts.push(buildKeyTakeaways(options.takeaways, "Key takeaways"));
+  }
+  if (options.toc) {
+    const toc = buildTableOfContents(withIds.toc, "On this page");
+    if (toc) parts.push(toc);
+  }
+  parts.push(withIds.html);
+  if (options.faqHtml) parts.push(options.faqHtml);
+
+  return { html: parts.filter(Boolean).join("\n\n"), tocItems: withIds.toc.length };
+}
+
 const SECTION_BUDGET_MS = 55_000;
 
 export const runWriteStage: StageRunner = async (ctx: StageContext): Promise<StageResult> => {
@@ -261,42 +386,64 @@ export const runWriteStage: StageRunner = async (ctx: StageContext): Promise<Sta
     written.push({ heading: section.heading, html });
     sectionsWritten += 1;
   }
+  // Written, but not all of it. Blocked rather than done, and the raw prose is
+  // stored unassembled: a contents list or an FAQ bolted onto half a page would
+  // have to be unpicked before the rest could be appended.
+  if (unfinished.length > 0) {
+    const partial: ArticleDraft = {
+      title: outline.title,
+      html: body,
+      excerpt: excerptFrom(body),
+      wordCount: countHtmlWords(body),
+      sectionCount: sectionsWritten,
+      unfinished,
+    };
+    if (partial.wordCount === 0) {
+      return blocked(
+        `Not one section could be written — ${outline.sections.length} were planned and every attempt came back empty. This is usually the model provider refusing the request; try again, and if it repeats, the run needs a different angle or a shorter brief.`,
+        partial
+      );
+    }
+    return blocked(
+      `${sectionsWritten} of ${outline.sections.length} sections are written (${partial.wordCount} words). These are not: ${unfinished.join(", ")}. Continue this run to write them — the finished sections are kept.`,
+      partial
+    );
+  }
+
+  // Every section is in. Now the parts that could only be written once the prose
+  // existed: the answers, the takeaways, the contents list.
+  const extras = outOfTime(ctx, 40_000)
+    ? { faqHtml: "", takeaways: [] as string[], note: "There was no time left to write the FAQ and takeaways." }
+    : await writeExtras(ctx, outline.faq, ctx.brief.enableTakeaways, body);
+
+  const assembled = assemble(body, {
+    toc: ctx.brief.enableToc,
+    takeaways: extras.takeaways,
+    faqHtml: extras.faqHtml,
+  });
+
   const draft: ArticleDraft = {
     title: outline.title,
-    html: body,
+    html: assembled.html,
     excerpt: excerptFrom(body),
     // Measured from the HTML that came back. The model's own claim about how
     // much it wrote is not a number anybody should store.
-    wordCount: countHtmlWords(body),
+    wordCount: countHtmlWords(assembled.html),
     sectionCount: sectionsWritten,
-    unfinished,
+    unfinished: [],
   };
-
-  // Nothing at all came back. There is no draft to check, score or fix.
-  if (draft.wordCount === 0) {
-    return blocked(
-      `Not one section could be written — ${outline.sections.length} were planned and every attempt came back empty. This is usually the model provider refusing the request; try again, and if it repeats, the run needs a different angle or a shorter brief.`,
-      draft
-    );
-  }
-
-  // Written, but not all of it. Blocked rather than done: the next attempt
-  // resumes from this artifact instead of rewriting what is already paid for,
-  // and the publish gate never sees a page with a hole in it.
-  if (unfinished.length > 0) {
-    return blocked(
-      `${sectionsWritten} of ${outline.sections.length} sections are written (${draft.wordCount} words). These are not: ${unfinished.join(", ")}. Continue this run to write them — the finished sections are kept.`,
-      draft
-    );
-  }
 
   return done(draft, {
     draftWordCount: draft.wordCount,
     draftSections: draft.sectionCount,
     draftTitle: draft.title,
+    tocItems: ctx.brief.enableToc ? assembled.tocItems : 0,
+    takeawayCount: extras.takeaways.length,
+    faqAnswered: extras.faqHtml.length > 0,
     // Read by the score's completeness dimension alongside the outline's own
     // coverage check. Length is not a quality signal and nothing scores it.
     plannedVsWritten: `${draft.wordCount} written against a plan of ${outline.sections.reduce((sum, row) => sum + row.wordTarget, 0)}`,
     mustKnowCount: intent?.mustKnow.length ?? 0,
+    ...(extras.note ? { writeNote: extras.note } : {}),
   });
 };

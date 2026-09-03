@@ -110,80 +110,20 @@ export const MARKET_BY_CODE: Record<string, string> = MARKET_GROUPS.reduce(
 // ---------------------------------------------------------------------------
 // LANGUAGE
 //
-// Sent as free text to the generator ("Write in: X"), so this is a convenience
-// list, not a constraint — the field also accepts anything typed into it.
+// Sent as free text to the generator ("Write in: X"), so the list is a
+// convenience, not a constraint — the field also accepts anything typed into it.
+//
+// The table itself moved to `@/lib/article/languages` because the schema stage
+// declares `inLanguage` from the same map and a server stage should not import
+// out of a components folder. Re-exported here so this file stays the one place
+// the form and the preview read their options from.
 // ---------------------------------------------------------------------------
 
-export const LANGUAGES: string[] = [
-  "English",
-  "Spanish",
-  "French",
-  "German",
-  "Italian",
-  "Portuguese",
-  "Dutch",
-  "Swedish",
-  "Polish",
-  "Turkish",
-  "Arabic",
-  "Urdu",
-  "Hindi",
-  "Bengali",
-  "Indonesian",
-  "Malay",
-  "Filipino",
-  "Vietnamese",
-  "Thai",
-  "Japanese",
-  "Korean",
-  "Chinese (Simplified)",
-  "Russian",
-  "Ukrainian",
-  "Hebrew",
-  "Persian",
-];
-
-/**
- * BCP-47 code and writing direction for each label above.
- *
- * The page preview needs both: `lang` is what a screen reader and a search
- * engine read, and an Arabic or Urdu article laid out left-to-right is not a
- * preview of anything. Anything missing from this map falls back to English
- * rather than guessing a code.
- */
-export const LANGUAGE_LOCALES: Record<string, { code: string; rtl?: boolean }> = {
-  English: { code: "en" },
-  Spanish: { code: "es" },
-  French: { code: "fr" },
-  German: { code: "de" },
-  Italian: { code: "it" },
-  Portuguese: { code: "pt" },
-  Dutch: { code: "nl" },
-  Swedish: { code: "sv" },
-  Polish: { code: "pl" },
-  Turkish: { code: "tr" },
-  Arabic: { code: "ar", rtl: true },
-  Urdu: { code: "ur", rtl: true },
-  Hindi: { code: "hi" },
-  Bengali: { code: "bn" },
-  Indonesian: { code: "id" },
-  Malay: { code: "ms" },
-  Filipino: { code: "fil" },
-  Vietnamese: { code: "vi" },
-  Thai: { code: "th" },
-  Japanese: { code: "ja" },
-  Korean: { code: "ko" },
-  "Chinese (Simplified)": { code: "zh-Hans" },
-  Russian: { code: "ru" },
-  Ukrainian: { code: "uk" },
-  Hebrew: { code: "he", rtl: true },
-  Persian: { code: "fa", rtl: true },
-};
-
-export function resolveLanguage(label: string): { code: string; rtl: boolean } {
-  const found = LANGUAGE_LOCALES[(label || "").trim()];
-  return { code: found?.code || "en", rtl: Boolean(found?.rtl) };
-}
+export {
+  LANGUAGES,
+  LANGUAGE_LOCALES,
+  resolveLanguage,
+} from "@/lib/article/languages";
 
 // ---------------------------------------------------------------------------
 // VOICE

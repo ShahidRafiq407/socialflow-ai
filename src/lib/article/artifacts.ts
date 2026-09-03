@@ -434,6 +434,13 @@ export interface InternalLinkReport {
   external: ExternalLink[];
   /** Links removed because their destination did not resolve. */
   removed: string[];
+  /**
+   * The draft with the links placed, when this stage changed the HTML.
+   *
+   * A stage never edits another stage's artifact, so the version with anchors in
+   * it is stored here and `finalHtml` decides which version is the page.
+   */
+  html?: string;
   note?: string;
 }
 
@@ -454,6 +461,7 @@ export function readInternalLinkReport(value: unknown): InternalLinkReport | nul
       }))
       .filter((row) => /^https?:\/\//i.test(row.url)),
     removed: strList(raw.removed, 30),
+    html: need(raw.html) ?? undefined,
     note: need(raw.note) ?? undefined,
   };
 }
@@ -484,6 +492,27 @@ export function readSchemaArtifact(value: unknown): SchemaArtifact | null {
     notes: strList(raw.notes, 10),
   };
 }
+// ---------------------------------------------------------------------------
+// WHICH HTML IS THE PAGE
+//
+// Three stages can hand back a body: the writer writes it, the links stage places
+// anchors in it, and in deep mode the editor rewrites parts of it. None of them
+// edits another stage's artifact, so "the current page" is a question with a
+// documented answer rather than whichever row was read last.
+//
+// Order is latest-wins, and each candidate has to actually contain a body — a
+// stage that skipped or blocked contributes nothing.
+// ---------------------------------------------------------------------------
+
+/** The most recent HTML any stage produced, or "" when nothing has been written. */
+export function finalHtml(artifacts: Record<string, unknown>): string {
+  const fromLinks = readInternalLinkReport(artifacts.links)?.html;
+  if (fromLinks && fromLinks.trim()) return fromLinks;
+  const fromWriter = readArticleDraft(artifacts.write)?.html;
+  if (fromWriter && fromWriter.trim()) return fromWriter;
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // 11. CONTENT QUALITY SCORE
 //
