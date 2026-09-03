@@ -38,6 +38,22 @@ const setNodeEnv = (value: string) => {
   (process.env as Record<string, string>).NODE_ENV = value;
 };
 
+/**
+ * The workspace an upload with no explicit workspaceId gets attributed to.
+ *
+ * `saveMediaBuffer` asks the active-workspace resolver, which reads a cookie and
+ * a Clerk session. Neither exists in a test, and outside a request scope the
+ * resolver correctly refuses to guess an owner — so a test that wants the DB
+ * backend to succeed has to say whose workspace it is. Pass null for the case
+ * where there is nobody to attribute the asset to.
+ */
+const mockActiveWorkspace = (workspaceId: string | null) =>
+  vi.doMock('@/lib/workspace/active', () => ({
+    getActiveWorkspace: vi
+      .fn()
+      .mockResolvedValue(workspaceId ? { userId: 'user_test', workspaceId } : null),
+  }));
+
 beforeEach(() => {
   savedEnv = {};
   for (const k of ENV_KEYS) {
@@ -55,6 +71,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.doUnmock('@/lib/db');
+  vi.doUnmock('@/lib/workspace/active');
 });
 
 describe('saveMediaBuffer — local dev fallback (no Supabase)', () => {
@@ -77,8 +94,8 @@ describe('saveMediaBuffer — serverless production fallback (no Supabase)', () 
   it('persists small media (<= 5MB) as a MediaAsset record served via /api/media/asset/<id>', async () => {
     setNodeEnv('production');
     const createMock = vi.fn().mockResolvedValue({ id: 'asset_123' });
-    const findFirstMock = vi.fn().mockResolvedValue({ id: 'ws_1' });
-    vi.doMock('@/lib/db', () => ({ default: { mediaAsset: { create: createMock }, workspace: { findFirst: findFirstMock } } }));
+    vi.doMock('@/lib/db', () => ({ default: { mediaAsset: { create: createMock } } }));
+    mockActiveWorkspace('ws_1');
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     const buf = Buffer.from('fake-image-bytes');
@@ -105,25 +122,26 @@ describe('saveMediaBuffer — serverless production fallback (no Supabase)', () 
     vi.doMock('@/lib/db', () => ({
       default: {
         mediaAsset: { create: vi.fn().mockResolvedValue({ id: 'asset_vid' }) },
-        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_1' }) },
       },
     }));
+    mockActiveWorkspace('ws_1');
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     const saved = await saveMediaBuffer(Buffer.from('vid'), 'clip.mp4', 'video/mp4');
     expect(saved.url).toBe('/api/media/asset/asset_vid.mp4');
   });
 
-  it('uses the provided workspaceId instead of querying for one', async () => {
+  it('uses the provided workspaceId instead of resolving one', async () => {
     setNodeEnv('production');
-    const findFirstMock = vi.fn();
+    const resolveMock = vi.fn();
     const createMock = vi.fn().mockResolvedValue({ id: 'asset_x' });
-    vi.doMock('@/lib/db', () => ({ default: { mediaAsset: { create: createMock }, workspace: { findFirst: findFirstMock } } }));
+    vi.doMock('@/lib/db', () => ({ default: { mediaAsset: { create: createMock } } }));
+    vi.doMock('@/lib/workspace/active', () => ({ getActiveWorkspace: resolveMock }));
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     await saveMediaBuffer(Buffer.from('x'), 'a.png', 'image/png', 'ws_provided');
 
-    expect(findFirstMock).not.toHaveBeenCalled();
+    expect(resolveMock).not.toHaveBeenCalled();
     expect(createMock.mock.calls[0][0].data.workspaceId).toBe('ws_provided');
   });
 
@@ -137,14 +155,12 @@ describe('saveMediaBuffer — serverless production fallback (no Supabase)', () 
     );
   });
 
-  it('throws when no workspace exists (cannot attribute the asset)', async () => {
+  it('throws when there is nobody to attribute the asset to', async () => {
     setNodeEnv('production');
-    vi.doMock('@/lib/db', () => ({
-      default: {
-        mediaAsset: { create: vi.fn() },
-        workspace: { findFirst: vi.fn().mockResolvedValue(null) },
-      },
-    }));
+    vi.doMock('@/lib/db', () => ({ default: { mediaAsset: { create: vi.fn() } } }));
+    // No request scope and no explicit workspaceId: the resolver refuses to guess
+    // an owner, and an asset with no owner is not stored.
+    mockActiveWorkspace(null);
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     await expect(saveMediaBuffer(Buffer.from('x'), 'a.png', 'image/png')).rejects.toThrow(
@@ -163,11 +179,11 @@ describe('saveMediaBuffer — Supabase configured but unreachable (paused projec
     process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
 
     const createMock = vi.fn().mockResolvedValue({ id: 'asset_sb' });
-    const findFirstMock = vi.fn().mockResolvedValue({ id: 'ws_sb' });
     vi.resetModules(); // module-level SUPABASE_URL const is read at import time
     vi.doMock('@/lib/db', () => ({
-      default: { mediaAsset: { create: createMock }, workspace: { findFirst: findFirstMock } },
+      default: { mediaAsset: { create: createMock } },
     }));
+    mockActiveWorkspace('ws_sb');
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     const buf = Buffer.from('paused-supabase-upload-bytes');
@@ -187,9 +203,9 @@ describe('saveMediaBuffer — Supabase configured but unreachable (paused projec
     vi.doMock('@/lib/db', () => ({
       default: {
         mediaAsset: { create: vi.fn() },
-        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_sb' }) },
       },
     }));
+    mockActiveWorkspace('ws_sb');
 
     const { saveMediaBuffer } = await import('@/lib/supabase');
     const bigBuf = Buffer.alloc(6 * 1024 * 1024, 1);
@@ -273,9 +289,9 @@ describe('storage fetch deadlines (hung-upload fix)', () => {
     vi.doMock('@/lib/db', () => ({
       default: {
         mediaAsset: { create: createMock },
-        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_hang' }) },
       },
     }));
+    mockActiveWorkspace('ws_hang');
 
     const { uploadBase64ToStorage } = await import('@/lib/supabase');
     const controller = new AbortController();
@@ -311,9 +327,9 @@ describe('storage fetch deadlines (hung-upload fix)', () => {
     vi.doMock('@/lib/db', () => ({
       default: {
         mediaAsset: { create: vi.fn().mockResolvedValue({ id: 'asset_after_timeout' }) },
-        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_hang' }) },
       },
     }));
+    mockActiveWorkspace('ws_hang');
 
     const { uploadBase64ToStorage } = await import('@/lib/supabase');
     vi.useFakeTimers();
