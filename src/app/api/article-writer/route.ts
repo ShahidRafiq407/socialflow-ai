@@ -38,12 +38,18 @@ import { normalizeBrief, readBriefRow } from "@/lib/article/brief";
 import {
   createArticleRun,
   listArticleRuns,
+  loadArtifacts,
   loadArticleRun,
   loadStageArtifact,
   readBrief,
   toRunView,
 } from "@/lib/article/runStore";
-import { isArticleRunMode, isArticleStageKey, stageSpec } from "@/lib/article/stages";
+import {
+  isArticleRunMode,
+  isArticleStageKey,
+  stageCount,
+  stageSpec,
+} from "@/lib/article/stages";
 import {
   listCmsTargetSummaries,
   loadCmsTarget,
@@ -404,6 +410,57 @@ export async function POST(req: Request) {
           artifact === null
             ? `“${stageSpec(stage).label}” has not produced anything for this run.`
             : undefined,
+      });
+    }
+
+    // =====================================================================
+    // STEP: every artifact this run has produced
+    //
+    // The editor needs most of them at once — the draft, the SEO report, the links,
+    // the structured data, the score, the gate — and eleven round trips to draw one
+    // screen is eleven chances to render half a page. The run *view* still never
+    // inlines an artifact; this is the panel that reads them asking for them by
+    // name, in one request, for a run this workspace owns.
+    //
+    // Only `done` stages contribute, so nothing here comes from a stage that
+    // blocked or threw.
+    // =====================================================================
+    if (step === "run-bundle") {
+      const run = await loadArticleRun(workspaceId, body?.runId);
+      if (!run) {
+        return NextResponse.json(
+          { error: "That run could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        run: toRunView(run),
+        brief: readBriefRow(readBrief(run)),
+        artifacts: await loadArtifacts(String(run.id)),
+      });
+    }
+
+    // =====================================================================
+    // STEP: which pipelines this build can actually finish
+    //
+    // The mode is the person's choice, so the screen has to be able to offer both
+    // and say why one is unavailable. Asked of the server because the answer is a
+    // fact about which agents exist, not something a browser can know — and the
+    // day the missing stages land, this starts returning true with no UI change.
+    // =====================================================================
+    if (step === "run-modes") {
+      return NextResponse.json({
+        success: true,
+        modes: (["quick", "deep"] as const).map((mode) => {
+          const reason = modeUnavailableReason(mode);
+          return {
+            mode,
+            stages: stageCount(mode),
+            available: !reason,
+            reason: reason || undefined,
+          };
+        }),
       });
     }
 

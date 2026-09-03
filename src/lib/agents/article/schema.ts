@@ -27,8 +27,8 @@ import { resolveLanguage } from "@/lib/article/languages";
 import {
   buildSchemaMarkup,
   countHtmlWords,
+  parseFaqSection,
   slugify,
-  stripHtml,
 } from "@/lib/agents/workers/articleAssembly";
 import {
   blocked,
@@ -38,30 +38,6 @@ import {
   type StageResult,
   type StageRunner,
 } from "./contract";
-
-/**
- * The question and answer pairs, read back out of the page itself.
- *
- * Not from the outline's question list: the outline plans questions and the write
- * stage answers the ones it had time for, so the outline is what was intended and
- * the HTML is what exists. A `Question` in the schema whose answer is not on the
- * page is a statement about a page that was never published.
- *
- * The shape matched here is the one `buildFaqSection` emits. `injectHeadingIds`
- * adds an id to the h3 afterwards, so the attributes are matched loosely.
- */
-function faqFromHtml(html: string): { question: string; answer: string }[] {
-  const items = html.matchAll(
-    /<div class="faq-item">\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<div class="faq-answer">([\s\S]*?)<\/div>\s*<\/div>/gi
-  );
-  const out: { question: string; answer: string }[] = [];
-  for (const match of items) {
-    const question = stripHtml(match[1]).replace(/\s+/g, " ").trim();
-    const answer = stripHtml(match[2]).replace(/\s+/g, " ").trim();
-    if (question && answer) out.push({ question, answer });
-  }
-  return out;
-}
 
 /** The hero image, if the media stage placed one. The first `<img>` in the page. */
 function heroFrom(html: string): string {
@@ -109,7 +85,11 @@ export const runSchemaStage: StageRunner = async (ctx: StageContext): Promise<St
   const brandName = (ctx.workspace.brand.brandName || ctx.workspace.name || "").trim();
   const authorName = (ctx.brief.authorName || "").trim();
   const language = resolveLanguage(ctx.brief.language || "");
-  const faqItems = ctx.brief.enableFaq ? faqFromHtml(html) : [];
+  // Read back out of the page itself, never from the outline's question list: the
+  // outline plans questions and the write stage answers the ones it had time for.
+  // A `Question` in the schema whose answer is not on the page is a statement
+  // about a page that was never published.
+  const faqItems = ctx.brief.enableFaq ? parseFaqSection(html) : [];
   const heroImageUrl = heroFrom(html);
 
   const jsonLd = buildSchemaMarkup({

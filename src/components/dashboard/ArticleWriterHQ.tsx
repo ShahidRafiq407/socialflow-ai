@@ -25,7 +25,6 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  Clock,
   ExternalLink,
   Flame,
   ImagePlus,
@@ -48,9 +47,12 @@ import {
 import { listPublishTargets } from "@/actions/cmsTargets";
 import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
 import { describeBrandFacts } from "@/lib/brand/profile";
+import { stageSpec, type ArticleRunMode } from "@/lib/article/stages";
 import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/ArticleEditor";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
+import RunProgress from "./article-writer/RunProgress";
 import SeoSidebar from "./article-writer/SeoSidebar";
+import { useArticleRun, type RunOutcome } from "./article-writer/useArticleRun";
 import { describeTargets, relativeTime, statusDot } from "./article-writer/targetStatus";
 import {
   AI_IMAGE_SHAPES,
@@ -64,8 +66,6 @@ import {
   POINT_OF_VIEW_OPTIONS,
   PUBLISH_STATUS_LABELS,
   CONTENT_TYPE_LABELS,
-  GENERATION_BUDGET_MS,
-  PIPELINE_STAGES,
   TONE_OPTIONS,
   WORLDWIDE_MARKET,
 } from "./article-writer/constants";
@@ -265,10 +265,17 @@ export function ArticleWriterHQ({
   const [imageCount, setImageCount] = useState(3);
   const [imageStyle, setImageStyle] = useState(IMAGE_STYLE_OPTIONS[0].value);
   // ---- the run -----------------------------------------------------------
-  const [running, setRunning] = useState(false);
-  const [startedAt, setStartedAt] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
+  // The mode is the person's choice and is stored on the run row. Nothing here
+  // derives it from a plan code or a subscription tier, and a pipeline this build
+  // cannot finish is offered with the server's reason rather than hidden.
+  const [runMode, setRunMode] = useState<ArticleRunMode>("quick");
   const [runError, setRunError] = useState<string | null>(null);
+  const [runNote, setRunNote] = useState<string | null>(null);
+  const pipeline = useArticleRun({
+    workspaceId,
+    onNotice: (kind, message) => push(kind, message),
+  });
+  const running = pipeline.walking;
 
   // ---- the draft ---------------------------------------------------------
   const [article, setArticle] = useState<GeneratedArticle | null>(null);
@@ -388,7 +395,12 @@ export function ArticleWriterHQ({
   );
 
   const liveWordCount = useMemo(() => countWords(html), [html]);
-  const budgetPct = Math.min(100, Math.round((elapsed / GENERATION_BUDGET_MS) * 100));
+
+  /** The pipeline the mode buttons are describing, with the server's own verdict. */
+  const modeInfo = useMemo(
+    () => pipeline.modes.find((entry) => entry.mode === runMode) ?? null,
+    [pipeline.modes, runMode]
+  );
 
   /** One request shape for every step. A non-2xx answer throws its own message. */
   const call = useCallback(
@@ -408,13 +420,6 @@ export function ArticleWriterHQ({
     },
     [workspaceId]
   );
-
-  /** Elapsed time against the server's own budget — not a fake progress bar. */
-  useEffect(() => {
-    if (!running || !startedAt) return;
-    const tick = setInterval(() => setElapsed(Date.now() - startedAt), 1000);
-    return () => clearInterval(tick);
-  }, [running, startedAt]);
 
   /** WordPress is the only platform with a taxonomy; the rest say so plainly. */
   const loadTaxonomy = useCallback(
@@ -468,23 +473,81 @@ export function ArticleWriterHQ({
   useEffect(() => {
     void loadTaxonomy(targetId);
   }, [targetId, loadTaxonomy]);
+  /**
+   * Takes a finished run into the editor.
+   *
+   * Continue lands here as well as Start, because a run that was blocked and then
+   * continued is the same run: the draft is redrawn from its artifacts, which are
+   * the only place the page exists. Anything the run did not produce is left alone
+   * rather than cleared — an empty tag list from a pipeline with no tag stage is not
+   * a reason to throw away tags a person typed.
+   */
+  const adoptRun = useCallback(
+    (outcome: RunOutcome) => {
+      setRunNote(outcome.message ?? null);
+      setRunError(outcome.ending === "failed" ? (outcome.message ?? null) : null);
+
+      const built = outcome.result;
+      if (!built) {
+        if (outcome.ending === "done") {
+          setRunError(
+            "The run finished without producing a page. Every stage it recorded is on the progress list."
+          );
+        }
+        return;
+      }
+
+      const next = built.article;
+      setArticle(next);
+      setHtml(next.content);
+      setDraftTitle(next.title);
+      setMetaTitle(next.metaTitle);
+      setMetaDescription(next.metaDescription);
+      setSlug(next.slug);
+      setExcerpt(next.excerpt);
+      if (next.suggestedTags.length) setTags(next.suggestedTags);
+      if (built.serp) setSerpData(built.serp);
+      setView("preview");
+      setBriefOpen(false);
+
+      if (built.score) {
+        push(
+          "success",
+          `Content Quality Score ${built.score.total}/100 — ours, not Google's. Differentiation ${built.score.differentiation}/100. ${next.seoMetrics.wordCount.toLocaleString()} words.`
+        );
+      } else {
+        push(
+          "info",
+          `${next.seoMetrics.wordCount.toLocaleString()} words written. The scoring stage did not run, so there is no quality score for this draft.`
+        );
+      }
+      if (built.gate && !built.gate.passed) {
+        push(
+          "error",
+          `The publish checks refused this page: ${built.gate.blockers[0]}${
+            built.gate.blockers.length > 1 ? ` (+${built.gate.blockers.length - 1} more)` : ""
+          }`
+        );
+      }
+    },
+    [push]
+  );
   const runGenerate = useCallback(async () => {
     const focus = keyword.trim();
     if (!focus) {
       push("error", "A focus keyword is what the whole article is built from. Add one first.");
       return;
     }
-    setRunning(true);
-    setStartedAt(Date.now());
-    setElapsed(0);
     setRunError(null);
+    setRunNote(null);
     setOutcome(null);
     try {
-      const data = await call("generate", {
+      // The site is resolved server-side from the destination, so the brief stores
+      // the same URL the publish step will use instead of one the browser guessed.
+      const result = await pipeline.start(runMode, {
         keyword: focus,
         title: title.trim() || undefined,
         targetId: targetId || undefined,
-        targetWebsite: website || undefined,
         articleSize: sizePreset,
         targetWordCount: targetWords,
         pointOfView,
@@ -504,50 +567,38 @@ export function ArticleWriterHQ({
         imageStyle,
         humanize,
       });
-      const next = data?.article as GeneratedArticle | undefined;
-      if (!next?.content) throw new Error("The generator returned no article.");
-
-      setArticle(next);
-      setHtml(next.content);
-      setDraftTitle(next.title);
-      setMetaTitle(next.metaTitle);
-      setMetaDescription(next.metaDescription);
-      setSlug(next.slug);
-      setExcerpt(next.excerpt);
-      setTags(next.suggestedTags || []);
-      setSerpData(data?.serpData || null);
-      setSerpError(data?.serpError || null);
-      setView("preview");
-      setBriefOpen(false);
-      // The hero is the image the generator marked as above the first section
-      // (`afterSectionIndex < 0`) — not whichever image happens to be first in the
-      // array. Picking by index put an in-article image on the social card.
-      const hero =
-        next.images?.find((img) => img.afterSectionIndex < 0) ?? next.images?.[0] ?? null;
-      if (hero?.url) {
-        setFeaturedUrl(hero.url);
-        setFeaturedAlt(hero.alt || next.title);
-      }
-      push(
-        "success",
-        `${next.seoMetrics.wordCount.toLocaleString()} words, scored ${next.seoMetrics.seoScore}/100 on ${
-          next.seoChecklist.length
-        } checks.`
-      );
-      next.warnings?.slice(0, 2).forEach((w) => push("info", w));
+      adoptRun(result);
     } catch (error: any) {
       const message = error?.message || "The article could not be written.";
       setRunError(message);
       push("error", message);
-    } finally {
-      setRunning(false);
     }
   }, [
-    authorName, call, enableExternalLinks, enableFaq, enableImages, enableInternalLinks,
+    adoptRun, authorName, enableExternalLinks, enableFaq, enableImages, enableInternalLinks,
     enableSources, enableTakeaways, enableToc, enableYoutube, humanize, imageCount, imageStyle,
-    keyword, language, market, pointOfView, push, sizePreset, targetId, targetWords, title, tone,
-    website,
+    keyword, language, market, pipeline, pointOfView, push, runMode, sizePreset, targetId,
+    targetWords, title, tone,
   ]);
+
+  /**
+   * Picks the run up from the stage that stopped it.
+   *
+   * Not a restart: every stage already recorded stays recorded and is not paid for
+   * again. A failed stage is claimable again, so this retries exactly that one.
+   */
+  const continueRun = useCallback(async () => {
+    const runId = pipeline.run?.id;
+    if (!runId) return;
+    setRunError(null);
+    setRunNote(null);
+    try {
+      adoptRun(await pipeline.resume(runId));
+    } catch (error: any) {
+      const message = error?.message || "The run could not be continued.";
+      setRunError(message);
+      push("error", message);
+    }
+  }, [adoptRun, pipeline, push]);
   const loadIdeas = useCallback(
     async (seedHint?: string) => {
       setIdeasBusy(true);
@@ -789,10 +840,32 @@ export function ArticleWriterHQ({
             )}
           </div>
           <div className="flex flex-col items-end gap-1.5">
+            {/* The pipeline is a choice, and it is stored on the run. A mode this
+                build cannot finish is shown disabled with the server's own reason,
+                not hidden — an option that vanishes explains nothing. */}
+            <div className="inline-flex rounded-lg border border-border p-0.5">
+              {pipeline.modes.map((entry) => (
+                <button
+                  key={entry.mode}
+                  type="button"
+                  onClick={() => setRunMode(entry.mode)}
+                  disabled={running || !entry.available}
+                  title={entry.reason || `${entry.stages} stages`}
+                  className={`h-7 rounded-md px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    runMode === entry.mode
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {entry.mode === "deep" ? "Deep" : "Quick"}
+                  <span className="ml-1 font-medium opacity-70">{entry.stages}</span>
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               onClick={() => void runGenerate()}
-              disabled={running || !keyword.trim()}
+              disabled={running || !keyword.trim() || modeInfo?.available === false}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {running ? (
@@ -800,41 +873,33 @@ export function ArticleWriterHQ({
               ) : (
                 <Wand2 className="h-4 w-4" />
               )}
-              {running ? "Writing…" : article ? "Rewrite the article" : "Write the article"}
+              {running
+                ? pipeline.activeStage
+                  ? `${stageSpec(pipeline.activeStage).label}…`
+                  : "Working…"
+                : article
+                  ? "Write it again"
+                  : "Write the article"}
             </button>
-            <span className="text-[10px] text-muted-foreground">
-              {targetWords.toLocaleString()} words · {article ? "regenerates from scratch" : "one run, up to 4 minutes"}
+            <span className="max-w-[18rem] text-right text-[10px] text-muted-foreground">
+              {modeInfo?.available === false
+                ? modeInfo.reason
+                : `${targetWords.toLocaleString()} words · ${
+                    modeInfo?.stages ?? "—"
+                  } stages, one request each${article ? " · starts a new run" : ""}`}
             </span>
           </div>
         </div>
-        {running && (
-          <div className="mt-4 rounded-xl border border-border bg-background p-3">
-            <div className="mb-2 flex items-center justify-between text-[11px]">
-              <span className="inline-flex items-center gap-1.5 font-semibold text-foreground">
-                <Clock className="h-3 w-3 text-primary" />
-                {Math.floor(elapsed / 1000)}s elapsed
-              </span>
-              <span className="text-muted-foreground">
-                the server gives up at {Math.round(GENERATION_BUDGET_MS / 1000)}s
-              </span>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-1000 ease-linear"
-                style={{ width: `${budgetPct}%` }}
-              />
-            </div>
-            <ul className="mt-2 space-y-0.5">
-              {PIPELINE_STAGES.map((stage) => (
-                <li key={stage} className="text-[10px] leading-snug text-muted-foreground">
-                  · {stage}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1.5 text-[10px] italic text-muted-foreground">
-              These are the steps of one request, not a progress bar — the writer cannot report
-              back until it is finished, so this counts real seconds instead of pretending.
-            </p>
+        {/* Real rows, not a timer. The list is only drawn once a run exists. */}
+        {pipeline.run && (
+          <div className="mt-4">
+            <RunProgress
+              run={pipeline.run}
+              walking={running}
+              onStop={pipeline.stop}
+              onContinue={() => void continueRun()}
+              note={runNote}
+            />
           </div>
         )}
 

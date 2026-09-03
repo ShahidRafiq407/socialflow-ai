@@ -226,22 +226,8 @@ export function extractYouTubeId(input: string): string | null {
   return /^[\w-]{11}$/.test(value) ? value : null;
 }
 
-/**
- * What a run actually does, in order.
- *
- * These are labels for the work, not progress: the generator runs inside one POST
- * and cannot report back mid-flight, so the UI shows elapsed time against the
- * server's real deadline instead of ticking these off on a timer. The old build
- * faked three of them with `setTimeout`.
- */
-export const PIPELINE_STAGES: string[] = [
-  "Reading the live search results and measuring the pages that rank",
-  "Planning an outline that covers all four E-E-A-T pillars",
-  "Writing each section against the brand's voice",
-  "Measuring the draft and closing the word-count gap",
-  "Placing images, the video, and internal and external links",
-  "Auditing the finished article and scoring the checklist",
-];
-
-/** The server's own time budget for one article, so the UI counts down the truth. */
-export const GENERATION_BUDGET_MS = 235_000;
+// The pipeline used to be described here, as six sentences the screen ticked off
+// against a countdown. It now lives in `src/lib/article/stages.ts`, which both
+// sides read: the server advances a run by looking the next stage up there, and
+// `RunProgress` draws the list from the rows that advancing produced. A stage list
+// kept in the UI is a stage list that can claim work the server never did.

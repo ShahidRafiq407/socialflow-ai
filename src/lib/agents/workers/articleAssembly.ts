@@ -333,6 +333,29 @@ export function buildFaqSection(
   return `<section class="article-faq" id="faq"><h2>${escapeHtml(heading)}</h2>${blocks}</section>`;
 }
 
+/**
+ * The questions and answers back out of a finished page.
+ *
+ * The pattern matched is the one `buildFaqSection` above emits, which is why the
+ * two live together: a parser kept anywhere else drifts from the builder the
+ * first time the markup changes, and then the structured data describes an FAQ
+ * the page does not have. Reads only what is on the page — nothing is recovered
+ * from the outline, because a question the writer never answered is not an FAQ.
+ */
+export function parseFaqSection(html: string): { question: string; answer: string }[] {
+  const matches = Array.from(
+    html.matchAll(
+      /<div class="faq-item">\s*<h3[^>]*>([\s\S]*?)<\/h3>\s*<div class="faq-answer">([\s\S]*?)<\/div>\s*<\/div>/gi
+    )
+  );
+  return matches
+    .map((match) => ({
+      question: stripHtml(match[1]),
+      answer: stripHtml(match[2]),
+    }))
+    .filter((item) => item.question && item.answer);
+}
+
 export function buildSourcesSection(links: ArticleLink[], heading: string): string {
   if (links.length === 0) return "";
   const items = links
