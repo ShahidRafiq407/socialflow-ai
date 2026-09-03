@@ -187,7 +187,19 @@ export function computeFormatFamilies(
       const orientation: Orientation | "none" = member.visualRequired
         ? orientationOf(member.aspectRatio)
         : "none";
-      const familyKey = `${kind}|${orientation}`;
+      // DECKS (multi_image) of one campaign are ONE family regardless of
+      // orientation: an Instagram carousel (1:1), a Pinterest carousel (2:3) and
+      // an Idea Pin (9:16) all publish "the same multi-slide visual post", so the
+      // user expects one storyboard, one caption and one shared render — not three
+      // diverging decks split by ratio class. The render uses the compromise ratio
+      // (pickRenderAspectRatio below); each member keeps its own intended crop for
+      // the editor. Stills and videos still group by orientation, where the ratio
+      // genuinely changes the artefact.
+      const familyKey = member.visualRequired
+        ? kind === "multi_image"
+          ? "multi_image"
+          : `${kind}|${orientation}`
+        : "text_only";
 
       const bucket = grouped.get(familyKey) || [];
       bucket.push(member);
@@ -199,11 +211,17 @@ export function computeFormatFamilies(
   for (const [familyKey, members] of grouped) {
     const [kindRaw, orientationRaw] = familyKey.split("|");
     const kind = kindRaw as FamilyKind;
-    const orientation = orientationRaw as Orientation | "none";
     const visualRequired = kind !== "text_only";
     const renderAspectRatio = visualRequired
       ? pickRenderAspectRatio(members.map((m) => m.aspectRatio))
       : members[0]?.aspectRatio || "1:1";
+    // A merged deck family spans member ratios (1:1 carousels, 2:3 pins), so its
+    // label reports the compromise ratio it will actually render at.
+    const orientation: Orientation | "none" = visualRequired
+      ? kind === "multi_image"
+        ? orientationOf(renderAspectRatio)
+        : (orientationRaw as Orientation)
+      : "none";
 
     families.push({
       key: familyKey,

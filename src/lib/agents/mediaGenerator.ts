@@ -1,7 +1,7 @@
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
-import { envInt, sleep } from "@/lib/agents/concurrency";
+import { envInt, sleep, createLimiter } from "@/lib/agents/concurrency";
 import { getModelRatePacer } from "@/lib/agents/rateLimit";
 import {
   buildDesignSystemInstruction,
@@ -303,9 +303,10 @@ async function generateRealVideo(options: {
           const base64Data = `data:${mime};base64,${directVideo.data}`;
           
           try {
-            const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime);
+            const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime, undefined, signal);
             if (uploadedUrl) return uploadedUrl;
           } catch (storageErr) {
+            if (signal?.aborted) throw storageErr;
             console.warn("[Visualizer] Video storage upload failed, returning data URI:", storageErr);
           }
           return base64Data;
@@ -511,7 +512,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     let finalVideoUrl = videoUrl;
     if (videoUrl.startsWith("data:")) {
       onProgress?.(`[Visualizer] Persisting video asset to Storage CDN...`);
-      const storageUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4");
+      const storageUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4", undefined, input.signal);
       if (storageUrl) {
         finalVideoUrl = storageUrl;
       }
@@ -638,22 +639,28 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
   // throughput; the pacer lowers itself on its own if the provider disagrees.
   const imageRpm = envInt("IMAGE_MODEL_RPM", 6, { min: 1, max: 600 });
 
-  for (let idx = 0; idx < assetCount; idx++) {
-    if (input.signal?.aborted) {
-      throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
-    }
-    if (idx > 0 && slideSpacingMs > 0) {
-      onProgress?.(`[Visualizer] Preparing slide ${idx + 1}/${assetCount}...`);
-      await sleep(slideSpacingMs, input.signal);
-    }
-
+  // ── SLIDE PLANNING ──────────────────────────────────────────────────────────
+  // Every slide's prompt is built up front — pure and synchronous — so the fan-out
+  // below only has to render.
+  //
+  // A deck used to render its slides one after another, and that is precisely where
+  // multi-format campaigns died: gemini-3-pro-image takes 30-120s per slide, so a
+  // 5-slide deck spent 150-600s of wall clock inside ONE family while the whole run
+  // has a ~255s budget — the tail slides were structurally unable to finish and the
+  // family came back "skipped" every time. The slides now render in parallel
+  // (IMAGE_SLIDE_CONCURRENCY at a time, default 3), which turns the deck's cost from
+  // the SUM of its slides into roughly the span of the slowest one. The per-model
+  // rate pacer still admits every request through ONE shared per-minute window, so
+  // the parallelism cannot manufacture a 429 — excess slides hold at
+  // "resuming in Xs" instead. Set IMAGE_SLIDE_CONCURRENCY=1 for the old serial deck.
+  const slidePlans = Array.from({ length: assetCount }, (_, idx) => {
     const currentPrompt = (input.visualPrompts && input.visualPrompts[idx])
       ? input.visualPrompts[idx].trim()
       : prompt.trim();
 
-    let slidePrompt: string;
     let deckSlideIndex = isDeck ? idx : slideOffset;
     let deckSlideTotal = Math.max(deckTotal, deckSlideIndex + 1);
+    let slidePrompt: string;
 
     if (isInfographic) {
       // Absolute position of this render inside the published deck.
@@ -690,6 +697,27 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
       if (styleClause) clauses.push(styleClause);
       if (qualityClause) clauses.push(qualityClause);
       slidePrompt = clauses.filter(Boolean).join(", ");
+    }
+
+    return { idx, slidePrompt, deckSlideIndex, deckSlideTotal };
+  });
+
+  /** Renders ONE slide of the deck: pace, request, parse, persist. */
+  const renderSlideAsset = async (plan: {
+    idx: number;
+    slidePrompt: string;
+    deckSlideIndex: number;
+    deckSlideTotal: number;
+  }): Promise<MediaAssetOutput> => {
+    const { idx, slidePrompt, deckSlideIndex, deckSlideTotal } = plan;
+    if (input.signal?.aborted) {
+      throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+    }
+    // A one-second stagger between the slides admitted by the limiter, so even the
+    // parallel deck eases into the model's window instead of arriving as a burst.
+    if (idx > 0 && slideSpacingMs > 0) {
+      onProgress?.(`[Visualizer] Preparing slide ${idx + 1}/${assetCount}...`);
+      await sleep(slideSpacingMs, input.signal);
     }
 
     try {
@@ -1009,7 +1037,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
       let finalImageUrl = imageUrl;
       if (imageUrl.startsWith("data:")) {
-        const storageUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png");
+        const storageUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png", undefined, input.signal);
         if (storageUrl) {
           finalImageUrl = storageUrl;
         }
@@ -1017,7 +1045,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
       validateAssetUrl(finalImageUrl, "image");
 
-      results.push({
+      return {
         id: `asset_img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
         platform,
         contentType,
@@ -1031,12 +1059,57 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
         createdAt: Date.now(),
         slideIndex: deckSlideIndex,
         totalSlides: deckSlideTotal,
-      });
+      } as MediaAssetOutput;
     } catch (err: any) {
+      if (err?.isCancelled || input.signal?.aborted) {
+        throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+      }
       console.error(`[Visualizer] Slide ${idx + 1} generation failed:`, err);
       throw new VisualizerError("IMAGE_GENERATION_FAILED", err.message || "Failed to generate image asset.");
     }
+  };
+
+  if (assetCount === 1) {
+    // Single-image families keep the direct path — no limiter overhead for one slide.
+    results.push(await renderSlideAsset(slidePlans[0]));
+    return results;
   }
+
+  const slideConcurrency = envInt("IMAGE_SLIDE_CONCURRENCY", 3, { min: 1, max: 10 });
+  const slideLimiter = createLimiter(slideConcurrency);
+  const outcomes = await Promise.allSettled(
+    slidePlans.map((plan) => slideLimiter(() => renderSlideAsset(plan)))
+  );
+
+  const slideAssets = outcomes
+    .filter((o): o is PromiseFulfilledResult<MediaAssetOutput> => o.status === "fulfilled")
+    .map((o) => o.value);
+  const firstFailure = outcomes.find((o) => o.status === "rejected") as
+    | PromiseRejectedResult
+    | undefined;
+
+  if (slideAssets.length === 0) {
+    // Nothing survived: surface the real error (abort, quota wall, timeout) rather
+    // than a generic "no bytes".
+    throw firstFailure?.reason ??
+      new VisualizerError("IMAGE_GENERATION_FAILED", "No slides were produced.");
+  }
+  if (firstFailure && !input.signal?.aborted) {
+    // A slide failed while the render was still live (quota wall, blocked prompt):
+    // the cause will repeat for the missing slide, so the family fails honestly
+    // and the CEO's recovery pass decides what to re-render.
+    throw firstFailure.reason;
+  }
+  // The remaining case is an abort (family deadline / Skip / Cancel) that arrived
+  // after some slides had already finished. A partial deck publishes; an empty one
+  // does not. Salvage the completed slides instead of losing every one of them —
+  // this is what turns "deck cut at slide 2/5, everything lost" into "shipped with
+  // slides 1-2 and the rest in the editor".
+
+  // The editor and the attachment keys both rely on deck order, and the fan-out
+  // above settles in render order — sort back into slide order before returning.
+  slideAssets.sort((a, b) => (a.slideIndex ?? 0) - (b.slideIndex ?? 0));
+  results.push(...slideAssets);
 
   return results;
 }

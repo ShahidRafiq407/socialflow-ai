@@ -176,6 +176,13 @@ interface FamilyCreative {
   coreIdea: string;
   hook: string;
   hookVariations: string[];
+  /**
+   * THE family caption — one text, shared verbatim by every member. Per-platform
+   * variation lives in title/hashtags only; where a member's caption limit is
+   * tighter than the caption, it gets a truncated copy, never a different text.
+   * (Families are supposed to read as one campaign, not N remixes.)
+   */
+  caption: string;
   visualPrompts: string[];
   slideTexts: { step: number; title: string; body: string; theme: string }[];
   videoStoryboard?: string;
@@ -183,12 +190,40 @@ interface FamilyCreative {
     string,
     {
       title: string;
+      /** Kept for model-drift tolerance: if a model still writes per-post captions,
+       * the longest one is promoted to the family caption and the rest discarded. */
       caption: string;
       hashtags: string[];
       userIntent?: string;
       bestTime?: string;
     }
   >;
+}
+
+/**
+ * Fits one shared caption to a member's tighter limit without rewriting it:
+ * cut at the last sentence boundary that fits, else the last word, else hard.
+ * A family member must never end up with different words for the same post.
+ */
+export function fitCaptionToLimit(caption: string, limit: number): string {
+  const text = (caption || "").trim();
+  if (text.length <= limit) return text;
+  const slice = text.slice(0, limit);
+  // A boundary cut is only worth it when it keeps most of the allowed space —
+  // otherwise the hard cut preserves more of the caption (no floor(): a boundary
+  // at 7 of 13 chars is a 46% loss, not an acceptable trim).
+  const sentenceEnd = Math.max(
+    slice.lastIndexOf(". "),
+    slice.lastIndexOf("! "),
+    slice.lastIndexOf("? "),
+    slice.lastIndexOf("."),
+    slice.lastIndexOf("!"),
+    slice.lastIndexOf("?")
+  );
+  if (sentenceEnd >= limit * 0.6) return slice.slice(0, sentenceEnd + 1).trim();
+  const wordEnd = slice.lastIndexOf(" ");
+  if (wordEnd >= limit * 0.6) return slice.slice(0, wordEnd).trim();
+  return slice.trim();
 }
 
 /**
@@ -1215,8 +1250,8 @@ BRAND
 
 ${sharedIntel}
 
-THIS IS FAMILY ${index + 1} OF ${families.length}: ${family.label}
-Every post below is produced from ONE shared creative. They share the same core idea, the same hook and the same visual, and differ ONLY in caption length, phrasing and hashtags to suit each platform. Do not invent a different topic per platform.
+    THIS IS FAMILY ${index + 1} OF ${families.length}: ${family.label}
+Every post below is produced from ONE shared creative: the same core idea, the same hook, the same visual AND THE SAME CAPTION. The single "caption" you write at the top level is published verbatim on every platform of this family — do NOT write different captions per platform. Per-post entries only carry a platform-native title and hashtags. If the member limits differ, write the caption to fit the SMALLEST caption limit listed below.
 ${memberSpecs}
 
 ${deckClause}
@@ -1235,6 +1270,7 @@ Return strictly JSON:
   "coreIdea": "the single narrative all these posts express, one sentence",
   "hook": "the shared 1-2 second hook",
   "hookVariations": ["alternative hook A", "alternative hook B", "alternative hook C"],
+  "caption": "the ONE caption shared verbatim by every platform in this family (must fit the smallest caption limit above)",
   "visualPrompts": ${family.kind === "multi_image" ? `["background art direction slide 1", "...slide 2", "...slide 3"]` : family.kind === "text_only" ? "[]" : `["the single visual prompt"]`},
   "slideTexts": ${family.kind === "multi_image" ? `[{"title": "slide 1 headline (the hook)", "body": "slide 1 insight"}, {"title": "slide 2 headline", "body": "slide 2 insight"}]` : "[]"},
   ${family.kind === "video" ? `"videoStoryboard": "beat-by-beat shot list",` : ""}
@@ -1242,7 +1278,7 @@ Return strictly JSON:
 ${family.members
   .map(
     (m) =>
-      `    {"platform": "${m.platform}", "contentType": "${m.contentType}", "title": "short punchy title", "caption": "the full ${m.platform}-native caption", "hashtags": ["tag"], "userIntent": "why this audience engages", "bestTime": "suggested posting window"}`
+      `    {"platform": "${m.platform}", "contentType": "${m.contentType}", "title": "short punchy title", "hashtags": ["tag"], "userIntent": "why this audience engages", "bestTime": "suggested posting window"}`
   )
   .join(",\n")}
   ]
@@ -1280,10 +1316,21 @@ ${family.members
       };
     }
 
+    // The family caption is a top-level field. Some model runs still write
+    // per-post captions out of habit — the longest of those is promoted to the
+    // family caption and the rest are discarded, so the family still ships ONE
+    // text instead of N diverging remixes.
+    const familyCaption =
+      (data.caption || "").toString().trim() ||
+      Object.values(posts)
+        .map((p) => p.caption)
+        .reduce((longest, c) => (c.length > longest.length ? c : longest), "");
+
     return {
       coreIdea: (data.coreIdea || "").toString().trim(),
       hook: (data.hook || "").toString().trim(),
       hookVariations: asStringArray(data.hookVariations, 4),
+      caption: familyCaption,
       visualPrompts: asStringArray(data.visualPrompts, 10),
       slideTexts: (Array.isArray(data.slideTexts) ? data.slideTexts : []).map((s: any, idx: number) => ({
         step: idx + 1,
@@ -1328,16 +1375,19 @@ ${family.members
       }
     }
 
-    for (const m of family.members) {
-      const post = creative.posts[memberKey(m.platform, m.contentType)];
-      const limits = limitsFor(m.platform);
-      if (!post?.caption) {
-        problems.push(`${m.platform}/${m.contentType} has no caption.`);
-      } else if (post.caption.length > limits.captionMax) {
-        problems.push(
-          `${m.platform}/${m.contentType} caption is ${post.caption.length} chars; the limit is ${limits.captionMax}.`
-        );
-      }
+    // The caption is ONE family-level text. It is validated against the TIGHTEST
+    // member limit so every member can carry it verbatim (tighter members get a
+    // truncated copy in applyCreative, never a different text).
+    const smallestCaptionMax = family.members.reduce(
+      (min, m) => Math.min(min, limitsFor(m.platform).captionMax),
+      Number.MAX_SAFE_INTEGER
+    );
+    if (!creative.caption) {
+      problems.push("The shared family caption is missing.");
+    } else if (creative.caption.length > smallestCaptionMax) {
+      problems.push(
+        `The shared caption is ${creative.caption.length} chars; the tightest member limit is ${smallestCaptionMax}.`
+      );
     }
 
     if (problems.length === 0) return creative;
@@ -1368,23 +1418,25 @@ ${JSON.stringify({
   coreIdea: creative.coreIdea,
   hook: creative.hook,
   hookVariations: creative.hookVariations,
+  caption: creative.caption,
   visualPrompts: creative.visualPrompts,
   slideTexts: creative.slideTexts.map((s) => ({ title: s.title, body: s.body })),
   videoStoryboard: creative.videoStoryboard,
   posts: family.members.map((m) => ({
     platform: m.platform,
     contentType: m.contentType,
-    ...creative.posts[memberKey(m.platform, m.contentType)],
+    title: creative.posts[memberKey(m.platform, m.contentType)]?.title || "",
+    hashtags: creative.posts[memberKey(m.platform, m.contentType)]?.hashtags || [],
   })),
 })}
 
 CONSTRAINTS
 - Keep everything that was already correct, word for word.
-- Caption limits: ${family.members.map((m) => `${m.platform} ${limitsFor(m.platform).captionMax}`).join(", ")}.
+- The caption is ONE text shared by every platform of this family; it must fit the tightest limit: ${smallestCaptionMax} chars.
 ${family.kind === "multi_image" ? `- slideTexts and visualPrompts must both have the same length, at least ${MIN_DECK_SLIDES}, each slide with a headline and a 1-2 sentence insight.` : ""}
 ${bannedClause}
 
-Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualPrompts, slideTexts, ${family.kind === "video" ? "videoStoryboard, " : ""}posts (array with platform + contentType + title + caption + hashtags).`,
+Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, visualPrompts, slideTexts, ${family.kind === "video" ? "videoStoryboard, " : ""}posts (array with platform + contentType + title + hashtags).`,
           },
         ],
         { modelName: MODELS.CONTENT_CREATOR, temperature: 0.4, signal },
@@ -1399,6 +1451,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         hookVariations: asStringArray(data.hookVariations, 4).length
           ? asStringArray(data.hookVariations, 4)
           : creative.hookVariations,
+        caption: (data.caption || "").toString().trim() || creative.caption,
         visualPrompts: asStringArray(data.visualPrompts, 10).length
           ? asStringArray(data.visualPrompts, 10)
           : creative.visualPrompts,
@@ -1461,11 +1514,9 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
     let overlay = creative.slideTexts;
 
     if (family.kind === "multi_image") {
-      const firstMember = family.members[0];
-      const firstPost = creative.posts[memberKey(firstMember.platform, firstMember.contentType)];
       const deck = normalizeDeck(creative.visualPrompts, creative.slideTexts, {
         hook: creative.hook,
-        caption: firstPost?.caption || "",
+        caption: creative.caption,
         brandName: state.brandData.name,
         topic,
       });
@@ -1488,7 +1539,10 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         caption: "",
         hashtags: [],
       };
-      const caption = post.caption;
+      // ONE caption per family, by construction: every member carries the same
+      // text, trimmed only where that member's platform limit is tighter. A
+      // family must read as one campaign, not as N remixes of one.
+      const caption = fitCaptionToLimit(creative.caption || post.caption, limitsFor(m.platform).captionMax);
       const wordCount = caption.split(/\s+/).filter(Boolean).length;
 
       state.generatedContent!.platforms[m.platform] =
@@ -1730,6 +1784,13 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
       throw new Error(`No media was produced for the ${family.label} family.`);
     }
 
+    // A salvaged partial deck (the family's deadline cut the render mid-deck) must
+    // still respect an explicit Skip: the user abandoned this family, and attaching
+    // rescued slides would override that decision.
+    if (assets.length > 0 && controls?.isSkipRequested(family.label)) {
+      throw skipError(family.label, "skipped by you");
+    }
+
     for (const m of family.members) {
       checkCancelled();
       const retagged = assets.map((a) => retagAssetForMember(a, m));
@@ -1740,7 +1801,16 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
           target.videoUrl = retagged[0].url;
         } else {
           target.imageUrl = retagged[0].url;
-          if (retagged.length > 1) target.slideUrls = retagged.map((a) => a.url);
+          if (retagged.length > 1) {
+            target.slideUrls = retagged.map((a) => a.url);
+            // A salvaged partial deck keeps only the storyboard entries for the
+            // slides that actually rendered, so the audit's length check — and the
+            // editor — stay truthful about what will publish.
+            const overlays = Array.isArray(target.overlayText) ? target.overlayText : [];
+            if (overlays.length > retagged.length) {
+              target.overlayText = overlays.slice(0, retagged.length);
+            }
+          }
         }
       }
       state.generatedAssets!.push(...dedupeAttachments(retagged, attachedAssetKeys));
@@ -1751,6 +1821,20 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, visualProm
         data: {
           label: `${m.platform.toUpperCase()} ${m.contentType} media attached${shared ? " (shared render — no extra generation)" : ""}`,
           scope: family.label,
+        },
+      });
+    }
+
+    const requestedSlides =
+      family.kind === "multi_image" ? (item.overlayText || []).length : 1;
+    if (assets.length < requestedSlides) {
+      emit({
+        type: "agent_action",
+        agentId,
+        data: {
+          label: `${family.label} was cut short — keeping the ${assets.length} of ${requestedSlides} slide(s) that finished; add the rest in the content editor`,
+          scope: family.label,
+          severity: "warning",
         },
       });
     }
@@ -2485,9 +2569,23 @@ Include a field only if you rewrote it.`,
         const newTags = asStringArray(raw?.hashtags, limits.hashtagMax);
 
         if (newCaption && newCaption.length <= limits.captionMax) {
-          item.caption = newCaption;
-          item.wordCount = newCaption.split(/\s+/).filter(Boolean).length;
-          item.readingTimeSeconds = Math.max(5, Math.ceil((item.wordCount / 200) * 60));
+          // The caption is a family-level property, exactly like the hook: applying
+          // it to one member only would split a family that is supposed to read as
+          // one campaign. Every sibling gets the same text, fitted to its own limit.
+          const family = familyOfMember.get(memberKey(plt, fmt));
+          const siblings = family
+            ? family.members
+            : [{ platform: plt, contentType: fmt } as { platform: string; contentType: string }];
+          for (const m of siblings) {
+            const sibling = state.generatedContent?.platforms?.[m.platform]?.[m.contentType] as
+              | { caption?: string; wordCount?: number; readingTimeSeconds?: number }
+              | undefined;
+            if (!sibling) continue;
+            const fitted = fitCaptionToLimit(newCaption, limitsFor(m.platform).captionMax);
+            sibling.caption = fitted;
+            sibling.wordCount = fitted.split(/\s+/).filter(Boolean).length;
+            sibling.readingTimeSeconds = Math.max(5, Math.ceil((sibling.wordCount / 200) * 60));
+          }
           applied += 1;
         }
         if (newTitle) {

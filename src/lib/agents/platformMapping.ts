@@ -24,8 +24,13 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
     photo: { mediaType: "image", aspectRatio: "9:16", description: "TikTok Photo Post" },
   },
   linkedin: {
-    post: { mediaType: "image", aspectRatio: "1.91:1", description: "LinkedIn Professional Image" },
-    feed: { mediaType: "image", aspectRatio: "1.91:1", description: "LinkedIn Feed Post Image" },
+    // 1:1, not LinkedIn's 1.91:1 link-style ratio: a LinkedIn image post belongs
+    // to the same SQUARE IMAGE family as Instagram/Facebook feed. At 1.91:1 it
+    // split into its own landscape family, so one campaign rendered (and wrote)
+    // a DIFFERENT creative for what the user asked to be one post everywhere.
+    // Square displays natively on LinkedIn too, so nothing is lost visually.
+    post: { mediaType: "image", aspectRatio: "1:1", description: "LinkedIn Professional Image" },
+    feed: { mediaType: "image", aspectRatio: "1:1", description: "LinkedIn Feed Post Image" },
     carousel: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn PDF Carousel Document" },
     "multi-image": { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },
     multi_image: { mediaType: "multi_image", aspectRatio: "1:1", description: "LinkedIn Multi-Image Post" },

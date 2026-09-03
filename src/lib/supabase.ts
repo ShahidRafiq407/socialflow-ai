@@ -77,7 +77,57 @@ export function isSupabaseConfigured(): boolean {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 }
 
-export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, contentType: string): Promise<string> {
+/**
+ * Env-tunable storage timeout with clamps, in the style of the agents' envInt.
+ */
+function storageTimeoutMs(name: string, defaultMs: number, minMs: number, maxMs: number): number {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  if (!Number.isFinite(parsed)) return defaultMs;
+  return Math.min(maxMs, Math.max(minMs, parsed));
+}
+
+/**
+ * One hard deadline plus one caller signal, merged into the AbortSignal a
+ * storage fetch carries.
+ *
+ * Storage calls used to have neither. A stalled Supabase connection (paused
+ * free-tier project, black-holed network) held the fetch open long past the
+ * campaign run's own budget, and the family deadline could only abort signals
+ * it could reach — the upload never saw it, the render promise stayed pending,
+ * and the whole run hung until the serverless platform killed the function.
+ * Every storage fetch now carries a ceiling of its own, plus the caller's
+ * signal so a Skip, a Cancel or a family deadline cuts the upload along with
+ * everything else.
+ *
+ * The signal stays live until done() — not just until fetch() resolves — so it
+ * also covers reading an error body that trickles in after the headers.
+ */
+function withStorageDeadline(
+  timeoutMs: number,
+  external?: AbortSignal
+): { signal: AbortSignal; done: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener('abort', onAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    done: () => {
+      clearTimeout(timer);
+      if (external) external.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+export async function uploadFile(
+  file: ArrayBuffer | Buffer,
+  filename: string,
+  contentType: string,
+  signal?: AbortSignal
+): Promise<string> {
   if (!isSupabaseConfigured()) {
     throw new Error('Supabase credentials (SUPABASE_URL and SUPABASE_SERVICE_KEY) are not configured.');
   }
@@ -86,50 +136,61 @@ export async function uploadFile(file: ArrayBuffer | Buffer, filename: string, c
   const timestamp = Date.now();
   const cleanName = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
   const storagePath = `${timestamp}-${cleanName}`;
-  
+
   const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucketName}/${storagePath}`;
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Content-Type': contentType,
-      'x-upsert': 'true',
-    },
-    body: file as any,
-  });
+  const deadline = withStorageDeadline(
+    storageTimeoutMs('STORAGE_UPLOAD_TIMEOUT_MS', 90_000, 5_000, 300_000),
+    signal
+  );
+  try {
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Content-Type': contentType,
+        'x-upsert': 'true',
+      },
+      body: file as any,
+      signal: deadline.signal,
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    // If bucket does not exist, attempt to create it automatically
-    if (response.status === 404 || errorText.includes('Bucket not found')) {
-      try {
-        await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-            'apikey': SUPABASE_SERVICE_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
-        });
-        // Retry upload once
-        const retryRes = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-            'apikey': SUPABASE_SERVICE_KEY,
-            'Content-Type': contentType,
-          },
-          body: file as any,
-        });
-        if (retryRes.ok) return storagePath;
-      } catch {}
+    if (!response.ok) {
+      const errorText = await response.text();
+      // If bucket does not exist, attempt to create it automatically
+      if (response.status === 404 || errorText.includes('Bucket not found')) {
+        try {
+          await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'apikey': SUPABASE_SERVICE_KEY,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
+            signal: deadline.signal,
+          });
+          // Retry upload once
+          const retryRes = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'apikey': SUPABASE_SERVICE_KEY,
+              'Content-Type': contentType,
+            },
+            body: file as any,
+            signal: deadline.signal,
+          });
+          if (retryRes.ok) return storagePath;
+        } catch {}
+      }
+      throw new Error(`Failed to upload file to Supabase: ${errorText}`);
     }
-    throw new Error(`Failed to upload file to Supabase: ${errorText}`);
-  }
 
-  return storagePath;
+    return storagePath;
+  } finally {
+    deadline.done();
+  }
 }
 
 function formatSignedUploadUrl(rawUrl: string): string {
@@ -161,6 +222,9 @@ let bucketPublicEnsured = false;
  */
 async function ensureBucketPublic(bucketName: string = 'uploads'): Promise<void> {
   if (bucketPublicEnsured || !isSupabaseConfigured()) return;
+  const deadline = withStorageDeadline(
+    storageTimeoutMs('STORAGE_BUCKET_ENSURE_TIMEOUT_MS', 10_000, 1_000, 60_000)
+  );
   try {
     await fetch(`${SUPABASE_URL}/storage/v1/bucket/${bucketName}`, {
       method: 'PUT',
@@ -170,10 +234,13 @@ async function ensureBucketPublic(bucketName: string = 'uploads'): Promise<void>
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ public: true }),
+      signal: deadline.signal,
     });
     bucketPublicEnsured = true;
   } catch {
     // Non-fatal -- the publishing pipeline surfaces a clear error if unreachable.
+  } finally {
+    deadline.done();
   }
 }
 
@@ -207,6 +274,9 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
   const signEndpoint = `${SUPABASE_URL}/storage/v1/object/upload/sign/${bucketName}/${storagePath}`;
 
   const attemptSign = async (): Promise<{ signedUrl?: string; error?: string }> => {
+    const deadline = withStorageDeadline(
+      storageTimeoutMs('STORAGE_SIGN_TIMEOUT_MS', 15_000, 1_000, 60_000)
+    );
     try {
       const res = await fetch(signEndpoint, {
         method: 'POST',
@@ -216,6 +286,7 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ expiresIn: 3600 }),
+        signal: deadline.signal,
       });
       const text = await res.text();
       if (res.ok) {
@@ -234,6 +305,8 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
       };
     } catch (err: any) {
       return { error: `Signed-URL request failed: ${err?.message || String(err)}` };
+    } finally {
+      deadline.done();
     }
   };
 
@@ -241,6 +314,9 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
 
   // Auto-create the bucket and retry once when it simply does not exist yet.
   if (!result.signedUrl && /404|Bucket not found/i.test(result.error || '')) {
+    const bucketDeadline = withStorageDeadline(
+      storageTimeoutMs('STORAGE_BUCKET_ENSURE_TIMEOUT_MS', 10_000, 1_000, 60_000)
+    );
     try {
       await fetch(`${SUPABASE_URL}/storage/v1/bucket`, {
         method: 'POST',
@@ -250,8 +326,13 @@ export async function createSignedUploadUrl(filename: string): Promise<SignedUpl
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ id: bucketName, name: bucketName, public: true }),
+        signal: bucketDeadline.signal,
       });
-    } catch { /* non-fatal — the retry result decides */ }
+    } catch {
+      /* non-fatal — the retry result decides */
+    } finally {
+      bucketDeadline.done();
+    }
     result = await attemptSign();
   }
 
@@ -340,7 +421,8 @@ export async function saveMediaBuffer(
   buffer: Buffer | ArrayBuffer,
   originalFilename: string,
   contentType: string = 'image/png',
-  workspaceId?: string
+  workspaceId?: string,
+  signal?: AbortSignal
 ): Promise<{ url: string; filename: string }> {
   const timestamp = Date.now();
   const cleanName = (originalFilename || 'media_asset').replace(/[^a-zA-Z0-9.-]/g, '_');
@@ -351,10 +433,13 @@ export async function saveMediaBuffer(
   // 1. Supabase Storage — preferred backend when configured.
   if (isSupabaseConfigured()) {
     try {
-      const storagePath = await uploadFile(rawBuffer, filename, contentType);
+      const storagePath = await uploadFile(rawBuffer, filename, contentType, signal);
       await ensureBucketPublic();
       return { url: getPublicUrl(storagePath), filename: storagePath };
     } catch (err: any) {
+      // A caller-side abort (Skip, Cancel, family deadline) is not a storage
+      // failure and must not fall through to the slower backends below.
+      if (signal?.aborted) throw err;
       // A paused/unreachable Supabase project (free tier auto-pauses after
       // inactivity) must NOT take uploads down with it: log and fall through
       // to the next backend instead of hard-failing (pre-2b742e2 behavior).
@@ -434,7 +519,8 @@ export async function uploadBase64ToStorage(
   base64OrDataUrl: string,
   filename: string,
   contentType: string = 'image/png',
-  workspaceId?: string
+  workspaceId?: string,
+  signal?: AbortSignal
 ): Promise<string | null> {
   if (!base64OrDataUrl) {
     return null;
@@ -453,9 +539,13 @@ export async function uploadBase64ToStorage(
     }
 
     const buffer = Buffer.from(cleanBase64, 'base64');
-    const saved = await saveMediaBuffer(buffer, filename, resolvedContentType, workspaceId);
+    const saved = await saveMediaBuffer(buffer, filename, resolvedContentType, workspaceId, signal);
     return saved.url;
   } catch (err) {
+    // An aborted upload means the render it belonged to was skipped, cancelled
+    // or deadline-cut. Swallowing it here would let that render "succeed" with
+    // a giant data: URL after it was told to stop, so the abort propagates.
+    if (signal?.aborted) throw err;
     console.warn('[Storage] Failed to save generated asset:', err);
     return null;
   }

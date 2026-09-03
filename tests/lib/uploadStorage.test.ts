@@ -29,6 +29,7 @@ const ENV_KEYS = [
   'NEXT_PUBLIC_SUPABASE_KEY',
   'SUPABASE_SECRET_KEY',
   'VERCEL',
+  'STORAGE_UPLOAD_TIMEOUT_MS',
 ] as const;
 
 let savedEnv: Record<string, string | undefined> = {};
@@ -52,6 +53,7 @@ afterEach(() => {
   }
   setNodeEnv('test');
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.doUnmock('@/lib/db');
 });
 
@@ -241,6 +243,91 @@ describe('SUPABASE_URL normalization (PGRST125 fix)', () => {
     expect(ticket.ok).toBe(false);
     if (!ticket.ok) {
       expect(ticket.error).toMatch(/127\.0\.0\.1:59999|Signed-URL request failed/);
+    }
+  });
+});
+
+describe('storage fetch deadlines (hung-upload fix)', () => {
+  /**
+   * A fetch that accepts a signal but never resolves on its own — the network
+   * black hole: connection open, no bytes, no error. Only the signal can end it.
+   */
+  const hangingFetch = () =>
+    vi.fn((_url: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('This operation was aborted', 'AbortError'))
+        );
+      })
+    );
+
+  it('cuts a stalled Supabase upload when the caller aborts (Skip/Cancel/family deadline)', async () => {
+    setNodeEnv('production');
+    process.env.SUPABASE_URL = 'https://dead.example.supabase.co';
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+
+    const fetchMock = hangingFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    const createMock = vi.fn().mockResolvedValue({ id: 'asset_never' });
+    vi.resetModules();
+    vi.doMock('@/lib/db', () => ({
+      default: {
+        mediaAsset: { create: createMock },
+        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_hang' }) },
+      },
+    }));
+
+    const { uploadBase64ToStorage } = await import('@/lib/supabase');
+    const controller = new AbortController();
+    const pending = uploadBase64ToStorage(
+      'data:image/png;base64,aGVsbG8=',
+      'pic.png',
+      'image/png',
+      undefined,
+      controller.signal
+    );
+
+    // The upload is in flight against a connection that never answers...
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // ...when the render it belongs to is abandoned (family deadline / Skip / Cancel).
+    controller.abort();
+
+    // The abort rejects the upload instead of leaving it pending forever, and it
+    // does NOT degrade into a data:-URL "success" or a DB-backend fallthrough.
+    await expect(pending).rejects.toThrow();
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('enforces its own hard timeout when no caller signal exists', async () => {
+    setNodeEnv('production');
+    process.env.SUPABASE_URL = 'https://dead.example.supabase.co';
+    process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
+    process.env.STORAGE_UPLOAD_TIMEOUT_MS = '5000'; // the clamp minimum
+
+    const fetchMock = hangingFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.resetModules();
+    vi.doMock('@/lib/db', () => ({
+      default: {
+        mediaAsset: { create: vi.fn().mockResolvedValue({ id: 'asset_after_timeout' }) },
+        workspace: { findFirst: vi.fn().mockResolvedValue({ id: 'ws_hang' }) },
+      },
+    }));
+
+    const { uploadBase64ToStorage } = await import('@/lib/supabase');
+    vi.useFakeTimers();
+    try {
+      const pending = uploadBase64ToStorage('data:image/png;base64,aGVsbG8=', 'pic.png', 'image/png');
+      // Without a caller signal the upload still cannot hang: the deadline cuts
+      // the stalled fetch and the backend chain degrades gracefully.
+      const assertion = expect(pending).resolves.toBe('/api/media/asset/asset_after_timeout.png');
+      await vi.advanceTimersByTimeAsync(5000);
+      await assertion;
+      // The stalled fetch was cut by its own deadline, not left open forever.
+      expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
