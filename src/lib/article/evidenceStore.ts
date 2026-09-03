@@ -121,6 +121,24 @@ export async function saveResearchSources(
 }
 
 /**
+ * url → row id for the sources this run already stored.
+ *
+ * The evidence gate runs in its own request, so the map `saveResearchSources`
+ * returned is long gone by the time the claims are written. It is read back here
+ * rather than carried in the run's state: these are our own primary keys, and the
+ * state blob is sent to the browser.
+ */
+export async function researchSourceIds(runId: string): Promise<Record<string, string>> {
+  const rows = await prisma.researchSource.findMany({
+    where: { runId },
+    select: { id: true, url: true },
+  });
+  const byUrl: Record<string, string> = {};
+  for (const row of rows) byUrl[row.url] = row.id;
+  return byUrl;
+}
+
+/**
  * The gate's decisions, as rows, joined to the source each was checked against.
  *
  * A decision whose source URL has no row is still written — with `sourceId` null

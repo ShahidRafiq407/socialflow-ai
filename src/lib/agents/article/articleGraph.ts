@@ -48,6 +48,7 @@ import { newMeter } from "./router";
 
 import { runBusinessStage } from "./business";
 import { runContentTypeStage } from "./contentType";
+import { runEvidenceGateStage } from "./evidenceGate";
 import { runFactCheckStage } from "./factcheck";
 import { runGapsStage } from "./gaps";
 import { runGateStage } from "./gate";
@@ -56,6 +57,7 @@ import { runInventoryStage } from "./inventory";
 import { runLinksStage } from "./links";
 import { runOpportunityStage } from "./opportunity";
 import { runOutlineStage } from "./outline";
+import { runResearchStage } from "./research";
 import { runSchemaStage } from "./schema";
 import { runScoreStage } from "./score";
 import { runSeoStage } from "./seo";
@@ -81,6 +83,8 @@ const STAGE_RUNNERS: Partial<Record<ArticleStageKey, StageRunner>> = {
   opportunity: runOpportunityStage,
   strategy: runStrategyStage,
   outline: runOutlineStage,
+  research: runResearchStage,
+  evidence_gate: runEvidenceGateStage,
   write: runWriteStage,
   factcheck: runFactCheckStage,
   seo: runSeoStage,

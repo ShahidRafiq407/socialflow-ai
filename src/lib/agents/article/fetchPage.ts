@@ -7,6 +7,10 @@
  * against pages that already exist. They all need the same three things — a
  * timeout, a public-address check, and readable text rather than markup.
  *
+ * The address check runs twice: once on the URL as given, and again on wherever it
+ * redirected to. Two of these callers fetch URLs a model produced, and a public
+ * host that redirects inward is the one bypass the pre-flight check cannot see.
+ *
  * Nothing here throws. A page that cannot be read comes back with the reason on
  * it, because every one of those stages has something honest to say about a
  * failed fetch and none of them should collapse the run over it.
@@ -14,9 +18,20 @@
 
 import * as cheerio from "cheerio";
 import { assertPublicHttpUrl } from "@/lib/cms/types";
+import { assertResolvesPublicly } from "@/lib/net/publicUrl";
 
 export interface FetchedPage {
+  /** The URL that was asked for, so a caller can match a result to its request. */
   url: string;
+  /**
+   * Where the request actually landed.
+   *
+   * The research stage is handed redirector URLs — grounding cites its own
+   * redirect address, not the publisher's — and a source stored under one would
+   * put an opaque link in a published article. This is the address to keep.
+   * Equal to `url` when nothing redirected.
+   */
+  finalUrl: string;
   /** 0 when the request never completed. */
   status: number;
   ok: boolean;
@@ -40,7 +55,7 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 function fail(url: string, status: number, error: string): FetchedPage {
-  return { url, status, ok: false, title: "", text: "", headings: [], links: [], error };
+  return { url, finalUrl: url, status, ok: false, title: "", text: "", headings: [], links: [], error };
 }
 export async function fetchPage(
   rawUrl: string,
@@ -49,8 +64,12 @@ export async function fetchPage(
   let url: URL;
   try {
     url = assertPublicHttpUrl(rawUrl, "The page URL");
-  } catch (error: any) {
-    return fail(String(rawUrl || ""), 0, error?.message || "That URL cannot be fetched.");
+    // The literal check above stops the obvious private addresses. This one
+    // resolves the host the way the fetch below will, so a name that only points
+    // inside is refused before any request is made.
+    await assertResolvesPublicly(url, "The page URL");
+  } catch (error) {
+    return fail(String(rawUrl || ""), 0, (error as Error)?.message || "That URL cannot be fetched.");
   }
 
   const timeout = AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -68,14 +87,35 @@ export async function fetchPage(
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
-  } catch (error: any) {
-    const aborted = error?.name === "AbortError" || error?.name === "TimeoutError";
+  } catch (error) {
+    const name = (error as Error)?.name;
+    const aborted = name === "AbortError" || name === "TimeoutError";
     return fail(
       url.toString(),
       0,
       aborted
         ? `No response within ${Math.round((options.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000)} seconds.`
-        : `The request failed: ${error?.message || "unknown network error"}.`
+        : `The request failed: ${(error as Error)?.message || "unknown network error"}.`
+    );
+  }
+
+  // Where it landed, re-checked. A redirect is the one way a URL that passed the
+  // pre-flight check can still end up serving an internal address, and it is also
+  // how a redirector URL becomes the publisher's own.
+  let landed = url;
+  try {
+    const destination = String(response.url || "").trim();
+    if (destination && destination !== url.toString()) {
+      landed = assertPublicHttpUrl(destination, "The page it redirected to");
+      if (landed.hostname !== url.hostname) {
+        await assertResolvesPublicly(landed, "The page it redirected to");
+      }
+    }
+  } catch (error) {
+    return fail(
+      url.toString(),
+      response.status,
+      (error as Error)?.message || "It redirected somewhere that cannot be fetched."
     );
   }
 
@@ -90,21 +130,27 @@ export async function fetchPage(
   let raw: string;
   try {
     raw = await response.text();
-  } catch (error: any) {
-    return fail(url.toString(), response.status, `The page body could not be read: ${error?.message || "unknown error"}.`);
+  } catch (error) {
+    return fail(
+      url.toString(),
+      response.status,
+      `The page body could not be read: ${(error as Error)?.message || "unknown error"}.`
+    );
   }
 
   const $ = cheerio.load(raw);
 
   // Links are collected before the chrome is stripped: the nav is exactly where a
   // site lists its own service pages, which is what the crawl needs to follow.
+  // Resolved against where the page landed, so a site that redirects to www does
+  // not have every one of its own links read as off-site.
   const links = new Set<string>();
   $("a[href]").each((_, element) => {
     const href = $(element).attr("href") || "";
     if (!href || href.startsWith("#") || /^(mailto|tel|javascript):/i.test(href)) return;
     try {
-      const resolved = new URL(href, url);
-      if (resolved.hostname === url.hostname && links.size < 200) {
+      const resolved = new URL(href, landed);
+      if (resolved.hostname === landed.hostname && links.size < 200) {
         resolved.hash = "";
         links.add(resolved.toString());
       }
@@ -140,6 +186,7 @@ export async function fetchPage(
 
   return {
     url: url.toString(),
+    finalUrl: landed.toString(),
     status: response.status,
     ok: true,
     title,
