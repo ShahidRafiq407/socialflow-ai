@@ -4,8 +4,12 @@
 // Downloads everything the signed-in user owns as one JSON file. Secrets never
 // leave the server: platform tokens, connector credentials, WordPress app
 // passwords and MCP headers are replaced by booleans, so the file is safe to
-// keep. Long message bodies are capped so the response stays under the Vercel
-// Hobby limit, with an honest truncated flag per row.
+// keep.
+//
+// Size is bounded two ways: each big collection is capped to its most recent
+// rows, and long text fields are capped per field. Every cap is reported
+// honestly in the payload (`truncatedCollections` / per-row `truncated`), so
+// the user knows the export is a snapshot, not the whole database.
 // ============================================================================
 
 import { NextResponse } from "next/server";
@@ -14,8 +18,20 @@ import prisma from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-/** Cap per long text field — keeps the whole export under response limits. */
+/** Cap per long text field. */
 const MAX_TEXT_LENGTH = 10_000;
+
+/** Row caps for the collections that grow without bound (most recent first). */
+const CAPS = {
+  posts: 200,
+  contentPosts: 200,
+  chatSessions: 50,
+  messagesPerSession: 200,
+  memories: 500,
+  trackedLinks: 1000,
+  leadEvents: 1000,
+  publishLogs: 1000,
+} as const;
 
 function capText(value: string | null | undefined): { content: string; truncated: boolean } | null {
   if (value === null || value === undefined) return null;
@@ -37,19 +53,35 @@ export async function GET() {
           orderBy: { createdAt: "asc" },
           include: {
             brandDNA: true,
-            socialAccounts: true,
-            posts: { orderBy: { createdAt: "desc" } },
-            contentPosts: { orderBy: { createdAt: "desc" } },
+            // Token columns are never selected — connection facts only.
+            socialAccounts: {
+              select: {
+                platform: true,
+                handle: true,
+                accountId: true,
+                pageName: true,
+                avatarUrl: true,
+                tokenExpiresAt: true,
+                createdAt: true,
+                accessToken: true,
+                refreshToken: true,
+              },
+            },
+            posts: { orderBy: { createdAt: "desc" }, take: CAPS.posts },
+            contentPosts: { orderBy: { createdAt: "desc" }, take: CAPS.contentPosts },
             hashtagGroups: true,
             growthGoal: true,
             chatSessions: {
               orderBy: { createdAt: "desc" },
-              include: { messages: { orderBy: { createdAt: "asc" } } },
+              take: CAPS.chatSessions,
+              include: {
+                messages: { orderBy: { createdAt: "asc" }, take: CAPS.messagesPerSession },
+              },
             },
-            memories: { orderBy: { createdAt: "desc" } },
-            trackedLinks: { orderBy: { createdAt: "desc" } },
-            leadEvents: { orderBy: { occurredAt: "desc" } },
-            publishLogs: { orderBy: { publishedAt: "desc" } },
+            memories: { orderBy: { createdAt: "desc" }, take: CAPS.memories },
+            trackedLinks: { orderBy: { createdAt: "desc" }, take: CAPS.trackedLinks },
+            leadEvents: { orderBy: { occurredAt: "desc" }, take: CAPS.leadEvents },
+            publishLogs: { orderBy: { publishedAt: "desc" }, take: CAPS.publishLogs },
             wordpressSite: true,
             connections: true,
             mcpServers: true,
@@ -62,9 +94,48 @@ export async function GET() {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
     }
 
+    // True counts for the capped collections, so `truncated` is a fact rather
+    // than a guess. Cheap aggregates on a rare route.
+    const [cappedWorkspaces, cappedSessions] = await Promise.all([
+      prisma.workspace.findMany({
+        where: { userId },
+        select: {
+          _count: {
+            select: {
+              posts: true,
+              contentPosts: true,
+              chatSessions: true,
+              memories: true,
+              leadEvents: true,
+            },
+          },
+        },
+      }),
+      prisma.chatSession.findMany({
+        where: { workspace: { userId } },
+        select: { _count: { select: { messages: true } } },
+      }),
+    ]);
+    const truncatedCollections = {
+      posts: cappedWorkspaces.some((w) => w._count.posts > CAPS.posts),
+      contentPosts: cappedWorkspaces.some((w) => w._count.contentPosts > CAPS.contentPosts),
+      chatSessions: cappedWorkspaces.some((w) => w._count.chatSessions > CAPS.chatSessions),
+      messages: cappedSessions.some((s) => s._count.messages > CAPS.messagesPerSession),
+      memories: cappedWorkspaces.some((w) => w._count.memories > CAPS.memories),
+      leadEvents: cappedWorkspaces.some((w) => w._count.leadEvents > CAPS.leadEvents),
+    };
+
     const exportPayload = {
       format: "postloomai.export.v1",
       exportedAt: new Date().toISOString(),
+      /** Which collections hit their row cap in this file. */
+      limits: {
+        rowsPerCollection: CAPS,
+        textLengthPerField: MAX_TEXT_LENGTH,
+        truncatedCollections,
+        note:
+          "Capped collections keep their most recent rows. Older rows remain in the app; only this file is a snapshot.",
+      },
       profile: {
         id: user.id,
         email: user.email,

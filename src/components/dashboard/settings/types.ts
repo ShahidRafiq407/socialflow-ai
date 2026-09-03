@@ -54,7 +54,6 @@ export interface SettingsCounts {
   socialAccounts: number;
   scheduledPosts: number;
   chatSessions: number;
-  mediaAssets: number;
   connectors: number;
   mcpServers: number;
 

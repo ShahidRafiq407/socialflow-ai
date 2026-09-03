@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Download, Link2, Loader2, Plug, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { downloadAccountExport } from "./exportDownload";
 import type { SettingsData } from "./types";
 
 /**
@@ -25,19 +26,7 @@ export function DataPrivacyCard({
   const exportData = async () => {
     setExporting(true);
     try {
-      const res = await fetch("/api/account/export");
-      if (!res.ok) throw new Error("Export request failed");
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `postloomai-export-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-
+      await downloadAccountExport();
       onToast("success", "Your export has been downloaded.");
     } catch {
       onToast("error", "Export failed. Please try again in a moment.");

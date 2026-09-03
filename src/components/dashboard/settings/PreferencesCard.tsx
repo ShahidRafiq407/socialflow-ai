@@ -144,6 +144,14 @@ export function PreferencesCard({ data }: { data: SettingsData }) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * PATCHes are serialized through this chain. The endpoint merges the patch
+   * into the stored row server-side, so two PATCHes racing each other would let
+   * the later one write a row merged from a stale read and silently drop the
+   * first one's field. One request at a time, each starting only after the
+   * previous finished, keeps every patch alive.
+   */
+  const inFlight = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     return () => {
@@ -152,21 +160,26 @@ export function PreferencesCard({ data }: { data: SettingsData }) {
     };
   }, []);
 
-  const patchSettings = async (patch: Partial<ChatSettingsSummary>) => {
-    setSaveState("saving");
-    try {
-      const res = await fetch("/api/chat/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId: data.workspace.id, settings: patch }),
-      });
-      if (!res.ok) throw new Error("save failed");
-      setSaveState("saved");
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-      savedTimer.current = setTimeout(() => setSaveState("idle"), 2500);
-    } catch {
-      setSaveState("error");
-    }
+  const patchSettings = (patch: Partial<ChatSettingsSummary>): Promise<void> => {
+    const run = async () => {
+      setSaveState("saving");
+      try {
+        const res = await fetch("/api/chat/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId: data.workspace.id, settings: patch }),
+        });
+        if (!res.ok) throw new Error("save failed");
+        setSaveState("saved");
+        if (savedTimer.current) clearTimeout(savedTimer.current);
+        savedTimer.current = setTimeout(() => setSaveState("idle"), 2500);
+      } catch {
+        setSaveState("error");
+      }
+    };
+    const queued = inFlight.current.then(run, run);
+    inFlight.current = queued;
+    return queued;
   };
 
   const updateAi = (patch: Partial<ChatSettingsSummary>) => {

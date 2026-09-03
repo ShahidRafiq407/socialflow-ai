@@ -127,8 +127,19 @@ async function purgeWorkspaceRows(tx: Prisma.TransactionClient, workspaceIds: st
   await tx.message.deleteMany({ where: { chatSession: { workspaceId: { in: workspaceIds } } } });
   await tx.chatSession.deleteMany({ where });
   await tx.trackedLink.deleteMany({ where });
+  // Article pipeline: the run holds a required workspace FK (no cascade), while
+  // its stages, sources and claims cascade on runId.
+  await tx.articleRun.deleteMany({ where });
   await tx.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
 }
+
+/**
+ * Interactive transactions default to a 5s timeout — far too little for ~23
+ * sequential deletes over a remote database on a populated account. The purge
+ * is all-or-nothing, so a generous ceiling beats a mid-way abort that rolls
+ * everything back and makes the user retry.
+ */
+const PURGE_TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 /** Best-effort: drop this workspace's scheduled posts from the Redis queue. */
 async function clearScheduleQueueFor(workspaceId: string) {
@@ -158,10 +169,15 @@ export async function deleteWorkspace(workspaceId: string): Promise<{ success: t
   });
 
   try {
+    await prisma.$transaction(
+      async (tx) => {
+        await purgeWorkspaceRows(tx, [workspace.id]);
+      },
+      PURGE_TRANSACTION_OPTIONS
+    );
+    // Only after the rows are truly gone: purging the queue first would leave
+    // scheduled posts stranded in Postgres if the transaction rolled back.
     await clearScheduleQueueFor(workspace.id);
-    await prisma.$transaction(async (tx) => {
-      await purgeWorkspaceRows(tx, [workspace.id]);
-    });
   } catch (err) {
     console.error("[deleteWorkspace]", err);
     return { success: false, error: "The workspace could not be deleted. Please try again." };
@@ -198,18 +214,23 @@ export async function closeAccount(): Promise<{ success: true } | { success: fal
   const workspaceIds = workspaces.map((w) => w.id);
 
   try {
+    await prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
+        if (existing) {
+          await purgeWorkspaceRows(tx, workspaceIds);
+          await tx.user.delete({ where: { id: userId } });
+        }
+        // User row already gone (earlier attempt) — nothing to do, stay idempotent.
+      },
+      PURGE_TRANSACTION_OPTIONS
+    );
+
+    // Queue entries for already-deleted posts are skipped by the publish cron,
+    // but a clean sweep keeps the queue honest. Runs after commit, like above.
     for (const id of workspaceIds) {
       await clearScheduleQueueFor(id);
     }
-
-    await prisma.$transaction(async (tx) => {
-      const existing = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
-      if (existing) {
-        await purgeWorkspaceRows(tx, workspaceIds);
-        await tx.user.delete({ where: { id: userId } });
-      }
-      // User row already gone (earlier attempt) — nothing to do, stay idempotent.
-    });
   } catch (err) {
     // P2025 = row already deleted, which is the success case for a retry.
     const code = (err as { code?: string })?.code;

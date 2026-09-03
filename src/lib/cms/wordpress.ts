@@ -27,6 +27,18 @@ import {
   type CmsTarget,
   type CmsVerifyResult,
 } from "./types";
+import { assertResolvesPublicly } from "@/lib/net/publicUrl";
+
+/**
+ * The sync guard inside configOf catches literal private hostnames; this
+ * resolves the host before any request leaves, so numeric IP spellings and
+ * private DNS records are refused too.
+ */
+async function configOfResolved(target: CmsTarget): Promise<WPConfig> {
+  const config = configOf(target);
+  await assertResolvesPublicly(new URL(config.siteUrl), "WordPress site URL");
+  return config;
+}
 
 function configOf(target: CmsTarget): WPConfig {
   const siteUrl = trimTrailingSlash(target.meta.siteUrl || "");
@@ -95,7 +107,7 @@ async function createWPTag(config: WPConfig, name: string): Promise<number | nul
 
 async function verify(target: CmsTarget): Promise<CmsVerifyResult> {
   try {
-    const config = configOf(target);
+    const config = await configOfResolved(target);
     const ok = await testWPConnection(config);
     if (!ok) {
       return {

@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { assertPublicHttpUrl, trimTrailingSlash } from "@/lib/cms/types";
+import { assertResolvesPublicly } from "@/lib/net/publicUrl";
 
 export interface WooProduct {
   id: number;
@@ -54,6 +55,9 @@ async function woo<T>(
   const basic = Buffer.from(`${creds.consumerKey}:${creds.consumerSecret}`).toString("base64");
 
   try {
+    // Literal private-address checks run inside endpoint(); this resolves the
+    // host so numeric spellings and private DNS records are caught too.
+    await assertResolvesPublicly(new URL(url), "Store URL");
     const res = await fetch(url, {
       ...rest,
       headers: {

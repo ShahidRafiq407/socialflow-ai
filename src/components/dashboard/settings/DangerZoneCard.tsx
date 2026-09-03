@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { closeAccount, deleteWorkspace } from "@/actions/account";
+import { downloadAccountExport } from "./exportDownload";
 import type { SettingsData } from "./types";
 
 /**
@@ -131,17 +132,7 @@ export function DangerZoneCard({
 
   const exportNow = async () => {
     try {
-      const res = await fetch("/api/account/export");
-      if (!res.ok) throw new Error("export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `postloomai-export-${new Date().toISOString().slice(0, 10)}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadAccountExport();
       onToast("success", "Export downloaded.");
     } catch {
       onToast("error", "Export failed — try again from Data & Privacy.");
