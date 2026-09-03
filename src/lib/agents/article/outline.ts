@@ -11,6 +11,14 @@
  * An uncovered item is recorded on the run, so the score's completeness dimension
  * reads a fact instead of forming an opinion.
  *
+ * On a deep run the plan is also answerable to two upstream stages. The page-type
+ * stage decided what format this is and what parts that format has to carry, and
+ * this is where those parts become sections — otherwise that decision would be a
+ * label on a run nothing acted on. The gap stage sorted the first page into bands,
+ * and they arrive as coverage instructions: `common` is the floor, `opportunity` is
+ * the part of the page nobody else has. Both are absent in quick mode, and the
+ * helpers that render them return nothing rather than inventing a format.
+ *
  * Word targets are distributed here, not invented by the writer. They exist so a
  * 1,500-word brief does not come back as 4,000 words of the same point; they are
  * a planning input and no stage scores the article on hitting them.
@@ -19,10 +27,14 @@
 import {
   readArticleOutline,
   readArticleStrategy,
+  readContentGapReport,
+  readPageTypeDecision,
   readSearchIntent,
   readSerpResearch,
   type ArticleOutline,
   type ArticleStrategy,
+  type ContentGapReport,
+  type PageTypeDecision,
   type SearchIntent,
   type SerpResearch,
 } from "@/lib/article/artifacts";
@@ -48,6 +60,7 @@ Produce:
 
 Rules you do not break:
 - Every "must know" item you were given is covered by some section. If one is not, you have not finished.
+- If you were told what parts this format has to contain, every one of them lives in a section. A page missing a part its format is expected to carry is incomplete however well the prose reads.
 - Every section names the reader question it answers. If you cannot name one, cut the section.
 - Points are specific enough that a writer could not fill them with generalities. "Explain the benefits" is not a point.
 - No section that exists to hold a keyword. No "Conclusion" that repeats the introduction.
@@ -73,10 +86,70 @@ function serpLines(serp: SerpResearch | null): string {
     .join("\n");
   return `HOW THE RANKING PAGES ARE STRUCTURED (cover what matters, do not copy the order):\n${lines}`;
 }
+
+/**
+ * What the page-type stage decided this format has to contain.
+ *
+ * The list is the reason that stage exists: a service page and an explainer answer
+ * the same query with different parts, and the outline is where those parts become
+ * sections. Absent on a quick run, which has no page-type stage.
+ */
+function formatLines(pageType: PageTypeDecision | null): string[] {
+  if (!pageType) return [];
+  const parts = [`THE FORMAT THIS PAGE IS: ${pageType.choice} — ${pageType.reason}`];
+  if (pageType.requiredElements.length) {
+    parts.push(
+      `IT HAS TO CONTAIN EACH OF THESE, and a section is where each one lives:\n- ${pageType.requiredElements.join(
+        "\n- "
+      )}`
+    );
+  }
+  if (pageType.existingUrl) {
+    parts.push(
+      `A PAGE ON THIS SITE ALREADY COVERS THIS QUERY: ${pageType.existingUrl}. Plan a page that replaces it, not one that sits alongside it.`
+    );
+  }
+  return parts;
+}
+
+/**
+ * The gap bands, as instructions about coverage.
+ *
+ * `common` is the floor — leaving one out is a hole a reader would notice.
+ * `opportunity` is the only band that has to be planned into its own section,
+ * because it is the part of the page nobody else has.
+ */
+function gapLines(gaps: ContentGapReport | null): string[] {
+  if (!gaps || gaps.topics.length === 0) return [];
+  const band = (name: ContentGapReport["topics"][number]["band"], limit: number): string =>
+    gaps.topics
+      .filter((topic) => topic.band === name)
+      .slice(0, limit)
+      .map((topic) => `- ${topic.topic}: ${topic.note}`)
+      .join("\n");
+
+  const parts: string[] = [];
+  const common = band("common", 10);
+  const opportunity = band("opportunity", 8);
+  const missing = band("missing", 8);
+  const weak = band("weak", 8);
+  if (common) parts.push(`EVERY RANKING PAGE COVERS THESE — leaving one out is a hole:\n${common}`);
+  if (opportunity) {
+    parts.push(
+      `NOBODY COVERS THESE AND THIS BUSINESS CAN ANSWER THEM — each one earns its own section:\n${opportunity}`
+    );
+  }
+  if (missing) parts.push(`NOBODY COVERS THESE:\n${missing}`);
+  if (weak) parts.push(`COVERED BADLY BY THE PAGES THAT RANK — do better or leave them out:\n${weak}`);
+  return parts;
+}
+
 function prompt(
   ctx: StageContext,
   strategy: ArticleStrategy,
   intent: SearchIntent,
+  pageType: PageTypeDecision | null,
+  gaps: ContentGapReport | null,
   serp: SerpResearch | null,
   words: number
 ): string {
@@ -98,6 +171,12 @@ function prompt(
     }${strategy.businessTieIn ? `\nWhere the business belongs: ${strategy.businessTieIn}` : ""}`
   );
 
+  // The parts this format has to have, from the stage that decided the format.
+  // Before "must know", because these are the page's structure and those are its
+  // content: a section can answer a reader question and still leave out the price
+  // table a service page is expected to carry.
+  parts.push(...formatLines(pageType));
+
   parts.push(
     `WHAT THE READER MUST KNOW BY THE LAST LINE (every one of these is covered by a section):\n- ${intent.mustKnow.join("\n- ")}`
   );
@@ -117,6 +196,9 @@ function prompt(
   if (serp?.peopleAlsoAsk.length) {
     parts.push(`QUESTIONS GOOGLE SHOWS ALONGSIDE:\n- ${serp.peopleAlsoAsk.slice(0, 12).join("\n- ")}`);
   }
+  // After the structures they were read from, because the bands are a judgement
+  // about those pages and read as one when they sit next to them.
+  parts.push(...gapLines(gaps));
   return parts.join("\n\n");
 }
 /**
@@ -211,6 +293,10 @@ export const runOutlineStage: StageRunner = async (ctx: StageContext): Promise<S
     );
   }
   const intent = readArtifact(ctx, "intent", readSearchIntent);
+  // Both absent on a quick run, which has no page-type or gap stage. The helpers
+  // return nothing for null rather than describing a format nobody decided.
+  const pageType = readArtifact(ctx, "content_type", readPageTypeDecision);
+  const gaps = readArtifact(ctx, "gaps", readContentGapReport);
   const serp = readArtifact(ctx, "serp", readSerpResearch);
   const words = briefWordTarget(ctx.brief);
   const mustKnow = intent?.mustKnow || [];
@@ -220,7 +306,21 @@ export const runOutlineStage: StageRunner = async (ctx: StageContext): Promise<S
     "Outline",
     {
       system: SYSTEM,
-      prompt: prompt(ctx, strategy, intent || { kind: "informational", readerProblem: ctx.brief.keyword, mustKnow: [], questions: [], expectedFormat: "" }, serp, words),
+      prompt: prompt(
+        ctx,
+        strategy,
+        intent || {
+          kind: "informational",
+          readerProblem: ctx.brief.keyword,
+          mustKnow: [],
+          questions: [],
+          expectedFormat: "",
+        },
+        pageType,
+        gaps,
+        serp,
+        words
+      ),
       meter: ctx.meter,
       signal: ctx.signal,
     },

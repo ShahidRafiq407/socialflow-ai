@@ -47,10 +47,14 @@ import type { StageContext, StageResult, StageRunner, WorkspaceFacts } from "./c
 import { newMeter } from "./router";
 
 import { runBusinessStage } from "./business";
+import { runContentTypeStage } from "./contentType";
 import { runFactCheckStage } from "./factcheck";
+import { runGapsStage } from "./gaps";
 import { runGateStage } from "./gate";
 import { runIntentStage } from "./intent";
+import { runInventoryStage } from "./inventory";
 import { runLinksStage } from "./links";
+import { runOpportunityStage } from "./opportunity";
 import { runOutlineStage } from "./outline";
 import { runSchemaStage } from "./schema";
 import { runScoreStage } from "./score";
@@ -69,8 +73,12 @@ import { runWriteStage } from "./write";
  */
 const STAGE_RUNNERS: Partial<Record<ArticleStageKey, StageRunner>> = {
   business: runBusinessStage,
+  inventory: runInventoryStage,
+  content_type: runContentTypeStage,
   intent: runIntentStage,
   serp: runSerpStage,
+  gaps: runGapsStage,
+  opportunity: runOpportunityStage,
   strategy: runStrategyStage,
   outline: runOutlineStage,
   write: runWriteStage,
