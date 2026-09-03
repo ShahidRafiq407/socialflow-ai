@@ -245,3 +245,172 @@
     opacity: 0.7;
   }
 }
+
+/* ===========================================================================
+   ARTICLE BODY — the Article Writer's editor and preview
+
+   These rules used to be injected into the page as a <style> tag full of literal
+   hex codes, which meant the article preview kept its own indigo/amber palette
+   whatever theme the dashboard was in, and did not follow a light/dark switch at
+   all. Every colour here is a theme token, so the preview matches the app and a
+   re-theme reaches it for free. Element selectors, not utility classes: the HTML
+   is generated at runtime, so Tailwind never sees its class names.
+   ======================================================================== */
+.article-body {
+  color: var(--foreground);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  word-break: break-word;
+}
+.article-body > * + * {
+  margin-top: 1.15rem;
+}
+.article-body h1,
+.article-body h2,
+.article-body h3,
+.article-body h4 {
+  color: var(--foreground);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  scroll-margin-top: 5rem;
+}
+.article-body h2 {
+  font-size: 1.6rem;
+  margin-top: 2.25rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.article-body h3 {
+  font-size: 1.25rem;
+  margin-top: 1.75rem;
+}
+.article-body h4 {
+  font-size: 1.05rem;
+  margin-top: 1.5rem;
+}
+.article-body p {
+  color: var(--foreground);
+}
+.article-body a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.article-body a:hover {
+  color: var(--secondary);
+}
+.article-body strong {
+  color: var(--foreground);
+  font-weight: 700;
+}
+.article-body ul,
+.article-body ol {
+  padding-left: 1.5rem;
+}
+.article-body ul {
+  list-style: disc;
+}
+.article-body ol {
+  list-style: decimal;
+}
+.article-body li + li {
+  margin-top: 0.4rem;
+}
+.article-body li::marker {
+  color: var(--primary);
+}
+.article-body blockquote {
+  border-left: 3px solid var(--primary);
+  background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  padding: 0.9rem 1.15rem;
+  font-style: italic;
+  color: var(--muted-foreground);
+}
+.article-body table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  font-size: 0.9rem;
+  display: block;
+  overflow-x: auto;
+}
+.article-body th,
+.article-body td {
+  border: 1px solid var(--border);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+.article-body th {
+  background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+  color: var(--foreground);
+  font-weight: 700;
+}
+.article-body tbody tr:nth-child(even) {
+  background-color: var(--muted);
+}
+.article-body figure {
+  margin: 2rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  overflow: hidden;
+  background-color: var(--card);
+}
+.article-body figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.article-body figcaption {
+  padding: 0.65rem 0.85rem;
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.article-body img {
+  border-radius: var(--radius-xl);
+  max-width: 100%;
+  height: auto;
+}
+.article-body iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: var(--radius-2xl);
+}
+.article-body code {
+  background-color: var(--muted);
+  color: var(--foreground);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.85em;
+}
+.article-body pre {
+  background-color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  overflow-x: auto;
+}
+.article-body hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+/* The key-takeaways / FAQ / sources blocks the generator emits. */
+.article-body .article-callout {
+  border: 1px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  background-color: color-mix(in oklab, var(--primary) 7%, transparent);
+  border-radius: var(--radius-2xl);
+  padding: 1.15rem 1.25rem;
+}
+/* Whatever is selected in the editor's media toolbar. */
+.article-body .media-selected {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}

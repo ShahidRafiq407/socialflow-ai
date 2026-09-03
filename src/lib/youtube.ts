@@ -1,8 +1,16 @@
 /**
  * Smart YouTube Video Embedder
- * Uses Serper.dev Videos API to discover a real, top-ranking YouTube video for the article keyword
- * and generates a responsive 16:9 embedded player.
+ *
+ * Finds a real, top-ranking YouTube video for the article keyword through the
+ * Serper.dev Videos API and builds a responsive 16:9 embed.
+ *
+ * Returns null when nothing relevant is found or the provider is not configured.
+ * It never substitutes a stand-in video: an unrelated embed hurts dwell time and
+ * makes the article look machine-assembled, which is the opposite of the E-E-A-T
+ * signal the article is built for.
  */
+
+import { getSerperKey, hasSerperKey } from "@/lib/apiKeys";
 
 export interface YouTubeEmbedResult {
   videoId: string;
@@ -11,88 +19,90 @@ export interface YouTubeEmbedResult {
   embedHtml: string;
 }
 
-export async function getSmartYouTubeEmbed(keyword: string): Promise<YouTubeEmbedResult | null> {
-  const cleanQuery = `${keyword || "digital marketing"} tutorial explained`;
-  const serperKey = "efdd31e031ae0b380b32115cd2e9b3b1337a46b6";
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** The embed is styled from theme tokens so it matches the app and the editor. */
+export function buildYouTubeEmbedHtml(videoId: string, title: string): string {
+  const safeTitle = escapeHtml(title);
+  return `<div class="youtube-video-embed my-8 overflow-hidden rounded-2xl border shadow-lg">
+  <div class="aspect-video w-full">
+    <iframe
+      src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}"
+      title="${safeTitle}"
+      class="w-full h-full border-0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen
+      loading="lazy"
+    ></iframe>
+  </div>
+  <figcaption class="video-embed-caption p-3 text-xs font-medium">Watch: ${safeTitle}</figcaption>
+</div>`;
+}
+
+export async function getSmartYouTubeEmbed(
+  keyword: string,
+  options?: { targetCountry?: string; context?: string }
+): Promise<YouTubeEmbedResult | null> {
+  if (!hasSerperKey()) return null;
+
+  const topic = (keyword || "").trim();
+  if (!topic) return null;
+
+  const cleanQuery = options?.context
+    ? `${topic} ${options.context}`.trim()
+    : `${topic} tutorial explained`;
+
+  const raw = (options?.targetCountry || "").trim().toUpperCase();
+  const gl = /^[A-Z]{2}$/.test(raw) && raw !== "WW" ? raw.toLowerCase() : "";
 
   try {
     const res = await fetch("https://google.serper.dev/videos", {
       method: "POST",
       headers: {
-        "X-API-KEY": serperKey,
+        "X-API-KEY": getSerperKey(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         q: cleanQuery,
-        gl: "us",
+        ...(gl ? { gl } : {}),
         hl: "en",
         num: 5,
       }),
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(6000),
+      cache: "no-store",
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const videos = data.videos || [];
-      for (const item of videos) {
-        if (!item.link) continue;
-        const match = item.link.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&?#/]+)/i);
-        if (match && match[1]) {
-          const videoId = match[1];
-          const title = item.title || `${keyword} Complete Guide`;
-          const embedHtml = `<div class="youtube-video-embed my-8 overflow-hidden rounded-2xl border-2 border-slate-200 dark:border-slate-800 shadow-xl bg-slate-900/5">
-  <div class="aspect-video w-full">
-    <iframe
-      src="https://www.youtube.com/embed/${videoId}"
-      title="YouTube video player - ${title}"
-      class="w-full h-full border-0"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-      allowfullscreen
-      loading="lazy"
-    ></iframe>
-  </div>
-  <div class="p-3 bg-slate-100 dark:bg-slate-900 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 font-medium">
-    <span class="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[70%]">▶️ Featured Video: ${title}</span>
-    <span class="inline-flex items-center gap-1 text-[10px] bg-red-500/15 text-red-600 dark:text-red-400 font-bold px-2.5 py-0.5 rounded-full border border-red-500/20">🔴 YouTube Embedded</span>
-  </div>
-</div>`;
-          return {
-            videoId,
-            title,
-            url: `https://www.youtube.com/watch?v=${videoId}`,
-            embedHtml,
-          };
-        }
-      }
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const videos = Array.isArray(data.videos) ? data.videos : [];
+
+    for (const item of videos) {
+      if (!item?.link) continue;
+      const match = String(item.link).match(
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{6,})/i
+      );
+      if (!match?.[1]) continue;
+
+      const videoId = match[1];
+      const title = (item.title || `${topic} — video guide`).toString().slice(0, 160);
+      return {
+        videoId,
+        title,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        embedHtml: buildYouTubeEmbedHtml(videoId, title),
+      };
     }
   } catch (err) {
-    console.warn("Failed to search Serper.dev for YouTube videos:", err);
+    console.warn("[youtube] video search unavailable:", (err as any)?.message || err);
   }
 
-  // Safe fallback educational tech video if Serper fails
-  const defaultVideoId = "8aGhZQkoFbQ"; // Reliable educational embedded systems & tech tutorial video
-  const defaultTitle = `${keyword} — Technical Guide & Tutorial`;
-  const fallbackHtml = `<div class="youtube-video-embed my-8 overflow-hidden rounded-2xl border-2 border-slate-200 dark:border-slate-800 shadow-xl bg-slate-900/5">
-  <div class="aspect-video w-full">
-    <iframe
-      src="https://www.youtube.com/embed/${defaultVideoId}"
-      title="YouTube video player - ${defaultTitle}"
-      class="w-full h-full border-0"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-      allowfullscreen
-      loading="lazy"
-    ></iframe>
-  </div>
-  <div class="p-3 bg-slate-100 dark:bg-slate-900 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 font-medium">
-    <span class="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[70%]">▶️ Featured Video: ${defaultTitle}</span>
-    <span class="inline-flex items-center gap-1 text-[10px] bg-red-500/15 text-red-600 dark:text-red-400 font-bold px-2.5 py-0.5 rounded-full border border-red-500/20">🔴 YouTube Embedded</span>
-  </div>
-</div>`;
-
-  return {
-    videoId: defaultVideoId,
-    title: defaultTitle,
-    url: `https://www.youtube.com/watch?v=${defaultVideoId}`,
-    embedHtml: fallbackHtml,
-  };
+  return null;
 }

@@ -1,5 +1,7 @@
 "use server";
 
+import { getPixabayKeys, PIXABAY_MISSING_MESSAGE } from "@/lib/apiKeys";
+
 export interface StockHit {
   id: string;
   url: string;
@@ -28,8 +30,13 @@ export async function searchStockMedia(
 ) {
   try {
     const searchTerm = (query && query.trim()) ? query.trim() : "business";
-    const apiKey = process.env.PIXABAY_API_KEY || "48747442-d6c1b3f9b2d9d95f6e80b2a75";
-    
+    // Key comes from the environment only. No literal fallback: a shared key
+    // would silently spend somebody else's quota.
+    const apiKey = getPixabayKeys()[0];
+    if (!apiKey) {
+      return { success: false, error: PIXABAY_MISSING_MESSAGE, hits: [], totalHits: 0 };
+    }
+
     // Construct real Pixabay endpoint (matching website parameters)
     const orientationParam = orientation === "all" ? "" : `&orientation=${orientation}`;
     const videoPerPage = Math.min(200, perPage * 2); // fetch more videos to account for manual filtering
@@ -176,6 +183,8 @@ export async function searchStockMedia(
     return { success: true, hits: [], totalHits: 0 };
   } catch (error: any) {
     console.error("Stock media search error:", error);
-    return { success: false, error: error.message || "Failed to fetch Pixabay stock media", totalHits: 0 };
+    // `hits` is always present, on every branch: callers destructure it, and a
+    // missing key here made the return type a union they could not read.
+    return { success: false, error: error.message || "Failed to fetch Pixabay stock media", hits: [] as StockHit[], totalHits: 0 };
   }
 }
