@@ -133,13 +133,9 @@ describe("computeLimits — not built", () => {
     expect(pin!.fix).toBeNull();
   });
 
-  it("lists every planned connector as not-built", () => {
+  it("does not report removed planned connectors", () => {
     const planned = computeLimits(EVERYTHING).filter((l) => l.key.startsWith("planned:"));
-    expect(planned.length).toBeGreaterThan(0);
-    for (const p of planned) {
-      expect(p.reason).toBe("not_built");
-      expect(p.fix).toBeNull();
-    }
+    expect(planned).toHaveLength(0);
   });
 });
 

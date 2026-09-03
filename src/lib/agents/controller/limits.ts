@@ -18,7 +18,7 @@
 
 import type { ChatSettings } from "./settingsShape";
 import { buildDeepLink, type DashboardTab } from "./navigation";
-import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS } from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { PLATFORM_CAPABILITIES } from "@/lib/capabilities/platformCapabilities";
 import { getPlanConfig } from "@/lib/billing/plans";
 
@@ -233,16 +233,6 @@ export function computeLimits(params: {
       detail:
         `${name} has no publishing API in this product yet. You can write it, generate the media and save it — ` +
         `the upload itself is manual.`,
-      fix: null,
-    });
-  }
-
-  for (const planned of PLANNED_CONNECTORS) {
-    limits.push({
-      key: `planned:${planned.key}`,
-      capability: `${planned.name} — ${planned.tagline}`,
-      reason: "not_built",
-      detail: "On the roadmap, not built. There is no tool for it, so it cannot be done from this chat at all.",
       fix: null,
     });
   }

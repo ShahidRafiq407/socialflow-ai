@@ -5,32 +5,26 @@ import {
   Plug,
   Globe,
   Video,
-  Image as ImageIcon,
-  Cloud,
   Zap,
   ShoppingCart,
   Server as ServerIcon,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
-  Sparkles,
   Search,
   RefreshCw,
   GitBranch,
   TrendingUp,
-  Clock,
   Copy,
   Check,
   Loader2,
   ArrowRight,
 } from "lucide-react";
 import { fetchLiveTrendingNews, TrendItem } from "@/actions/trends";
-import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS, ConnectorCategory } from "@/lib/connectors/registry";
-import type { WordPressSiteView } from "@/actions/wordpressSite";
+import { CONNECTOR_REGISTRY, ConnectorCategory } from "@/lib/connectors/registry";
 import type { ConnectorView } from "@/actions/connections";
 import type { McpServerView } from "@/actions/mcpServers";
 import type { TrackingStatus } from "@/lib/types/growth";
-import { ConnectWordPressModal } from "./plugins/ConnectWordPressModal";
 import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
 import { AddMcpServerModal } from "./plugins/AddMcpServerModal";
 import { McpServerCard } from "./plugins/McpServerCard";
@@ -45,16 +39,8 @@ const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
   automation: Zap,
 };
 
-const PLANNED_CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
-  dev: GitBranch,
-  media: ImageIcon,
-  ecommerce: ShoppingCart,
-  automation: Zap,
-};
-
 interface PluginsHQProps {
   workspaceId: string;
-  wpSite: WordPressSiteView;
   connections: ConnectorView[];
   mcpServers: McpServerView[];
   tracking: TrackingStatus;
@@ -89,7 +75,6 @@ function normalizeConnectorKey(raw: string | null): string | null {
 
 export default function PluginsHQ({
   workspaceId,
-  wpSite,
   connections,
   mcpServers,
   tracking,
@@ -97,12 +82,10 @@ export default function PluginsHQ({
 }: PluginsHQProps) {
   const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
-  const [wpSiteState, setWpSiteState] = useState<WordPressSiteView>(wpSite);
   const [connectionsState, setConnectionsState] = useState<ConnectorView[]>(connections);
   const [mcpServersState, setMcpServersState] = useState<McpServerView[]>(mcpServers);
   const [trackingState, setTrackingState] = useState<TrackingStatus>(tracking);
 
-  const [showWpModal, setShowWpModal] = useState(false);
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
   const [showAddMcpModal, setShowAddMcpModal] = useState(false);
   const [focusedConnector, setFocusedConnector] = useState<string | null>(null);
@@ -125,7 +108,7 @@ export default function PluginsHQ({
   );
   const connectedCount = connectionsState.filter((connection) => connection.status === "connected").length;
   const connectedCmsTargets = publishTargetsState.targets.filter((target) => target.status === "connected");
-  const installedCount = connectedCount + (wpSiteState.connected ? 1 : 0) + connectedCmsTargets.length;
+  const installedCount = connectedCount + connectedCmsTargets.length;
 
   // A ?connector= link lands on the connectors tab with that card scrolled to and
   // ringed. If it is not connected yet the connect dialog opens too — that link
@@ -146,7 +129,7 @@ export default function PluginsHQ({
 
     const connected =
       key === "wordpress"
-        ? wpSite.connected
+      ? publishTargetsState.targets.some((target) => target.providerKey === "wordpress" && target.status === "connected")
         : key === "website-tag"
           ? tracking.installed
           : connections.find((c) => c.providerKey === key)?.status === "connected";
@@ -163,8 +146,7 @@ export default function PluginsHQ({
       connected || key === "website-tag"
         ? undefined
         : setTimeout(() => {
-            if (key === "wordpress") setShowWpModal(true);
-            else setActiveConnectorKey(key);
+            if (key !== "wordpress") setActiveConnectorKey(key);
           }, 620);
 
     const unring = setTimeout(() => setFocusedConnector(null), 4200);
@@ -272,7 +254,6 @@ export default function PluginsHQ({
           const connector = CONNECTOR_REGISTRY.find((item) => item.key === connection.providerKey);
           return <button key={connection.providerKey} title={connector?.name} onClick={() => setFocusedConnector(connection.providerKey)} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-indigo-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900">{connector?.name.slice(0, 1)}</button>;
         })}
-        {wpSiteState.connected && <button title="WordPress" onClick={() => setShowWpModal(true)} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-blue-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900">W</button>}
         {connectedCmsTargets.filter((target) => target.providerKey !== "wordpress").map((target) => <button key={target.id} title={target.providerName} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-emerald-600 shadow-sm dark:border-slate-700 dark:bg-slate-900">{target.providerName.slice(0, 1)}</button>)}
         {installedCount === 0 && <span className="text-sm text-slate-400">Connect a plugin below to see it here.</span>}
       </div>
@@ -310,56 +291,6 @@ export default function PluginsHQ({
       {activeTab === "connectors" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* WordPress Card — real state */}
-            <div
-              id="connector-wordpress"
-              className={`relative rounded-2xl border bg-white dark:bg-slate-900 p-6 shadow-sm hover:shadow-md transition-all ${
-                focusedConnector === "wordpress"
-                  ? "border-indigo-500 ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-slate-950"
-                  : "border-slate-200 dark:border-slate-800"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                    <Globe className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 dark:text-white">WordPress Pro</h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Blog Article & SEO Publisher</p>
-                  </div>
-                </div>
-                {wpSiteState.connected ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="h-3 w-3" /> Connected
-                  </span>
-                ) : wpSiteState.lastError ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                    <AlertCircle className="h-3 w-3" /> Failed
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                    Not connected
-                  </span>
-                )}
-              </div>
-              <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                AI CEO writes SEO articles with FAQ schema and H2/H3 headings, and publishes them
-                straight to your WordPress blog with Yoast/RankMath meta tags.
-              </p>
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
-                <span className="text-xs font-medium text-slate-500 truncate max-w-[55%]">
-                  {wpSiteState.connected ? wpSiteState.siteUrl : "Not connected"}
-                </span>
-                <button
-                  onClick={() => setShowWpModal(true)}
-                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
-                >
-                  {wpSiteState.connected ? "Manage →" : "Connect →"}
-                </button>
-              </div>
-            </div>
-
             {/* Website lead tag — the other half of the website channel */}
             <WebsiteTagCard
               workspaceId={workspaceId}
@@ -495,93 +426,6 @@ export default function PluginsHQ({
             )}
           </div>
 
-          {/* Planned connectors — honest, no fake states */}
-          <div>
-            <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-              More plugins
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {PLANNED_CONNECTORS.map((planned) => {
-                const Icon = PLANNED_CATEGORY_ICONS[planned.category] || Cloud;
-                return (
-                  <div
-                    key={planned.key}
-                    className="relative rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-6"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 opacity-70">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-200/60 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                          <Icon className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-slate-700 dark:text-slate-300">{planned.name}</h3>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{planned.tagline}</p>
-                        </div>
-                      </div>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        <Clock className="h-3 w-3" /> Planned
-                      </span>
-                    </div>
-                    <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-                      {planned.description}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddMcpModal(true)}
-                      className="mt-4 text-xs font-semibold text-violet-600 hover:text-violet-500 dark:text-violet-400"
-                    >
-                      Connect via MCP →
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Real capability showcase */}
-          <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-6">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-indigo-500" />
-              What You Can Ask Your AI CEO Once Connected:
-            </h3>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase">
-                  Pro Article Publisher
-                </p>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;Write a 2000-word SEO article with FAQ schema and publish it to my WordPress
-                  blog.&rdquo;
-                </p>
-              </div>
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 uppercase">
-                  GitHub Project Publisher
-                </p>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;Create a GitHub repo called my-project and push a professional README.md for
-                  it.&rdquo;
-                </p>
-              </div>
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">
-                  Repo Explorer
-                </p>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;List my most recently updated GitHub repositories.&rdquo;
-                </p>
-              </div>
-              <div className="rounded-xl bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase">
-                  Trend-Powered Content
-                </p>
-                <p className="mt-1 text-sm text-slate-700 dark:text-slate-200 font-medium">
-                  &ldquo;Scan live news in my industry and draft a thought-leadership post from the top
-                  story.&rdquo;
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -770,16 +614,6 @@ export default function PluginsHQ({
             </div>
           )}
         </div>
-      )}
-
-      {/* WordPress Configuration Modal */}
-      {showWpModal && (
-        <ConnectWordPressModal
-          workspaceId={workspaceId}
-          site={wpSiteState}
-          onClose={() => setShowWpModal(false)}
-          onUpdate={setWpSiteState}
-        />
       )}
 
       {/* Generic Connector Modal */}

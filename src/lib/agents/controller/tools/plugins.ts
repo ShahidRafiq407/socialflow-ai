@@ -9,7 +9,7 @@
 
 import prisma from "@/lib/db";
 import type { ToolDef } from "@/lib/agents/chat/tools";
-import { CONNECTOR_REGISTRY, PLANNED_CONNECTORS } from "@/lib/connectors/registry";
+import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { buildDeepLink } from "../navigation";
 
 export const PLUGIN_TOOLS: ToolDef[] = [
@@ -67,7 +67,6 @@ export const PLUGIN_TOOLS: ToolDef[] = [
 
       return {
         connectors,
-        plannedConnectors: PLANNED_CONNECTORS.map((p) => ({ key: p.key, name: p.name, status: "not_built_yet" })),
         mcpServers: mcp,
         socialAccounts: (socialAccounts || []).map((a: any) => ({
           platform: a.platform,

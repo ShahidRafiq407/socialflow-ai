@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
 import PluginsHQ from "@/components/dashboard/PluginsHQ";
-import { getWordPressSite } from "@/actions/wordpressSite";
 import { listConnections } from "@/actions/connections";
 import { listMcpServers } from "@/actions/mcpServers";
 import { getWebsiteTrackingStatus } from "@/actions/growthLeads";
@@ -25,8 +24,7 @@ export default async function PluginsPage() {
     redirect("/onboarding");
   }
 
-  const [wpSite, connections, mcpServers, tracking, publishTargets] = await Promise.all([
-    getWordPressSite(workspace.id),
+  const [connections, mcpServers, tracking, publishTargets] = await Promise.all([
     listConnections(workspace.id),
     listMcpServers(workspace.id),
     getWebsiteTrackingStatus(workspace.id),
@@ -36,7 +34,6 @@ export default async function PluginsPage() {
   return (
     <PluginsHQ
       workspaceId={workspace.id}
-      wpSite={wpSite}
       connections={connections}
       mcpServers={mcpServers}
       tracking={tracking}
