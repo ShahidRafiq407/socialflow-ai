@@ -49,6 +49,7 @@ import { newMeter } from "./router";
 import { runBusinessStage } from "./business";
 import { runCannibalizationStage } from "./cannibalization";
 import { runContentTypeStage } from "./contentType";
+import { runEditorStage } from "./editor";
 import { runEeatStage } from "./eeat";
 import { runEvidenceGateStage } from "./evidenceGate";
 import { runFactCheckStage } from "./factcheck";
@@ -57,6 +58,7 @@ import { runGateStage } from "./gate";
 import { runIntentStage } from "./intent";
 import { runInventoryStage } from "./inventory";
 import { runLinksStage } from "./links";
+import { runMediaStage } from "./media";
 import { runOpportunityStage } from "./opportunity";
 import { runOriginalityStage } from "./originality";
 import { runOutlineStage } from "./outline";
@@ -71,10 +73,11 @@ import { runWriteStage } from "./write";
 /**
  * Who runs what.
  *
- * `Partial` is the honest type: the deep pipeline's twenty-three stages are not
- * all written, and a `Record` that claimed otherwise would only move the failure
- * to the moment a missing runner was called. Every quick-mode stage is here, so
- * `unimplementedStages("quick")` is empty and a quick run goes end to end.
+ * Every stage of both pipelines is here, so `unimplementedStages` is empty for
+ * quick and for deep and neither mode can be started into a step nothing can
+ * perform. The type stays `Partial` on purpose: it is what makes adding a
+ * twenty-fourth stage to `stages.ts` a blocked run that names itself rather than a
+ * `undefined is not a function` in the middle of a request somebody paid for.
  */
 const STAGE_RUNNERS: Partial<Record<ArticleStageKey, StageRunner>> = {
   business: runBusinessStage,
@@ -95,7 +98,9 @@ const STAGE_RUNNERS: Partial<Record<ArticleStageKey, StageRunner>> = {
   seo: runSeoStage,
   cannibalization: runCannibalizationStage,
   links: runLinksStage,
+  media: runMediaStage,
   schema: runSchemaStage,
+  editor: runEditorStage,
   score: runScoreStage,
   gate: runGateStage,
 };
