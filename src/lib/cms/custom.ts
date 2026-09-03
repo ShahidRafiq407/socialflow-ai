@@ -6,8 +6,9 @@
  * with HMAC-SHA256 so their handler can prove the request came from us and not
  * from anyone who guessed the URL.
  *
- * The payload is stable and documented in `CUSTOM_TARGET_CONTRACT`, which the UI
- * shows next to the field, so the receiving handler can be written once.
+ * The payload is stable and documented in `customContract.ts`, which also carries
+ * the paste-ready handler for each framework the in-app guide offers — so the
+ * receiving end is written once, from the same constants we sign with.
  *
  * Two safeguards worth naming: the endpoint must be a public address (see
  * assertPublicHttpUrl — otherwise the publish button becomes a request proxy into
@@ -17,7 +18,12 @@
 import crypto from "crypto";
 import {
   CUSTOM_TARGET_CONTRACT,
+  PING_EVENT,
+  PUBLISH_EVENT,
+  REQUEST_TIMEOUT_SECONDS,
   SIGNATURE_HEADER,
+  SIGNING_SECRET_ENV,
+  SUGGESTED_ROUTE_PATH,
   TIMESTAMP_HEADER,
 } from "./customContract";
 import {
@@ -66,7 +72,9 @@ async function send(
     body,
     cache: "no-store",
     redirect: "manual", // a redirect would drop the signature headers
-    signal: AbortSignal.timeout(25000),
+    // The same number the guide promises — one constant, so "we wait 25 seconds"
+    // cannot become untrue by editing this line alone.
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_SECONDS * 1000),
   });
 
   const text = await res.text().catch(() => "");
@@ -81,7 +89,7 @@ async function send(
 
 async function verify(target: CmsTarget): Promise<CmsVerifyResult> {
   try {
-    const res = await send(target, { event: "ping", sentAt: new Date().toISOString() });
+    const res = await send(target, { event: PING_EVENT, sentAt: new Date().toISOString() });
     if (!res.ok) {
       return {
         ok: false,
@@ -101,7 +109,7 @@ async function verify(target: CmsTarget): Promise<CmsVerifyResult> {
 async function publish(target: CmsTarget, input: CmsPublishInput): Promise<CmsPublishResult> {
   try {
     const res = await send(target, {
-      event: "article.publish",
+      event: PUBLISH_EVENT,
       contentType: input.contentType,
       status: input.status,
       title: input.title,
@@ -161,8 +169,10 @@ export const customProvider: CmsProvider = {
       required: true,
       secret: false,
       store: "meta",
-      placeholder: "https://example.com/api/publish",
-      help: CUSTOM_TARGET_CONTRACT,
+      placeholder: `https://yoursite.com${SUGGESTED_ROUTE_PATH}`,
+      // The contract itself lives in the guide below the directory. A field's help
+      // is one line: what to paste, and the two rules that make a paste fail.
+      help: "The full public URL of the route you added. Live domain, exact path, no redirect — we do not follow one.",
     },
     {
       key: "signingSecret",
@@ -172,7 +182,7 @@ export const customProvider: CmsProvider = {
       secret: true,
       store: "credentials",
       placeholder: "a long random string",
-      help: "Your handler recomputes the HMAC with this and rejects anything that does not match.",
+      help: `The same string you put in ${SIGNING_SECRET_ENV} on your site. Character for character — your route recomputes the HMAC with it.`,
     },
     {
       key: "bearerToken",
@@ -181,7 +191,7 @@ export const customProvider: CmsProvider = {
       required: false,
       secret: true,
       store: "credentials",
-      help: "Sent as an Authorization header if your endpoint sits behind one.",
+      help: "Only if your route sits behind a token. Sent as an Authorization: Bearer header.",
     },
   ],
   verify,

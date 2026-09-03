@@ -286,17 +286,26 @@ export const PLUGIN_CATALOG: PluginCatalogEntry[] = [
     can: ["Publish anywhere", "Signed requests", "Your own schema"],
     setup: [
       {
-        title: "Add a POST route to your site",
-        detail: "Anything public. It only has to answer 2xx for our ping.",
-        copy: "/api/publish",
+        title: "Create one file in your site's repo",
+        detail:
+          "Next.js App Router: app/api/publish/route.ts · Pages Router: pages/api/publish.ts · Astro: src/pages/api/publish.ts · Laravel: routes/api.php + a controller · Express: a router file.",
+        copy: "app/api/publish/route.ts",
       },
       {
-        title: "Invent a long random signing secret",
-        detail: "Put it in your site's environment, paste the same string here.",
+        title: "Paste the handler for your framework into it",
+        detail:
+          "Open “Publishing to a hand-coded site” below this directory, pick your stack, copy the whole file. It already verifies the signature — you only fill in the line that saves the post.",
       },
       {
-        title: "Verify the signature before trusting the body",
-        detail: "HMAC-SHA256 over `timestamp.rawBody`. The full guide and a handler you can paste are below the directory.",
+        title: "Add the signing secret to your environment, then redeploy",
+        detail:
+          "A long random string in .env.local / .env, and in your host's dashboard (Vercel → Settings → Environment Variables) for production. A variable added after the last deploy is not live yet.",
+        copy: "PUBLISH_SIGNING_SECRET=",
+      },
+      {
+        title: "Paste the live URL and the same secret below",
+        detail:
+          "Endpoint = https://yoursite.com/api/publish — exact path, no redirect. Then Connect & verify sends {\"event\":\"ping\"} and your route only has to answer 2xx.",
       },
     ],
   },
