@@ -159,7 +159,7 @@ export default function MediaStudioModal({
     if (!result.success) {
       setHits([]);
       setStock(
-        result.configured === false
+        (result as any)?.configured === false
           ? {
               kind: "unconfigured",
               message:

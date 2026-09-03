@@ -1,5 +1,18 @@
 "use server";
 
+/**
+ * PIXABAY STOCK SEARCH
+ *
+ * The key is read from the environment here and never reaches the browser.
+ *
+ * One behaviour is worth knowing about before reading the code: when a niche
+ * term returns nothing, this used to quietly re-run the search as "business"
+ * and hand back generic office photography as if it had answered the question.
+ * It still runs that fallback — an empty grid is useless — but now it says so,
+ * via `fallback` and `requestedQuery`, so the UI can tell the user their term
+ * found nothing instead of implying these are the results for it.
+ */
+
 import { getPixabayKeys, PIXABAY_MISSING_MESSAGE } from "@/lib/apiKeys";
 
 export interface StockHit {
@@ -20,171 +33,195 @@ export interface StockHit {
   likes?: number;
 }
 
+export interface StockSearchResult {
+  success: boolean;
+  hits: StockHit[];
+  totalHits: number;
+  /** The term these hits actually answer. */
+  query?: string;
+  /** Set only when the requested term found nothing and the generic set ran. */
+  requestedQuery?: string;
+  /** True when `hits` answer `query` rather than `requestedQuery`. */
+  fallback?: boolean;
+  /** False only when no Pixabay key is set — a different fix from a failed request. */
+  configured?: boolean;
+  error?: string;
+}
+
+type MediaType = "image" | "video";
+type Orientation = "all" | "horizontal" | "vertical";
+type Order = "popular" | "latest";
+
+/** The term used when a search finds nothing. Labelled in the result, never silent. */
+const GENERIC_FALLBACK = "business";
+
+function mapImage(item: any): StockHit | null {
+  const url = item.largeImageURL || item.fullHDURL || item.webformatURL;
+  if (!url) return null;
+  const width = Number(item.imageWidth || item.webformatWidth || 1920);
+  const height = Number(item.imageHeight || item.webformatHeight || 1080);
+  return {
+    id: String(item.id),
+    url: String(url),
+    previewUrl: item.webformatURL || item.previewURL || String(url),
+    thumbnailUrl: item.previewURL || item.webformatURL || undefined,
+    tags: item.tags || "stock photo",
+    type: "image",
+    width,
+    height,
+    aspectRatio: height ? width / height : undefined,
+    isVertical: height > width,
+    user: item.user || undefined,
+    userImageURL: item.userImageURL || undefined,
+    views: Number(item.views || 0),
+    likes: Number(item.likes || 0),
+  };
+}
+
+function mapVideo(item: any): StockHit | null {
+  const v =
+    item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
+  if (!v?.url) return null;
+  const width = Number(v.width || 1280);
+  const height = Number(v.height || 720);
+  return {
+    id: String(item.id),
+    url: String(v.url),
+    previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || "",
+    thumbnailUrl: v.thumbnail || item.videos?.tiny?.thumbnail || undefined,
+    tags: item.tags || "stock video",
+    type: "video",
+    width,
+    height,
+    aspectRatio: height ? width / height : undefined,
+    isVertical: height > width,
+    duration: Number(item.duration || 0),
+    user: item.user || undefined,
+    userImageURL: item.userImageURL || undefined,
+    views: Number(item.views || 0),
+    likes: Number(item.likes || 0),
+  };
+}
+
+function matchesOrientation(hit: StockHit, orientation: Orientation): boolean {
+  if (orientation === "all") return true;
+  const width = hit.width || 0;
+  const height = hit.height || 0;
+  if (!width || !height) return true;
+  return orientation === "vertical" ? height >= width : width >= height;
+}
+
+/**
+ * One page from Pixabay. `null` means the request itself failed, which reads
+ * differently to the user than a term that legitimately has no photos.
+ */
+async function fetchPage(args: {
+  apiKey: string;
+  term: string;
+  mediaType: MediaType;
+  page: number;
+  perPage: number;
+  order: Order;
+  orientation: Orientation;
+}): Promise<{ hits: StockHit[]; totalHits: number } | null> {
+  const { apiKey, term, mediaType, page, perPage, order, orientation } = args;
+  const base = `key=${apiKey}&q=${encodeURIComponent(term)}&page=${page}&order=${order}&safesearch=true`;
+
+  // The video endpoint ignores `orientation`, so vertical/horizontal is filtered
+  // here — which is why it asks for more rows than it needs.
+  const endpoint =
+    mediaType === "video"
+      ? `https://pixabay.com/api/videos/?${base}&per_page=${Math.min(200, Math.max(perPage * 2, 20))}`
+      : `https://pixabay.com/api/?${base}&image_type=all&per_page=${Math.min(200, Math.max(perPage, 3))}` +
+        (orientation === "all" ? "" : `&orientation=${orientation}`);
+
+  const res = await fetch(endpoint, { cache: "no-store" });
+  if (!res.ok) return null;
+
+  const data = await res.json().catch(() => null);
+  if (!data || !Array.isArray(data.hits)) return null;
+
+  const mapped = (data.hits as any[])
+    .map((item) => (mediaType === "video" ? mapVideo(item) : mapImage(item)))
+    .filter((hit): hit is StockHit => hit !== null)
+    .filter((hit) => (mediaType === "video" ? matchesOrientation(hit, orientation) : true))
+    .slice(0, perPage);
+
+  return { hits: mapped, totalHits: Number(data.total || data.totalHits || mapped.length) };
+}
+
 export async function searchStockMedia(
-  query: string = "business",
-  mediaType: "image" | "video" = "image",
+  query: string = GENERIC_FALLBACK,
+  mediaType: MediaType = "image",
   page: number = 1,
   perPage: number = 50,
-  order: "popular" | "latest" = "popular",
-  orientation: "all" | "horizontal" | "vertical" = "all"
-) {
-  try {
-    const searchTerm = (query && query.trim()) ? query.trim() : "business";
-    // Key comes from the environment only. No literal fallback: a shared key
-    // would silently spend somebody else's quota.
-    const apiKey = getPixabayKeys()[0];
-    if (!apiKey) {
-      return { success: false, error: PIXABAY_MISSING_MESSAGE, hits: [], totalHits: 0 };
-    }
+  order: Order = "popular",
+  orientation: Orientation = "all"
+): Promise<StockSearchResult> {
+  const term = (query || "").trim() || GENERIC_FALLBACK;
 
-    // Construct real Pixabay endpoint (matching website parameters)
-    const orientationParam = orientation === "all" ? "" : `&orientation=${orientation}`;
-    const videoPerPage = Math.min(200, perPage * 2); // fetch more videos to account for manual filtering
-    const endpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&page=${page}&per_page=${videoPerPage}&order=${order}&safesearch=true`
-      : `https://pixabay.com/api/?key=${apiKey}&q=${encodeURIComponent(searchTerm)}&image_type=all&page=${page}&per_page=${perPage}&order=${order}&safesearch=true${orientationParam}`;
-
-    const filterVideosByOrientation = (rawHits: any[]) => {
-      const validHits = rawHits.filter((item: any) => item.videos?.medium?.url || item.videos?.small?.url || item.videos?.tiny?.url || item.videos?.large?.url);
-      if (orientation === "horizontal") {
-        return validHits.filter((item: any) => {
-          const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
-          return v && Number(v.width) >= Number(v.height);
-        });
-      }
-      if (orientation === "vertical") {
-        return validHits.filter((item: any) => {
-          const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
-          return v && Number(v.height) >= Number(v.width);
-        });
-      }
-      return validHits;
+  // Environment only. A literal key here would spend somebody else's quota.
+  const apiKey = getPixabayKeys()[0];
+  if (!apiKey) {
+    return {
+      success: false,
+      configured: false,
+      error: PIXABAY_MISSING_MESSAGE,
+      hits: [],
+      totalHits: 0,
     };
+  }
 
-    const res = await fetch(endpoint, { cache: "no-store" });
+  const shared = { apiKey, mediaType, perPage, orientation };
 
-    if (res.ok) {
-      const data = await res.json();
-      const totalHits = data.total || data.totalHits || 0;
-      
-      if (data.hits && data.hits.length > 0) {
-        if (mediaType === "video") {
-          const filteredHits = filterVideosByOrientation(data.hits);
-          const hits: StockHit[] = filteredHits.map((item: any) => {
-            const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
-            const w = Number(v?.width || 1280);
-            const h = Number(v?.height || 720);
-            const isVert = h > w;
-            return {
-              id: String(item.id),
-              url: v?.url || item.videos?.medium?.url || item.videos?.small?.url || item.videos?.large?.url || item.videos?.tiny?.url || "",
-              previewUrl: item.videos?.tiny?.url || item.videos?.small?.url || item.userImageURL || "",
-              thumbnailUrl: v?.thumbnail || item.videos?.tiny?.thumbnail || item.userImageURL || "",
-              tags: item.tags || "stock video",
-              type: "video",
-              width: w,
-              height: h,
-              aspectRatio: w / h,
-              isVertical: isVert,
-              duration: Number(item.duration || 0),
-              user: item.user || "Pixabay Creator",
-              userImageURL: item.userImageURL || null,
-              views: item.views || 0,
-              likes: item.likes || 0,
-            };
-          });
-          return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
-        } else {
-          const hits: StockHit[] = data.hits.map((item: any) => {
-            const w = Number(item.imageWidth || item.webformatWidth || 1920);
-            const h = Number(item.imageHeight || item.webformatHeight || 1080);
-            const isVert = h > w;
-            return {
-              id: String(item.id),
-              url: item.largeImageURL || item.fullHDURL || item.webformatURL,
-              previewUrl: item.webformatURL || item.previewURL,
-              thumbnailUrl: item.previewURL || item.webformatURL,
-              tags: item.tags || "stock photo",
-              type: "image",
-              width: w,
-              height: h,
-              aspectRatio: w / h,
-              isVertical: isVert,
-              user: item.user || "Pixabay Creator",
-              userImageURL: item.userImageURL || null,
-              views: item.views || 0,
-              likes: item.likes || 0,
-            };
-          });
-          return { success: true, hits, totalHits };
-        }
-      }
+  try {
+    const primary = await fetchPage({ ...shared, term, page, order });
+    if (!primary) {
+      return {
+        success: false,
+        configured: true,
+        error: "Pixabay did not answer. Try again in a moment.",
+        hits: [],
+        totalHits: 0,
+      };
+    }
+    if (primary.hits.length > 0) {
+      return { success: true, configured: true, query: term, fallback: false, ...primary };
     }
 
-    // Fallback search if niche query yields 0 results
-    const fallbackEndpoint = mediaType === "video"
-      ? `https://pixabay.com/api/videos/?key=${apiKey}&q=business&page=1&per_page=100&order=popular&safesearch=true`
-      : `https://pixabay.com/api/?key=${apiKey}&q=business&image_type=all&page=1&per_page=50&order=popular&safesearch=true${orientationParam}`;
-    
-    const fallbackRes = await fetch(fallbackEndpoint, { cache: "no-store" });
-    if (fallbackRes.ok) {
-      const fallbackData = await fallbackRes.json();
-      const totalHits = fallbackData.total || fallbackData.totalHits || 0;
-      if (fallbackData.hits && fallbackData.hits.length > 0) {
-        if (mediaType === "video") {
-          const filteredHits = filterVideosByOrientation(fallbackData.hits);
-          const hits: StockHit[] = filteredHits.map((item: any) => {
-            const v = item.videos?.medium || item.videos?.large || item.videos?.small || item.videos?.tiny;
-            const w = Number(v?.width || 1280);
-            const h = Number(v?.height || 720);
-            const isVert = h > w;
-            return {
-              id: String(item.id),
-              url: v?.url || item.videos?.medium?.url || item.videos?.small?.url || "",
-              previewUrl: item.videos?.tiny?.url || item.userImageURL || "",
-              thumbnailUrl: v?.thumbnail || item.videos?.tiny?.thumbnail || "",
-              tags: item.tags || "video",
-              type: "video",
-              width: w,
-              height: h,
-              aspectRatio: w / h,
-              isVertical: isVert,
-              duration: Number(item.duration || 0),
-              user: item.user || "Pixabay Creator",
-              userImageURL: item.userImageURL || null,
-            };
-          });
-          return { success: true, hits, totalHits: hits.length > 0 ? totalHits : 0 };
-        } else {
-          const hits: StockHit[] = fallbackData.hits.map((item: any) => {
-            const w = Number(item.imageWidth || item.webformatWidth || 1920);
-            const h = Number(item.imageHeight || item.webformatHeight || 1080);
-            const isVert = h > w;
-            return {
-              id: String(item.id),
-              url: item.largeImageURL || item.webformatURL,
-              previewUrl: item.webformatURL || item.previewURL,
-              thumbnailUrl: item.previewURL || item.webformatURL,
-              tags: item.tags || "photo",
-              type: "image",
-              width: w,
-              height: h,
-              aspectRatio: w / h,
-              isVertical: isVert,
-              user: item.user || "Pixabay Creator",
-              userImageURL: item.userImageURL || null,
-            };
-          });
-          return { success: true, hits, totalHits };
-        }
-      }
+    // Nothing for this term. Fall back to the generic set so the grid is usable,
+    // and say which term the results are really for.
+    if (term.toLowerCase() === GENERIC_FALLBACK) {
+      return { success: true, configured: true, query: term, fallback: false, hits: [], totalHits: 0 };
     }
-
-    return { success: true, hits: [], totalHits: 0 };
+    const generic = await fetchPage({
+      ...shared,
+      term: GENERIC_FALLBACK,
+      page: 1,
+      order: "popular",
+    });
+    if (!generic || generic.hits.length === 0) {
+      return { success: true, configured: true, query: term, fallback: false, hits: [], totalHits: 0 };
+    }
+    return {
+      success: true,
+      configured: true,
+      query: GENERIC_FALLBACK,
+      requestedQuery: term,
+      fallback: true,
+      ...generic,
+    };
   } catch (error: any) {
     console.error("Stock media search error:", error);
-    // `hits` is always present, on every branch: callers destructure it, and a
-    // missing key here made the return type a union they could not read.
-    return { success: false, error: error.message || "Failed to fetch Pixabay stock media", hits: [] as StockHit[], totalHits: 0 };
+    return {
+      success: false,
+      configured: true,
+      error: error?.message || "The stock library could not be reached.",
+      hits: [],
+      totalHits: 0,
+    };
   }
 }
+
+
+
