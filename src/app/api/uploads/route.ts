@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { saveMediaBuffer, createSignedUploadUrl, indexMediaAsset } from '@/lib/supabase';
 import prisma from '@/lib/db';
+import { activeWorkspaceQuery } from '@/lib/workspace/active';
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const workspace = await prisma.workspace.findFirst({ where: { userId } });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     // ------------------------------------------------------------------
     // Path A: Server-side download from a remote URL (stock media, etc.)

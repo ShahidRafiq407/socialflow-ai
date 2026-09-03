@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import {
   getOAuthConfig,
   getCallbackUrl,
@@ -49,7 +50,7 @@ export async function GET(
 
     // ── Plan limit gate: Free plan supports up to 2 connected accounts ────────
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true },
     });
     if (workspace) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { PlanTier, getPlanConfig } from "@/lib/billing/plans";
 import { getWorkspacePlan, setWorkspacePlan, recordBillingEvent, getBillingHistory } from "@/lib/billing/gate";
 import {
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
     }
 
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true },
     });
 
@@ -58,9 +59,9 @@ export async function POST(req: Request) {
     const targetPlan = (body.plan || "PRO").toUpperCase() as PlanTier;
     const billingCycle: "monthly" | "yearly" = body.billingCycle === "yearly" ? "yearly" : "monthly";
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(
+      await activeWorkspaceQuery(userId)
+    );
 
     if (!workspace) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });

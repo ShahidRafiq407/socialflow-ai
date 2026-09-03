@@ -1,7 +1,9 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
+import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
+import { setActiveWorkspaceCookie } from "@/lib/workspace/active";
 
 export async function createWorkspaceAction(data: {
   companyName: string;
@@ -48,6 +50,12 @@ export async function createWorkspaceAction(data: {
 
     return ws;
   });
+
+  // Land the user inside the workspace they just described, not in whichever one
+  // happens to be oldest. Without this, finishing onboarding on an account that
+  // already has a workspace drops you back into the old one.
+  await setActiveWorkspaceCookie(workspace.id);
+  revalidatePath("/", "layout");
 
   return workspace;
 }

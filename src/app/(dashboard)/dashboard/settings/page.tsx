@@ -10,6 +10,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getChatSettings } from "@/lib/agents/controller/settings";
 import { BILLING_ENABLED, getWorkspacePlan } from "@/lib/billing/gate";
 import { SettingsShell } from "@/components/dashboard/settings/SettingsShell";
@@ -21,11 +22,10 @@ export default async function SettingsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  // First workspace by creation — mirrors resolveIdentity, so Settings edits
-  // the same workspace the rest of the app reads.
+  // The workspace the header is pointing at — so Settings edits the workspace
+  // the user is actually looking at, not always the oldest one.
   const workspace = await prisma.workspace.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
+    ...(await activeWorkspaceQuery(userId)),
     select: {
       id: true,
       name: true,

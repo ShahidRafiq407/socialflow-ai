@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
 import { createRunControls, type RunControls } from "@/lib/agents/runControls";
@@ -101,7 +102,7 @@ export async function POST(req: Request) {
       }
 
       const workspace = await prisma.workspace.findFirst({
-        where: { userId },
+        ...(await activeWorkspaceQuery(userId)),
         include: { brandDNA: true, competitors: true },
       });
 

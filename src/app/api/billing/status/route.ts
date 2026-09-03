@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getWorkspacePlan, getBillingHistory } from "@/lib/billing/gate";
 import { payoneerConfigured } from "@/lib/billing/payoneer";
 
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
     }
 
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true },
     });
 

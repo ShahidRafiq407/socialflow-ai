@@ -1,5 +1,6 @@
 import prisma from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { PlanTier, getPlanConfig, canAccessAI, getMaxSocialAccounts } from "./plans";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ export async function getBillingHistory(workspaceId?: string, limit = 25): Promi
             select: { id: true },
           })
         : await prisma.workspace.findFirst({
-            where: { userId },
+            ...(await activeWorkspaceQuery(userId)),
             select: { id: true },
           });
 
@@ -172,7 +173,7 @@ export async function getWorkspacePlan(workspaceId?: string): Promise<{ plan: Pl
           select: { id: true },
         })
       : await prisma.workspace.findFirst({
-          where: { userId },
+          ...(await activeWorkspaceQuery(userId)),
           select: { id: true },
         });
 

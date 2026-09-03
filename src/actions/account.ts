@@ -21,6 +21,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/db";
+import { clearActiveWorkspaceCookie } from "@/lib/workspace/active";
 import { removeFromScheduleQueue } from "@/lib/redis";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -183,7 +184,14 @@ export async function deleteWorkspace(workspaceId: string): Promise<{ success: t
     return { success: false, error: "The workspace could not be deleted. Please try again." };
   }
 
+  // The header must not keep pointing at a workspace that no longer exists.
+  // Clearing rather than re-pointing lets the resolver fall back to the oldest
+  // remaining workspace, which is also what a fresh account sees.
+  await clearActiveWorkspaceCookie();
+
   revalidatePath("/dashboard/settings");
+  // The switcher and every workspace-scoped page live in the dashboard layout.
+  revalidatePath("/", "layout");
   // The caller navigates to this destination client-side.
   return { success: true, redirect: remaining > 0 ? "/dashboard" : "/onboarding" };
 }
@@ -242,6 +250,10 @@ export async function closeAccount(): Promise<{ success: true } | { success: fal
       };
     }
   }
+
+  // The account is gone, so the active-workspace pointer has to go with it —
+  // otherwise a new account signing in on this browser inherits a stale id.
+  await clearActiveWorkspaceCookie();
 
   // Auth removal happens last: if this fails the data is already gone, and the
   // user must be able to retry (a second call skips the Prisma part).

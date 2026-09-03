@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import PluginsHQ from "@/components/dashboard/PluginsHQ";
 import { listConnections } from "@/actions/connections";
 import { listMcpServers } from "@/actions/mcpServers";
@@ -16,9 +17,7 @@ export default async function PluginsPage() {
     redirect("/sign-in");
   }
 
-  const workspace = await prisma.workspace.findFirst({
-    where: { userId },
-  });
+  const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
   if (!workspace) {
     redirect("/onboarding");

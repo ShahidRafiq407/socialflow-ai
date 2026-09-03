@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { DEFAULT_CHAT_SETTINGS, getChatSettings } from "@/lib/agents/controller/settings";
 import { listSessions, loadSessionMessages } from "@/lib/agents/controller/session";
 import { listConnectedPlugins, type ConnectedPlugin } from "@/lib/plugins/connected";
@@ -36,7 +37,7 @@ export default async function AutomateTaskPage({
 
   const workspace = await withTimeout(
     prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true, name: true },
     }),
     null

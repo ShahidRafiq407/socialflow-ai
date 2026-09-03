@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { llm, vertexProvider, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { Part } from "@google/genai";
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
     const { step } = body;
 
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       include: { brandDNA: true, competitors: true },
     });
 

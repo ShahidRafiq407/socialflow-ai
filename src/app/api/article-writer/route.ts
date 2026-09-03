@@ -61,6 +61,7 @@ import { describeCmsProviders } from "@/lib/cms/registry";
 import { buildBrandProfile, splitBrandList } from "@/lib/brand/profile";
 import { isEncryptionConfigured } from "@/lib/crypto";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { discoverInternalLinkCandidates } from "@/lib/seo/internalLinks";
 import { suggestTopicIdeas } from "@/lib/seo/topicIdeas";
 
@@ -98,7 +99,7 @@ type OwnedWorkspace = NonNullable<Awaited<ReturnType<typeof loadOwnedWorkspace>>
  *
  * A workspace id arriving in a request body is attacker-controlled, so it is
  * checked against the signed-in user every time. With no id we fall back to the
- * caller's own first workspace, which is safe by construction.
+ * workspace the header is currently pointing at, which is safe by construction.
  */
 async function loadOwnedWorkspace(userId: string, workspaceId?: unknown) {
   const id = typeof workspaceId === "string" ? workspaceId.trim() : "";
@@ -111,9 +112,8 @@ async function loadOwnedWorkspace(userId: string, workspaceId?: unknown) {
     return workspace;
   }
   return prisma.workspace.findFirst({
-    where: { userId },
+    ...(await activeWorkspaceQuery(userId)),
     include: { brandDNA: true },
-    orderBy: { createdAt: "asc" },
   });
 }
 

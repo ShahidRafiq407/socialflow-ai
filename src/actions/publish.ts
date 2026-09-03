@@ -7,6 +7,7 @@
 
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
+import { activeWorkspaceQuery } from '@/lib/workspace/active';
 import { publishToPlatformProvider, normalizePlatformToEnum } from '@/lib/publishers';
 import { scheduleEnqueue } from '@/lib/redis';
 
@@ -25,7 +26,7 @@ export async function saveDraft(postData: any): Promise<any> {
     imageUrl = imageUrl || videoUrl;
 
     if (!workspaceId) {
-      const workspace = await prisma.workspace.findFirst({ where: { userId } });
+      const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
       if (!workspace) return { success: false, error: 'Workspace not found. Please complete onboarding first.' };
       workspaceId = workspace.id;
     }

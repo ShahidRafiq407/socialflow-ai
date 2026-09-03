@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import {
   getOAuthConfig,
   getCallbackUrl,
@@ -322,9 +323,9 @@ export async function GET(
     // =========================================================================
     // SAVE TO DATABASE
     // =========================================================================
-    let workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    // The connection belongs to the workspace the user was looking at when they
+    // clicked Connect — not always their oldest one.
+    let workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) {
       // Auto-create user and workspace if missing (fallback for local dev / skipped onboarding)

@@ -3,6 +3,7 @@
 import prisma from "@/lib/db";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getWorkspaceAnalytics, WorkspaceAnalyticsData } from "./analytics";
 import { getWorkspaceCreditInfo, WorkspaceCreditInfo } from "@/lib/billing/credits";
 import { fetchLiveTrendingNews, TrendItem } from "./trends";
@@ -95,7 +96,7 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
     const [user, workspace] = await Promise.all([
       currentUser().catch(() => null),
       prisma.workspace.findFirst({
-        where: { userId },
+        ...(await activeWorkspaceQuery(userId)),
         include: {
           brandDNA: true,
           growthGoal: true,

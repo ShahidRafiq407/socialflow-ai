@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { BrandDNAHQ } from "@/components/dashboard/BrandDNAHQ";
 import { getWorkspaceBrandDNA } from "@/actions/brand";
 
@@ -11,10 +12,9 @@ export default async function BrandDNAPage() {
     redirect("/sign-in");
   }
 
+  const query = await activeWorkspaceQuery(userId);
   const workspace = await Promise.race([
-    prisma.workspace.findFirst({
-      where: { userId },
-    }),
+    prisma.workspace.findFirst(query),
     new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
   ]).catch(() => null);
 

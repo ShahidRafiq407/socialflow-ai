@@ -3,15 +3,14 @@
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 
 export async function getHashtagGroups() {
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) throw new Error("Workspace not found");
 
@@ -32,9 +31,7 @@ export async function createHashtagGroup(name: string, tags: string[]) {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) throw new Error("Workspace not found");
 
@@ -65,9 +62,7 @@ export async function deleteHashtagGroup(id: string) {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) throw new Error("Workspace not found");
 

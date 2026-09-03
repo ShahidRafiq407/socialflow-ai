@@ -1,7 +1,7 @@
 import React from "react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import prisma from "@/lib/db";
+import { getWorkspaceContext } from "@/lib/workspace/active";
 
 export default async function DashboardLayout({
   children,
@@ -11,21 +11,22 @@ export default async function DashboardLayout({
   const { userId } = await auth();
   let userDetails = null;
   let workspaces: { id: string; name: string }[] = [];
+  let activeWorkspaceId: string | null = null;
 
   if (userId) {
     try {
-      const [user, dbWorkspaces] = await Promise.all([
+      // The workspace list and the active id come from the same read, so the
+      // header can never highlight a workspace the pages are not loading.
+      const [user, context] = await Promise.all([
         Promise.race([
           currentUser(),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
         ]),
         Promise.race([
-          prisma.workspace.findMany({
-            where: { userId },
-            select: { id: true, name: true },
-            orderBy: { createdAt: "asc" },
-          }),
-          new Promise<{ id: string; name: string }[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+          getWorkspaceContext(userId),
+          new Promise<{ workspaces: { id: string; name: string }[]; activeWorkspaceId: null }>(
+            (resolve) => setTimeout(() => resolve({ workspaces: [], activeWorkspaceId: null }), 2500)
+          ),
         ]),
       ]);
 
@@ -34,14 +35,19 @@ export default async function DashboardLayout({
         email: user?.emailAddresses?.[0]?.emailAddress || "",
       };
 
-      workspaces = dbWorkspaces || [];
+      workspaces = context?.workspaces || [];
+      activeWorkspaceId = context?.activeWorkspaceId ?? null;
     } catch (err) {
       console.warn("[DashboardLayout] Fast fallback for user/workspaces:", err);
     }
   }
 
   return (
-    <DashboardShell workspaces={workspaces} userDetails={userDetails}>
+    <DashboardShell
+      workspaces={workspaces}
+      activeWorkspaceId={activeWorkspaceId}
+      userDetails={userDetails}
+    >
       {children}
     </DashboardShell>
   );

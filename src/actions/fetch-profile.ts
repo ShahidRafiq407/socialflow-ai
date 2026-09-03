@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
 import type { SocialAccount as SocialAccountModel } from "@prisma/client";
 import { ensureArray } from "@/lib/db-utils";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 
 export interface PlatformProfile {
   platformKey: string;
@@ -290,7 +291,7 @@ export async function fetchPlatformProfile(platformKey: string): Promise<Platfor
     }
 
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       include: { socialAccounts: true },
     });
 
@@ -446,7 +447,7 @@ export async function fetchAllPlatformProfiles(): Promise<PlatformProfile[]> {
   if (!userId) return [];
 
   const workspace = await prisma.workspace.findFirst({
-    where: { userId },
+    ...(await activeWorkspaceQuery(userId)),
     include: { socialAccounts: true },
   });
 

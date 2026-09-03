@@ -350,6 +350,26 @@ export function getPublicUrl(storagePath: string): string {
 }
 
 /**
+ * Which workspace a stored file belongs to when the caller did not say.
+ *
+ * This used to be `findFirst({ select: { id: true } })` with no filter at all —
+ * the oldest workspace in the entire database, i.e. someone else's account. The
+ * active-workspace cookie is the only correct answer: the workspace the uploader
+ * was looking at when they uploaded.
+ */
+async function resolveOwnWorkspaceId(): Promise<string | undefined> {
+  try {
+    const { getActiveWorkspace } = await import('@/lib/workspace/active');
+    const active = await getActiveWorkspace();
+    return active?.workspaceId;
+  } catch {
+    // No request scope (cron, warm-up, script): there is no owner to attribute
+    // this to, and guessing one is exactly the bug being fixed.
+    return undefined;
+  }
+}
+
+/**
  * Creates a MediaAsset DB record for a persisted media URL so the media is
  * indexed and resolvable via /api/media/asset/[id] even if the raw URL is a
  * relative path or a data URI. Returns the asset id (or null on failure).
@@ -365,8 +385,7 @@ export async function indexMediaAsset(
     const prisma = (await import('@/lib/db')).default;
     let targetWorkspaceId = workspaceId;
     if (!targetWorkspaceId) {
-      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
-      targetWorkspaceId = firstWs?.id;
+      targetWorkspaceId = await resolveOwnWorkspaceId();
     }
     if (!targetWorkspaceId) return null;
 
@@ -483,8 +502,7 @@ export async function saveMediaBuffer(
     const prisma = (await import('@/lib/db')).default;
     let targetWorkspaceId = workspaceId;
     if (!targetWorkspaceId) {
-      const firstWs = await prisma.workspace.findFirst({ select: { id: true } });
-      targetWorkspaceId = firstWs?.id;
+      targetWorkspaceId = await resolveOwnWorkspaceId();
     }
 
     if (targetWorkspaceId) {

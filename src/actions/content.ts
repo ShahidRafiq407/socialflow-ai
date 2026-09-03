@@ -3,6 +3,7 @@
 import prisma from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { scheduleEnqueue } from "@/lib/redis";
 import { getNextBestTime } from "@/lib/bestPublishTime";
 
@@ -252,7 +253,7 @@ export async function getPostForStudio(
     if (!postId) return { success: false, error: "No post id" };
 
     const workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true },
     });
     if (!workspace) return { success: false, error: "Workspace not found" };

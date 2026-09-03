@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { ContentBoardClient } from "@/components/dashboard/ContentBoardClient";
 
 export default async function ContentLibraryPage() {
@@ -10,9 +11,7 @@ export default async function ContentLibraryPage() {
     redirect("/sign-in");
   }
 
-  const workspace = await prisma.workspace.findFirst({
-    where: { userId },
-  });
+  const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
   // No workspace means onboarding never finished; showing a placeholder
   // library under someone else's brand name is worse than sending them back.

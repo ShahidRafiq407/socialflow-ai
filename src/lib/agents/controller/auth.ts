@@ -8,6 +8,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 
 export interface ControllerIdentity {
   userId: string;
@@ -20,18 +21,19 @@ export type IdentityResult =
 
 /**
  * Resolves the caller's workspace. When `requestedWorkspaceId` is given it must
- * belong to the caller; otherwise the caller's own workspace is used.
+ * belong to the caller; otherwise the workspace the header is currently pointing
+ * at is used, so the chat answers about the brand on screen.
  */
 export async function resolveIdentity(requestedWorkspaceId?: string | null): Promise<IdentityResult> {
   const { userId } = await auth();
   if (!userId) return { ok: false, status: 401, error: "Unauthorized" };
 
+  const scope = requestedWorkspaceId
+    ? { where: { id: requestedWorkspaceId, userId }, orderBy: { createdAt: "asc" as const } }
+    : await activeWorkspaceQuery(userId);
+
   const workspace = await prisma.workspace
-    .findFirst({
-      where: requestedWorkspaceId ? { id: requestedWorkspaceId, userId } : { userId },
-      select: { id: true },
-      orderBy: { createdAt: "asc" },
-    })
+    .findFirst({ ...scope, select: { id: true } })
     .catch(() => null);
 
   if (!workspace) {

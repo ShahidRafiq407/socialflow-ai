@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import type { SocialAccount as SocialAccountModel } from "@prisma/client";
 import { ensureArray } from "@/lib/db-utils";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 
 export interface SocialPlatformIntegration {
   id: string;           // DB record id (or platform key if not connected)
@@ -49,7 +50,7 @@ export async function getWorkspaceIntegrations(): Promise<SocialPlatformIntegrat
 
     const workspace = await Promise.race([
       prisma.workspace.findFirst({
-        where: { userId },
+        ...(await activeWorkspaceQuery(userId)),
         include: { socialAccounts: true },
       }),
       new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),
@@ -137,9 +138,7 @@ export async function connectPlatform(
       return { success: false, error: "Unauthorized" };
     }
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) {
       return { success: false, error: "Workspace not found" };
@@ -200,9 +199,7 @@ export async function disconnectPlatform(
       return { success: false, error: "Unauthorized" };
     }
 
-    const workspace = await prisma.workspace.findFirst({
-      where: { userId },
-    });
+    const workspace = await prisma.workspace.findFirst(await activeWorkspaceQuery(userId));
 
     if (!workspace) {
       return { success: false, error: "Workspace not found" };
@@ -255,7 +252,7 @@ export async function getConnectedPlatformIds(): Promise<string[]> {
 
     const workspace = await Promise.race([
       prisma.workspace.findFirst({
-        where: { userId },
+        ...(await activeWorkspaceQuery(userId)),
         include: { socialAccounts: true },
       }),
       new Promise<any>((resolve) => setTimeout(() => resolve(null), 2500)),

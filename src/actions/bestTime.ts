@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
 import {
@@ -37,7 +38,7 @@ export async function analyzeBestTimes(platforms: string[], timeZone?: string): 
   if (!userId) throw new Error("Unauthorized");
 
   const workspace = await prisma.workspace.findFirst({
-    where: { userId },
+    ...(await activeWorkspaceQuery(userId)),
     include: { brandDNA: true },
   });
 

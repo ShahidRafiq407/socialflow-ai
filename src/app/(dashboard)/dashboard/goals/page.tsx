@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getRecentGrowthActivity, getWorkspaceGrowthGoal } from "@/actions/goals";
 import { getWordPressSite } from "@/actions/wordpressSite";
 import {
@@ -30,7 +31,7 @@ export default async function LeadGoalPage() {
   if (!userId) redirect("/sign-in");
 
   const workspace = await prisma.workspace.findFirst({
-    where: { userId },
+    ...(await activeWorkspaceQuery(userId)),
     include: { socialAccounts: true, brandDNA: true },
   });
 

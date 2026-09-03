@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { listPublishTargets } from "@/actions/cmsTargets";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { buildBrandProfile } from "@/lib/brand/profile";
 import { ArticleWriterHQ } from "@/components/dashboard/ArticleWriterHQ";
 
@@ -23,7 +24,7 @@ export default async function ArticleWriterPage() {
   }
 
   const workspace = await prisma.workspace.findFirst({
-    where: { userId },
+    ...(await activeWorkspaceQuery(userId)),
     include: { brandDNA: true },
   });
 

@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { AnalyticsHQ } from "@/components/dashboard/AnalyticsHQ";
 import { getWorkspaceAnalytics } from "@/actions/analytics";
 
@@ -23,7 +24,7 @@ export default async function AnalyticsPage() {
   let dbDown = false;
   try {
     workspace = await prisma.workspace.findFirst({
-      where: { userId },
+      ...(await activeWorkspaceQuery(userId)),
       select: { id: true },
     });
   } catch (error) {
