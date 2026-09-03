@@ -24,6 +24,7 @@ import {
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { chatModelLabel } from "@/lib/agents/controller/models";
+import type { ConnectedPlugin } from "@/lib/plugins/connected";
 import { useChatStream, type PendingFile } from "./useChatStream";
 import { MessageThread } from "./MessageThread";
 import { Composer } from "./Composer";
@@ -40,6 +41,8 @@ interface ChatWorkbenchProps {
   initialMessages: ChatMessage[];
   initialSessions: ChatSessionSummary[];
   initialSettings: ChatSettings;
+  /** Plugins this workspace has connected, for one-tap mentions in the composer. */
+  connectedPlugins: ConnectedPlugin[];
   /** Panel to open on load, from a `?panel=` deep link (e.g. open_tab → settings). */
   initialPanel?: SidePanel;
 }
@@ -53,6 +56,7 @@ export function ChatWorkbench({
   initialMessages,
   initialSessions,
   initialSettings,
+  connectedPlugins,
   initialPanel,
 }: ChatWorkbenchProps) {
   const router = useRouter();
@@ -351,6 +355,7 @@ export function ChatWorkbench({
           streaming={chat.streaming}
           status={chat.status}
           draft={draft}
+          plugins={connectedPlugins}
           onDraftChange={setDraft}
           onSend={send}
           onStop={chat.stop}

@@ -7,7 +7,21 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
+import { CMS_CONNECTION_PREFIX } from "@/lib/cms/registry";
+import { getPluginEntry } from "@/lib/plugins/catalog";
 import type { WorkspaceSnapshot } from "./prompt";
+
+/**
+ * `cms:wordpress` is how a publishing target is stored; "WordPress" is what the
+ * chat composer's chips say. The prompt uses the second one so a user who taps a
+ * chip and sends `@WordPress` is naming something this list already contains.
+ */
+function pluginLabel(providerKey: string): string {
+  const key = providerKey.startsWith(CMS_CONNECTION_PREFIX)
+    ? providerKey.slice(CMS_CONNECTION_PREFIX.length)
+    : providerKey;
+  return getPluginEntry(key)?.name || key;
+}
 
 export async function buildWorkspaceSnapshot(workspaceId: string): Promise<WorkspaceSnapshot> {
   const fallback: WorkspaceSnapshot = {
@@ -75,7 +89,7 @@ export async function buildWorkspaceSnapshot(workspaceId: string): Promise<Works
       connectedPlatforms: (workspace.socialAccounts || []).map((a) =>
         a.handle ? `${a.platform} (@${a.handle})` : String(a.platform)
       ),
-      connectedConnectors: ((connections as any[]) || []).map((c) => String(c.providerKey)),
+      connectedConnectors: ((connections as any[]) || []).map((c) => pluginLabel(String(c.providerKey))),
       mcpServers: ((mcpServers as any[]) || []).map((s) => String(s.name)),
       postCounts: counts,
       hasLeadGoal: !!workspace.growthGoal,

@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { getChatModel } from "@/lib/agents/controller/models";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
+import type { ConnectedPlugin } from "@/lib/plugins/connected";
+import { PluginStrip } from "./PluginStrip";
 import type { PendingFile } from "./useChatStream";
 
 /** Vercel caps a serverless request body at ~4.5 MB, so we stop well short. */
@@ -54,6 +56,8 @@ interface ComposerProps {
   streaming: boolean;
   status?: { label: string; detail?: string } | null;
   draft: string;
+  /** What the workspace has connected, so it can be mentioned in one tap. */
+  plugins: ConnectedPlugin[];
   onDraftChange: (value: string) => void;
   onSend: (text: string, files: PendingFile[]) => void;
   onStop: () => void;
@@ -66,6 +70,7 @@ export function Composer({
   streaming,
   status,
   draft,
+  plugins,
   onDraftChange,
   onSend,
   onStop,
@@ -149,6 +154,29 @@ export function Composer({
     setFiles([]);
   };
 
+  /**
+   * Drop `@Gmail` in at the caret — appending to the end would be wrong the
+   * moment the user is mid-sentence, which is exactly when they reach for a
+   * plugin. Spaces are added only where there isn't one already.
+   */
+  const insertMention = (plugin: ConnectedPlugin) => {
+    const el = textareaRef.current;
+    const at = el ? el.selectionStart : draft.length;
+    const end = el ? el.selectionEnd : draft.length;
+    const before = draft.slice(0, at);
+    const after = draft.slice(end);
+    const token = `${/\s$|^$/.test(before) ? "" : " "}@${plugin.name} `;
+    onDraftChange(`${before}${token}${after}`);
+    // The value lands on the next render, so move the caret after it commits.
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      const caret = before.length + token.length;
+      node.setSelectionRange(caret, caret);
+    });
+  };
+
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
@@ -194,6 +222,8 @@ export function Composer({
             </button>
           </div>
         )}
+
+        <PluginStrip plugins={plugins} onInsert={insertMention} />
 
         <div
           onDragOver={(e) => {

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
 import { DEFAULT_CHAT_SETTINGS, getChatSettings } from "@/lib/agents/controller/settings";
 import { listSessions, loadSessionMessages } from "@/lib/agents/controller/session";
+import { listConnectedPlugins, type ConnectedPlugin } from "@/lib/plugins/connected";
 import { ChatWorkbench } from "@/components/chat/ChatWorkbench";
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import type { ChatSettings } from "@/lib/agents/controller/settings";
@@ -55,9 +56,10 @@ export default async function AutomateTaskPage({
     );
   }
 
-  const [settings, sessions] = await Promise.all([
+  const [settings, sessions, connectedPlugins] = await Promise.all([
     withTimeout<ChatSettings | null>(getChatSettings(workspace.id), null),
     withTimeout<ChatSessionSummary[]>(listSessions(workspace.id, { limit: 40 }), []),
+    withTimeout<ConnectedPlugin[]>(listConnectedPlugins(workspace.id), []),
   ]);
 
   // Reopen whatever was last worked on — a pinned chat sorts first in the rail
@@ -89,6 +91,7 @@ export default async function AutomateTaskPage({
         initialMessages={initialMessages}
         initialSessions={sessions}
         initialSettings={settings || DEFAULT_CHAT_SETTINGS}
+        connectedPlugins={connectedPlugins}
         initialPanel={initialPanel}
       />
     </div>

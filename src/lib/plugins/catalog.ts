@@ -603,3 +603,26 @@ export function resolvePluginKey(raw: string | null | undefined): string | null 
 export function pluginsForBackend(backend: PluginBackend): PluginCatalogEntry[] {
   return PLUGIN_CATALOG.filter((entry) => entry.backend === backend);
 }
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The catalog row an attached MCP server came from, or undefined when the user
+ * typed a server of their own.
+ *
+ * Matched on hostname rather than the whole URL: Zapier hands out a personal URL
+ * and GitMCP takes a repo path, so the path differs per workspace while the host
+ * is what identifies the service. Every preset host here is distinct, which is
+ * what makes that safe.
+ */
+export function matchMcpPlugin(url: string): PluginCatalogEntry | undefined {
+  const host = hostOf(url);
+  if (!host) return undefined;
+  return PLUGIN_CATALOG.find((entry) => entry.mcp && hostOf(entry.mcp.url) === host);
+}

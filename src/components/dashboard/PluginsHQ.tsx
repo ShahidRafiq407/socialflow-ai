@@ -24,6 +24,7 @@ import {
   PLUGIN_CATALOG,
   PLUGIN_SECTIONS,
   getPluginEntry,
+  matchMcpPlugin,
   pluginsInSection,
   resolvePluginKey,
   type PluginCatalogEntry,
@@ -41,19 +42,6 @@ import CustomSiteGuide from "./plugins/CustomSiteGuide";
 
 /** How many rows a category shows before the rest fold into an overflow row. */
 const VISIBLE_PER_SECTION = 4;
-
-/**
- * MCP servers are matched to their catalog row by hostname, not by the whole URL:
- * Zapier hands out a personal URL and GitMCP takes a repo path, so the paths
- * differ per workspace while the host is what identifies the service.
- */
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
 
 interface PluginsHQProps {
   workspaceId: string;
@@ -102,12 +90,12 @@ export default function PluginsHQ({
 
   const getConnection = (key: string) => connectionsState.find((c) => c.providerKey === key);
 
-  /** Which MCP hosts this workspace already has a server for. */
-  const mcpByHost = useMemo(() => {
+  /** Which catalog MCP rows this workspace already has a server attached for. */
+  const mcpByPluginKey = useMemo(() => {
     const map = new Map<string, McpServerView>();
     for (const server of mcpServersState) {
-      const host = hostOf(server.url);
-      if (host) map.set(host, server);
+      const entry = matchMcpPlugin(server.url);
+      if (entry) map.set(entry.key, server);
     }
     return map;
   }, [mcpServersState]);
@@ -129,8 +117,7 @@ export default function PluginsHQ({
       return target?.status === "error" ? "error" : "idle";
     }
     if (entry.backend === "mcp") {
-      const host = entry.mcp ? hostOf(entry.mcp.url) : null;
-      const server = host ? mcpByHost.get(host) : undefined;
+      const server = mcpByPluginKey.get(entry.key);
       if (!server) return "idle";
       return server.lastError ? "error" : "connected";
     }
@@ -153,10 +140,7 @@ export default function PluginsHQ({
 
   const installedEntries = PLUGIN_CATALOG.filter((entry) => statusFor(entry) === "connected");
   /** A hand-typed MCP server has no catalog row to sit under, so it gets its own tile. */
-  const customMcpServers = mcpServersState.filter((server) => {
-    const host = hostOf(server.url);
-    return !host || !PLUGIN_CATALOG.some((e) => e.mcp && hostOf(e.mcp.url) === host);
-  });
+  const customMcpServers = mcpServersState.filter((server) => !matchMcpPlugin(server.url));
   const installedCount = installedEntries.length + customMcpServers.length;
 
   /**
@@ -180,8 +164,7 @@ export default function PluginsHQ({
       return;
     }
     if (entry.backend === "mcp") {
-      const host = entry.mcp ? hostOf(entry.mcp.url) : null;
-      const existing = host ? mcpByHost.get(host) : undefined;
+      const existing = mcpByPluginKey.get(entry.key);
       if (existing) {
         // Already attached: its own card owns re-checking, disabling and removal,
         // and adding it twice would just fail on the duplicate URL.

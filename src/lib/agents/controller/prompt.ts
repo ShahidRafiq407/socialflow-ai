@@ -127,7 +127,9 @@ ${describeToolsForPrompt(tools)}`);
 
   sections.push(`## This workspace right now
 
-${formatSnapshot(snapshot)}`);
+${formatSnapshot(snapshot)}
+
+A plugin name written with an @ in front of it — \`@Gmail\`, \`@WordPress\`, \`@Context7\` — was tapped from the composer's connected strip and means "use this one". Go straight to that plugin's tools instead of asking which they meant.`);
 
   sections.push(`## What you cannot do right now
 
