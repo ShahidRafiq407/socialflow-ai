@@ -280,32 +280,31 @@ export const PLUGIN_CATALOG: PluginCatalogEntry[] = [
     key: "custom",
     backend: "cms",
     name: "Custom / coded site",
-    blurb: "Next.js, Astro, Laravel — we POST signed JSON to a route you own.",
+    blurb: "Any language, any host — we POST signed JSON to a route you own.",
     section: "content",
     logo: "code",
     can: ["Publish anywhere", "Signed requests", "Your own schema"],
     setup: [
       {
-        title: "Create one file in your site's repo",
+        title: "Pick your language, framework and host",
         detail:
-          "Next.js App Router: app/api/publish/route.ts · Pages Router: pages/api/publish.ts · Astro: src/pages/api/publish.ts · Laravel: routes/api.php + a controller · Express: a router file.",
-        copy: "app/api/publish/route.ts",
+          "The dropdowns in the connect dialog rewrite every step below for your stack — JavaScript, PHP, Python, Ruby, Go, C#, Java, or “not listed”, on Vercel, Netlify, Cloudflare, cPanel, a VPS, Docker, anywhere.",
       },
       {
-        title: "Paste the handler for your framework into it",
+        title: "Create the one file it names, and paste the handler in",
         detail:
-          "Open “Publishing to a hand-coded site” below this directory, pick your stack, copy the whole file. It already verifies the signature — you only fill in the line that saves the post.",
+          "You get the exact path for that framework and a complete handler that already verifies the signature. The only line you write is the one that saves the post.",
       },
       {
-        title: "Add the signing secret to your environment, then redeploy",
+        title: "Add the signing secret where your host keeps them, then redeploy",
         detail:
-          "A long random string in .env.local / .env, and in your host's dashboard (Vercel → Settings → Environment Variables) for production. A variable added after the last deploy is not live yet.",
+          "A long random string. The picker shows the exact click-path for your host and what makes it live — a variable added after the last deploy is not running yet.",
         copy: "PUBLISH_SIGNING_SECRET=",
       },
       {
         title: "Paste the live URL and the same secret below",
         detail:
-          "Endpoint = https://yoursite.com/api/publish — exact path, no redirect. Then Connect & verify sends {\"event\":\"ping\"} and your route only has to answer 2xx.",
+          "Exact path, live domain, no redirect. Prove it first with the curl self-test, then Connect & verify sends {\"event\":\"ping\"} and your route only has to answer 2xx.",
       },
     ],
   },

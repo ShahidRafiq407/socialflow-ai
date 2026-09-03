@@ -11,6 +11,7 @@ import { removePublishTarget, savePublishTarget, verifyPublishTarget } from "@/a
 import { getPluginEntry } from "@/lib/plugins/catalog";
 import { PluginLogoTile } from "./BrandLogos";
 import { PluginCanChips, PluginSetupSteps } from "./PluginSetupSteps";
+import CustomSiteSetup from "./CustomSiteSetup";
 
 // ============================================================================
 // CONNECT A PUBLISHING TARGET
@@ -41,6 +42,10 @@ export function ConnectCmsTargetModal({
 }: ConnectCmsTargetModalProps) {
   const entry = getPluginEntry(provider.key);
   const connected = target?.status === "connected";
+  // A hand-coded site is the one target whose setup cannot be four fixed lines:
+  // the file, the env location and the deploy step all depend on the stack, so the
+  // picker replaces the catalog's steps here rather than sitting beside them.
+  const isCustom = provider.key === "custom";
 
   // Readable config (meta) is redisplayed so an edit does not start from blank;
   // secrets are not, because the server never sends them back.
@@ -128,7 +133,11 @@ export function ConnectCmsTargetModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+      <div
+        className={`relative max-h-[90vh] w-full ${
+          isCustom ? "max-w-2xl" : "max-w-lg"
+        } overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900`}
+      >
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
           <div className="flex min-w-0 items-center gap-3">
             {entry ? (
@@ -179,25 +188,41 @@ export function ConnectCmsTargetModal({
           </div>
         )}
 
-        {entry && entry.setup.length > 0 && (
+        {isCustom ? (
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40">
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-3">
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                Where to get this
+                Set up your site — pick your stack
               </p>
-              {entry.docsUrl && (
-                <a
-                  href={entry.docsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:text-emerald-500 dark:text-emerald-400"
-                >
-                  Docs <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                Any language, any host. Choose the three below and every file path, secret location
+                and deploy step changes to match.
+              </p>
             </div>
-            <PluginSetupSteps steps={entry.setup} accent="emerald" />
+            <CustomSiteSetup variant="modal" />
           </div>
+        ) : (
+          entry &&
+          entry.setup.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Where to get this
+                </p>
+                {entry.docsUrl && (
+                  <a
+                    href={entry.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:text-emerald-500 dark:text-emerald-400"
+                  >
+                    Docs <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+              <PluginSetupSteps steps={entry.setup} accent="emerald" />
+            </div>
+          )
         )}
 
         <form onSubmit={handleSave} className="mt-5 space-y-4">
