@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { llm } from "@/lib/agents/llm";
 import { HumanMessage } from "@langchain/core/messages";
 import { extractFromUrl } from "@/actions/extract";
+import { parseBrandMetadata } from "@/lib/brand/profile";
 
 export interface BrandDNAFormValues {
   name: string;
@@ -23,21 +24,6 @@ export interface BrandDNAFormValues {
 }
 
 /**
- * Helper to safely parse JSON metadata from writingStyle column
- */
-function parseMetadata(str?: string | null) {
-  if (!str) return {};
-  try {
-    if (str.trim().startsWith("{")) {
-      return JSON.parse(str);
-    }
-  } catch (e) {
-    // Ignore non-json strings
-  }
-  return {};
-}
-
-/**
  * Get Workspace + Brand DNA profile
  */
 export async function getWorkspaceBrandDNA(workspaceId: string): Promise<BrandDNAFormValues> {
@@ -53,7 +39,7 @@ export async function getWorkspaceBrandDNA(workspaceId: string): Promise<BrandDN
       throw new Error("Workspace not found");
     }
 
-    const meta = parseMetadata(workspace.brandDNA?.writingStyle);
+    const meta = parseBrandMetadata(workspace.brandDNA?.writingStyle);
 
     return {
       name: workspace.name || "",

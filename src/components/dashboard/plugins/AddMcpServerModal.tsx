@@ -17,9 +17,9 @@ interface AddMcpServerModalProps {
 }
 
 const EXAMPLE_SERVERS = [
-  { name: "Context7 (Docs)", url: "https://mcp.context7.com/mcp" },
-  { name: "DeepWiki", url: "https://mcp.deepwiki.com/mcp" },
-  { name: "Higress MCP Gateway", url: "https://mcp.higress.ai/mcp" },
+  { name: "Context7 · free", url: "https://mcp.context7.com/mcp" },
+  { name: "DeepWiki · free", url: "https://mcp.deepwiki.com/mcp" },
+  { name: "Higress · free", url: "https://mcp.higress.ai/mcp" },
 ];
 
 export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServerModalProps) {
@@ -64,7 +64,7 @@ export function AddMcpServerModal({ workspaceId, onClose, onAdded }: AddMcpServe
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white">Add MCP Server</h3>
               <p className="text-xs text-slate-500">
-                Connect any Model Context Protocol server for the AI CEO
+                Connect free or private MCP servers for the AI CEO
               </p>
             </div>
           </div>

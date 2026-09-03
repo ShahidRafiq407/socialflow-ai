@@ -20,6 +20,7 @@ import {
 import { createThoughtEmitter } from "@/lib/agents/thoughtStream";
 import { createLimiter, envConcurrency, envInt } from "@/lib/agents/concurrency";
 import type { RunControls } from "@/lib/agents/runControls";
+import { parseBrandMetadata } from "@/lib/brand/profile";
 import {
   runDeterministicChecks,
   groupIssuesByPost,
@@ -556,6 +557,9 @@ export async function runCampaignGraph(
 
       const dna = workspace?.brandDNA;
       const hasCustomDNA = Boolean(dna && (dna.tone || dna.missionVision || dna.targetAudience));
+      // `writingStyle` is a JSON blob of offer / pain points / rules — unpack it so the
+      // copy prompt gets the rules the owner typed, not the serialised object.
+      const brandMeta = parseBrandMetadata(dna?.writingStyle);
 
       state.brandData = {
         name: workspace?.name || "Brand",
@@ -564,7 +568,7 @@ export async function runCampaignGraph(
         tone: dna?.tone || "Professional, Authoritative, Conversational",
         missionVision: dna?.missionVision || "Drive growth through smart digital solutions",
         targetAudience: dna?.targetAudience || "Modern Business Decision Makers",
-        writingStyle: dna?.writingStyle || "Direct, engaging, value-driven",
+        writingStyle: brandMeta.rules || "Direct, engaging, value-driven",
         // Drives the palette of text-rich carousel / document slides (slideDesigner).
         primaryColors: Array.isArray(dna?.primaryColors) ? dna.primaryColors.filter(Boolean) : [],
         // Stored per workspace but never consulted before: these words are now banned

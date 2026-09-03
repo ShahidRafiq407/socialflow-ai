@@ -19,6 +19,7 @@ import {
   type LearnedTiming,
 } from "@/lib/growth/learning";
 import { LINK_PLACEHOLDER, isCaptionLinkClickable } from "@/lib/growth/ctaLinks";
+import { buildBrandProfile } from "@/lib/brand/profile";
 
 import {
   LeadType,
@@ -333,22 +334,28 @@ interface BrandContext {
   targetAudience: string;
   missionVision: string;
   writingStyle: string;
+  painPoints: string;
+  differentiator: string;
+  ctaOffer: string;
   forbiddenWords: string[];
   hasBrandDNA: boolean;
 }
 
 function buildBrandContext(workspace: any): BrandContext {
-  const dna = workspace?.brandDNA;
+  const profile = buildBrandProfile(workspace);
   return {
-    name: (workspace?.name || "").trim(),
-    industry: (workspace?.industry || "").trim(),
-    website: (workspace?.website || "").trim(),
-    tone: (dna?.tone || "").trim(),
-    targetAudience: (dna?.targetAudience || "").trim(),
-    missionVision: (dna?.missionVision || "").trim(),
-    writingStyle: (dna?.writingStyle || "").trim(),
-    forbiddenWords: Array.isArray(dna?.forbiddenWords) ? dna.forbiddenWords : [],
-    hasBrandDNA: Boolean(dna),
+    name: profile.brandName,
+    industry: profile.industry,
+    website: profile.website,
+    tone: profile.tone,
+    targetAudience: profile.targetAudience,
+    missionVision: profile.missionVision,
+    writingStyle: profile.writingRules,
+    painPoints: profile.painPoints,
+    differentiator: profile.differentiator,
+    ctaOffer: profile.ctaOffer,
+    forbiddenWords: profile.forbiddenWords,
+    hasBrandDNA: Boolean(workspace?.brandDNA),
   };
 }
 
@@ -359,6 +366,9 @@ function brandBlock(brand: BrandContext): string {
     brand.website && `Website: ${brand.website}`,
     brand.targetAudience && `Target audience: ${brand.targetAudience}`,
     brand.missionVision && `Mission: ${brand.missionVision}`,
+    brand.painPoints && `Customer problems they solve: ${brand.painPoints}`,
+    brand.differentiator && `Why customers choose them: ${brand.differentiator}`,
+    brand.ctaOffer && `Their offer / call to action: ${brand.ctaOffer}`,
     brand.tone && `Brand tone: ${brand.tone}`,
     brand.writingStyle && `Writing style: ${brand.writingStyle}`,
     brand.forbiddenWords.length > 0 && `Never use these words: ${brand.forbiddenWords.join(", ")}`,

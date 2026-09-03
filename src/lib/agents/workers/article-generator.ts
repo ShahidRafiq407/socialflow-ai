@@ -127,7 +127,18 @@ export interface GenerateArticleParams {
   targetAudience?: string;
   industry?: string;
   missionVision?: string;
+  /** Writing rules the owner typed. Never the raw `writingStyle` JSON blob. */
   writingStyle?: string;
+  /** The business's own site, used to judge what it can credibly claim. */
+  businessWebsite?: string;
+  /** Customer problems the business says it solves. */
+  customerProblems?: string;
+  /** Why customers choose this business over the alternatives. */
+  differentiator?: string;
+  /** The offer the article should lead towards, if the owner set one. */
+  ctaOffer?: string;
+  /** Benchmark competitor brands — context only; never cited as a source. */
+  competitorBrands?: string[];
   forbiddenWords?: string[];
   authorName?: string;
 
@@ -372,15 +383,37 @@ const POV_RULES: Record<string, string> = {
 /**
  * The brand block every call shares. Anything the workspace did not fill in is
  * simply left out — an invented mission statement is worse than none.
+ *
+ * The business facts here (what it solves, why it wins, what it offers) come from
+ * the Brand DNA record via `buildBrandProfile`. They used to arrive as one JSON
+ * string in `writingStyle`, which meant the writer had a keyword and a tone and
+ * no idea what the business actually does.
  */
 function buildVoiceBrief(params: GenerateArticleParams): string {
   const lines: string[] = [];
   if (params.brandName) lines.push(`Publisher: ${params.brandName}`);
   if (params.industry) lines.push(`Industry: ${params.industry}`);
+  if (params.businessWebsite) lines.push(`Their site: ${params.businessWebsite}`);
   if (params.targetAudience) lines.push(`Reader: ${params.targetAudience}`);
   if (params.brandTone) lines.push(`Tone: ${params.brandTone}`);
   if (params.writingStyle) lines.push(`House style: ${params.writingStyle}`);
   if (params.missionVision) lines.push(`What the brand exists to do: ${params.missionVision}`);
+  if (params.customerProblems) {
+    lines.push(`Problems their customers arrive with: ${params.customerProblems}`);
+  }
+  if (params.differentiator) {
+    lines.push(`Why customers choose them over alternatives: ${params.differentiator}`);
+  }
+  if (params.ctaOffer) {
+    lines.push(
+      `Where the article should lead: ${params.ctaOffer} — mention it once, at the end, only if it genuinely follows from the article.`
+    );
+  }
+  if (params.competitorBrands?.length) {
+    lines.push(
+      `Brands they benchmark against (context only — never cite or link them): ${params.competitorBrands.join(", ")}`
+    );
+  }
   if (params.authorName) lines.push(`Bylined author: ${params.authorName}`);
 
   const pov = POV_RULES[String(params.pointOfView || "first").toLowerCase()] || POV_RULES.first;
@@ -398,6 +431,11 @@ function buildVoiceBrief(params: GenerateArticleParams): string {
   if (banned.length > 0) {
     lines.push(`NEVER use these words or phrases: ${banned.join(", ")}`);
   }
+  lines.push(
+    "The lines above are everything that is known about this business. Do not add a credential, " +
+      "client, year founded, team size, location, price, award or piece of first-hand experience " +
+      "that is not written above."
+  );
   return lines.join("\n");
 }
 
@@ -410,7 +448,11 @@ const HUMAN_VOICE_RULES = `HOW TO SOUND LIKE A PERSON WHO HAS DONE THIS
 - Prefer the specific to the general: "cut 4.2 seconds off LCP" beats "significantly improved performance".
 - Contractions are fine. Starting a sentence with "But" or "And" is fine.
 - State a real opinion where the evidence supports one, and say plainly when something is not worth doing.
-- Never claim a certification, client, award, test or measurement that was not given to you in this brief.`;
+- Never claim a certification, client, award, test or measurement that was not given to you in this brief.
+- Never write that the business tested, installed, repaired, audited, measured, surveyed or has "seen hundreds of" anything. That is first-hand experience, and unless this brief states it, it did not happen.
+- No invented statistics, percentages, dollar figures, dates or study names. A number you cannot attribute does not go in.
+- No fabricated quotes, customer stories or case studies, not even anonymised ones.
+- Do not pad. If the section says what it needs to in fewer words than the target, stop.`;
 
 const HTML_OUTPUT_RULES = `OUTPUT FORMAT
 - Return raw HTML only. No markdown, no code fences, no commentary before or after.

@@ -28,6 +28,12 @@ export interface TopicBrandContext {
   tone?: string;
   missionVision?: string;
   writingStyle?: string;
+  /** Customer problems the business says it solves — the best seed-query source. */
+  customerProblems?: string;
+  /** Why customers pick this business over the alternatives. */
+  differentiator?: string;
+  /** The offer an article should lead towards. */
+  ctaOffer?: string;
   forbiddenWords?: string[];
   /** Titles already published, so the same article is not suggested twice. */
   existingTitles?: string[];
@@ -70,6 +76,9 @@ function brandBlock(ctx: TopicBrandContext): string {
     ctx.tone ? `Tone: ${ctx.tone}` : "",
     ctx.writingStyle ? `Writing style: ${ctx.writingStyle}` : "",
     ctx.missionVision ? `Mission: ${ctx.missionVision}` : "",
+    ctx.customerProblems ? `Customer problems they solve: ${ctx.customerProblems}` : "",
+    ctx.differentiator ? `Why customers choose them: ${ctx.differentiator}` : "",
+    ctx.ctaOffer ? `Their offer: ${ctx.ctaOffer}` : "",
     ctx.forbiddenWords?.length ? `Words the brand never uses: ${ctx.forbiddenWords.join(", ")}` : "",
     ctx.targetCountry && ctx.targetCountry !== "WW" ? `Primary market: ${ctx.targetCountry}` : "",
     ctx.seedHint ? `The user is thinking about: ${ctx.seedHint}` : "",

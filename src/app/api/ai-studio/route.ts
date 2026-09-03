@@ -11,6 +11,7 @@ import { isTextRichFormat, type SlideTextSpec } from "@/lib/agents/slideDesigner
 import { cacheGet, cacheSet } from "@/lib/redis";
 
 import { checkAIAccess } from "@/lib/billing/gate";
+import { parseBrandMetadata } from "@/lib/brand/profile";
 
 /** Hard character clamp at a word boundary — programmatic platform limit enforcement. */
 function clampText(text: string, limit: number): string {
@@ -69,6 +70,9 @@ export async function POST(req: Request) {
       }
     }
 
+    // `brandDNA.writingStyle` holds a JSON blob (offer / pain points / rules), so the
+    // real rules have to be unpacked before they reach a prompt.
+    const brandMeta = parseBrandMetadata(workspace.brandDNA?.writingStyle);
     const brandDNA = {
       name: workspace.name || "Brand",
       industry: workspace.industry || "Marketing & Automation",
@@ -76,7 +80,7 @@ export async function POST(req: Request) {
       tone: workspace.brandDNA?.tone || "Professional, Authoritative, Engaging",
       missionVision: workspace.brandDNA?.missionVision || "Drive growth through smart digital solutions",
       targetAudience: workspace.brandDNA?.targetAudience || "Modern Business Decision Makers",
-      writingStyle: workspace.brandDNA?.writingStyle || "Direct, engaging, value-driven",
+      writingStyle: brandMeta.rules || "Direct, engaging, value-driven",
       // Drives the palette of text-rich carousel / document slides (slideDesigner).
       primaryColors: Array.isArray(workspace.brandDNA?.primaryColors)
         ? workspace.brandDNA.primaryColors.filter(Boolean)

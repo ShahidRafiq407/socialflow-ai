@@ -128,6 +128,14 @@ export const PLANNED_CONNECTORS: PlannedConnectorDef[] = [
     category: "media",
   },
   {
+    key: "gmail",
+    name: "Gmail",
+    tagline: "Read, draft and manage email with AI CEO",
+    description:
+      "Connect Gmail to let AI CEO find context, draft replies and organize email workflows from chat.",
+    category: "automation",
+  },
+  {
     key: "google-drive",
     name: "Google Drive",
     tagline: "RAW media asset reader",
@@ -142,5 +150,13 @@ export const PLANNED_CONNECTORS: PlannedConnectorDef[] = [
     description:
       "Receive instant webhooks from 5,000+ apps to trigger automated social media posts.",
     category: "automation",
+  },
+  {
+    key: "custom-website",
+    name: "Custom coded website",
+    tagline: "Publish to your own website API",
+    description:
+      "Use the secure signed webhook connection to publish AI-generated pages and posts to any coded website.",
+    category: "dev",
   },
 ];

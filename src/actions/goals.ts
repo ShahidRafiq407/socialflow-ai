@@ -31,6 +31,7 @@ import { AUTOPILOT_ORIGIN, recordPublishLog } from "@/lib/publishing/dispatch";
 import { auth } from "@clerk/nextjs/server";
 import { isInternalCall, INTERNAL_CALL_TOKEN } from "@/lib/growth/internalCall";
 import { leadTypeLabel } from "@/lib/types/growth";
+import { buildBrandProfile } from "@/lib/brand/profile";
 
 /**
  * Lead Goal HQ server actions.
@@ -696,6 +697,7 @@ export async function executeGrowthPlanTask(
 
     const capability = getPlatformCapability(task.platform.toLowerCase() as any, task.format);
     const dna: any = workspace.brandDNA || {};
+    const brandProfile = buildBrandProfile(workspace);
     const clickable = isCaptionLinkClickable(task.platform);
 
     options?.onProgress?.(`Writing ${task.platform} ${task.format} copy…`);
@@ -704,8 +706,10 @@ export async function executeGrowthPlanTask(
       brandName && `Business: ${brandName}`,
       industry && `What they do: ${industry}`,
       dna.targetAudience && `Target audience: ${dna.targetAudience}`,
+      brandProfile.painPoints && `Customer problems they solve: ${brandProfile.painPoints}`,
+      brandProfile.differentiator && `Why customers choose them: ${brandProfile.differentiator}`,
       dna.tone && `Brand tone: ${dna.tone}`,
-      dna.writingStyle && `Writing style: ${dna.writingStyle}`,
+      brandProfile.writingRules && `Writing style: ${brandProfile.writingRules}`,
       Array.isArray(dna.forbiddenWords) && dna.forbiddenWords.length
         ? `Never use these words: ${dna.forbiddenWords.join(", ")}`
         : "",

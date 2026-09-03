@@ -35,6 +35,7 @@ import {
   resolveDefaultCmsTarget,
 } from "@/lib/cms";
 import { describeCmsProviders } from "@/lib/cms/registry";
+import { buildBrandProfile, splitBrandList } from "@/lib/brand/profile";
 import { isEncryptionConfigured } from "@/lib/crypto";
 import prisma from "@/lib/db";
 import { discoverInternalLinkCandidates } from "@/lib/seo/internalLinks";
@@ -92,17 +93,29 @@ function denied() {
   );
 }
 
-/** Every Brand DNA field the generator accepts, from the one place it is stored. */
+/**
+ * Every business fact the generator accepts, from the one place it is stored.
+ *
+ * `brandDNA.writingStyle` is a JSON blob, not a style string, so it goes through
+ * the shared parser: the writer gets the offer, the customer problems, the
+ * differentiator and the competitor set as separate facts instead of one
+ * unreadable object it has to guess at.
+ */
 function brandParams(workspace: OwnedWorkspace) {
-  const dna = workspace.brandDNA;
+  const profile = buildBrandProfile(workspace);
   return {
-    brandName: workspace.name,
-    industry: workspace.industry || undefined,
-    brandTone: dna?.tone || undefined,
-    targetAudience: dna?.targetAudience || undefined,
-    missionVision: dna?.missionVision || undefined,
-    writingStyle: dna?.writingStyle || undefined,
-    forbiddenWords: dna?.forbiddenWords?.length ? dna.forbiddenWords : undefined,
+    brandName: profile.brandName || workspace.name,
+    industry: profile.industry || undefined,
+    brandTone: profile.tone || undefined,
+    targetAudience: profile.targetAudience || undefined,
+    missionVision: profile.missionVision || undefined,
+    writingStyle: profile.writingRules || undefined,
+    businessWebsite: profile.website || undefined,
+    customerProblems: profile.painPoints || undefined,
+    differentiator: profile.differentiator || undefined,
+    ctaOffer: profile.ctaOffer || undefined,
+    competitorBrands: profile.competitors ? splitBrandList(profile.competitors) : undefined,
+    forbiddenWords: profile.forbiddenWords.length ? profile.forbiddenWords : undefined,
   };
 }
 
@@ -381,14 +394,18 @@ export async function POST(req: Request) {
         })
         .catch(() => [] as { title: string }[]);
 
+      const profile = buildBrandProfile(workspace);
       const result = await suggestTopicIdeas({
-        brandName: workspace.name,
-        industry: workspace.industry || undefined,
-        targetAudience: workspace.brandDNA?.targetAudience || undefined,
-        tone: workspace.brandDNA?.tone || undefined,
-        missionVision: workspace.brandDNA?.missionVision || undefined,
-        writingStyle: workspace.brandDNA?.writingStyle || undefined,
-        forbiddenWords: workspace.brandDNA?.forbiddenWords || undefined,
+        brandName: profile.brandName || workspace.name,
+        industry: profile.industry || undefined,
+        targetAudience: profile.targetAudience || undefined,
+        tone: profile.tone || undefined,
+        missionVision: profile.missionVision || undefined,
+        writingStyle: profile.writingRules || undefined,
+        customerProblems: profile.painPoints || undefined,
+        differentiator: profile.differentiator || undefined,
+        ctaOffer: profile.ctaOffer || undefined,
+        forbiddenWords: profile.forbiddenWords.length ? profile.forbiddenWords : undefined,
         existingTitles: recent.map((r) => r.title || "").filter(Boolean),
         targetCountry: body?.targetCountry,
         seedHint: body?.seedHint || body?.keyword,

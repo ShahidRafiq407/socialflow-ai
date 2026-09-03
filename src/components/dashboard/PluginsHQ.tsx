@@ -35,6 +35,8 @@ import { ConnectConnectorModal } from "./plugins/ConnectConnectorModal";
 import { AddMcpServerModal } from "./plugins/AddMcpServerModal";
 import { McpServerCard } from "./plugins/McpServerCard";
 import { WebsiteTagCard } from "./plugins/WebsiteTagCard";
+import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
+import type { PublishTargetsView } from "./article-writer/PublishTargetsPanel";
 
 const CATEGORY_ICONS: Record<ConnectorCategory, React.ElementType> = {
   dev: GitBranch,
@@ -56,6 +58,7 @@ interface PluginsHQProps {
   connections: ConnectorView[];
   mcpServers: McpServerView[];
   tracking: TrackingStatus;
+  publishTargets: PublishTargetsView;
 }
 
 // Deep link from the chat controller or the Goal page:
@@ -90,6 +93,7 @@ export default function PluginsHQ({
   connections,
   mcpServers,
   tracking,
+  publishTargets,
 }: PluginsHQProps) {
   const [activeTab, setActiveTab] = useState<"connectors" | "trends">("connectors");
 
@@ -102,6 +106,9 @@ export default function PluginsHQ({
   const [activeConnectorKey, setActiveConnectorKey] = useState<string | null>(null);
   const [showAddMcpModal, setShowAddMcpModal] = useState(false);
   const [focusedConnector, setFocusedConnector] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [publishTargetsState, setPublishTargetsState] = useState(publishTargets);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
 
   // Live Google News Trend & Competitor Spy State
   const [spyMode, setSpyMode] = useState<"trend" | "competitor">("trend");
@@ -113,6 +120,12 @@ export default function PluginsHQ({
   const [copiedTrendId, setCopiedTrendId] = useState<string | null>(null);
 
   const getConnection = (key: string) => connectionsState.find((c) => c.providerKey === key);
+  const visibleConnectors = CONNECTOR_REGISTRY.filter((connector) =>
+    `${connector.name} ${connector.tagline}`.toLowerCase().includes(searchQuery.toLowerCase().trim())
+  );
+  const connectedCount = connectionsState.filter((connection) => connection.status === "connected").length;
+  const connectedCmsTargets = publishTargetsState.targets.filter((target) => target.status === "connected");
+  const installedCount = connectedCount + (wpSiteState.connected ? 1 : 0) + connectedCmsTargets.length;
 
   // A ?connector= link lands on the connectors tab with that card scrolled to and
   // ringed. If it is not connected yet the connect dialog opens too — that link
@@ -234,52 +247,34 @@ export default function PluginsHQ({
 
   return (
     <div className="space-y-8 pb-12">
-      {/* Header — flat, no gradient: this page is a list of facts, not a banner */}
-      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 mb-3">
-              <Plug className="h-3.5 w-3.5" />
-              Plugins & connectors
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
-              Connect the things the AI publishes to
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
-              Every connection is made once, here. The rest of the app reads it — so your website,
-              your lead tag and your dev tools can never be connected in one place and missing in
-              another. Nothing on this page shows a connection it has not actually verified.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setShowWpModal(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
-            >
-              <Globe className="h-4 w-4" />
-              Configure WordPress
-            </button>
-            <button
-              onClick={() => setShowAddMcpModal(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            >
-              <ServerIcon className="h-4 w-4" />
-              Add MCP Server
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab("trends");
-                if (trends.length === 0 && (trendQuery.trim() || competitorQuery.trim())) {
-                  handleScanTrends();
-                }
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            >
-              <TrendingUp className="h-4 w-4 text-emerald-500" />
-              Live News Engine
-            </button>
-          </div>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl">Plugins</h1>
+          <p className="mt-2 flex items-center gap-2 text-base text-slate-500 dark:text-slate-400">
+            Work with AI CEO across your favorite tools.
+            <button type="button" title="Overview: connect a plugin once, then ask AI CEO to use it from chat." aria-label="Plugin user guide overview" className="rounded-full border border-slate-300 px-1.5 text-[10px] font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-slate-600">?</button>
+          </p>
         </div>
+        <label className="relative block w-full sm:w-80">
+          <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search plugins" className="h-14 w-full rounded-full border border-slate-200 bg-white pl-12 pr-5 text-base text-slate-900 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900 dark:text-white" />
+        </label>
+      </div>
+      <div className="flex items-end justify-between border-b border-slate-200 pb-4 dark:border-slate-800">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950 dark:text-white">Installed</h2>
+          <p className="mt-1 text-xs text-slate-500">{installedCount} plugin{installedCount === 1 ? "" : "s"} connected</p>
+        </div>
+        <button onClick={() => setShowAddMcpModal(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"><ServerIcon className="h-4 w-4" /> Add MCP</button>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {connectionsState.filter((connection) => connection.status === "connected").map((connection) => {
+          const connector = CONNECTOR_REGISTRY.find((item) => item.key === connection.providerKey);
+          return <button key={connection.providerKey} title={connector?.name} onClick={() => setFocusedConnector(connection.providerKey)} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-indigo-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900">{connector?.name.slice(0, 1)}</button>;
+        })}
+        {wpSiteState.connected && <button title="WordPress" onClick={() => setShowWpModal(true)} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-blue-600 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-900">W</button>}
+        {connectedCmsTargets.filter((target) => target.providerKey !== "wordpress").map((target) => <button key={target.id} title={target.providerName} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white text-lg font-bold text-emerald-600 shadow-sm dark:border-slate-700 dark:bg-slate-900">{target.providerName.slice(0, 1)}</button>)}
+        {installedCount === 0 && <span className="text-sm text-slate-400">Connect a plugin below to see it here.</span>}
       </div>
 
       {/* Navigation Tabs */}
@@ -374,7 +369,7 @@ export default function PluginsHQ({
             />
 
             {/* Registry-driven connector cards */}
-            {CONNECTOR_REGISTRY.map((connector) => {
+            {visibleConnectors.map((connector) => {
               const conn = getConnection(connector.key);
               const Icon = CATEGORY_ICONS[connector.category] || Plug;
               const isConnected = conn?.status === "connected";
@@ -431,6 +426,19 @@ export default function PluginsHQ({
               );
             })}
           </div>
+
+          <PublishTargetsPanel
+            workspaceId={workspaceId}
+            targets={publishTargetsState.targets}
+            providers={publishTargetsState.providers}
+            encryptionReady={publishTargetsState.encryptionReady}
+            selectedTargetId={selectedTargetId}
+            onSelect={setSelectedTargetId}
+            onChange={setPublishTargetsState}
+            onNotify={(tone, text) => {
+              if (tone === "error") console.error(text);
+            }}
+          />
 
           {/* MCP Servers — user-added external tool servers */}
           <div>
@@ -490,7 +498,7 @@ export default function PluginsHQ({
           {/* Planned connectors — honest, no fake states */}
           <div>
             <h3 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-              Planned connectors
+              More plugins
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {PLANNED_CONNECTORS.map((planned) => {
@@ -517,6 +525,13 @@ export default function PluginsHQ({
                     <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
                       {planned.description}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddMcpModal(true)}
+                      className="mt-4 text-xs font-semibold text-violet-600 hover:text-violet-500 dark:text-violet-400"
+                    >
+                      Connect via MCP →
+                    </button>
                   </div>
                 );
               })}

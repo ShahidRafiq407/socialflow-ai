@@ -43,6 +43,7 @@ import {
   X,
 } from "lucide-react";
 import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
+import { describeBrandFacts } from "@/lib/brand/profile";
 import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/ArticleEditor";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
 import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
@@ -496,9 +497,14 @@ export function ArticleWriterHQ({
       setSerpError(data?.serpError || null);
       setView("preview");
       setBriefOpen(false);
-      if (next.images?.[0]?.url) {
-        setFeaturedUrl(next.images[0].url);
-        setFeaturedAlt(next.images[0].alt || next.title);
+      // The hero is the image the generator marked as above the first section
+      // (`afterSectionIndex < 0`) — not whichever image happens to be first in the
+      // array. Picking by index put an in-article image on the social card.
+      const hero =
+        next.images?.find((img) => img.afterSectionIndex < 0) ?? next.images?.[0] ?? null;
+      if (hero?.url) {
+        setFeaturedUrl(hero.url);
+        setFeaturedAlt(hero.alt || next.title);
       }
       push(
         "success",
@@ -709,12 +715,26 @@ export function ArticleWriterHQ({
     setMediaSlot(slot);
     setMediaOpen(true);
   }, []);
-  const brandFacts = [
-    brandDna?.tone ? `Tone: ${brandDna.tone}` : null,
-    brandDna?.targetAudience ? `Audience: ${brandDna.targetAudience}` : null,
-    brandDna?.writingStyle ? `Style: ${brandDna.writingStyle}` : null,
-    industry ? `Industry: ${industry}` : null,
-  ].filter(Boolean) as string[];
+  // Facts, not a JSON dump. `describeBrandFacts` reads the unpacked Brand DNA the
+  // page hands down, so `Style: {"ctaOffer":…}` can no longer reach the screen.
+  const brandFacts = useMemo(
+    () =>
+      describeBrandFacts({
+        brandName: workspaceName,
+        website,
+        industry,
+        tone: brandDna?.tone || "",
+        targetAudience: brandDna?.targetAudience || "",
+        missionVision: brandDna?.missionVision || "",
+        painPoints: brandDna?.painPoints || "",
+        differentiator: brandDna?.differentiator || "",
+        ctaOffer: brandDna?.ctaOffer || "",
+        competitors: brandDna?.competitors || "",
+        writingRules: brandDna?.writingRules || "",
+        forbiddenWords: brandDna?.forbiddenWords || [],
+      }),
+    [workspaceName, website, industry, brandDna]
+  );
 
   return (
     <div className="mx-auto w-full max-w-[110rem] space-y-4 p-4 md:p-6">
@@ -727,19 +747,15 @@ export function ArticleWriterHQ({
             <h1 className="text-lg font-black text-foreground md:text-xl">
               Write for {workspaceName}
             </h1>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-              Each article is planned across the four E-E-A-T pillars, benchmarked against the
-              pages ranking right now, and written to the exact length you ask for. Nothing on
-              this page is a placeholder: what cannot be fetched is reported, not invented.
-            </p>
             {brandFacts.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {brandFacts.map((fact) => (
                   <span
-                    key={fact}
+                    key={fact.label}
                     className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground"
+                    title={`${fact.label}: ${fact.value}`}
                   >
-                    {fact}
+                    <span className="text-muted-foreground">{fact.label}:</span> {fact.value}
                   </span>
                 ))}
               </div>

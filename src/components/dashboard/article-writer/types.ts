@@ -199,12 +199,29 @@ export interface PublishOutcome {
   label?: string;
 }
 
-/** The Brand DNA the page hands down. Every field may be missing — none is faked. */
+/**
+ * The Brand DNA the page hands down, already unpacked. Every field may be missing
+ * — none is faked.
+ *
+ * There is deliberately no `writingStyle` here: that column holds a JSON blob and
+ * the page used to render it straight into a fact chip. `buildBrandProfile` splits
+ * it, so what arrives is the rules the owner typed plus the business facts that
+ * were hidden inside it.
+ */
 export interface BrandDnaProps {
   tone?: string | null;
   targetAudience?: string | null;
   missionVision?: string | null;
-  writingStyle?: string | null;
+  /** Writing rules the owner typed, never the serialised blob. */
+  writingRules?: string | null;
+  /** Customer problems the business solves. */
+  painPoints?: string | null;
+  /** Why customers choose this business. */
+  differentiator?: string | null;
+  /** The default offer an article should lead towards. */
+  ctaOffer?: string | null;
+  /** Benchmark competitor brands, as free text. */
+  competitors?: string | null;
   forbiddenWords?: string[];
   primaryColors?: string[];
 }
