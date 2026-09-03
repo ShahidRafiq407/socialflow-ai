@@ -206,7 +206,7 @@ export async function publishToTikTok(post: any, account: any): Promise<PublishR
     // ------------------------------------------------------------------
     // VIDEO MODE — existing FILE_UPLOAD flow
     // ------------------------------------------------------------------
-    const rawVideoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
+    const rawVideoUrl: string | undefined = post.videoUrl || post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
     if (!rawVideoUrl) {
       return { success: false, error: "TikTok posts require a video", platform: "TIKTOK" };
     }

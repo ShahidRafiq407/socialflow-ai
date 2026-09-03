@@ -57,34 +57,24 @@ describe("family taxonomy — the groups the user asked for", () => {
     expect(family.renderAspectRatio).toBe("1:1");
   });
 
-  it("keeps every vertical video target in ONE family (reel / tiktok / short / video pin)", () => {
+  it("groups every vertical video target in ONE family (reel / tiktok / short / video pin / stories)", () => {
     const families = computeFormatFamilies(
       ["instagram", "tiktok", "youtube", "facebook", "pinterest"],
       {
-        instagram: ["reel"],
+        instagram: ["reel", "story"],
         tiktok: ["video"],
         youtube: ["short"],
-        facebook: ["reel"],
+        facebook: ["reel", "story"],
         pinterest: ["video pin"],
       }
     );
 
     const videoFamilies = families.filter((f) => f.kind === "video");
     expect(videoFamilies).toHaveLength(1);
-    expect(videoFamilies[0].members).toHaveLength(5);
+    // One vertical render covers reels, shorts, stories AND the video pin —
+    // stories publish natively as video (IG STORIES container, FB video_stories).
+    expect(videoFamilies[0].members).toHaveLength(7);
     expect(videoFamilies[0].renderAspectRatio).toBe("9:16");
-  });
-
-  it("keeps stories as one vertical still family (one render covers ig + fb story)", () => {
-    const families = computeFormatFamilies(
-      ["instagram", "facebook"],
-      { instagram: ["story"], facebook: ["story"] }
-    );
-
-    const imageFamilies = families.filter((f) => f.kind === "image");
-    expect(imageFamilies).toHaveLength(1);
-    expect(imageFamilies[0].members).toHaveLength(2);
-    expect(imageFamilies[0].renderAspectRatio).toBe("9:16");
   });
 
   it("does not merge square stills with landscape stills — the ratio changes the artefact", () => {

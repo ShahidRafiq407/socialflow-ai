@@ -17,7 +17,12 @@ export async function saveDraft(postData: any): Promise<any> {
     const { userId } = await auth();
     if (!userId) return { success: false, error: 'Unauthorized. Please sign in again.' };
 
-    let { id, workspaceId, platform, content, imageUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook, mediaHistory, captionHistory, agentLogs, settings } = postData;
+    let { id, workspaceId, platform, content, imageUrl, videoUrl, imagePrompt, format, hashtags, mediaType, mediaSource, source, campaignTopic, campaignHook, mediaHistory, captionHistory, agentLogs, settings } = postData;
+
+    // The database keeps one canonical media URL column for both stills and
+    // videos. Accept videoUrl from callers too, so a generated story/reel is
+    // never silently dropped when it is saved from the editor or API.
+    imageUrl = imageUrl || videoUrl;
 
     if (!workspaceId) {
       const workspace = await prisma.workspace.findFirst({ where: { userId } });

@@ -143,6 +143,7 @@ export function extractMediaIdFromApiUrl(url: string | null | undefined): string
  */
 export function collectMediaUrls(post: {
   imageUrl?: string | null;
+  videoUrl?: string | null;
   mediaHistory?: unknown;
 } | null | undefined): string[] {
   const history = post?.mediaHistory as { mediaUrls?: unknown } | undefined;
@@ -150,6 +151,7 @@ export function collectMediaUrls(post: {
   if (Array.isArray(urls) && urls.length > 0) {
     return urls.filter(Boolean).map((u: unknown) => String(u));
   }
+  if (post?.videoUrl) return [post.videoUrl];
   if (post?.imageUrl) return [post.imageUrl];
   return [];
 }

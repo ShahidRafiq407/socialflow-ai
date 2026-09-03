@@ -1533,6 +1533,15 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
         ? `${deckPrompts[0] || ""}${deckPrompts[0] ? ". " : ""}Shot sequence: ${creative.videoStoryboard}`
         : deckPrompts[0] || "";
 
+    // A family has one caption, not one caption per platform. Fit it once to the
+    // tightest member limit; fitting independently below would make a long
+    // Instagram/Facebook/LinkedIn family drift after the copy agent had already
+    // produced a shared caption.
+    const familyCaption = fitCaptionToLimit(
+      creative.caption || creative.posts[memberKey(family.members[0].platform, family.members[0].contentType)]?.caption || "",
+      family.members.reduce((min, m) => Math.min(min, limitsFor(m.platform).captionMax), Number.MAX_SAFE_INTEGER)
+    );
+
     for (const m of family.members) {
       const post = creative.posts[memberKey(m.platform, m.contentType)] || {
         title: "",
@@ -1542,7 +1551,7 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
       // ONE caption per family, by construction: every member carries the same
       // text, trimmed only where that member's platform limit is tighter. A
       // family must read as one campaign, not as N remixes of one.
-      const caption = fitCaptionToLimit(creative.caption || post.caption, limitsFor(m.platform).captionMax);
+      const caption = familyCaption;
       const wordCount = caption.split(/\s+/).filter(Boolean).length;
 
       state.generatedContent!.platforms[m.platform] =
@@ -1784,6 +1793,19 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
       throw new Error(`No media was produced for the ${family.label} family.`);
     }
 
+    if (family.kind === "multi_image" && assets.length < family.plannedSlides) {
+      partialFamilies.add(family.key);
+      emit({
+        type: "agent_action",
+        agentId,
+        data: {
+          label: `${family.label} produced ${assets.length}/${family.plannedSlides} slides — keeping completed slides and stopping the retry loop`,
+          scope: family.label,
+          severity: "warning",
+        },
+      });
+    }
+
     // A salvaged partial deck (the family's deadline cut the render mid-deck) must
     // still respect an explicit Skip: the user abandoned this family, and attaching
     // rescued slides would override that decision.
@@ -2016,6 +2038,8 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
 
   /** Families whose render failed, so the summary can name the posts going out bare. */
   const renderFailures: { label: string; message: string }[] = [];
+  /** A partial deck already has usable output; never re-render its whole family in audit. */
+  const partialFamilies = new Set<string>();
 
   if (mediaRestored) {
     // Nothing to render: this run resumed at the audit with the previous attempt's media
@@ -2220,6 +2244,16 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
           agentId: "ceo_auditor",
           data: {
             label: `${describeMembers(family)} — you skipped this format, so the CEO is leaving it for you to finish in the content editor`,
+            scope: family.label,
+            severity: "warning",
+          },
+        });
+      } else if (partialFamilies.has(family.key)) {
+        emit({
+          type: "agent_action",
+          agentId: "ceo_auditor",
+          data: {
+            label: `${describeMembers(family)} — partial slides kept; not retrying the stalled full deck. Add the missing slides in the content editor.`,
             scope: family.label,
             severity: "warning",
           },
@@ -2576,14 +2610,17 @@ Include a field only if you rewrote it.`,
           const siblings = family
             ? family.members
             : [{ platform: plt, contentType: fmt } as { platform: string; contentType: string }];
+          const familyCaption = fitCaptionToLimit(
+            newCaption,
+            siblings.reduce((min, m) => Math.min(min, limitsFor(m.platform).captionMax), Number.MAX_SAFE_INTEGER)
+          );
           for (const m of siblings) {
             const sibling = state.generatedContent?.platforms?.[m.platform]?.[m.contentType] as
               | { caption?: string; wordCount?: number; readingTimeSeconds?: number }
               | undefined;
             if (!sibling) continue;
-            const fitted = fitCaptionToLimit(newCaption, limitsFor(m.platform).captionMax);
-            sibling.caption = fitted;
-            sibling.wordCount = fitted.split(/\s+/).filter(Boolean).length;
+            sibling.caption = familyCaption;
+            sibling.wordCount = familyCaption.split(/\s+/).filter(Boolean).length;
             sibling.readingTimeSeconds = Math.max(5, Math.ceil((sibling.wordCount / 200) * 60));
           }
           applied += 1;

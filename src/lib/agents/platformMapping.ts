@@ -8,7 +8,13 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
   facebook: {
     feed: { mediaType: "image", aspectRatio: "1:1", description: "Facebook Feed Post Image" },
     reel: { mediaType: "video", aspectRatio: "9:16", description: "Facebook Reel Short Video" },
-    story: { mediaType: "image", aspectRatio: "9:16", description: "Facebook Story Image" },
+    // A Story is published through the SAME 9:16 vertical video render as Reels:
+    // one family (video|vertical), one render, one caption. The Facebook publisher
+    // already handles video stories (video_stories upload phases), and a story
+    // that arrives as a video posts natively. It was mapped "image" before, which
+    // split stories into their own still-image family and rendered a SECOND,
+    // different vertical asset for what the user asked to be one campaign.
+    story: { mediaType: "video", aspectRatio: "9:16", description: "Facebook Story Vertical Video" },
     "multiple photos": { mediaType: "multi_image", aspectRatio: "1:1", description: "Facebook Multiple Photos Post" },
     multiple_photos: { mediaType: "multi_image", aspectRatio: "1:1", description: "Facebook Multiple Photos Post" },
   },
@@ -16,7 +22,11 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
     feed: { mediaType: "image", aspectRatio: "1:1", description: "Instagram Feed Square Image" },
     carousel: { mediaType: "multi_image", aspectRatio: "1:1", description: "Instagram Carousel Multi-Slide Post" },
     reel: { mediaType: "video", aspectRatio: "9:16", description: "Instagram Reel Vertical Video" },
-    story: { mediaType: "image", aspectRatio: "9:16", description: "Instagram Story Image" },
+    // Same as Facebook stories: one vertical video family serves Reels AND
+    // Stories. The Instagram publisher publishes STORIES containers with
+    // video_url natively, and stories never carry a caption anyway — so the
+    // family's shared caption simply is not displayed there.
+    story: { mediaType: "video", aspectRatio: "9:16", description: "Instagram Story Vertical Video" },
   },
   tiktok: {
     video: { mediaType: "video", aspectRatio: "9:16", description: "TikTok Short Video" },

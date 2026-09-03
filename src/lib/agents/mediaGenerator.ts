@@ -1094,17 +1094,18 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     throw firstFailure?.reason ??
       new VisualizerError("IMAGE_GENERATION_FAILED", "No slides were produced.");
   }
+  // A single failed/timeout slide must not discard the slides that already rendered.
+  // The old branch threw here for provider failures, which made the campaign retry
+  // the entire deck and repeatedly get stuck on the same slide (typically 2/5).
+  // Return the completed slides for both transient failures and deadline aborts:
+  // the deterministic audit records DECK_TOO_SHORT as a media gap and the editor can
+  // fill the missing slides, while the successful slides remain usable immediately.
   if (firstFailure && !input.signal?.aborted) {
-    // A slide failed while the render was still live (quota wall, blocked prompt):
-    // the cause will repeat for the missing slide, so the family fails honestly
-    // and the CEO's recovery pass decides what to re-render.
-    throw firstFailure.reason;
+    console.warn(
+      `[Visualizer] ${slideAssets.length}/${assetCount} deck slide(s) rendered; salvaging completed slides after failure:`,
+      firstFailure.reason
+    );
   }
-  // The remaining case is an abort (family deadline / Skip / Cancel) that arrived
-  // after some slides had already finished. A partial deck publishes; an empty one
-  // does not. Salvage the completed slides instead of losing every one of them —
-  // this is what turns "deck cut at slide 2/5, everything lost" into "shipped with
-  // slides 1-2 and the rest in the editor".
 
   // The editor and the attachment keys both rely on deck order, and the fan-out
   // above settles in render order — sort back into slide order before returning.

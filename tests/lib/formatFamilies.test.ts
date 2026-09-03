@@ -82,25 +82,27 @@ describe("computeFormatFamilies — grouping", () => {
   });
 
   it("keeps different orientations of the same kind in separate families", () => {
-    // A 9:16 story and a 1:1 feed image cannot share pixels.
+    // A 9:16 video and a 1:1 feed image cannot share pixels. (Stories used to be
+    // the vertical still here; they now join the vertical VIDEO family by design.)
     const families = computeFormatFamilies(
       ["facebook"],
-      { facebook: ["feed", "story"] }
+      { facebook: ["feed", "reel"] }
     );
 
-    const imageFamilies = families.filter((f) => f.kind === "image");
-    expect(imageFamilies).toHaveLength(2);
-    expect(new Set(imageFamilies.map((f) => f.orientation))).toEqual(
+    const visualFamilies = families.filter((f) => f.visualRequired);
+    expect(visualFamilies).toHaveLength(2);
+    expect(new Set(visualFamilies.map((f) => f.orientation))).toEqual(
       new Set(["square", "vertical"])
     );
   });
 
   it("separates kinds even at the same orientation", () => {
     // Vertical video and vertical still image are both "vertical" but are not
-    // interchangeable artefacts.
+    // interchangeable artefacts. TikTok photo is a genuine vertical STILL, so it
+    // stays a separate family from the vertical video the reel renders.
     const families = computeFormatFamilies(
-      ["instagram", "facebook"],
-      { instagram: ["reel"], facebook: ["story"] }
+      ["instagram", "tiktok"],
+      { instagram: ["reel"], tiktok: ["photo"] }
     );
 
     const keys = families.map((f) => f.key);

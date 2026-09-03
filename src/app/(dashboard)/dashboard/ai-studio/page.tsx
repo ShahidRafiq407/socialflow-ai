@@ -112,6 +112,7 @@ import { searchStockMedia } from "@/actions/stock-media";
 import { getBestTimeSpec, getNextBestTime, getNextBestTimeFromSpec } from "@/lib/bestPublishTime";
 import { analyzeBestTimes } from "@/actions/bestTime";
 import { normalizeHashtags, formatHashtagInputTokens } from "@/lib/hashtags";
+import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
 
 // ============================================================================
 // ZUSTAND GLOBAL STORE — shared between AI Studio, Auto-Pilot, Calendar
@@ -306,34 +307,20 @@ const getAspectRatio = (format: string): "9:16" | "1:1" | "4:5" | "16:9" | "2:3"
 };
 
 const getMediaType = (format: string): "video" | "image" | "carousel" => {
-  if (["Reel", "Shorts", "Video", "Short Video", "Video Pin"].includes(format)) return "video";
+  if (["Reel", "Shorts", "Video", "Short Video", "Video Pin", "Story"].includes(format)) return "video";
   if (["Carousel", "Thread", "Idea Pin"].includes(format)) return "carousel";
   return "image";
 };
 
-const getFormatFamily = (platform: string, format: string): "vertical_video" | "story" | "carousel" | "single_image" => {
+const getFormatFamily = (platform: string, format: string): "vertical_video" | "carousel" | "single_image" => {
   const norm = (format || "").toLowerCase().trim();
-  if (
-    norm.includes("reel") ||
-    norm.includes("short") ||
-    norm === "video" ||
-    norm === "short video" ||
-    norm === "video pin" ||
-    norm.includes("video pin")
-  ) {
-    return "vertical_video";
-  }
-  if (norm.includes("story")) {
-    return "story";
-  }
-  if (
-    norm.includes("carousel") ||
-    norm.includes("idea pin") ||
-    norm.includes("idea_pin") ||
-    norm.includes("document")
-  ) {
-    return "carousel";
-  }
+  const spec = getPlatformFormatSpec(platform, format);
+  if (spec.mediaType === "video") return "vertical_video";
+  if (spec.mediaType === "multi_image") return "carousel";
+  // Keep the fallback for legacy/unknown editor labels, while known formats
+  // always follow the shared platform taxonomy used by campaign generation.
+  if (norm.includes("video") || norm.includes("reel") || norm.includes("short") || norm.includes("story")) return "vertical_video";
+  if (norm.includes("carousel") || norm.includes("idea") || norm.includes("document") || norm.includes("multi")) return "carousel";
   return "single_image";
 };
 
@@ -2696,7 +2683,7 @@ export default function AIStudioPage() {
     Boolean(renderingAllSlidesKeys[currentFormatKey]) ||
     Boolean(generatingCopyKeys[currentFormatKey]);
 
-  const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(currentFormatName);
+  const isCurrentVideoFormat = getPlatformCapability(activePlatformTab, currentFormatName).mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video", "Story"].includes(currentFormatName);
 
   const handleRenderMedia = async (options?: {
     mediaType?: "image" | "video";
@@ -2723,7 +2710,7 @@ export default function AIStudioPage() {
     const capability = getPlatformCapability(targetPlatform, targetFormat);
     const isVideo = options?.mediaType
       ? options.mediaType === "video"
-      : capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(targetFormat);
+      : capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video", "Story"].includes(targetFormat);
 
     // Deck slides carry their own background art direction. The format-wide custom
     // prompt is a single-image field, so preferring it here would give every slide of

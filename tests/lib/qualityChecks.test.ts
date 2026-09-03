@@ -34,6 +34,7 @@ function goodPost(overrides: Record<string, any> = {}) {
     title: "Onboarding, rewritten from support tickets",
     hashtags: ["#onboarding", "#saas", "#productdesign"],
     imageUrl: "https://cdn.example.com/a.png",
+    videoUrl: "https://cdn.example.com/a.mp4",
     ...overrides,
   };
 }
@@ -90,7 +91,7 @@ describe("runDeterministicChecks — blockers cannot be waved through", () => {
   it("blocks a video format with no video", () => {
     const families = computeFormatFamilies(["tiktok"], { tiktok: ["video"] });
     const report = runDeterministicChecks({
-      content: content({ tiktok: { video: goodPost({ imageUrl: undefined }) } }),
+      content: content({ tiktok: { video: goodPost({ imageUrl: undefined, videoUrl: undefined }) } }),
       families,
     });
 
@@ -99,9 +100,9 @@ describe("runDeterministicChecks — blockers cannot be waved through", () => {
   });
 
   it("blocks an image format with no image", () => {
-    const families = computeFormatFamilies(["instagram"], { instagram: ["story"] });
+    const families = computeFormatFamilies(["instagram"], { instagram: ["feed"] });
     const report = runDeterministicChecks({
-      content: content({ instagram: { story: goodPost({ imageUrl: "" }) } }),
+      content: content({ instagram: { feed: goodPost({ imageUrl: "", videoUrl: undefined }) } }),
       families,
     });
 
@@ -129,7 +130,7 @@ describe("runDeterministicChecks — blockers cannot be waved through", () => {
   it("never lists a blocker as fixable — no rewrite can conjure a missing render", () => {
     const families = computeFormatFamilies(["tiktok"], { tiktok: ["video"] });
     const report = runDeterministicChecks({
-      content: content({ tiktok: { video: goodPost({ imageUrl: undefined }) } }),
+      content: content({ tiktok: { video: goodPost({ imageUrl: undefined, videoUrl: undefined }) } }),
       families,
     });
 
@@ -144,7 +145,7 @@ describe("runDeterministicChecks — blockers cannot be waved through", () => {
     // run must still fail, because the post is literally unpublishable.
     const families = computeFormatFamilies(["tiktok"], { tiktok: ["video"] });
     const report = runDeterministicChecks({
-      content: content({ tiktok: { video: goodPost({ imageUrl: undefined }) } }),
+      content: content({ tiktok: { video: goodPost({ imageUrl: undefined, videoUrl: undefined }) } }),
       families,
     });
 
@@ -431,7 +432,7 @@ describe("runDeterministicChecks — scoring", () => {
       families,
     });
     const blocked = runDeterministicChecks({
-      content: content({ instagram: { story: goodPost({ imageUrl: undefined }) } }),
+      content: content({ instagram: { story: goodPost({ imageUrl: undefined, videoUrl: undefined }) } }),
       families,
     });
 

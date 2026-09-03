@@ -72,7 +72,7 @@ export async function publishToYouTube(post: any, account: any): Promise<Publish
       if (refreshed) accessToken = refreshed;
     }
 
-    const videoUrl: string | undefined = post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
+    const videoUrl: string | undefined = post.videoUrl || post.imageUrl || post.mediaHistory?.mediaUrls?.[0];
     if (!videoUrl) {
       return { success: false, error: 'YouTube uploads require a video', platform: 'YOUTUBE' };
     }
