@@ -3787,7 +3787,16 @@ export default function AIStudioPage() {
 
   // Robust media resolver: finds images/videos from custom media, rendered images, multi-slides, or cross-platform fallbacks
   const resolvePostMediaUrls = (platform: string, format: string, data: GeneratedFormat) => {
-    const isMulti = format === "Carousel" || format === "Idea Pin" || format === "Document" || format === "Thread";
+    const isMulti =
+      format === "Carousel" ||
+      format === "Idea Pin" ||
+      format === "Document" ||
+      format === "Thread" ||
+      format === "Multiple Photos" ||
+      format === "Multi-Image" ||
+      format.toLowerCase().includes("carousel") ||
+      format.toLowerCase().includes("multiple") ||
+      format.toLowerCase().includes("multi");
     const mediaUrls: string[] = [];
     let detectedType = "";
 

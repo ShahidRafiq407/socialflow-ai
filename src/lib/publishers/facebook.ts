@@ -149,16 +149,50 @@ export async function publishToFacebook(post: any, account: any): Promise<Publis
       // feed post that attaches all of them.
       const attachedMedia: string[] = [];
       for (let i = 0; i < Math.min(mediaUrls.length, 10); i++) {
-        const photoUrl = toPublicMediaUrl(mediaUrls[i], post.id, i);
-        const photoRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            access_token: targetAccessToken,
-            url: photoUrl,
-            published: false,
-          }),
-        });
+        const itemUrl = mediaUrls[i];
+        let photoRes: Response;
+
+        if (itemUrl.startsWith('data:')) {
+          const parsed = parseDataUri(itemUrl);
+          if (parsed) {
+            const mimeType = parsed.mimeType || 'image/png';
+            const buffer = Buffer.from(parsed.base64, 'base64');
+            const blob = new Blob([buffer], { type: mimeType });
+
+            const formData = new FormData();
+            formData.append('access_token', targetAccessToken);
+            formData.append('source', blob, `facebook_photo_${i}_${Date.now()}.png`);
+            formData.append('published', 'false');
+
+            photoRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
+              method: 'POST',
+              body: formData,
+            });
+          } else {
+            const photoUrl = toPublicMediaUrl(itemUrl, post.id, i);
+            photoRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                access_token: targetAccessToken,
+                url: photoUrl,
+                published: false,
+              }),
+            });
+          }
+        } else {
+          const photoUrl = toPublicMediaUrl(itemUrl, post.id, i);
+          photoRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPageId}/photos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              access_token: targetAccessToken,
+              url: photoUrl,
+              published: false,
+            }),
+          });
+        }
+
         const photoData = await photoRes.json().catch(() => ({}));
         if (!photoRes.ok || !photoData.id) {
           return {

@@ -26,6 +26,7 @@ import {
   Code2,
   Copy,
   Eye,
+  Globe,
   Heading2,
   Heading3,
   ImagePlus,
@@ -44,6 +45,7 @@ import {
   Unlink,
 } from "lucide-react";
 import type { EditorView } from "./constants";
+import PagePreview from "./PagePreview";
 
 export interface ArticleEditorHandle {
   /** Drops HTML at the caret, or at the end when the editor was never focused. */
@@ -62,6 +64,15 @@ export interface ArticleEditorProps {
   onNotify: (tone: "success" | "error" | "info", text: string) => void;
   wordCount: number;
   targetWordCount: number;
+  /** Everything below is page furniture — used only by the Page tab. */
+  title?: string;
+  siteName?: string;
+  siteUrl?: string;
+  slug?: string;
+  authorName?: string;
+  excerpt?: string;
+  featuredImageUrl?: string;
+  featuredImageAlt?: string;
 }
 const MEDIA_SELECTOR = "figure, img, iframe";
 
@@ -76,6 +87,14 @@ const ArticleEditor = forwardRef<ArticleEditorHandle, ArticleEditorProps>(functi
     onNotify,
     wordCount,
     targetWordCount,
+    title,
+    siteName,
+    siteUrl,
+    slug,
+    authorName,
+    excerpt,
+    featuredImageUrl,
+    featuredImageAlt,
   },
   ref
 ) {
@@ -277,6 +296,7 @@ const ArticleEditor = forwardRef<ArticleEditorHandle, ArticleEditorProps>(functi
 
   const views: { key: EditorView; label: string; icon: typeof Eye }[] = [
     { key: "preview", label: "Article", icon: Eye },
+    { key: "page", label: "Page", icon: Globe },
     { key: "html", label: "HTML", icon: Code2 },
     { key: "schema", label: "Schema", icon: ScrollText },
   ];
@@ -402,6 +422,21 @@ const ArticleEditor = forwardRef<ArticleEditorHandle, ArticleEditorProps>(functi
           onKeyUp={rememberCaret}
           onMouseUp={rememberCaret}
           className="article-body px-5 py-6 md:px-8 md:py-8 min-h-[28rem] max-h-[75vh] overflow-y-auto focus:outline-none"
+        />
+      )}
+
+      {view === "page" && (
+        <PagePreview
+          html={html}
+          title={title || ""}
+          siteName={siteName || "My Site"}
+          siteUrl={siteUrl}
+          slug={slug}
+          authorName={authorName}
+          excerpt={excerpt}
+          featuredImageUrl={featuredImageUrl}
+          featuredImageAlt={featuredImageAlt}
+          wordCount={wordCount}
         />
       )}
 
