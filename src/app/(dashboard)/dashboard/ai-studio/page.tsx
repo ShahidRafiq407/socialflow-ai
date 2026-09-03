@@ -3519,6 +3519,18 @@ export default function AIStudioPage() {
   const [publishModal, setPublishModal] = useState<{ type: "draft" | "schedule" | "publish" | "send_review" | null; post?: Post }>({ type: null });
   const [publishLoading, setPublishLoading] = useState(false);
   const [publishResult, setPublishResult] = useState<{ success: boolean; message: string } | null>(null);
+  const publishAbortRef = useRef<AbortController | null>(null);
+
+  const cancelPublishAction = () => {
+    if (publishAbortRef.current) {
+      publishAbortRef.current.abort();
+      publishAbortRef.current = null;
+    }
+    setPublishLoading(false);
+    setPublishResult({ success: false, message: "Operation stopped." });
+    setTimeout(() => setPublishResult(null), 3000);
+  };
+
   const [scheduledAt, setScheduledAt] = useState<string>("");
   const [schedulePlan, setSchedulePlan] = useState<
     { platform: string; platformLabel: string; format: string; time: Date; label: string; reason: string; source: string }[]
@@ -3705,9 +3717,14 @@ export default function AIStudioPage() {
   const saveAsDraft = async () => {
     const post = buildCurrentPost("draft");
     if (!post) return;
+    const abortCtrl = new AbortController();
+    publishAbortRef.current = abortCtrl;
     setPublishLoading(true);
+    setPublishResult({ success: true, message: `Saving draft for ${post.platform}...` });
     try {
+      if (abortCtrl.signal.aborted) return;
       const cleanMediaUrls = await Promise.all((post.mediaUrls || []).map((u) => ensureCleanMediaUrl(u)));
+      if (abortCtrl.signal.aborted) return;
       const draftKey = `${post.platform}-${post.format}`;
       const res = await apiSaveDraft({
         platform: post.platform,
@@ -3737,6 +3754,7 @@ export default function AIStudioPage() {
           visualPrompts: currentVisualPrompts,
         },
       });
+      if (abortCtrl.signal.aborted) return;
       if (!res?.id) {
         setPublishResult({ success: false, message: (res as any)?.error || "Failed to save draft on server." });
         setTimeout(() => setPublishResult(null), 3500);
@@ -3757,11 +3775,16 @@ export default function AIStudioPage() {
           },
         ],
       });
+      setPublishResult(null);
     } catch (e: any) {
+      if (abortCtrl.signal.aborted) return;
       console.error(e);
       setPublishResult({ success: false, message: e.message || "Failed to save draft" });
     } finally {
-      setPublishLoading(false);
+      if (publishAbortRef.current === abortCtrl) {
+        publishAbortRef.current = null;
+        setPublishLoading(false);
+      }
     }
   };
 
@@ -4010,10 +4033,22 @@ export default function AIStudioPage() {
       setTimeout(() => setPublishResult(null), 3000);
       return;
     }
+    const abortCtrl = new AbortController();
+    publishAbortRef.current = abortCtrl;
     setPublishLoading(true);
     try {
+      let scheduledCount = 0;
       const modalItems: PublishItemResult[] = await Promise.all(
         posts.map(async ({ platform, format, data, resolvedMediaType }) => {
+          if (abortCtrl.signal.aborted) {
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: "Cancelled by user",
+              title: data.caption?.slice(0, 60),
+            };
+          }
           const planned = schedulePlan.find((e) => e.platform === platform && e.format === format);
           const bestAt = planned ? planned.time : getNextBestTime(platform);
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
@@ -4021,7 +4056,17 @@ export default function AIStudioPage() {
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
           const mediaUrl = cleanPrimaryUrl;
           let computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
+          if (abortCtrl.signal.aborted) {
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: "Cancelled by user",
+              title: data.caption?.slice(0, 60),
+            };
+          }
           try {
+            setPublishResult({ success: true, message: `Scheduling ${platform} ${format}... (${scheduledCount + 1}/${posts.length})` });
             const draftRes = await apiSaveDraft({
               platform,
               content: data.caption || "",
@@ -4055,6 +4100,17 @@ export default function AIStudioPage() {
               },
             });
 
+            if (abortCtrl.signal.aborted) {
+              return {
+                platform,
+                format,
+                status: "FAILED" as const,
+                error: "Cancelled by user",
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            }
+
             if (!draftRes?.id) {
               return {
                 platform,
@@ -4067,6 +4123,7 @@ export default function AIStudioPage() {
             }
 
             await apiSchedulePost(draftRes.id, bestAt);
+            scheduledCount++;
             return {
               platform,
               format,
@@ -4088,17 +4145,23 @@ export default function AIStudioPage() {
         })
       );
 
+      if (abortCtrl.signal.aborted) return;
       setPublishModal({ type: null });
       setStatusModalData({
         isOpen: true,
         actionType: "schedule",
         items: modalItems,
       });
+      setPublishResult(null);
     } catch (e: any) {
+      if (abortCtrl.signal.aborted) return;
       console.error(e);
       setPublishResult({ success: false, message: e.message || "Failed to schedule posts" });
     } finally {
-      setPublishLoading(false);
+      if (publishAbortRef.current === abortCtrl) {
+        publishAbortRef.current = null;
+        setPublishLoading(false);
+      }
     }
   };
 
@@ -4115,6 +4178,8 @@ export default function AIStudioPage() {
       setTimeout(() => setPublishResult(null), 4000);
       return;
     }
+    const abortCtrl = new AbortController();
+    publishAbortRef.current = abortCtrl;
     setPublishLoading(true);
     try {
       // Publish all platforms in PARALLEL — each platform is a different
@@ -4124,11 +4189,29 @@ export default function AIStudioPage() {
       let completedCount = 0;
       const modalItems: PublishItemResult[] = await Promise.all(
         posts.map(async ({ platform, format, data, resolvedMediaType }) => {
+          if (abortCtrl.signal.aborted) {
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: "Cancelled by user",
+              title: data.caption?.slice(0, 60),
+            };
+          }
           const { mediaUrls, primaryMediaUrl, mediaType } = resolvePostMediaUrls(platform, format, data);
           const cleanPrimaryUrl = await ensureCleanMediaUrl(primaryMediaUrl);
           const cleanMediaUrls = await Promise.all(mediaUrls.map((u) => ensureCleanMediaUrl(u)));
           const mediaUrl = cleanPrimaryUrl;
           const computedMediaType = resolvedMediaType || mediaType || (mediaUrl?.endsWith(".mp4") || isVideoUrl(mediaUrl) ? "video" : mediaUrls.length > 1 ? "carousel" : mediaUrl ? "image" : "none");
+          if (abortCtrl.signal.aborted) {
+            return {
+              platform,
+              format,
+              status: "FAILED" as const,
+              error: "Cancelled by user",
+              title: data.caption?.slice(0, 60),
+            };
+          }
           try {
             setPublishResult({ success: true, message: `Publishing ${platform} ${format}... (${completedCount + 1}/${posts.length})` });
             const draftRes = await apiSaveDraft({
@@ -4163,6 +4246,17 @@ export default function AIStudioPage() {
                 visualPrompts: data.visualPrompts || [],
               },
             });
+
+            if (abortCtrl.signal.aborted) {
+              return {
+                platform,
+                format,
+                status: "FAILED" as const,
+                error: "Cancelled by user",
+                title: data.caption?.slice(0, 60),
+                thumbnailUrl: mediaUrl,
+              };
+            }
 
             if (!draftRes?.id) {
               completedCount++;
@@ -4211,6 +4305,7 @@ export default function AIStudioPage() {
         })
       );
 
+      if (abortCtrl.signal.aborted) return;
       setPublishResult(null);
       setPublishModal({ type: null });
       setStatusModalData({
@@ -4218,8 +4313,15 @@ export default function AIStudioPage() {
         actionType: "publish",
         items: modalItems,
       });
+    } catch (e: any) {
+      if (abortCtrl.signal.aborted) return;
+      console.error(e);
+      setPublishResult({ success: false, message: e.message || "Failed to publish" });
     } finally {
-      setPublishLoading(false);
+      if (publishAbortRef.current === abortCtrl) {
+        publishAbortRef.current = null;
+        setPublishLoading(false);
+      }
     }
   };
 
@@ -5449,20 +5551,41 @@ export default function AIStudioPage() {
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                  <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-white dark:bg-slate-800">
-                    <Save className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                    <span className="truncate">Save Draft</span>
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <Calendar className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">Schedule</span>
-                  </Button>
-                  <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-primary hover:bg-primary/90 text-white shadow-md">
-                    {publishLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" /> : <Send className="h-3.5 w-3.5 shrink-0" />}
-                    <span className="truncate">Publish Now</span>
-                  </Button>
-                </div>
+                {publishLoading ? (
+                  <div className="flex items-center gap-2 w-full animate-in fade-in duration-200">
+                    <div className="flex-1 flex items-center gap-2 bg-slate-100 dark:bg-slate-800/90 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 min-h-[36px] overflow-hidden">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                      <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">
+                        {publishResult?.message || "Working..."}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={cancelPublishAction}
+                      className="h-9 px-3 text-xs font-bold border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50 flex items-center gap-1.5 shrink-0 shadow-xs transition-colors"
+                      title="Stop the current operation"
+                    >
+                      <Square className="h-3 w-3 fill-current shrink-0" />
+                      <span>Stop</span>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                    <Button variant="outline" size="sm" onClick={saveAsDraft} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-white dark:bg-slate-800">
+                      <Save className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                      <span className="truncate">Save Draft</span>
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={openScheduleModal} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20">
+                      <Calendar className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Schedule</span>
+                    </Button>
+                    <Button size="sm" onClick={publishNow} disabled={publishLoading} className="h-9 px-2 text-[11px] font-extrabold gap-1 bg-primary hover:bg-primary/90 text-white shadow-md">
+                      <Send className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Publish Now</span>
+                    </Button>
+                  </div>
+                )}
               </Card>
             </div>
           </div>
@@ -5838,7 +5961,23 @@ export default function AIStudioPage() {
             </div>
             )}
             <div className="flex gap-2 mt-5">
-              <Button variant="outline" onClick={() => setPublishModal({ type: null })} className="flex-1">Cancel</Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (publishLoading) cancelPublishAction();
+                  setPublishModal({ type: null });
+                }}
+                className={`flex-1 ${publishLoading ? "border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30" : ""}`}
+              >
+                {publishLoading ? (
+                  <>
+                    <Square className="h-3.5 w-3.5 fill-current mr-1 text-red-500" />
+                    Stop & Cancel
+                  </>
+                ) : (
+                  "Cancel"
+                )}
+              </Button>
               <Button onClick={schedulePost} disabled={publishLoading || isAnalyzingTimes || schedulePlan.length === 0} className="flex-1">
                 {publishLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Calendar className="h-4 w-4 mr-1" />}
                 Schedule {schedulePlan.length > 0 ? `${schedulePlan.length} Post${schedulePlan.length > 1 ? "s" : ""}` : ""}
