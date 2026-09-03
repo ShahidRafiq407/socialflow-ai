@@ -280,12 +280,18 @@ async function generateRealVideo(options: {
         }
 
         let videoTimeout: ReturnType<typeof setTimeout> | undefined;
+        let onAbortVideo: (() => void) | undefined;
         const interaction = await Promise.race([
           (ai as any).interactions.create({
             model: targetVideoModel,
             input: formattedInput,
           }),
           new Promise((_, reject) => {
+            if (signal?.aborted) {
+              return reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+            }
+            onAbortVideo = () => reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+            signal?.addEventListener("abort", onAbortVideo, { once: true });
             videoTimeout = setTimeout(
               () => reject(new Error(`Video synthesis timeout after ${Math.round(videoTimeoutMs / 1000)}s`)),
               videoTimeoutMs
@@ -293,6 +299,7 @@ async function generateRealVideo(options: {
           }),
         ]).finally(() => {
           if (videoTimeout) clearTimeout(videoTimeout);
+          if (signal && onAbortVideo) signal.removeEventListener("abort", onAbortVideo);
         });
 
         // Check direct output_video (standard response format from Omni-class models)
@@ -426,7 +433,7 @@ async function generateRealVideo(options: {
 /** Hard bounds for a generated deck — every target platform accepts 2-10 slides. */
 export const MIN_DECK_SLIDES = 2;
 export const MAX_DECK_SLIDES = 10;
-export const DEFAULT_DECK_SLIDES = 5;
+export const DEFAULT_DECK_SLIDES = 3;
 
 export function clampDeckSlides(count: number | undefined | null, fallback = DEFAULT_DECK_SLIDES): number {
   const n = Number(count);
@@ -607,8 +614,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     standard_hd: "high-definition crisp image, vibrant balanced colors",
   };
 
+  const defaultHighQuality = "studio master quality, ultra-sharp optical lens focus, 4K resolution, perfectly balanced studio lighting, professional color grading, immaculate detail";
   const styleClause = input.style && styleInstructionMap[input.style] ? styleInstructionMap[input.style] : "";
-  const qualityClause = input.quality && qualityInstructionMap[input.quality] ? qualityInstructionMap[input.quality] : "";
+  const qualityClause = input.quality && qualityInstructionMap[input.quality]
+    ? qualityInstructionMap[input.quality]
+    : defaultHighQuality;
 
   // One design system per deck so every slide of the same carousel looks like one deck.
   const deckStyle = pickDeckStyle(
@@ -619,25 +629,13 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     ? buildDesignSystemInstruction(targetImageAspect, qualityClause, targetImageModel)
     : `You are ${targetImageModel}, a world-class professional image synthesis engine in Google Cloud Model Garden. Adhere strictly to aspect ratio (${targetImageAspect})${styleClause ? `, style: ${styleClause}` : ""}${qualityClause ? `, quality standard: ${qualityClause}` : ""}. Ensure authentic subject anatomy, realistic depth of field, and perfect composition.`;
 
-  // Typesetting several text blocks takes noticeably longer than a plain photo render.
-  // Both ceilings are deployment facts (region, model tier), not pipeline constants.
-  //
-  // gemini-3-pro-image routinely takes 30-120s for one render on Vertex — the old
-  // 40s default made the pipeline give up on prompts that are still rendering fine
-  // (a single-prompt render squeaks under the cap, the campaign's longer art-direction
-  // prompts do not), so the budget has to fit the model, not the other way round.
+  // Flash image renders significantly faster (~14s) while maintaining master quality.
+  // Ceilings prevent runaway deadlocks inside the campaign run budget.
   const imageTimeoutMs = isInfographic
-    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 220000, { min: 10000, max: 300000 })
-    : envInt("IMAGE_TIMEOUT_MS", 180000, { min: 10000, max: 300000 });
-  // Spacing between slides of one deck keeps a burst of renders inside the model's
-  // per-minute allowance instead of provoking the 429 the retry then has to absorb.
-  const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 1000, { min: 0, max: 30000 });
-  // Requests per minute the deployment's quota actually allows for the image model.
-  // Sending slower than the wall is the only thing that reliably clears a 429 — Vertex
-  // meters rate per model independently of the account balance, so no amount of credit
-  // substitutes for pacing. Raise it on a project with a lifted quota or provisioned
-  // throughput; the pacer lowers itself on its own if the provider disagrees.
-  const imageRpm = envInt("IMAGE_MODEL_RPM", 6, { min: 1, max: 600 });
+    ? envInt("IMAGE_TIMEOUT_INFOGRAPHIC_MS", 90000, { min: 10000, max: 180000 })
+    : envInt("IMAGE_TIMEOUT_MS", 75000, { min: 10000, max: 150000 });
+  const slideSpacingMs = envInt("IMAGE_SLIDE_SPACING_MS", 500, { min: 0, max: 30000 });
+  const imageRpm = envInt("IMAGE_MODEL_RPM", 20, { min: 1, max: 600 });
 
   // ── SLIDE PLANNING ──────────────────────────────────────────────────────────
   // Every slide's prompt is built up front — pure and synchronous — so the fan-out
@@ -752,11 +750,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
           max: 120000,
         });
 
-        // Model step-down is OFF by default: the configured image model is the only one
-        // used, so no run silently swaps in a lighter model. To allow a fallback after
-        // the primary exhausts its attempts, set IMAGE_FALLBACK_MODELS to a comma list
-        // (e.g. "gemini-2.5-flash-image").
-        const fallbackModels = (process.env.IMAGE_FALLBACK_MODELS ?? "")
+        // Fallback models if primary model is unavailable or encounters quota limits.
+        const defaultFallbacks = targetImageModel === "gemini-3.1-flash-image"
+          ? ["gemini-3-pro-image", "gemini-2.5-flash-image"]
+          : ["gemini-3.1-flash-image", "gemini-2.5-flash-image"];
+        const fallbackModels = (process.env.IMAGE_FALLBACK_MODELS ?? defaultFallbacks.join(","))
           .split(",")
           .map((m) => m.trim())
           .filter((m) => m && m !== targetImageModel);
@@ -837,6 +835,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             // The timeout only abandons the wait; the handle is cleared either way so a
             // finished render doesn't keep a stray timer alive for the whole ceiling.
             let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            let onAbortGen: (() => void) | undefined;
             const genRes = await Promise.race([
               ai.models.generateContent({
                 model: modelName,
@@ -849,6 +848,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                 },
               }),
               new Promise((_, reject) => {
+                if (input.signal?.aborted) {
+                  return reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+                }
+                onAbortGen = () => reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+                input.signal?.addEventListener("abort", onAbortGen, { once: true });
                 timeoutHandle = setTimeout(
                   () => reject(new Error(`Image generation timeout after ${imageTimeoutMs / 1000}s`)),
                   imageTimeoutMs
@@ -856,6 +860,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               }),
             ]).finally(() => {
               if (timeoutHandle) clearTimeout(timeoutHandle);
+              if (input.signal && onAbortGen) input.signal.removeEventListener("abort", onAbortGen);
             });
 
             // Check for generatedImages array (Google Cloud GenAI Imagen response format)
@@ -971,6 +976,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
           }
           let interactionTimeout: ReturnType<typeof setTimeout> | undefined;
+          let onAbortInter: (() => void) | undefined;
           const interaction = await Promise.race([
             (ai as any).interactions.create({
               model: modelName,
@@ -985,6 +991,11 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
               },
             }),
             new Promise((_, reject) => {
+              if (input.signal?.aborted) {
+                return reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+              }
+              onAbortInter = () => reject(new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user"));
+              input.signal?.addEventListener("abort", onAbortInter, { once: true });
               interactionTimeout = setTimeout(
                 () => reject(new Error("Image interactions.create timeout")),
                 Math.round(imageTimeoutMs * 0.9)
@@ -992,6 +1003,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             }),
           ]).finally(() => {
             if (interactionTimeout) clearTimeout(interactionTimeout);
+            if (input.signal && onAbortInter) input.signal.removeEventListener("abort", onAbortInter);
           });
 
           const directImg = (interaction as any)?.output_image || (interaction as any)?.outputImage;

@@ -2142,21 +2142,18 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
   );
 
   if (allRendersFailed) {
-    // Nothing rendered at all. The copy is still worth delivering, so the campaign goes
-    // on to the audit — but the visualizer is reported as failed, because it did fail.
+    // Media had failures/skips, but all written copy was produced by Content Creator.
+    // Preserve the campaign and deliver it to the editor instead of breaking the entire stream.
     emit({
-      type: "agent_error",
+      type: "agent_action",
       agentId: "visualizer",
       data: {
-        agent: "visualizer",
-        status: "failed",
-        errorCode: "VISUALIZER_PROVIDER_ERROR",
-        message: `No media could be produced for any of the ${visualFamilies.length} visual format(s). ${renderFailures[0].message}`,
-        provider: "google_vertex",
-        model: MODELS.VISUALIZER,
-        retryable: true,
+        label: `Media generation encountered provider limits. All written copy preserved for the content editor.`,
+        detail: renderFailures[0]?.message || "Format media can be added in Content Editor",
+        severity: "warning",
       },
     });
+    emit({ type: "agent_completed", agentId: "visualizer" });
   } else {
     emit({ type: "agent_completed", agentId: "visualizer" });
   }
@@ -2258,6 +2255,16 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
           agentId: "ceo_auditor",
           data: {
             label: `${describeMembers(family)} — partial slides kept; not retrying the stalled full deck. Add the missing slides in the content editor.`,
+            scope: family.label,
+            severity: "warning",
+          },
+        });
+      } else if (renderFailures.some((f) => f.label === family.label)) {
+        emit({
+          type: "agent_action",
+          agentId: "ceo_auditor",
+          data: {
+            label: `${describeMembers(family)} — media had provider limits; preserved for user to add in content editor`,
             scope: family.label,
             severity: "warning",
           },

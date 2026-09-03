@@ -36,28 +36,55 @@ export interface RunControls {
 export function createRunControls(): RunControls {
   const requested = new Set<string>();
   const aborters = new Map<string, () => void>();
-  let activeScope: string | null = null;
+  const activeScopes = new Set<string>();
 
   return {
     requestSkip(scope) {
-      // A scope-less skip falls back to whatever is running. If nothing is running the
-      // click is dropped on purpose: claiming it for the NEXT family would abandon work
-      // the user never saw stall.
-      const target = scope || activeScope;
-      if (!target) return;
-      requested.add(target);
-      aborters.get(target)?.();
+      // 1. Exact match
+      if (scope && aborters.has(scope)) {
+        requested.add(scope);
+        aborters.get(scope)?.();
+        return;
+      }
+
+      // 2. Fuzzy match if exact label had minor casing or whitespace difference
+      if (scope) {
+        const norm = scope.toLowerCase().trim();
+        for (const [s, fn] of aborters.entries()) {
+          const sNorm = s.toLowerCase().trim();
+          if (sNorm.includes(norm) || norm.includes(sNorm)) {
+            requested.add(s);
+            fn();
+            return;
+          }
+        }
+      }
+
+      // 3. Fallback: abort currently registered active scopes so a click never drops
+      if (aborters.size > 0) {
+        for (const [s, fn] of aborters.entries()) {
+          requested.add(s);
+          fn();
+        }
+      }
     },
     bindScope(scope, abort) {
       aborters.set(scope, abort);
-      activeScope = scope;
+      activeScopes.add(scope);
     },
     releaseScope(scope) {
       aborters.delete(scope);
-      if (activeScope === scope) activeScope = null;
+      activeScopes.delete(scope);
     },
     isSkipRequested(scope) {
-      return requested.has(scope);
+      if (requested.has(scope)) return true;
+      const norm = scope.toLowerCase().trim();
+      for (const req of requested) {
+        if (norm.includes(req.toLowerCase().trim()) || req.toLowerCase().trim().includes(norm)) {
+          return true;
+        }
+      }
+      return false;
     },
     skippedScopes() {
       return [...requested];

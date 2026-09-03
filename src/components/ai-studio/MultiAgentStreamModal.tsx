@@ -821,16 +821,17 @@ export default function MultiAgentStreamModal({
       const res = await fetch("/api/ai-studio-v2", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "skip-step", runId: runIdRef.current, scope }),
+        body: JSON.stringify({ action: "skip-step", runId: runIdRef.current, scope: scope || undefined }),
       });
       const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.success) {
-        // Honest failure. The run lives in the server instance that opened the stream, so
-        // a skip can miss it; saying so beats a button that silently does nothing.
+      if (res.ok && json?.success) {
+        // Clear skipRequested state after a brief visual confirmation
+        setTimeout(() => setSkipRequested(null), 2500);
+      } else {
         setSkipRequested(null);
         setSkipNotice(
           json?.message ||
-            "Could not reach this run to skip it. Use Cancel Campaign, or wait for the step's own timeout."
+            "Could not reach this run to skip it. You can click 'Use what's ready' to proceed to the editor immediately."
         );
       }
     } catch {
@@ -841,19 +842,9 @@ export default function MultiAgentStreamModal({
 
   /**
    * The skip for a step that has already failed and taken the stream down with it.
-   *
-   * A live skip is impossible then — there is no run left to steer — so this skips the
-   * FAILED STEP instead of the stalled one: if media generation is what broke, restart at
-   * the review with whatever rendered, and let the campaign finish and report the gaps.
-   * Once the review itself is the failure there is no step left after it, so the honest
-   * move is to hand over everything that did generate.
+   * Hands over all generated copy and completed media immediately into the Content Editor.
    */
   const handleSkipFailedStep = () => {
-    const failed = failedAgentId || selectedAgentId;
-    if (failed === "visualizer") {
-      startStream({ resumeFromAgent: "ceo_auditor" });
-      return;
-    }
     handleApplyToEditors();
   };
 
@@ -874,9 +865,13 @@ export default function MultiAgentStreamModal({
   };
 
   const handleApplyToEditors = () => {
+    // Abort any ongoing stream connection so background operations halt cleanly
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
     // A completed run already carries its media on the copy. A run that ended early does
-    // not, so the visualizer's assets are joined back on here — otherwise a failure at the
-    // audit would hand the editor captions with no images, even though the images rendered.
+    // not, so the visualizer's assets are joined back on here — ensuring all ready copy
+    // and completed assets are handed to the content editor.
     const payload =
       completedPayload ||
       mergeAssetsIntoContent(
@@ -936,7 +931,7 @@ export default function MultiAgentStreamModal({
   // worth keeping — while a run is still streaming, the live Skip in the footer is the right
   // control, and restarting from here would abandon a run that is still working.
   const canSkipFailedStep =
-    Boolean(errorMessage) && !isStreamLive && Boolean(agentOutputs?.content_creator?.platforms);
+    Boolean(errorMessage) && Boolean(agentOutputs?.content_creator?.platforms);
   // The console shows the whole phase, not one agent at a time. Where a phase really
   // does have two agents live at once, filtering to the selected one hid half the run,
   // so the second agent's reasoning only appeared after the first had finished.
@@ -1659,15 +1654,15 @@ export default function MultiAgentStreamModal({
                             <RotateCw className="w-3.5 h-3.5" />
                             Retry this step
                           </Button>
-                          {!isStreamLive && Boolean(agentOutputs?.content_creator?.platforms) && (
+                          {Boolean(agentOutputs?.content_creator?.platforms) && (
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={handleApplyToEditors}
-                              className="bg-transparent border-[#252A32] text-slate-300 hover:bg-white/5 text-xs px-3 py-1.5 h-8 rounded-lg flex items-center gap-1.5 font-medium"
+                              className="bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 hover:text-white text-xs px-3 py-1.5 h-8 rounded-lg flex items-center gap-1.5 font-medium shadow-sm"
                             >
                               <Edit className="w-3.5 h-3.5" />
-                              Use what&apos;s ready
+                              Use what&apos;s ready in Editor
                             </Button>
                           )}
                         </div>
@@ -1691,6 +1686,16 @@ export default function MultiAgentStreamModal({
                           </button>
                         ) : (
                           <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            {canSkipFailedStep && (
+                              <Button
+                                size="sm"
+                                onClick={handleSkipFailedStep}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 font-medium shadow-md shadow-emerald-950/30"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                                Open Ready Posts in Content Editor
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               onClick={() => handleRetry(failedAgentId || selectedAgentId)}
@@ -1699,23 +1704,6 @@ export default function MultiAgentStreamModal({
                               <RotateCw className="w-3.5 h-3.5" />
                               Retry {AGENT_SEQUENCE.find((a) => a.id === (failedAgentId || selectedAgentId))?.name || "Step"}
                             </Button>
-                            {/*
-                              Retry is not always what the user wants: a provider that just
-                              failed will often fail again. Skipping the failed step keeps
-                              everything that did generate — the missing media gets added by
-                              hand in the content editor.
-                            */}
-                            {canSkipFailedStep && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleSkipFailedStep}
-                                className="bg-transparent border-[#F59E0B]/40 text-[#F59E0B] hover:bg-[#F59E0B]/10 text-xs px-3.5 py-1.5 h-8 rounded-lg flex items-center gap-1.5 shrink-0 font-medium"
-                              >
-                                <SkipForward className="w-3.5 h-3.5" />
-                                {failedAgentId === "visualizer" ? "Skip media, finish campaign" : "Skip & use what's ready"}
-                              </Button>
-                            )}
                           </div>
                         )}
                       </div>
@@ -1741,6 +1729,17 @@ export default function MultiAgentStreamModal({
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                {Boolean(agentOutputs?.content_creator?.platforms) && (
+                  <Button
+                    variant="outline"
+                    onClick={handleApplyToEditors}
+                    title="Take all generated copy and completed media to the Content Editor now"
+                    className="bg-emerald-600/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 hover:text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 rounded-lg transition-colors flex items-center gap-1.5 shrink-0"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    Use What&apos;s Ready
+                  </Button>
+                )}
                 {/*
                   Skip lives beside Cancel, and only while media is being produced: the two
                   are the same gesture at different cost. Cancel throws the campaign away;

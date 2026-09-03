@@ -16,7 +16,7 @@
 
 /** The image model. Override with NEXT_PUBLIC_MODEL_IMAGE_GENERATOR. */
 export const IMAGE_MODEL_ID =
-  process.env.NEXT_PUBLIC_MODEL_IMAGE_GENERATOR?.trim() || "gemini-3-pro-image";
+  process.env.NEXT_PUBLIC_MODEL_IMAGE_GENERATOR?.trim() || "gemini-3.1-flash-image";
 
 /** The video model. Override with NEXT_PUBLIC_MODEL_VIDEO_GENERATOR. */
 export const VIDEO_MODEL_ID =
@@ -24,6 +24,7 @@ export const VIDEO_MODEL_ID =
 
 /** Product names for the model ids we ship with; anything else is shown as-is. */
 const MODEL_LABELS: Record<string, string> = {
+  "gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
   "gemini-3-pro-image": "Nano Banana Pro",
   "gemini-2.5-flash-image": "Nano Banana",
   "gemini-omni-flash-preview": "Omni Flash Video",

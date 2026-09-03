@@ -53,12 +53,33 @@ export interface MediaStudioModalProps {
   onClose: () => void;
   /** Seeds the stock query and the render prompt. */
   seed: string;
+  /**
+   * Tried in order when `seed` is empty — article title, then industry, then
+   * brand name. Without this the library opened on a blank grid whenever the
+   * keyword field had not been filled in yet, which read as a broken feature.
+   */
+  fallbackSeeds?: string[];
   /** Hides the YouTube tab where an embed makes no sense, e.g. a featured image. */
   allowVideo?: boolean;
   title?: string;
   onInsert: (pick: MediaPick) => void;
   onNotify: (tone: "success" | "error" | "info", text: string) => void;
 }
+
+/**
+ * What the stock grid is currently showing. It is a union rather than a pair of
+ * booleans because "nothing yet", "nothing found", "no key configured" and
+ * "request failed" need four different sentences on screen, and the old
+ * `hits.map()` with no guard rendered all four as an empty box.
+ */
+type StockState =
+  | { kind: "idle" }
+  | { kind: "loading"; term: string }
+  | { kind: "ready"; term: string; instead?: string }
+  | { kind: "empty"; term: string }
+  | { kind: "unconfigured"; message: string }
+  | { kind: "error"; message: string };
+
 
 interface Candidate {
   kind: "image" | "video";
@@ -91,6 +112,7 @@ export default function MediaStudioModal({
   open,
   onClose,
   seed,
+  fallbackSeeds,
   allowVideo = true,
   title = "Insert media",
   onInsert,
@@ -104,8 +126,8 @@ export default function MediaStudioModal({
   // Stock
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<StockHit[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [stockNote, setStockNote] = useState<string | null>(null);
+  const [stock, setStock] = useState<StockState>({ kind: "idle" });
+
 
   // Upload
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -119,33 +141,62 @@ export default function MediaStudioModal({
 
   // YouTube
   const [ytInput, setYtInput] = useState("");
+
+  /** First non-empty of keyword → title → industry → brand name. */
+  const resolvedSeed =
+    [seed, ...(fallbackSeeds || [])].map((s) => (s || "").trim()).find(Boolean) || "";
+
   const runSearch = useCallback(async (term: string) => {
-    setSearching(true);
-    setStockNote(null);
-    const result = await searchStockMedia(term || seed || "", "image", 1, 40, "popular", "all");
-    setSearching(false);
-    if (!result.success) {
+    const wanted = term.trim();
+    if (!wanted) {
       setHits([]);
-      setStockNote(result.error || "The stock library could not be reached.");
+      setStock({ kind: "idle" });
       return;
     }
+    setStock({ kind: "loading", term: wanted });
+    const result = await searchStockMedia(wanted, "image", 1, 40, "popular", "all");
+
+    if (!result.success) {
+      setHits([]);
+      setStock(
+        result.configured === false
+          ? {
+              kind: "unconfigured",
+              message:
+                result.error ||
+                "Stock image search is not configured. Add PIXABAY_API_KEY to your environment.",
+            }
+          : { kind: "error", message: result.error || "The stock library could not be reached." }
+      );
+      return;
+    }
+
     setHits(result.hits || []);
     if (!result.hits || result.hits.length === 0) {
-      setStockNote(`Nothing came back for “${term || seed}”. Try a broader word.`);
+      setStock({ kind: "empty", term: wanted });
+      return;
     }
-  }, [seed]);
+    // `fallback` means Pixabay had nothing for this term and these are the
+    // generic set. Saying so beats passing office photography off as a match.
+    setStock({
+      kind: "ready",
+      term: result.query || wanted,
+      instead: result.fallback ? result.requestedQuery || wanted : undefined,
+    });
+  }, []);
 
-  // Opening the modal seeds the query from the article's keyword, so the first
-  // screen is already relevant instead of empty.
+  // Opening the modal searches straight away from whatever the article already
+  // knows, so the first screen is relevant instead of blank.
   useEffect(() => {
     if (!open) return;
     setCandidate(null);
     setAlt("");
-    setQuery(seed || "");
-    setAiPrompt(seed || "");
+    setQuery(resolvedSeed);
+    setAiPrompt(resolvedSeed);
     setTab("stock");
-    if (seed) void runSearch(seed);
-  }, [open, seed, runSearch]);
+    void runSearch(resolvedSeed);
+  }, [open, resolvedSeed, runSearch]);
+
 
   async function handleFile(file: File) {
     setUploading(true);
@@ -189,7 +240,7 @@ export default function MediaStudioModal({
           designMode: "photographic",
           aspectRatio: shape.aspectRatio,
           style: aiStyle,
-          topic: seed || undefined,
+          topic: resolvedSeed || undefined,
           prompt: `${prompt}. ${IMAGE_STYLE_OPTIONS.find((s) => s.value === aiStyle)?.label || ""} treatment, editorial quality, no text overlay.`,
         }),
       });
@@ -311,53 +362,97 @@ export default function MediaStudioModal({
                 />
                 <button
                   type="submit"
-                  disabled={searching}
+                  disabled={stock.kind === "loading"}
                   className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-60"
                 >
-                  {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  {stock.kind === "loading" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5" />
+                  )}
                   Search
                 </button>
               </form>
-              {stockNote && (
-                <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-destructive shrink-0" />
-                  {stockNote}
+              {stock.kind === "unconfigured" && (
+                <p className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-500 shrink-0" />
+                  <span>
+                    {stock.message} Upload, AI render and YouTube all work without it.
+                  </span>
                 </p>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {hits.map((hit) => (
-                  <button
-                    key={hit.id}
-                    type="button"
-                    onClick={() => {
-                      setCandidate({
-                        kind: "image",
-                        url: hit.url,
-                        previewUrl: hit.previewUrl || hit.thumbnailUrl || hit.url,
-                        credit: hit.user ? `Photo: ${hit.user} / Pixabay` : "Pixabay",
-                        hosted: false,
-                      });
-                      setAlt(hit.tags ? hit.tags.split(",")[0].trim() : "");
-                    }}
-                    className={`relative rounded-lg overflow-hidden border-2 transition-colors ${
-                      candidate?.url === hit.url ? "border-primary" : "border-transparent hover:border-border"
-                    }`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={hit.previewUrl || hit.thumbnailUrl}
-                      alt={hit.tags}
-                      className="w-full h-24 object-cover"
-                      loading="lazy"
-                    />
-                    {candidate?.url === hit.url && (
-                      <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-                        <Check className="w-3 h-3" />
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              {stock.kind === "error" && (
+                <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-destructive shrink-0" />
+                  <span>{stock.message}</span>
+                </p>
+              )}
+              {stock.kind === "empty" && (
+                <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    Nothing came back for “{stock.term}”. Try a broader word, or render the
+                    picture on the AI tab.
+                  </span>
+                </p>
+              )}
+              {stock.kind === "ready" && stock.instead && (
+                <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-amber-500 shrink-0" />
+                  <span>
+                    No photos matched “{stock.instead}”, so these are popular {stock.term}{" "}
+                    photos. Search a different word if none of them fit.
+                  </span>
+                </p>
+              )}
+              {stock.kind === "loading" ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" aria-busy="true">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : stock.kind === "idle" ? (
+                <p className="rounded-lg border border-dashed border-border px-3 py-10 text-center text-xs text-muted-foreground">
+                  Type what the picture should show, then press Search.
+                </p>
+              ) : hits.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {hits.map((hit) => (
+                    <button
+                      key={hit.id}
+                      type="button"
+                      onClick={() => {
+                        setCandidate({
+                          kind: "image",
+                          url: hit.url,
+                          previewUrl: hit.previewUrl || hit.thumbnailUrl || hit.url,
+                          credit: hit.user ? `Photo: ${hit.user} / Pixabay` : "Pixabay",
+                          hosted: false,
+                        });
+                        setAlt(hit.tags ? hit.tags.split(",")[0].trim() : "");
+                      }}
+                      className={`relative rounded-lg overflow-hidden border-2 transition-colors ${
+                        candidate?.url === hit.url
+                          ? "border-primary"
+                          : "border-transparent hover:border-border"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={hit.previewUrl || hit.thumbnailUrl}
+                        alt={hit.tags}
+                        className="w-full h-24 object-cover"
+                        loading="lazy"
+                      />
+                      {candidate?.url === hit.url && (
+                        <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                          <Check className="w-3 h-3" />
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           )}
           {tab === "upload" && (
