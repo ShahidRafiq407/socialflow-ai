@@ -49,9 +49,12 @@ import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
 import { describeBrandFacts } from "@/lib/brand/profile";
 import { stageSpec, type ArticleRunMode } from "@/lib/article/stages";
 import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/ArticleEditor";
+import BusinessPanel from "./article-writer/BusinessPanel";
+import EvidencePanel from "./article-writer/EvidencePanel";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
 import RunProgress from "./article-writer/RunProgress";
 import SeoSidebar from "./article-writer/SeoSidebar";
+import type { RunAnalysis } from "./article-writer/runArticle";
 import { useArticleRun, type RunOutcome } from "./article-writer/useArticleRun";
 import { describeTargets, relativeTime, statusDot } from "./article-writer/targetStatus";
 import {
@@ -277,6 +280,12 @@ export function ArticleWriterHQ({
   });
   const running = pipeline.walking;
 
+  // What the run established before it wrote anything — the business it read and
+  // the site it crawled. Held apart from the draft on purpose: a run that blocked
+  // at the evidence gate produced no page and still has both of these to show, and
+  // the panels are the only honest answer to "what did it actually look at".
+  const [analysis, setAnalysis] = useState<RunAnalysis>({});
+
   // ---- the draft ---------------------------------------------------------
   const [article, setArticle] = useState<GeneratedArticle | null>(null);
   const [html, setHtml] = useState("");
@@ -487,6 +496,11 @@ export function ArticleWriterHQ({
       setRunNote(outcome.message ?? null);
       setRunError(outcome.ending === "failed" ? (outcome.message ?? null) : null);
 
+      // Before the early return below, and deliberately so: the business profile is
+      // stage one and the site crawl is stage two, so a run that stopped anywhere
+      // after them has facts worth showing even though it has no page.
+      setAnalysis(outcome.analysis);
+
       const built = outcome.result;
       if (!built) {
         if (outcome.ending === "done") {
@@ -541,6 +555,10 @@ export function ArticleWriterHQ({
     setRunError(null);
     setRunNote(null);
     setOutcome(null);
+    // A new run has not read anything yet. Leaving the last run's business profile
+    // on screen beside a fresh progress list would attribute one run's facts to
+    // another — the panels go back to saying which stage has not run.
+    setAnalysis({});
     try {
       // The site is resolved server-side from the destination, so the brief stores
       // the same URL the publish step will use instead of one the browser guessed.
@@ -1504,6 +1522,17 @@ export function ArticleWriterHQ({
               featuredImageAlt={featuredAlt}
               language={language}
             />
+          )}
+
+          {/* Gated on the run, not on the draft. A run that was refused by the
+              evidence gate has no page and is exactly when somebody needs to see
+              which claim failed which check. Pipeline order: what it read about
+              you, then what it read about the world. */}
+          {pipeline.run && (
+            <BusinessPanel run={pipeline.run} analysis={analysis} />
+          )}
+          {pipeline.run && (
+            <EvidencePanel run={pipeline.run} load={pipeline.evidence} />
           )}
 
           {article && (

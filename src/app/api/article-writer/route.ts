@@ -35,6 +35,7 @@ import {
 } from "@/lib/agents/article/articleGraph";
 import { generateSeoArticle } from "@/lib/agents/workers/article-generator";
 import { normalizeBrief, readBriefRow } from "@/lib/article/brief";
+import { loadEvidenceLedger } from "@/lib/article/evidenceStore";
 import {
   createArticleRun,
   listArticleRuns,
@@ -438,6 +439,35 @@ export async function POST(req: Request) {
         run: toRunView(run),
         brief: readBriefRow(readBrief(run)),
         artifacts: await loadArtifacts(String(run.id)),
+      });
+    }
+
+    // =====================================================================
+    // STEP: the evidence ledger for one run
+    //
+    // Two tables rather than the stage artifacts: the research stage and the
+    // evidence gate both write rows so provenance outlives the run, and months
+    // later "where did this number come from" has to be answerable by a URL, a
+    // publisher and a date rather than by a JSON blob on a stage row.
+    //
+    // Read-only and outside the AI entitlement — it spends nothing, and a plan
+    // that has lapsed still has to be able to show what a published article was
+    // built on. Ownership is inside the query (`run: { workspaceId }`), so a run
+    // id in a request body cannot reach another workspace's sources.
+    // =====================================================================
+    if (step === "run-evidence") {
+      const ledger = await loadEvidenceLedger(workspaceId, body?.runId);
+      return NextResponse.json({
+        success: true,
+        ledger,
+        // Empty is not one fact. A quick run never had a research stage; a deep run
+        // that stopped before stage ten has not got there yet; and a deep run that
+        // finished with nothing recorded is a third thing entirely. The panel says
+        // which, so it needs the run to say it from.
+        note:
+          ledger.sources.length === 0 && ledger.claims.length === 0
+            ? "No sources or checked claims are recorded for this run."
+            : undefined,
       });
     }
 

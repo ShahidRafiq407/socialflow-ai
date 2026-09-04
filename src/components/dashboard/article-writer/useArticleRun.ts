@@ -24,10 +24,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readEvidenceLedger, type EvidenceLedger } from "@/lib/article/artifacts";
 import type { ArticleBrief } from "@/lib/article/brief";
 import { stagesFor, type ArticleRunMode, type ArticleStageKey } from "@/lib/article/stages";
 import type { ArticleRunView } from "@/lib/article/types";
-import { articleFromRun, type RunArticle } from "./runArticle";
+import { articleFromRun, analysisFromRun, type RunAnalysis, type RunArticle } from "./runArticle";
 
 /** How a run ended, from the point of view of the person who started it. */
 export type RunEnding = "done" | "blocked" | "failed" | "stopped" | "busy";
@@ -41,6 +42,12 @@ export interface RunOutcome {
   message?: string;
   /** Assembled from the artifacts, or null when no stage produced a page. */
   result: RunArticle | null;
+  /**
+   * What the run established before it wrote — the business it read and the site
+   * it crawled. Separate from `result` because those two stages run first and a
+   * run that never reached the writer still has both of them to show.
+   */
+  analysis: RunAnalysis;
   brief?: ArticleBrief;
 }
 
@@ -187,7 +194,9 @@ export function useArticleRun({ workspaceId, onNotice }: UseArticleRunInput) {
 
   /** Every artifact the run has, assembled into the shape the editor reads. */
   const bundle = useCallback(
-    async (runId: string): Promise<{ result: RunArticle | null; brief?: ArticleBrief }> => {
+    async (
+      runId: string
+    ): Promise<{ result: RunArticle | null; analysis: RunAnalysis; brief?: ArticleBrief }> => {
       const data = (await call("run-bundle", { runId })) as {
         brief?: ArticleBrief | null;
         artifacts?: Record<string, unknown> | null;
@@ -196,11 +205,33 @@ export function useArticleRun({ workspaceId, onNotice }: UseArticleRunInput) {
       const artifacts = data.artifacts ?? {};
       return {
         result: loaded ? articleFromRun(artifacts, loaded) : null,
+        // Not conditional on the brief: the business and inventory stages read the
+        // workspace, not the brief, so their artifacts stand on their own.
+        analysis: analysisFromRun(artifacts),
         brief: loaded,
       };
     },
     [call]
   );
+  /**
+   * The evidence ledger for one run, on demand.
+   *
+   * Not part of `bundle`: it is two more queries for up to 120 sources and 200
+   * claims, and it is read by a panel that is closed until somebody opens it. The
+   * response is put back through the same guard the server used, because a row
+   * that crossed HTTP is as untrusted as one that came out of a model — the five
+   * checks decide `status`, so a ledger cannot arrive claiming a claim passed.
+   */
+  const evidence = useCallback(
+    async (runId: string): Promise<EvidenceLedger> => {
+      const data = (await call("run-evidence", { runId })) as { ledger?: unknown };
+      return (
+        readEvidenceLedger(data.ledger) ?? { sources: [], claims: [], allowed: 0, blocked: 0 }
+      );
+    },
+    [call]
+  );
+
   /**
    * Walk the run to its end, or to the first thing that stops it.
    *
@@ -388,5 +419,6 @@ export function useArticleRun({ workspaceId, onNotice }: UseArticleRunInput) {
     start,
     resume,
     stop,
+    evidence,
   };
 }

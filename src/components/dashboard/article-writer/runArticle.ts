@@ -22,6 +22,8 @@ import {
   finalHtml,
   readArticleDraft,
   readArticleOutline,
+  readBusinessProfile,
+  readContentInventory,
   readFactCheckReport,
   readInternalLinkReport,
   readPublishGateReport,
@@ -30,6 +32,8 @@ import {
   readSearchIntent,
   readSeoReport,
   readSerpResearch,
+  type BusinessProfile,
+  type ContentInventory,
   type FactCheckReport,
   type PublishGateReport,
   type QualityScoreArtifact,
@@ -268,4 +272,32 @@ export function articleFromRun(
   };
 
   return { article, score, gate, factcheck, seo, serp };
+}
+
+/**
+ * WHAT THE RUN LEARNED BEFORE IT WROTE ANYTHING
+ *
+ * A second join, deliberately independent of the HTML. `articleFromRun` returns
+ * null the moment no stage has produced a page, which is correct for the editor
+ * and wrong for these two: the business profile is stage one and the inventory
+ * is stage two, so a run that blocked at the evidence gate has both of them and
+ * would show neither if this shared that early return.
+ *
+ * Guards, not casts. These artifacts came back over HTTP from a route that read
+ * them out of a JSON column, so they are re-checked here exactly as they were on
+ * the server — `discovered` is recomputed as at-least-the-pages-read, and a
+ * profile with no summary is null rather than a card full of empty rows.
+ */
+export interface RunAnalysis {
+  /** Stage 1. Absent until the business stage has run and produced a summary. */
+  business?: BusinessProfile;
+  /** Stage 2. Absent until the inventory crawl has run. */
+  inventory?: ContentInventory;
+}
+
+export function analysisFromRun(artifacts: Record<string, unknown>): RunAnalysis {
+  return {
+    business: readBusinessProfile(artifacts.business) ?? undefined,
+    inventory: readContentInventory(artifacts.inventory) ?? undefined,
+  };
 }

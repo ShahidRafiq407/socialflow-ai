@@ -9,6 +9,7 @@
  * Client-safe: no Prisma, no model SDK, no fetch. `stages.ts` is the only import.
  */
 
+import { stagesFor } from "./stages";
 import type { ArticleRunMode, ArticleRunStatus, ArticleStageKey } from "./stages";
 
 /** Per-stage status as it is stored. `skipped` only ever means "not in this mode". */
@@ -55,4 +56,23 @@ export interface ArticleRunView {
   blockedReason?: string;
   startedAt?: string;
   finishedAt?: string;
+}
+
+/**
+ * One stage's status, as a panel has to ask about it.
+ *
+ * `unavailable` is a seventh answer that no row can hold, and it is the reason
+ * this is a function rather than a lookup: a stage this mode never runs has no
+ * row at all, and reporting it as `pending` would promise the person a step
+ * nothing in their pipeline intends to take. Quick mode does not crawl the site.
+ *
+ * A stage that is in the mode and has no row yet is `pending`, which is what it
+ * is — the row is written when the stage is claimed, not when the run starts.
+ */
+export function stageStatusIn(
+  run: ArticleRunView,
+  stage: ArticleStageKey
+): ArticleStageStatus | "unavailable" {
+  if (!stagesFor(run.mode).some((spec) => spec.key === stage)) return "unavailable";
+  return run.stages.find((row) => row.stage === stage)?.status ?? "pending";
 }
