@@ -39,11 +39,8 @@ export function DashboardWeeklyRunway({ days }: DashboardWeeklyRunwayProps) {
           </span>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-foreground">
-              Weekly Content Runway
+              Weekly Runway
             </h3>
-            <p className="text-[11px] text-muted-foreground">
-              Your 7-day multi-channel scheduled publishing schedule
-            </p>
           </div>
         </div>
 

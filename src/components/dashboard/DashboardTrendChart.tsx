@@ -165,11 +165,8 @@ export function DashboardTrendChart({ series }: DashboardTrendChartProps) {
           </div>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-foreground">
-              Performance Velocity
+              Performance Trends
             </h3>
-            <p className="text-[11px] text-muted-foreground">
-              Real measured database metrics over time
-            </p>
           </div>
         </div>
 

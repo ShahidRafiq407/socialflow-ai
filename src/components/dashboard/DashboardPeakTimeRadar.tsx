@@ -54,11 +54,8 @@ export function DashboardPeakTimeRadar({
           </span>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-foreground">
-              Audience Peak Time Radar
+              Optimal Posting Times
             </h3>
-            <p className="text-[11px] text-muted-foreground">
-              AI-calculated optimal posting windows for maximum organic reach
-            </p>
           </div>
         </div>
       </div>

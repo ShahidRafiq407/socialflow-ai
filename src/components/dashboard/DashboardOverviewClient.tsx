@@ -211,17 +211,10 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
       {/* 1. Greeting + Global Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
-              {greeting}, {user.firstName}
-            </h1>
-            {data.brandTone && (
-              <span className="hidden md:inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                Voice: {data.brandTone}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">{workspace.name} · {workspace.industry || "Marketing"}</p>
+          <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
+            {greeting}, {user.firstName}
+          </h1>
+          <p className="text-xs text-muted-foreground">{workspace.name}</p>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -251,70 +244,44 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </div>
       </div>
 
-      {/* 2. Plan / Credits / Channels status bar */}
-      <div className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent"
-        />
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary ring-1 ring-primary/20">
-              <Zap className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-sm font-semibold leading-tight text-foreground">
-                {credits.planName}
-                {(() => {
-                  const key = (credits.status || "").toUpperCase();
-                  if (!key || key === "NONE") return null;
-                  const ok = !/PAST_DUE|CANCEL|PAUSED|EXPIRED|FAILED/.test(key);
-                  return (
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium ring-1 ${
-                        ok
-                          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400"
-                          : "bg-amber-500/10 text-amber-600 ring-amber-500/25 dark:text-amber-400"
-                      }`}
-                    >
-                      <span className={`h-1 w-1 rounded-full ${ok ? "bg-emerald-500" : "bg-amber-500"}`} />
-                      {key.replace(/_/g, " ").toLowerCase()}
-                    </span>
-                  );
-                })()}
-              </p>
-              <p className="max-w-[220px] truncate text-[11px] text-muted-foreground">
-                {credits.tagline}
-              </p>
-            </div>
+      {/* 2. Compact Plan & Status Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card/60 px-3.5 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="font-semibold text-foreground">{credits.planName} Plan</span>
           </div>
-
-          <div className="min-w-[180px] max-w-[260px] flex-1">
-            <div className="mb-1 flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">Credits remaining</span>
-              <span className="font-semibold tabular-nums text-foreground">
-                {credits.isUnlimited
-                  ? "Unlimited"
-                  : `${credits.creditsLeft} of ${credits.creditsTotal}`}
-              </span>
-            </div>
-            <Progress
-              value={credits.isUnlimited ? 100 : credits.percentUsed}
-              className="h-2 bg-muted"
-            />
-          </div>
-
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-            <Share2 className="h-3 w-3 text-primary" />
-            {connectedCount}/{credits.maxSocialAccounts} channels
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-muted-foreground">
+            <span className="font-medium text-foreground">{connectedCount} of 6</span> channels connected
           </span>
+          {credits.plan !== "FREE" && (
+            <>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {credits.isUnlimited ? "Unlimited" : `${credits.creditsLeft} credits`}
+                </span> remaining
+              </span>
+            </>
+          )}
+        </div>
 
-          <Link href="/dashboard/billing" className="ml-auto">
-            <Button size="sm" className="gap-1.5 shadow-xs">
-              <CreditCard className="h-3.5 w-3.5" />
-              {credits.plan === "AGENCY" ? "Manage Billing" : "Upgrade"}
-            </Button>
-          </Link>
+        <div className="flex items-center gap-2 ml-auto">
+          {credits.plan === "FREE" ? (
+            <Link href="/dashboard/billing">
+              <Button size="xs" className="h-6 gap-1 px-2.5 text-[11px] shadow-2xs font-medium">
+                <Zap className="h-3 w-3" />
+                Upgrade Plan
+              </Button>
+            </Link>
+          ) : (
+            <Link href="/dashboard/billing">
+              <Button variant="ghost" size="xs" className="h-6 text-[11px] text-muted-foreground hover:text-foreground">
+                Billing →
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -351,10 +318,9 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </a>
       )}
 
-      {/* 6. Hero AI Command Center */}
+      {/* 6. Quick Create Hub */}
       <DashboardQuickCreate
         workspaceIndustry={workspace.industry}
-        brandTone={data.brandTone}
       />
 
       {/* 7. Real Measured KPI Cards with Sparklines */}

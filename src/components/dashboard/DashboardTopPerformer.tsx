@@ -35,11 +35,8 @@ export function DashboardTopPerformer({ post }: DashboardTopPerformerProps) {
           </span>
           <div>
             <h3 className="text-sm font-semibold tracking-tight text-foreground">
-              Top Performing Content
+              Top Performing Post
             </h3>
-            <p className="text-[11px] text-muted-foreground">
-              Your highest-converting post across all tracked links
-            </p>
           </div>
         </div>
 

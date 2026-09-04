@@ -53,16 +53,13 @@ export function DashboardTrendingNiche({ industry }: DashboardTrendingNicheProps
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold tracking-tight text-foreground">
-                Trending in {industry || "Marketing"}
+                Trending Topics
               </h3>
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
               </span>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Real-time Google grounded news & viral topics ready for AI generation
-            </p>
           </div>
         </div>
 
