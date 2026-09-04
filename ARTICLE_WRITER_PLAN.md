@@ -561,15 +561,30 @@ Phase 1 is complete. Phase 2 is where the plan above starts.
 endpoint, the twenty-three stages, the twenty-three agents behind
 `articleGraph.ts`, the capability router, the evidence store and gate, both
 scores, the publish gate with named blockers, and the progress UI reading real
-artifacts.
+artifacts. Complete: `STAGE_RUNNERS` in `articleGraph.ts` has a runner for every
+one of the twenty-three, `tests/lib/articleStages.test.ts` fails if one loses it,
+and no agent names a model — each asks `router.ts` for a capability.
 
 **Phase 3 — business intelligence.** The crawl, the content inventory,
 opportunity scoring, and the "we analysed your business" panel with clickable
-real counts.
+real counts. Complete: `BusinessPanel.tsx` and `EvidencePanel.tsx` draw only
+counts that came from a stored artifact, through the guards in
+`src/lib/article/`, so a number on the screen cannot disagree with the row
+behind it.
 
 **Phase 4 — Search Console.** OAuth, performance tracking, and the optimisation
 loop that proposes updates and routes them through the same verification the
-first draft went through.
+first draft went through. Complete: `searchConsole.ts` reads on
+`webmasters.readonly` and nothing else, `performance.ts` totals the window the
+way the console does, `optimize.ts` decides against a page it has read, and
+`PerformancePanel.tsx` has no control that reaches a live page — approving a
+proposal starts a full run, and the update lands when a person publishes the
+draft that run produces.
+
+The one deliberate step left: `npx prisma db push` for `PublishResult`,
+`PerformanceData` and `OptimizationRun`. Additive tables, no column drops, and
+`prisma/` has no migrations directory in this project — so it is run on purpose,
+not by a deploy.
 
 Phase 1 is useful on its own. Nothing in phase 2 requires the user to lose what
 phase 1 gave them — the staged run replaces the single request behind the same
