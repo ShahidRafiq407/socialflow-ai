@@ -59,11 +59,58 @@ export interface RunEvent {
   modelCalls: number;
 }
 
+/**
+ * What the server says about one pipeline, for this account, right now.
+ *
+ * Two kinds of "no" live here and they are not the same kind. `selectable` is false
+ * when the mode cannot be chosen at all — the build is missing a stage, or the plan
+ * does not include the mode, so there is nothing to configure. `available` is false
+ * for that and also when the allowance for the period is spent or the balance will
+ * not cover the run: choosable, describable, just not startable this minute.
+ */
 export interface ModeAvailability {
   mode: ArticleRunMode;
   stages: number;
+  /** May a run be started right now? What the Write button reads. */
   available: boolean;
+  /** May this mode be chosen? What the mode buttons read. */
+  selectable?: boolean;
+  /** The plan does not include this mode. Distinguishes an upgrade from a wait. */
+  locked?: boolean;
+  /** The gate's own sentence. Shown as-is; never reworded here. */
   reason?: string;
+  /** Credits one run of this mode costs. */
+  credits?: number;
+  plan?: string;
+  /** The cheapest plan that lifts whatever refused. */
+  requiredPlan?: string;
+  /** Per-period ceiling and what is gone, where the plan caps this mode by count. */
+  cap?: number;
+  used?: number;
+  /** Set until the server has answered. Nothing about the plan is known yet. */
+  pending?: boolean;
+}
+
+/**
+ * Both modes, before the server has answered.
+ *
+ * The stage counts come from `stages.ts`, which the browser already has, so the
+ * buttons and the guide draw on the first paint instead of a round-trip later.
+ *
+ * They start allowed, and `pending` says why that is not a claim: an unanswered
+ * question is not a verdict, and the alternative — starting refused — turns one
+ * failed fetch into a page whose Write button is dead with no reason on it. The
+ * charge is taken at `run-start` and refused there with the same sentence, so the
+ * worst an optimistic button can do is arrive at that refusal a moment later.
+ */
+function unaskedModes(): ModeAvailability[] {
+  return (["quick", "deep"] as const).map((mode) => ({
+    mode,
+    stages: stagesFor(mode).length,
+    available: true,
+    selectable: true,
+    pending: true,
+  }));
 }
 /** A stage held by another request. Waited out, not fought over. */
 const BUSY_WAIT_MS = 3_000;
@@ -124,7 +171,7 @@ export function useArticleRun({ workspaceId, onNotice }: UseArticleRunInput) {
   const [brief, setBrief] = useState<ArticleBrief | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [walking, setWalking] = useState(false);
-  const [modes, setModes] = useState<ModeAvailability[]>([]);
+  const [modes, setModes] = useState<ModeAvailability[]>(unaskedModes);
   const [error, setError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -170,22 +217,26 @@ export function useArticleRun({ workspaceId, onNotice }: UseArticleRunInput) {
   );
 
   /**
-   * Which pipelines this build can finish, asked once.
+   * Which pipeline this account can run, asked once.
    *
-   * The screen offers the choice either way; an unavailable mode is shown with the
-   * server's reason rather than hidden, because a missing option with no
-   * explanation is the thing people file bugs about.
+   * Two things at once: whether the build has every stage, and what the plan in
+   * force allows. Both come from the server because neither is knowable in a
+   * browser, and a mode that is refused is shown with the gate's own sentence
+   * rather than hidden — a missing option with no explanation is the thing people
+   * file bugs about, and a locked one is where an upgrade gets decided.
    */
   useEffect(() => {
     let live = true;
     void call("run-modes", {})
       .then((data) => {
         const listed = (data as { modes?: unknown }).modes;
-        if (live && Array.isArray(listed)) setModes(listed as ModeAvailability[]);
+        if (live && Array.isArray(listed) && listed.length) {
+          setModes(listed as ModeAvailability[]);
+        }
       })
       .catch(() => {
-        // Not fatal: the start button still works, and `run-start` refuses a mode
-        // it cannot finish with the same sentence this would have shown.
+        // Not fatal: the seeded rows stay, so the buttons keep working and
+        // `run-start` refuses with the same sentence this would have shown.
       });
     return () => {
       live = false;

@@ -12,7 +12,11 @@
  *
  *   1. Nothing is shown that was not measured. The score, the checklist and every
  *      count come from the generator's own audit of the finished HTML.
- *   2. Every control is wired. A field that the API does not read is not drawn.
+ *   2. Every control is wired. A field that the API does not read is not drawn — and
+ *      a control the chosen mode will not act on is drawn off, disabled, with the
+ *      reason under it, because a toggle that cannot change the run is the same lie
+ *      as a field nobody reads. Which those are is derived in `lib/article/modes.ts`
+ *      from the pipeline itself, never listed here.
  *   3. No credential ever touches the browser. Publishing goes through the server
  *      by `targetId`; the old build kept WordPress application passwords in
  *      `localStorage` under `seowriting_connected_wp_sites`.
@@ -27,8 +31,10 @@ import {
   ChevronDown,
   ExternalLink,
   Flame,
+  HelpCircle,
   ImagePlus,
   Loader2,
+  Lock,
   PenLine,
   Plug,
   Plus,
@@ -47,11 +53,19 @@ import {
 import { listPublishTargets } from "@/actions/cmsTargets";
 import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
 import { describeBrandFacts } from "@/lib/brand/profile";
+import {
+  BRIEF_CONTROLS,
+  CONTROL_LABEL,
+  MODE_SUMMARY,
+  controlNote,
+  type ArticleBriefControl,
+} from "@/lib/article/modes";
 import { stageSpec, type ArticleRunMode } from "@/lib/article/stages";
 import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/ArticleEditor";
 import BusinessPanel from "./article-writer/BusinessPanel";
 import EvidencePanel from "./article-writer/EvidencePanel";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
+import ModeGuide, { ModeStages } from "./article-writer/ModeGuide";
 import PerformancePanel from "./article-writer/PerformancePanel";
 import RunProgress from "./article-writer/RunProgress";
 import SeoSidebar from "./article-writer/SeoSidebar";
@@ -155,40 +169,66 @@ const INPUT =
 const SELECT =
   "w-full h-9 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:border-ring focus:outline-none";
 
-/** A real checkbox underneath, so it is keyboard-reachable and form-legible. */
+/**
+ * A real checkbox underneath, so it is keyboard-reachable and form-legible.
+ *
+ * `disabled` is for a control the chosen mode will not act on. It draws off and
+ * refuses the click, and the caller keeps the stored value untouched — so a switch
+ * to Deep brings the choice back rather than making the person set it again. Drawn
+ * on it would be a promise the run does not keep.
+ */
 function Toggle({
   checked,
   onChange,
   label,
   hint,
+  disabled = false,
+  note,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   hint?: string;
+  disabled?: boolean;
+  /** Why this mode ignores it. Replaces the hint, because it outranks it. */
+  note?: string | null;
 }) {
+  const on = checked && !disabled;
   return (
-    <label className="flex cursor-pointer items-start gap-2 py-1">
+    <label
+      className={`flex items-start gap-2 py-1 ${disabled ? "cursor-default" : "cursor-pointer"}`}
+    >
       <input
         type="checkbox"
-        checked={checked}
+        checked={on}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         className="peer sr-only"
       />
       <span
         className={`mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full border transition-colors ${
-          checked ? "border-primary bg-primary" : "border-border bg-muted"
-        }`}
+          on ? "border-primary bg-primary" : "border-border bg-muted"
+        } ${disabled ? "opacity-50" : ""}`}
       >
         <span
           className={`h-3 w-3 rounded-full bg-background transition-transform ${
-            checked ? "translate-x-3.5" : "translate-x-0.5"
+            on ? "translate-x-3.5" : "translate-x-0.5"
           }`}
         />
       </span>
       <span className="min-w-0">
-        <span className="block text-[11px] font-medium text-foreground">{label}</span>
-        {hint && <span className="block text-[10px] leading-snug text-muted-foreground">{hint}</span>}
+        <span
+          className={`block text-[11px] font-medium ${
+            disabled ? "text-muted-foreground" : "text-foreground"
+          }`}
+        >
+          {label}
+        </span>
+        {note ? (
+          <span className="block text-[10px] font-medium leading-snug text-secondary">{note}</span>
+        ) : (
+          hint && <span className="block text-[10px] leading-snug text-muted-foreground">{hint}</span>
+        )}
       </span>
     </label>
   );
@@ -269,10 +309,14 @@ export function ArticleWriterHQ({
   const [imageCount, setImageCount] = useState(3);
   const [imageStyle, setImageStyle] = useState(IMAGE_STYLE_OPTIONS[0].value);
   // ---- the run -----------------------------------------------------------
-  // The mode is the person's choice and is stored on the run row. Nothing here
-  // derives it from a plan code or a subscription tier, and a pipeline this build
-  // cannot finish is offered with the server's reason rather than hidden.
+  // The mode is the person's choice, stored on the run row. Nothing here derives it
+  // from a plan code: what the plan allows arrives as a row per mode from the server,
+  // carrying its own sentence, and a mode the plan does not include is drawn locked
+  // with that sentence rather than hidden. `runMode` also drives every brief control
+  // below, because a toggle whose stage this mode never reaches has to say so before
+  // the run, not in the score afterwards.
   const [runMode, setRunMode] = useState<ArticleRunMode>("quick");
+  const [guideOpen, setGuideOpen] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runNote, setRunNote] = useState<string | null>(null);
   const pipeline = useArticleRun({
@@ -411,6 +455,19 @@ export function ArticleWriterHQ({
     () => pipeline.modes.find((entry) => entry.mode === runMode) ?? null,
     [pipeline.modes, runMode]
   );
+
+  /**
+   * Per brief control: why the chosen mode will ignore it, or null when it will not.
+   *
+   * Derived in `modes.ts` from the one fact that decides it — whether this mode runs
+   * the stage that produces what the control asks for — so the toggles below cannot
+   * disagree with the pipeline, and switching the mode rewrites all nine at once.
+   */
+  const briefNotes = useMemo(() => {
+    const notes = {} as Record<ArticleBriefControl, string | null>;
+    for (const control of BRIEF_CONTROLS) notes[control] = controlNote(control, runMode);
+    return notes;
+  }, [runMode]);
 
   /** One request shape for every step. A non-2xx answer throws its own message. */
   const call = useCallback(
@@ -563,6 +620,14 @@ export function ArticleWriterHQ({
     try {
       // The site is resolved server-side from the destination, so the brief stores
       // the same URL the publish step will use instead of one the browser guessed.
+      //
+      // `honours` sends what the screen showed. A control the chosen mode cannot act
+      // on is drawn off, so it is posted off — the stored brief then matches what was
+      // agreed to, and the score's commentary afterwards cannot cite an intent the
+      // person was told this run would ignore. Their own state is left alone, so
+      // switching to Deep and running again sends it back.
+      const honours = (control: ArticleBriefControl, value: boolean): boolean =>
+        value && !briefNotes[control];
       const result = await pipeline.start(runMode, {
         keyword: focus,
         title: title.trim() || undefined,
@@ -574,17 +639,17 @@ export function ArticleWriterHQ({
         targetCountry: market,
         tone: tone || undefined,
         authorName: authorName.trim() || undefined,
-        enableToc,
-        enableFaq,
-        enableTakeaways,
-        enableSources,
-        enableInternalLinks,
-        enableExternalLinks,
-        enableImages,
-        enableYoutube,
+        enableToc: honours("enableToc", enableToc),
+        enableFaq: honours("enableFaq", enableFaq),
+        enableTakeaways: honours("enableTakeaways", enableTakeaways),
+        enableSources: honours("enableSources", enableSources),
+        enableInternalLinks: honours("enableInternalLinks", enableInternalLinks),
+        enableExternalLinks: honours("enableExternalLinks", enableExternalLinks),
+        enableImages: honours("enableImages", enableImages),
+        enableYoutube: honours("enableYoutube", enableYoutube),
         imageCount,
         imageStyle,
-        humanize,
+        humanize: honours("humanize", humanize),
       });
       adoptRun(result);
     } catch (error: any) {
@@ -593,10 +658,10 @@ export function ArticleWriterHQ({
       push("error", message);
     }
   }, [
-    adoptRun, authorName, enableExternalLinks, enableFaq, enableImages, enableInternalLinks,
-    enableSources, enableTakeaways, enableToc, enableYoutube, humanize, imageCount, imageStyle,
-    keyword, language, market, pipeline, pointOfView, push, runMode, sizePreset, targetId,
-    targetWords, title, tone,
+    adoptRun, authorName, briefNotes, enableExternalLinks, enableFaq, enableImages,
+    enableInternalLinks, enableSources, enableTakeaways, enableToc, enableYoutube, humanize,
+    imageCount, imageStyle, keyword, language, market, pipeline, pointOfView, push, runMode,
+    sizePreset, targetId, targetWords, title, tone,
   ]);
 
   /**
@@ -893,27 +958,44 @@ export function ArticleWriterHQ({
             )}
           </div>
           <div className="flex flex-col items-end gap-1.5">
-            {/* The pipeline is a choice, and it is stored on the run. A mode this
-                build cannot finish is shown disabled with the server's own reason,
-                not hidden — an option that vanishes explains nothing. */}
-            <div className="inline-flex rounded-lg border border-border p-0.5">
-              {pipeline.modes.map((entry) => (
-                <button
-                  key={entry.mode}
-                  type="button"
-                  onClick={() => setRunMode(entry.mode)}
-                  disabled={running || !entry.available}
-                  title={entry.reason || `${entry.stages} stages`}
-                  className={`h-7 rounded-md px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                    runMode === entry.mode
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  {entry.mode === "deep" ? "Deep" : "Quick"}
-                  <span className="ml-1 font-medium opacity-70">{entry.stages}</span>
-                </button>
-              ))}
+            {/* Two different noes, drawn differently. `selectable` false means there is
+                nothing to configure — the plan does not include this pipeline, or the
+                build is missing a stage — so the button locks and the padlock says the
+                reason is an upgrade. `available` false is a mode you may still choose
+                and read about; only the Write button refuses, with the gate's sentence
+                under it. Neither is ever hidden: an option that vanishes explains
+                nothing, and this is where an upgrade gets decided. */}
+            <div className="inline-flex items-center gap-1.5">
+              <div className="inline-flex rounded-lg border border-border p-0.5">
+                {pipeline.modes.map((entry) => (
+                  <button
+                    key={entry.mode}
+                    type="button"
+                    onClick={() => setRunMode(entry.mode)}
+                    disabled={running || entry.selectable === false}
+                    title={entry.reason || MODE_SUMMARY[entry.mode].line}
+                    className={`inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      runMode === entry.mode
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {entry.locked && <Lock className="h-2.5 w-2.5" />}
+                    {entry.mode === "deep" ? "Deep" : "Quick"}
+                    <span className="font-medium opacity-70">{entry.stages}</span>
+                  </button>
+                ))}
+              </div>
+              {/* The explanation lives behind this, and in the hovers, so the page
+                  itself stays a form rather than a comparison table. */}
+              <button
+                type="button"
+                onClick={() => setGuideOpen(true)}
+                className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-primary hover:bg-primary/10"
+              >
+                <HelpCircle className="h-3 w-3" />
+                Which one?
+              </button>
             </div>
             <button
               type="button"
@@ -934,12 +1016,16 @@ export function ArticleWriterHQ({
                   ? "Write it again"
                   : "Write the article"}
             </button>
+            {/* The gate's sentence when it refused, otherwise what this run will cost:
+                the price and the stage count are the server's, not this file's. */}
             <span className="max-w-[18rem] text-right text-[10px] text-muted-foreground">
               {modeInfo?.available === false
                 ? modeInfo.reason
                 : `${targetWords.toLocaleString()} words · ${
                     modeInfo?.stages ?? "—"
-                  } stages, one request each${article ? " · starts a new run" : ""}`}
+                  } stages, one request each${
+                    modeInfo?.credits ? ` · ${modeInfo.credits.toLocaleString()} credits` : ""
+                  }${article ? " · starts a new run" : ""}`}
             </span>
           </div>
         </div>
@@ -1174,31 +1260,57 @@ export function ArticleWriterHQ({
               </div>
             )}
           </Card>
-          <Card title="What goes in it" icon={Settings2}>
+          {/* Every label comes from `CONTROL_LABEL` and every note from
+              `controlNote`, so this card and the guide cannot call the same thing two
+              different names, and a control the chosen mode will not act on says so
+              here — before the run, in the place the choice is made. */}
+          <Card
+            title="What goes in it"
+            icon={Settings2}
+            right={
+              <span className="text-[10px] font-medium text-muted-foreground">
+                {MODE_SUMMARY[runMode].name}
+              </span>
+            }
+          >
             <div className="space-y-0.5">
               <Toggle
                 checked={enableToc}
                 onChange={setEnableToc}
-                label="Table of contents"
+                disabled={Boolean(briefNotes.enableToc)}
+                note={briefNotes.enableToc}
+                label={CONTROL_LABEL.enableToc}
                 hint="Anchored links to every H2, which is what wins a jump-to link in the results."
               />
               <Toggle
                 checked={enableFaq}
                 onChange={setEnableFaq}
-                label="FAQ section"
+                disabled={Boolean(briefNotes.enableFaq)}
+                note={briefNotes.enableFaq}
+                label={CONTROL_LABEL.enableFaq}
                 hint="Answers the questions Google shows for this keyword, with FAQ schema."
               />
-              <Toggle checked={enableTakeaways} onChange={setEnableTakeaways} label="Key takeaways" />
+              <Toggle
+                checked={enableTakeaways}
+                onChange={setEnableTakeaways}
+                disabled={Boolean(briefNotes.enableTakeaways)}
+                note={briefNotes.enableTakeaways}
+                label={CONTROL_LABEL.enableTakeaways}
+              />
               <Toggle
                 checked={enableSources}
                 onChange={setEnableSources}
-                label="Cited sources"
+                disabled={Boolean(briefNotes.enableSources)}
+                note={briefNotes.enableSources}
+                label={CONTROL_LABEL.enableSources}
                 hint="A reference list built only from pages that were really read."
               />
               <Toggle
                 checked={enableInternalLinks}
                 onChange={setEnableInternalLinks}
-                label="Internal links"
+                disabled={Boolean(briefNotes.enableInternalLinks)}
+                note={briefNotes.enableInternalLinks}
+                label={CONTROL_LABEL.enableInternalLinks}
                 hint={
                   website || targets.length
                     ? "Crawls your own site and links only to URLs that exist."
@@ -1208,30 +1320,43 @@ export function ArticleWriterHQ({
               <Toggle
                 checked={enableExternalLinks}
                 onChange={setEnableExternalLinks}
-                label="External citations"
+                disabled={Boolean(briefNotes.enableExternalLinks)}
+                note={briefNotes.enableExternalLinks}
+                label={CONTROL_LABEL.enableExternalLinks}
                 hint="Outbound links to the sources behind each claim."
               />
               <Toggle
                 checked={enableYoutube}
                 onChange={setEnableYoutube}
-                label="Embed a relevant video"
+                disabled={Boolean(briefNotes.enableYoutube)}
+                note={briefNotes.enableYoutube}
+                label={CONTROL_LABEL.enableYoutube}
               />
               <Toggle
                 checked={humanize}
                 onChange={setHumanize}
-                label="Humanising pass"
+                disabled={Boolean(briefNotes.humanize)}
+                note={briefNotes.humanize}
+                label={CONTROL_LABEL.humanize}
                 hint="A second pass that breaks up the rhythm machines fall into."
               />
             </div>
           </Card>
+          {/* Images are in both modes — the difference is who places them. Deep runs
+              the media stage and does it for you; on a quick run the studio below is
+              how they get in, which is why that button is not conditional on anything.
+              The user's count and style choices are kept, just not offered where no
+              stage would read them. */}
           <Card title="Images" icon={ImagePlus}>
             <Toggle
               checked={enableImages}
               onChange={setEnableImages}
-              label="Place images automatically"
+              disabled={Boolean(briefNotes.enableImages)}
+              note={briefNotes.enableImages}
+              label={CONTROL_LABEL.enableImages}
               hint="Sourced and rehosted on your own storage, never hotlinked."
             />
-            {enableImages && (
+            {enableImages && !briefNotes.enableImages && (
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Field label="How many">
                   <select
@@ -1270,8 +1395,9 @@ export function ArticleWriterHQ({
               Open the media studio
             </button>
             <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
-              Stock search, your own uploads, an AI render in {AI_IMAGE_SHAPES.length} shapes, or a
-              YouTube embed. Every pick needs alt text before it goes in.
+              {briefNotes.enableImages
+                ? `Works in either mode, and on a ${MODE_SUMMARY[runMode].name.toLowerCase()} run it is how images get in: stock search, your own uploads, an AI render in ${AI_IMAGE_SHAPES.length} shapes, or a YouTube embed. Every pick needs alt text before it goes in.`
+                : `Stock search, your own uploads, an AI render in ${AI_IMAGE_SHAPES.length} shapes, or a YouTube embed. Every pick needs alt text before it goes in.`}
             </p>
           </Card>
         </div>
@@ -1358,6 +1484,28 @@ export function ArticleWriterHQ({
               </p>
             )}
           </Card>
+          {/* The stage list for the mode that is selected, so the toggle above visibly
+              changes what this page says it will do. Names and one-liners are the
+              pipeline's own — the hover on each carries the detail, which is how the
+              whole comparison fits here without becoming a wall of text. */}
+          {!article && (
+            <Card
+              title={`What a ${MODE_SUMMARY[runMode].name.toLowerCase()} run does`}
+              icon={Sparkles}
+              right={
+                <button
+                  type="button"
+                  onClick={() => setGuideOpen(true)}
+                  className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-primary hover:bg-primary/10"
+                >
+                  <HelpCircle className="h-3 w-3" />
+                  Compare the two
+                </button>
+              }
+            >
+              <ModeStages mode={runMode} />
+            </Card>
+          )}
           {!article && (
             <Card title="How a run is planned" icon={BookOpen}>
               <p className="text-xs leading-relaxed text-muted-foreground">
@@ -2049,6 +2197,16 @@ export function ArticleWriterHQ({
         title={mediaSlot === "featured" ? "Choose the featured image" : "Add media to the article"}
         onInsert={insertMedia}
         onNotify={push}
+      />
+      {/* The side-by-side answer, given the server's own rows: what each mode costs,
+          what it runs, and the gate's sentence where it refused one. Picking a mode
+          from here is the same state the toggle in the header writes. */}
+      <ModeGuide
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        modes={pipeline.modes}
+        active={runMode}
+        onPick={setRunMode}
       />
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
