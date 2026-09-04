@@ -4,9 +4,12 @@ import prisma from "@/lib/db";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
-import { getWorkspaceAnalytics, WorkspaceAnalyticsData } from "./analytics";
+import { getWorkspaceAnalytics, WorkspaceAnalyticsData, PostPerformanceRow } from "./analytics";
 import { getWorkspaceCreditInfo, WorkspaceCreditInfo } from "@/lib/billing/credits";
 import { approvePost, rejectPost } from "./content";
+import { publishNow } from "./publish";
+import { fetchLiveTrendingNews, TrendItem } from "./trends";
+import { PLATFORM_BEST_TIMES, getNextBestTime } from "@/lib/bestPublishTime";
 
 export interface DashboardPostItem {
   id: string;
@@ -18,6 +21,23 @@ export interface DashboardPostItem {
   scheduledFor: string | null;
   createdAt: string;
   campaignTopic: string | null;
+  publishError?: string | null;
+}
+
+export interface DashboardPeakTime {
+  platform: string;
+  label: string;
+  reason: string;
+  nextDateIso: string;
+  isPeakToday: boolean;
+}
+
+export interface WeeklyCalendarDay {
+  date: string;
+  dayName: string;
+  dayNumber: number;
+  isToday: boolean;
+  posts: DashboardPostItem[];
 }
 
 /**
@@ -104,6 +124,10 @@ export interface DashboardOverviewData {
   kpis: ProductionKpiMetrics;
   upcomingPosts: DashboardPostItem[];
   pendingPosts: DashboardPostItem[];
+  failedPosts: DashboardPostItem[];
+  weeklyCalendar: WeeklyCalendarDay[];
+  peakTimes: DashboardPeakTime[];
+  topPerformer: PostPerformanceRow | null;
   platformPerformance: DashboardPlatformPerformance[];
   growthGoal: {
     leadTarget: number;
@@ -271,6 +295,7 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
     // ── Queue lists from the Post rows ───────────────────────────────────────
     const upcomingPosts: DashboardPostItem[] = [];
     const pendingPosts: DashboardPostItem[] = [];
+    const failedPosts: DashboardPostItem[] = [];
 
     for (const p of posts) {
       const item: DashboardPostItem = {
@@ -283,10 +308,77 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
         scheduledFor: p.scheduledFor ? p.scheduledFor.toISOString() : null,
         createdAt: p.createdAt.toISOString(),
         campaignTopic: p.campaignTopic,
+        publishError: p.publishError || null,
       };
       if (p.status === "SCHEDULED") upcomingPosts.push(item);
       else if (p.status === "PENDING_APPROVAL") pendingPosts.push(item);
+      else if (p.status === "FAILED") failedPosts.push(item);
     }
+
+    // ── 7-Day Rolling Calendar Runway (Today + next 6 days) ──────────────────
+    const weeklyCalendar: WeeklyCalendarDay[] = [];
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    for (let offset = 0; offset < 7; offset++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + offset);
+      const dateStr = d.toISOString().split("T")[0];
+      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0);
+      const endOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+      const dayPosts = posts
+        .filter((p) => {
+          if (!p.scheduledFor) return false;
+          const sTime = new Date(p.scheduledFor).getTime();
+          return sTime >= startOfDay.getTime() && sTime <= endOfDay.getTime();
+        })
+        .map((p) => ({
+          id: p.id,
+          platform: p.platform,
+          format: p.format,
+          content: p.content,
+          imageUrl: p.imageUrl,
+          status: p.status,
+          scheduledFor: p.scheduledFor ? p.scheduledFor.toISOString() : null,
+          createdAt: p.createdAt.toISOString(),
+          campaignTopic: p.campaignTopic,
+          publishError: p.publishError || null,
+        }));
+
+      weeklyCalendar.push({
+        date: dateStr,
+        dayName: dayNames[d.getDay()],
+        dayNumber: d.getDate(),
+        isToday: offset === 0,
+        posts: dayPosts,
+      });
+    }
+
+    // ── Audience Peak Times Radar ──────────────────────────────────────────
+    const peakTimes: DashboardPeakTime[] = [];
+    for (const plat of SUPPORTED_PLATFORMS) {
+      const spec = PLATFORM_BEST_TIMES[plat.toLowerCase()];
+      if (spec) {
+        const nextDate = getNextBestTime(plat.toLowerCase(), now);
+        peakTimes.push({
+          platform: plat,
+          label: spec.label,
+          reason: spec.reason,
+          nextDateIso: nextDate.toISOString(),
+          isPeakToday: nextDate.toDateString() === now.toDateString(),
+        });
+      }
+    }
+
+    // ── Top Performer Content Spotlight ────────────────────────────────────
+    const rawPosts = analyticsData.posts || [];
+    const sortedPosts = [...rawPosts].sort(
+      (a, b) => (b.clicks + b.leads * 3) - (a.clicks + a.leads * 3)
+    );
+    const topPerformer =
+      sortedPosts.length > 0 && (sortedPosts[0].clicks > 0 || sortedPosts[0].leads > 0)
+        ? sortedPosts[0]
+        : sortedPosts[0] || null;
 
     // ── Per-platform results (published + platform-reported insights) ───────
     const analyticsByKey = new Map(
@@ -361,6 +453,10 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       kpis,
       upcomingPosts: upcomingPosts.slice(0, 5),
       pendingPosts: pendingPosts.slice(0, 5),
+      failedPosts: failedPosts.slice(0, 5),
+      weeklyCalendar,
+      peakTimes,
+      topPerformer,
       platformPerformance,
       growthGoal: workspace.growthGoal
         ? {
@@ -394,4 +490,23 @@ export async function rejectDashboardPost(postId: string, reason: string) {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/content");
   return result;
+}
+
+export async function retryDashboardPost(postId: string) {
+  const result = await publishNow(postId);
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/content");
+  return result;
+}
+
+export async function fetchDashboardTrends(
+  industry?: string
+): Promise<{ success: boolean; trends: TrendItem[]; query: string }> {
+  try {
+    const query = (industry || "").trim() || "Social Media Marketing AI";
+    const res = await fetchLiveTrendingNews(query, 4);
+    return res;
+  } catch (err: any) {
+    return { success: false, trends: [], query: industry || "Marketing" };
+  }
 }

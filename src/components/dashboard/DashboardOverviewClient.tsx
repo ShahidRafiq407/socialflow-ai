@@ -21,6 +21,7 @@ import {
   Share2,
   Zap,
   CreditCard,
+  Calendar,
 } from "lucide-react";
 import {
   DashboardOverviewData,
@@ -28,6 +29,13 @@ import {
 } from "@/actions/dashboard";
 import { syncWorkspaceInsights } from "@/actions/insights";
 import { QuickGuideDialog } from "@/components/dashboard/QuickGuideDialog";
+import { DashboardTrendChart, Sparkline } from "@/components/dashboard/DashboardTrendChart";
+import { DashboardQuickCreate } from "@/components/dashboard/DashboardQuickCreate";
+import { DashboardWeeklyRunway } from "@/components/dashboard/DashboardWeeklyRunway";
+import { DashboardTrendingNiche } from "@/components/dashboard/DashboardTrendingNiche";
+import { DashboardPeakTimeRadar } from "@/components/dashboard/DashboardPeakTimeRadar";
+import { DashboardTopPerformer } from "@/components/dashboard/DashboardTopPerformer";
+import { DashboardFailuresBanner } from "@/components/dashboard/DashboardFailuresBanner";
 
 interface DashboardOverviewClientProps {
   initialData: DashboardOverviewData;
@@ -70,26 +78,37 @@ function StatCard({
   value,
   icon: Icon,
   sub,
+  sparklineData,
+  sparklineColor = "#3b82f6",
   progress,
 }: {
   label: string;
   value: string;
   icon: React.ComponentType<{ className?: string }>;
   sub?: React.ReactNode;
+  sparklineData?: number[];
+  sparklineColor?: string;
   progress?: number;
 }) {
   return (
-    <Card size="sm" className="gap-0">
-      <CardContent className="flex flex-col gap-1.5">
+    <Card size="sm" className="gap-0 border bg-card transition-all hover:shadow-xs">
+      <CardContent className="flex flex-col gap-1.5 p-3.5 sm:p-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground">{label}</span>
           <Icon className="h-4 w-4 text-muted-foreground" />
         </div>
-        <span className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
-          {value}
-        </span>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+            {value}
+          </span>
+          {sparklineData && sparklineData.length > 1 && (
+            <div className="hidden sm:block">
+              <Sparkline data={sparklineData} color={sparklineColor} height={24} width={64} />
+            </div>
+          )}
+        </div>
         {progress !== undefined && (
-          <Progress value={progress} className="h-1.5" />
+          <Progress value={progress} className="h-1.5 mt-0.5" />
         )}
         {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
       </CardContent>
@@ -104,9 +123,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Lazy insights refresh. The server returns stored snapshots without calling
-  // any platform API when they are newer than 12h, so this is cheap on every
-  // dashboard visit and only refetches when a snapshot has gone stale.
+  // Lazy insights refresh
   useEffect(() => {
     let cancelled = false;
     syncWorkspaceInsights()
@@ -176,43 +193,57 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
     });
   };
 
-  const { user, workspace, credits, kpis, platformPerformance } = data;
+  const { user, workspace, credits, kpis, platformPerformance, analytics } = data;
   const connectedCount = data.connectedPlatforms.filter((c) => c.isConnected).length;
   const anyConnected = connectedCount > 0;
-
-  const hasContent =
-    kpis.clicks.this7d > 0 ||
-    kpis.leads.gained30d > 0 ||
-    kpis.published.this30d > 0 ||
-    data.upcomingPosts.length > 0 ||
-    data.pendingPosts.length > 0 ||
-    platformPerformance.some((p) => p.published > 0);
 
   const totalQueue = data.upcomingPosts.length + data.pendingPosts.length;
   const pendingNeedsReview = kpis.scheduled.pendingApproval > 0;
 
+  // Sparkline data from analytics series
+  const series = analytics?.series || [];
+  const clicksSparkline = series.slice(-14).map((p) => p.clicks);
+  const leadsSparkline = series.slice(-14).map((p) => p.leads);
+  const postsSparkline = series.slice(-14).map((p) => p.posts);
+
   return (
-    <div className="space-y-5 pb-8 font-sans">
-      {/* Greeting + primary actions */}
-      <div className="flex items-center justify-between gap-3">
+    <div className="space-y-5 pb-12 font-sans">
+      {/* 1. Greeting + Global Quick Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-            {greeting}, {user.firstName}
-          </h1>
-          <p className="text-xs text-muted-foreground">{workspace.name}</p>
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
+              {greeting}, {user.firstName}
+            </h1>
+            {data.brandTone && (
+              <span className="hidden md:inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                Voice: {data.brandTone}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{workspace.name} · {workspace.industry || "Marketing"}</p>
         </div>
+
         <div className="flex shrink-0 items-center gap-2">
           <Button
             variant="outline"
-            size="icon"
+            size="icon-sm"
             onClick={() => setGuideOpen(true)}
             title="Quick guide"
             aria-label="Quick guide"
           >
             <HelpCircle className="h-4 w-4" />
           </Button>
+
+          <Link href="/dashboard/content">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Content Library</span>
+            </Button>
+          </Link>
+
           <Link href="/dashboard/ai-studio">
-            <Button className="gap-1.5">
+            <Button size="sm" className="gap-1.5 shadow-xs">
               <Sparkles className="h-3.5 w-3.5" />
               Create Post
             </Button>
@@ -220,7 +251,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </div>
       </div>
 
-      {/* Plan / credits / channels status bar */}
+      {/* 2. Plan / Credits / Channels status bar */}
       <div className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
         <span
           aria-hidden
@@ -287,7 +318,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </div>
       </div>
 
-      {/* Action feedback */}
+      {/* 3. Action Feedback Notification */}
       {actionMessage && (
         <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
           <span>{actionMessage}</span>
@@ -301,388 +332,357 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </div>
       )}
 
-      {/* First-run: no channels connected and nothing to show yet */}
-      {!anyConnected && !hasContent ? (
-        <div className="rounded-xl bg-card p-6 ring-1 ring-foreground/10">
-          <div className="mx-auto max-w-md text-center">
-            <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Share2 className="h-5 w-5" />
-            </span>
-            <h2 className="text-base font-semibold text-foreground">
-              Connect your social channels
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Link Instagram, LinkedIn, Facebook and more, then create your first AI post.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {data.connectedPlatforms.map((ch) => (
-                <Link
-                  key={ch.platform}
-                  href="/dashboard/integrations"
-                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-foreground/15 transition-colors hover:bg-muted"
-                >
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      ch.isConnected ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"
-                    }`}
-                  />
-                  {platformLabel(ch.platform)}
-                </Link>
-              ))}
-            </div>
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              <Link href="/dashboard/integrations">
-                <Button className="gap-1.5">
-                  <Share2 className="h-3.5 w-3.5" />
-                  Connect channel
-                </Button>
-              </Link>
-              <Button variant="outline" onClick={() => setGuideOpen(true)}>
-                Take the quick tour
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Pending review attention strip */}
-          {pendingNeedsReview && (
-            <a
-              href="#queue"
-              className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300"
+      {/* 4. Publishing Failures Diagnostic Alert */}
+      {data.failedPosts && data.failedPosts.length > 0 && (
+        <DashboardFailuresBanner failedPosts={data.failedPosts} />
+      )}
+
+      {/* 5. Pending Review Attention Strip */}
+      {pendingNeedsReview && (
+        <a
+          href="#queue"
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300 transition-colors hover:bg-amber-100 dark:hover:bg-amber-950/70"
+        >
+          <span>{kpis.scheduled.pendingApproval} post(s) waiting for your approval</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-amber-700 dark:text-amber-400">
+            Open queue
+            <ArrowRight className="h-3 w-3" />
+          </span>
+        </a>
+      )}
+
+      {/* 6. Hero AI Command Center */}
+      <DashboardQuickCreate
+        workspaceIndustry={workspace.industry}
+        brandTone={data.brandTone}
+      />
+
+      {/* 7. Real Measured KPI Cards with Sparklines */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Link Clicks (7d)"
+          value={formatNum(kpis.clicks.this7d)}
+          icon={MousePointerClick}
+          sparklineData={clicksSparkline}
+          sparklineColor="#2563eb"
+          sub={
+            <span
+              className={`inline-flex items-center gap-0.5 tabular-nums ${
+                kpis.clicks.growthPct >= 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
             >
-              <span>{kpis.scheduled.pendingApproval} post(s) waiting for your review</span>
-              <span className="inline-flex shrink-0 items-center gap-1 text-amber-700 dark:text-amber-400">
-                Open queue
-                <ArrowRight className="h-3 w-3" />
+              <TrendingUp className="h-3 w-3" />
+              {formatDelta(kpis.clicks.growthPct)} vs prev week
+            </span>
+          }
+        />
+        <StatCard
+          label="Leads Gained (30d)"
+          value={formatNum(kpis.leads.gained30d)}
+          icon={Target}
+          sparklineData={leadsSparkline}
+          sparklineColor="#059669"
+          sub={
+            <span
+              className={`inline-flex items-center gap-0.5 tabular-nums ${
+                kpis.leads.growthPct >= 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              <TrendingUp className="h-3 w-3" />
+              {formatDelta(kpis.leads.growthPct)} vs prev 30d
+            </span>
+          }
+        />
+        <StatCard
+          label="Posts Published (30d)"
+          value={formatNum(kpis.published.this30d)}
+          icon={Send}
+          sparklineData={postsSparkline}
+          sparklineColor="#7c3aed"
+          sub={
+            kpis.published.failures30d > 0 ? (
+              <span className="font-medium text-red-600 dark:text-red-400">
+                {kpis.published.failures30d} failed to publish
               </span>
-            </a>
-          )}
-
-          {/* Real measured KPI cards */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard
-              label="Link Clicks (7d)"
-              value={formatNum(kpis.clicks.this7d)}
-              icon={MousePointerClick}
-              sub={
-                <span
-                  className={`inline-flex items-center gap-0.5 tabular-nums ${
-                    kpis.clicks.growthPct >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  }`}
-                >
-                  <TrendingUp className="h-3 w-3" />
-                  {formatDelta(kpis.clicks.growthPct)} vs prev week
-                </span>
-              }
-            />
-            <StatCard
-              label="Leads Gained (30d)"
-              value={formatNum(kpis.leads.gained30d)}
-              icon={Target}
-              sub={
-                <span
-                  className={`inline-flex items-center gap-0.5 tabular-nums ${
-                    kpis.leads.growthPct >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  }`}
-                >
-                  <TrendingUp className="h-3 w-3" />
-                  {formatDelta(kpis.leads.growthPct)} vs prev 30d
-                </span>
-              }
-            />
-            <StatCard
-              label="Posts Published (30d)"
-              value={formatNum(kpis.published.this30d)}
-              icon={Send}
-              sub={
-                kpis.published.failures30d > 0 ? (
-                  <span className="font-medium text-red-600 dark:text-red-400">
-                    {kpis.published.failures30d} failed to publish
-                  </span>
-                ) : (
-                  <span>{kpis.published.today} today</span>
-                )
-              }
-            />
-            {kpis.goal.hasGoal ? (
-              <StatCard
-                label={`Goal · ${kpis.goal.title}`}
-                value={`${kpis.goal.percentComplete}%`}
-                icon={Target}
-                progress={kpis.goal.percentComplete}
-                sub={
-                  <span className="tabular-nums">
-                    {formatNum(kpis.goal.achieved)} / {formatNum(kpis.goal.target)} · {kpis.goal.estDate}
-                  </span>
-                }
-              />
             ) : (
-              <StatCard
-                label="Goal"
-                value="—"
-                icon={Target}
-                sub={
-                  <Link href="/dashboard/goals" className="text-primary hover:underline">
-                    Set a lead goal
-                  </Link>
-                }
-              />
-            )}
-          </div>
+              <span>{kpis.published.today} today</span>
+            )
+          }
+        />
+        {kpis.goal.hasGoal ? (
+          <StatCard
+            label={`Goal · ${kpis.goal.title}`}
+            value={`${kpis.goal.percentComplete}%`}
+            icon={Target}
+            progress={kpis.goal.percentComplete}
+            sub={
+              <span className="tabular-nums">
+                {formatNum(kpis.goal.achieved)} / {formatNum(kpis.goal.target)} · {kpis.goal.estDate}
+              </span>
+            }
+          />
+        ) : (
+          <StatCard
+            label="Goal"
+            value="—"
+            icon={Target}
+            sub={
+              <Link href="/dashboard/goals" className="text-primary hover:underline">
+                Set a lead goal
+              </Link>
+            }
+          />
+        )}
+      </div>
 
-          {/* Queue + platform results */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            {/* Content queue */}
-            <Card id="queue" className="gap-0 scroll-mt-20">
-              <CardHeader className="border-b [.border-b]:pb-3">
-                <CardTitle className="text-sm font-medium">Content Queue</CardTitle>
-                <CardAction>
-                  <Link
-                    href="/dashboard/content"
-                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
-                  >
-                    View all
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </CardAction>
-              </CardHeader>
-              <CardContent className="p-3">
-                <Tabs defaultValue={data.pendingPosts.length > 0 ? "pending" : "scheduled"}>
-                  <TabsList className="mb-3 grid h-8 grid-cols-2">
-                    <TabsTrigger value="scheduled" className="text-xs">
-                      Scheduled ({data.upcomingPosts.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="pending" className="text-xs">
-                      Review ({data.pendingPosts.length})
-                    </TabsTrigger>
-                  </TabsList>
+      {/* 8. Performance Velocity Interactive Area Chart */}
+      {analytics && analytics.series && (
+        <DashboardTrendChart series={analytics.series} />
+      )}
 
-                  <TabsContent value="scheduled" className="mt-0 space-y-2">
-                    {data.upcomingPosts.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-5 text-center">
-                        <Clock className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground" />
-                        <p className="text-xs font-medium text-foreground">Nothing scheduled</p>
-                        <Link href="/dashboard/ai-studio" className="mt-2 inline-block">
-                          <Button size="sm" variant="outline" className="text-xs">
-                            Create your first post
-                          </Button>
-                        </Link>
-                      </div>
-                    ) : (
-                      data.upcomingPosts.map((post) => (
-                        <div
-                          key={post.id}
-                          className="flex items-center gap-2.5 rounded-md bg-muted/30 p-2.5 transition-colors hover:bg-muted/60"
-                        >
-                          <span
-                            className={`h-2 w-2 shrink-0 rounded-full ${
-                              PLATFORM_DOT[post.platform.toUpperCase()] || "bg-slate-400"
-                            }`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-medium text-foreground">
-                              {post.content ? post.content.slice(0, 60) : "Scheduled media post"}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground">
-                              {platformLabel(post.platform)}
-                              {post.scheduledFor && (
-                                <>
-                                  {" · "}
-                                  {new Date(post.scheduledFor).toLocaleString([], {
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </>
-                              )}
-                            </p>
-                          </div>
-                          <Link href="/dashboard/content">
-                            <Button variant="ghost" size="icon-sm" aria-label="Edit post">
-                              <Edit2 className="h-3 w-3 text-muted-foreground" />
-                            </Button>
-                          </Link>
-                        </div>
-                      ))
-                    )}
-                  </TabsContent>
+      {/* 9. Weekly Content Runway (7-Day Rolling Calendar) */}
+      {data.weeklyCalendar && data.weeklyCalendar.length > 0 && (
+        <DashboardWeeklyRunway days={data.weeklyCalendar} />
+      )}
 
-                  <TabsContent value="pending" className="mt-0 space-y-2">
-                    {data.pendingPosts.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-5 text-center">
-                        <Check className="mx-auto mb-1.5 h-5 w-5 text-emerald-500" />
-                        <p className="text-xs font-medium text-foreground">Nothing to review</p>
-                      </div>
-                    ) : (
-                      data.pendingPosts.map((post) => (
-                        <div
-                          key={post.id}
-                          className="flex items-center gap-2.5 rounded-md bg-muted/30 p-2.5 transition-colors hover:bg-muted/60"
-                        >
-                          <span
-                            className={`h-2 w-2 shrink-0 rounded-full ${
-                              PLATFORM_DOT[post.platform.toUpperCase()] || "bg-slate-400"
-                            }`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-medium text-foreground">
-                              {post.content ? post.content.slice(0, 60) : "Draft post"}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-muted-foreground">
-                              {platformLabel(post.platform)} · Needs review
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <Button
-                              size="xs"
-                              disabled={pendingApprovalId === post.id}
-                              onClick={() => handleApprove(post.id)}
-                              className="gap-0.5"
-                            >
-                              <Check className="h-3 w-3" />
-                              Approve
-                            </Button>
-                            <Link href="/dashboard/content">
-                              <Button variant="ghost" size="icon-sm" aria-label="Edit post">
-                                <Edit2 className="h-3 w-3 text-muted-foreground" />
-                              </Button>
-                            </Link>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </TabsContent>
-                </Tabs>
+      {/* 10. Queue & Audience Peak Time Radar */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Content Queue */}
+        <Card id="queue" className="gap-0 scroll-mt-20">
+          <CardHeader className="border-b [.border-b]:pb-3">
+            <CardTitle className="text-sm font-medium">Content Queue</CardTitle>
+            <CardAction>
+              <Link
+                href="/dashboard/content"
+                className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+              >
+                View all
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="p-3">
+            <Tabs defaultValue={data.pendingPosts.length > 0 ? "pending" : "scheduled"}>
+              <TabsList className="mb-3 grid h-8 grid-cols-2">
+                <TabsTrigger value="scheduled" className="text-xs">
+                  Scheduled ({data.upcomingPosts.length})
+                </TabsTrigger>
+                <TabsTrigger value="pending" className="text-xs">
+                  Review ({data.pendingPosts.length})
+                </TabsTrigger>
+              </TabsList>
 
-                {totalQueue === 0 && (
-                  <p className="mt-2 text-center text-[10px] text-muted-foreground">
-                    Approved posts publish automatically on schedule.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Platform results */}
-            <Card className="gap-0">
-              <CardHeader className="border-b [.border-b]:pb-3">
-                <CardTitle className="text-sm font-medium">Platform Results</CardTitle>
-                <CardAction>
-                  <Link
-                    href="/dashboard/integrations"
-                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
-                  >
-                    {anyConnected ? "Manage" : "Connect"}
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </CardAction>
-              </CardHeader>
-              <CardContent className="p-3">
-                {platformPerformance.length === 0 ? (
+              <TabsContent value="scheduled" className="mt-0 space-y-2">
+                {data.upcomingPosts.length === 0 ? (
                   <div className="rounded-lg border border-dashed p-5 text-center">
-                    <Share2 className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground" />
-                    <p className="text-xs font-medium text-foreground">No activity yet</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      Publish a post to see results per channel.
-                    </p>
+                    <Clock className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground" />
+                    <p className="text-xs font-medium text-foreground">Nothing scheduled</p>
                     <Link href="/dashboard/ai-studio" className="mt-2 inline-block">
                       <Button size="sm" variant="outline" className="text-xs">
-                        Create a post
+                        Create your first post
                       </Button>
                     </Link>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {/* Desktop table header */}
-                    <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] gap-2 px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
-                      <span>Channel</span>
-                      <span>Posts</span>
-                      <span title="Platform-reported · last 30 days">Impressions</span>
-                      <span title="Platform-reported">Followers</span>
-                      <span title="Interactions ÷ impressions · last 30 days">Eng %</span>
+                  data.upcomingPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="flex items-center gap-2.5 rounded-md bg-muted/30 p-2.5 transition-colors hover:bg-muted/60"
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          PLATFORM_DOT[post.platform.toUpperCase()] || "bg-slate-400"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {post.content ? post.content.slice(0, 60) : "Scheduled media post"}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {platformLabel(post.platform)}
+                          {post.scheduledFor && (
+                            <>
+                              {" · "}
+                              {new Date(post.scheduledFor).toLocaleString([], {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <Link href="/dashboard/content">
+                        <Button variant="ghost" size="icon-sm" aria-label="Edit post">
+                          <Edit2 className="h-3 w-3 text-muted-foreground" />
+                        </Button>
+                      </Link>
                     </div>
+                  ))
+                )}
+              </TabsContent>
 
-                    {platformPerformance.map((row) => {
-                      const insightLive =
-                        row.insight && row.insight.state === "live" ? row.insight : null;
-                      const insightNote =
-                        row.connected && row.insight && row.insight.state !== "live"
-                          ? row.insight.message || "Live metrics unavailable"
-                          : null;
-                      const followers = insightLive?.followers ?? null;
-                      const impressions = insightLive?.impressions30d ?? null;
-                      const engagement = insightLive?.engagementRate ?? null;
+              <TabsContent value="pending" className="mt-0 space-y-2">
+                {data.pendingPosts.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-5 text-center">
+                    <Check className="mx-auto mb-1.5 h-5 w-5 text-emerald-500" />
+                    <p className="text-xs font-medium text-foreground">Nothing to review</p>
+                  </div>
+                ) : (
+                  data.pendingPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="flex items-center gap-2.5 rounded-md bg-muted/30 p-2.5 transition-colors hover:bg-muted/60"
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          PLATFORM_DOT[post.platform.toUpperCase()] || "bg-slate-400"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium text-foreground">
+                          {post.content ? post.content.slice(0, 60) : "Draft post"}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          {platformLabel(post.platform)} · Needs review
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          size="xs"
+                          disabled={pendingApprovalId === post.id}
+                          onClick={() => handleApprove(post.id)}
+                          className="gap-0.5"
+                        >
+                          <Check className="h-3 w-3" />
+                          Approve
+                        </Button>
+                        <Link href="/dashboard/content">
+                          <Button variant="ghost" size="icon-sm" aria-label="Edit post">
+                            <Edit2 className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        </Link>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </TabsContent>
+            </Tabs>
 
-                      const metric = (v: number | null, suffix = "") =>
-                        v === null || v === undefined ? (
-                          <span className="text-muted-foreground/50">—</span>
-                        ) : (
-                          <span className="tabular-nums text-foreground">
-                            {fmtCompact(v)}
-                            {suffix && <span className="text-muted-foreground">{suffix}</span>}
-                          </span>
-                        );
+            {totalQueue === 0 && (
+              <p className="mt-2 text-center text-[10px] text-muted-foreground">
+                Approved posts publish automatically on schedule.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
-                      return (
-                        <div key={row.platform} className="space-y-1.5 sm:space-y-0">
-                          {/* Desktop row */}
-                          <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] items-center gap-2 rounded-md bg-muted/30 px-2 py-2 text-xs sm:grid">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span
-                                className={`h-2 w-2 shrink-0 rounded-full ${
-                                  PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
-                                }`}
-                              />
-                              <div className="min-w-0">
-                                <p
-                                  className="truncate font-medium text-foreground"
-                                  title={row.connected ? row.handle || undefined : undefined}
-                                >
-                                  {platformLabel(row.platform)}
-                                </p>
-                                <p
-                                  className="truncate text-[10px] text-muted-foreground"
-                                  title={insightNote || undefined}
-                                >
-                                  {row.connected ? row.handle || "Connected" : "Not connected"}
-                                  {insightNote && (
-                                    <span className="text-amber-600 dark:text-amber-400">
-                                      {" · "}metrics pending
-                                    </span>
-                                  )}
-                                </p>
-                              </div>
-                            </div>
-                            <span className="tabular-nums text-foreground">
-                              {formatNum(row.published)}
-                            </span>
-                            {metric(impressions)}
-                            {metric(followers)}
-                            {metric(engagement, "%")}
-                          </div>
+        {/* Audience Peak Time Radar */}
+        {data.peakTimes && (
+          <DashboardPeakTimeRadar
+            peakTimes={data.peakTimes}
+            connectedPlatforms={data.connectedPlatforms}
+          />
+        )}
+      </div>
 
-                          {/* Mobile row */}
-                          <div className="rounded-md bg-muted/30 px-2.5 py-2 sm:hidden">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`h-2 w-2 shrink-0 rounded-full ${
-                                  PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
-                                }`}
-                              />
-                              <p className="truncate text-xs font-medium text-foreground">
-                                {platformLabel(row.platform)}
-                              </p>
-                            </div>
-                            <p className="mt-1 truncate text-[11px] tabular-nums text-muted-foreground">
-                              {formatNum(row.published)} posts
-                              {impressions !== null && ` · ${fmtCompact(impressions)} impressions`}
-                              {followers !== null && ` · ${fmtCompact(followers)} followers`}
-                              {engagement !== null && ` · ${engagement}% eng`}
+      {/* 11. Top Performer Content Spotlight */}
+      {data.topPerformer && (
+        <DashboardTopPerformer post={data.topPerformer} />
+      )}
+
+      {/* 12. Live Niche Trends & Platform Results */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Live Niche Trends */}
+        <DashboardTrendingNiche industry={workspace.industry} />
+
+        {/* Platform results */}
+        <Card className="gap-0">
+          <CardHeader className="border-b [.border-b]:pb-3">
+            <CardTitle className="text-sm font-medium">Platform Results</CardTitle>
+            <CardAction>
+              <Link
+                href="/dashboard/integrations"
+                className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+              >
+                {anyConnected ? "Manage" : "Connect"}
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="p-3">
+            {platformPerformance.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-5 text-center">
+                <Share2 className="mx-auto mb-1.5 h-5 w-5 text-muted-foreground" />
+                <p className="text-xs font-medium text-foreground">No activity yet</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Publish a post to see results per channel.
+                </p>
+                <Link href="/dashboard/ai-studio" className="mt-2 inline-block">
+                  <Button size="sm" variant="outline" className="text-xs">
+                    Create a post
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {/* Desktop table header */}
+                <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] gap-2 px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                  <span>Channel</span>
+                  <span>Posts</span>
+                  <span title="Platform-reported · last 30 days">Impressions</span>
+                  <span title="Platform-reported">Followers</span>
+                  <span title="Interactions ÷ impressions · last 30 days">Eng %</span>
+                </div>
+
+                {platformPerformance.map((row) => {
+                  const insightLive =
+                    row.insight && row.insight.state === "live" ? row.insight : null;
+                  const insightNote =
+                    row.connected && row.insight && row.insight.state !== "live"
+                      ? row.insight.message || "Live metrics unavailable"
+                      : null;
+                  const followers = insightLive?.followers ?? null;
+                  const impressions = insightLive?.impressions30d ?? null;
+                  const engagement = insightLive?.engagementRate ?? null;
+
+                  const metric = (v: number | null, suffix = "") =>
+                    v === null || v === undefined ? (
+                      <span className="text-muted-foreground/50">—</span>
+                    ) : (
+                      <span className="tabular-nums text-foreground">
+                        {fmtCompact(v)}
+                        {suffix && <span className="text-muted-foreground">{suffix}</span>}
+                      </span>
+                    );
+
+                  return (
+                    <div key={row.platform} className="space-y-1.5 sm:space-y-0">
+                      {/* Desktop row */}
+                      <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] items-center gap-2 rounded-md bg-muted/30 px-2 py-2 text-xs sm:grid">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
+                            }`}
+                          />
+                          <div className="min-w-0">
+                            <p
+                              className="truncate font-medium text-foreground"
+                              title={row.connected ? row.handle || undefined : undefined}
+                            >
+                              {platformLabel(row.platform)}
+                            </p>
+                            <p
+                              className="truncate text-[10px] text-muted-foreground"
+                              title={insightNote || undefined}
+                            >
+                              {row.connected ? row.handle || "Connected" : "Not connected"}
                               {insightNote && (
                                 <span className="text-amber-600 dark:text-amber-400">
                                   {" · "}metrics pending
@@ -691,23 +691,54 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
                             </p>
                           </div>
                         </div>
-                      );
-                    })}
-                    {!anyConnected && (
-                      <Link
-                        href="/dashboard/integrations"
-                        className="mt-2 block text-center text-xs font-medium text-primary hover:underline"
-                      >
-                        Connect a channel to start publishing
-                      </Link>
-                    )}
-                  </div>
+                        <span className="tabular-nums text-foreground">
+                          {formatNum(row.published)}
+                        </span>
+                        {metric(impressions)}
+                        {metric(followers)}
+                        {metric(engagement, "%")}
+                      </div>
+
+                      {/* Mobile row */}
+                      <div className="rounded-md bg-muted/30 px-2.5 py-2 sm:hidden">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
+                            }`}
+                          />
+                          <p className="truncate text-xs font-medium text-foreground">
+                            {platformLabel(row.platform)}
+                          </p>
+                        </div>
+                        <p className="mt-1 truncate text-[11px] tabular-nums text-muted-foreground">
+                          {formatNum(row.published)} posts
+                          {impressions !== null && ` · ${fmtCompact(impressions)} impressions`}
+                          {followers !== null && ` · ${fmtCompact(followers)} followers`}
+                          {engagement !== null && ` · ${engagement}% eng`}
+                          {insightNote && (
+                            <span className="text-amber-600 dark:text-amber-400">
+                              {" · "}metrics pending
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!anyConnected && (
+                  <Link
+                    href="/dashboard/integrations"
+                    className="mt-2 block text-center text-xs font-medium text-primary hover:underline"
+                  >
+                    Connect a channel to start publishing
+                  </Link>
                 )}
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <QuickGuideDialog open={guideOpen} onOpenChange={setGuideOpen} />
     </div>
