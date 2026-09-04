@@ -16,6 +16,17 @@
 //   Grounding. Charged per search request, not per call, and one call can issue
 //   several. $14 per 1,000 makes a research-heavy run noticeably dearer.
 //
+// One rule holds the whole table together: an action's price covers a KNOWN
+// number of model calls. Where the number of calls is decided at runtime, the
+// count is the quantity on the ticket, not a bigger flat price — a deck reserves
+// per slide (`media.image`), and a chat turn reserves per round
+// (`chat.toolLoop`). A flat price over a variable call count is the one shape
+// that cannot be made safe: it is either a rip-off at the low end or a loss at
+// the high end, and the high end is exactly what a heavy user reaches.
+//
+// The thinnest cover in the table is `ai.post.single` at 1.47x, which is what the
+// plan grants in `plans.ts` are sized against.
+//
 // Client-safe: no database, no server-only imports. The billing page renders this
 // table directly, which is the point — the price list a customer reads is the
 // price list the server charges.
@@ -37,6 +48,7 @@ export const ACTION_KEYS = [
   "media.video",
   "media.reelScript",
   "chat.message",
+  "chat.toolLoop",
   "article.quick",
   "article.deep",
   "article.serp",
@@ -224,11 +236,34 @@ export const ACTION_CATALOG: Record<ActionKey, ActionSpec> = {
   "chat.message": {
     key: "chat.message",
     label: "CEO chat message",
-    credits: 25,
+    credits: 12,
     feature: "chat.message",
-    description: "One turn of the CEO chat, including any tools it decides to use.",
+    description: "One turn of the CEO chat — the answer itself, and the bookkeeping the turn ends with.",
     basis:
-      "3.1-pro, averaging 3 tool loops at ~12k in / 3k out each: ~$0.18, plus ~$0.003 of flash for the two chores every turn ends with (naming the session, folding the dropped window into the rolling summary). A turn that runs the plan's full loop allowance costs more, which is why the allowance is part of the plan — and why `analyze_media`, a vision pass over up to four attachments on the frontier model, is a loop like any other rather than a free extra.",
+      "One model call on 3.1-pro at ~12k in / 3k out is ~$0.060, and a turn that thinks hard bills its reasoning as output, so ~$0.096 is reachable on one call. Add ~$0.007 of flash for the three chores every turn ends with: naming the session, folding the dropped window into the rolling summary, and the three follow-up suggestions. Measured ~$0.067 typical.",
+    // Held, not debited. The tool loops below are reserved in the same breath, and a
+    // turn that produces nothing has to give both back together — a debit here and a
+    // hold there would settle at different times and show the customer two prices.
+    reserve: true,
+    reserveMs: 6 * 60_000,
+  },
+
+  "chat.toolLoop": {
+    key: "chat.toolLoop",
+    label: "CEO chat — extra tool round",
+    credits: 12,
+    // Deliberately its own feature, and deliberately uncapped on every plan that
+    // has it. `chat.message` carries the per-period count so a plan can promise a
+    // number of MESSAGES; if the loops counted against that too, the trial's "6
+    // messages" would silently become "6 model calls" — `claimFeatureUsage`
+    // increments the period counter by the ticket's quantity.
+    feature: "chat.tools",
+    description:
+      "Each round after the first, when the chat uses a tool and then has to read the result and carry on.",
+    basis:
+      "A round is another whole model call with the transcript so far as input, so it costs more than the one before it: ~$0.060 early, ~$0.086 by the fifth round as the tool results accumulate. The plan's `chatMaxToolLoops` is the ceiling on how many a turn may take, and the balance is reserved for that many before the turn starts and settled down to the rounds actually used.",
+    reserve: true,
+    reserveMs: 6 * 60_000,
   },
 
   "article.quick": {
@@ -261,6 +296,10 @@ export const ACTION_CATALOG: Record<ActionKey, ActionSpec> = {
     label: "Live search results",
     credits: 2,
     feature: "article.quick",
+    // Counted apart from the articles themselves. This is pressed while deciding
+    // what to write — often several times over one keyword — and a plan that sold
+    // four articles a month must not have one of them spent on a search.
+    countsAgainst: "article.assist",
     description:
       "Reading the pages currently ranking for a keyword, and measuring how long and how deep they actually are.",
     basis:
@@ -272,6 +311,7 @@ export const ACTION_CATALOG: Record<ActionKey, ActionSpec> = {
     label: "Article helper",
     credits: 4,
     feature: "article.quick",
+    countsAgainst: "article.assist",
     description:
       "One of the small article buttons: topic ideas, title options, category suggestions, or a rewritten meta title and description.",
     basis:
@@ -436,7 +476,14 @@ export const ACTION_GROUPS: { title: string; blurb: string; actions: ActionKey[]
   {
     title: "Automation",
     blurb: "The chat, your goals, and the loop that learns from results.",
-    actions: ["chat.message", "goal.autopilotCycle", "goal.taskPost", "goal.channelAdvice", "optimize.run"],
+    actions: [
+      "chat.message",
+      "chat.toolLoop",
+      "goal.autopilotCycle",
+      "goal.taskPost",
+      "goal.channelAdvice",
+      "optimize.run",
+    ],
   },
   {
     title: "Research",

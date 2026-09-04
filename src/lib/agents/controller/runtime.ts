@@ -92,6 +92,15 @@ export interface RunControllerResult {
   model: string;
   finishReason: "ok" | "error" | "cancelled" | "max_loops";
   durationMs: number;
+  /**
+   * How many full model calls this turn made — the agent loop's own counter.
+   *
+   * This is the turn's cost, and it is not `toolRuns.length`: one loop can call
+   * four tools in parallel, and the loop after it is another whole call with the
+   * grown transcript as input. The route bills on this, which is why it is on the
+   * result rather than left inside the loop.
+   */
+  modelCalls: number;
 }
 
 const THINKING_EFFORT: Record<ChatSettings["thinkingLevel"], ThinkingEffort> = {
@@ -653,6 +662,10 @@ export async function runController(params: RunControllerParams): Promise<RunCon
         model: servingModel,
         finishReason: "error",
         durationMs: Date.now() - startedAt,
+        // Counts the call that threw. The provider had the request, so the tokens
+        // it read are real; the route refunds the whole turn on an error that
+        // produced nothing, which is where that generosity is settled.
+        modelCalls: loop,
       };
     }
   }
@@ -707,6 +720,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     model: servingModel,
     finishReason,
     durationMs: Date.now() - startedAt,
+    modelCalls: loop,
   };
 }
 

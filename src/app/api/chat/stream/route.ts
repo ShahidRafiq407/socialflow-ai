@@ -6,12 +6,19 @@
 // call, an artifact card per real result. Both messages are persisted so a
 // refresh restores the turn exactly as it streamed.
 //
-// One turn is one `chat.message`, charged here and settled here. The tools the
-// turn decides to use are not free either — a render inside the chat is charged
-// per asset at the media choke point — so this charge covers exactly what it says
-// it does: the model calls the turn itself makes, up to the plan's loop
-// allowance. That allowance is passed down rather than looked up, so the loops
-// the chat is allowed to take are the ones the plan that paid for them permits.
+// A turn is charged per model call, not per message. `chat.message` covers the
+// first call and the chores the turn ends with; every round after it — the chat
+// used a tool, read the result, and carried on — is a `chat.toolLoop`. Both are
+// reserved before the turn starts, for as many rounds as the plan allows, and
+// settled down to the rounds actually taken.
+//
+// The split is what keeps the plan cards honest in both directions. `chat.message`
+// carries the per-period count, so "6 chat messages" still means six messages;
+// `chat.toolLoop` carries the variable cost, so a twelve-round Agency turn is
+// charged twelve rounds instead of hiding eleven of them inside a flat price.
+//
+// The renders a turn makes are charged separately at the media choke point, per
+// asset. This endpoint charges for thinking, never for pixels.
 // ============================================================================
 
 import { getEntitlements } from "@/lib/billing/plans";
@@ -22,6 +29,8 @@ import {
   requireAction,
   type ActionTicket,
 } from "@/lib/billing/entitlements";
+import { actionCredits } from "@/lib/billing/actions";
+import { getWalletBalance } from "@/lib/billing/wallet";
 import { withMeterContext, type MeterContext } from "@/lib/billing/meter";
 import { resolveIdentity } from "@/lib/agents/controller/auth";
 import { getChatSettings } from "@/lib/agents/controller/settings";
@@ -168,10 +177,61 @@ export async function POST(req: Request) {
     });
   }
 
+  // How many rounds this turn may take, and who decides.
+  //
+  // Three ceilings, and the lowest wins: the workspace's own setting (applied
+  // inside the controller), the plan's allowance, and what the balance can pay
+  // for. The last one is why this is worked out here rather than passed straight
+  // down — the alternative is reserving the plan's full allowance and refusing
+  // the turn outright when the balance cannot cover the worst case, which would
+  // tell a customer with 20 credits left that they cannot ask a question. They
+  // can. They get the answer and fewer tool rounds, which is the honest
+  // degradation: the ceiling falls as the balance does, and nothing runs unpaid.
+  //
+  // `available` is read after the reservation above, so it already excludes the
+  // credits that turn is holding.
+  const planRounds = Math.max(1, getEntitlements(ticket.plan).chatMaxToolLoops);
+  const roundCredits = Math.max(1, actionCredits("chat.toolLoop"));
+  let extraRounds = 0;
+  try {
+    const wallet = await getWalletBalance(userId, ticket.plan);
+    extraRounds = Math.max(0, Math.min(planRounds - 1, Math.floor(wallet.available / roundCredits)));
+  } catch (err) {
+    // A wallet that cannot be read is not a reason to refuse a paid-for turn. One
+    // round is always affordable — it was just reserved — so fall back to it.
+    console.error("[chat/stream] could not size the tool-round allowance:", err);
+  }
+
+  // Reserved up front for the rounds the turn is allowed, then settled down to the
+  // rounds it took. Held rather than debited per round so the controller never has
+  // to stop mid-turn for money: by the time the loop starts, every round it is
+  // permitted to run is already paid for.
+  let loopTicket: ActionTicket | null = null;
+  if (extraRounds > 0) {
+    loopTicket = await requireAction({
+      userId,
+      action: "chat.toolLoop",
+      workspaceId,
+      referenceId: requestedSessionId,
+      quantity: extraRounds,
+    }).catch((err) => {
+      // Losing this costs tool rounds, not the turn. `chat.tools` is on every plan
+      // that has `chat.message`, so a refusal here is a balance that moved under us
+      // between the read above and this call. Swallowed rather than rethrown because
+      // the answer call is already reserved, and throwing out of the route would
+      // leave that hold for the sweeper instead of settling it.
+      console.error("[chat/stream] could not reserve tool rounds:", err);
+      return null;
+    });
+    if (!loopTicket) extraRounds = 0;
+  }
+  const roundsAllowed = 1 + extraRounds;
+
   // From here on the turn is paid for, so every exit has to either deliver it or
-  // give the credits back. `chat.message` is debited outright rather than held,
-  // which means there is no sweeper behind this — an unsettled ticket is a charge
-  // the customer keeps.
+  // give the credits back. Both tickets are reservations, which means a hold the
+  // sweeper will release on its own after `reserveMs` — but a hold left to expire
+  // is a customer staring at credits they cannot spend for six minutes, so every
+  // path below settles explicitly.
   let settings: Awaited<ReturnType<typeof getChatSettings>>;
   let attachments: ControllerAttachment[];
   let refs: AttachmentRef[];
@@ -201,6 +261,9 @@ export async function POST(req: Request) {
     }).catch(() => "pending");
   } catch (err) {
     await failAction(ticket, { note: "Refunded: the turn could not be opened" }).catch(() => null);
+    if (loopTicket) {
+      await failAction(loopTicket, { note: "Refunded: the turn could not be opened" }).catch(() => null);
+    }
     return errorStream({
       type: "error",
       message: err instanceof Error ? err.message : "The chat session could not be opened.",
@@ -223,11 +286,21 @@ export async function POST(req: Request) {
    * charged at their own choke point and stay charged either way: the image
    * exists, whatever became of the sentence around it.
    *
+   * `rounds` is the controller's own model-call counter. The answer call is the
+   * first one and is charged as `chat.message`; everything after it settles the
+   * loop reservation down to what was used, so a turn that was allowed six rounds
+   * and took two is charged for two.
+   *
    * `settled` is not defensive tidiness. `failAction` gives a period counter back,
    * and calling it twice would give back a use the customer never made.
    */
   let settled = false;
-  const settleTurn = async (delivered: boolean, note: string, referenceId: string | null) => {
+  const settleTurn = async (
+    delivered: boolean,
+    note: string,
+    referenceId: string | null,
+    rounds: number
+  ) => {
     if (settled) return;
     settled = true;
     try {
@@ -245,6 +318,29 @@ export async function POST(req: Request) {
       // The customer has their answer; a failed settle must not turn that into an
       // error frame. Loud in the logs because an uncharged turn is real money.
       console.error("[chat/stream] settling the turn's charge failed:", billingErr);
+    }
+
+    if (!loopTicket) return;
+    // The rounds beyond the answer call. A delivered turn that never needed a tool
+    // releases the whole reservation, which is the common case and has to be free.
+    const used = delivered ? Math.max(0, Math.min(extraRounds, rounds - 1)) : 0;
+    try {
+      if (used > 0) {
+        await completeAction({
+          ticket: loopTicket,
+          credits: used * roundCredits,
+          quantity: used,
+          referenceType: "chat_message",
+          referenceId: referenceId ?? session.sessionId,
+          note: `${used} of ${extraRounds} reserved tool rounds used`,
+        });
+      } else {
+        await failAction(loopTicket, {
+          note: delivered ? "Released: the turn needed no tool rounds" : note,
+        });
+      }
+    } catch (billingErr) {
+      console.error("[chat/stream] settling the turn's tool rounds failed:", billingErr);
     }
   };
 
@@ -288,7 +384,7 @@ export async function POST(req: Request) {
               modelOverride,
               settings,
               planTier: ticket.plan,
-              maxToolLoops: getEntitlements(ticket.plan).chatMaxToolLoops,
+              maxToolLoops: roundsAllowed,
               signal: abort.signal,
               emit: send,
             })
@@ -330,13 +426,14 @@ export async function POST(req: Request) {
 
         // What the customer got. Text they can read, or a tool that ran and
         // reported back — either is the turn doing its job. `measureCost` then
-        // walks this turn's usage rows, which is what keeps 25 credits an
+        // walks this turn's usage rows, which is what keeps the per-round price an
         // arguable number rather than an inherited one.
         const produced = result.text.trim().length > 0 || result.toolRuns.length > 0;
         await settleTurn(
           produced,
           stopped ? "Refunded: stopped before the answer began" : "Refunded: the turn produced nothing",
-          messageId === "unsaved" ? null : messageId
+          messageId === "unsaved" ? null : messageId,
+          result.modelCalls
         );
 
         // One session, one history row — and it names itself from the exchange
@@ -349,9 +446,10 @@ export async function POST(req: Request) {
         // the one thing the meter is not allowed to do (`countUnattributedCalls`
         // exists to find exactly this). They are attributed to `chat.message`
         // because that is what they are: bookkeeping for the turn the customer has
-        // already been charged 25 credits for, ~$0.003 of flash between them. They
-        // run after `settleTurn`, so their cost reaches the ledger row through the
-        // nightly reconcile rather than through this request's `measureCost`.
+        // already been charged for, ~$0.007 of flash between them, which is inside
+        // that action's cover. They run after `settleTurn`, so their cost reaches the
+        // ledger row through the nightly reconcile rather than this request's
+        // `measureCost`.
         const chores: MeterContext = {
           userId,
           workspaceId,
@@ -386,7 +484,7 @@ export async function POST(req: Request) {
         }
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
-        await settleTurn(false, `Refunded: ${detail.slice(0, 160)}`, null);
+        await settleTurn(false, `Refunded: ${detail.slice(0, 160)}`, null, 0);
         send({ type: "error", message: detail });
         send({
           type: "done",
@@ -401,7 +499,7 @@ export async function POST(req: Request) {
         // is a no-op once one of them has. It exists so that any exit added to
         // this block later refunds by default instead of silently keeping the
         // charge — the wrong default here costs the customer money.
-        await settleTurn(false, "Refunded: the turn did not finish", null);
+        await settleTurn(false, "Refunded: the turn did not finish", null, 0);
         closed = true;
         try {
           controller.close();

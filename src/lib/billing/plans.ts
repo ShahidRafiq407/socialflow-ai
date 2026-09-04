@@ -27,6 +27,46 @@
 // call. Plan prices then sit far enough above the credit grant to leave the
 // $5-$20 gross margin this product is launching on — deliberately thin, to be
 // widened later rather than apologised for now.
+//
+// HOW THE GRANTS WERE SIZED
+//
+// The credit grant is the binding limit on every plan, so the worst case a plan
+// can cost is the grant spent entirely on the action with the THINNEST cover.
+// That action is `ai.post.single` at 1.47x (25 credits charged against $0.17
+// measured), so the floor of each plan's margin is `price - (credits / 100) / 1.47`:
+//
+//                                          worst case   floor
+//   Free      $0   /     70 credits           $0.48     -$0.48   acquisition cost
+//   Trial     $7   /    800 credits           $5.44      $1.56   filtered, one per person
+//   Go        $19  /  1,500 credits          $10.20      $8.80
+//   Pro       $49  /  5,000 credits          $34.01     $14.99
+//   Agency    $129 / 15,000 credits         $102.04     $26.96
+//
+// Yearly is ten months for twelve, so the floor has to hold there too — it is the
+// same grant against a lower monthly take:
+//
+//   Go        $15.83/mo  →  $5.63     Pro  $40.83/mo  →  $6.82
+//   Agency   $107.50/mo  →  $5.46
+//
+// Every paid floor is at or above the $5 the product is launching on. Free is a
+// cost of acquisition by design and the trial is a filtered one, which is what the
+// device and network checks in `trialGuard.ts` are for.
+//
+// Note what these floors are NOT: they are not the expected margin. They are the
+// margin if a customer spends an entire grant on the single worst-covered action
+// and never touches a cheaper one, which no real account does. The typical mix
+// runs nearer 2x cover, so the plans clear roughly double these numbers in
+// practice. The floor is the number that has to be safe; the average is the number
+// the business runs on.
+//
+// The one shape that would break all of this is a flat price over a variable
+// number of model calls. `actions.ts` has none left: a deck reserves per slide and
+// a chat turn reserves per round, so no single press can outrun its price.
+//
+// The per-feature `caps` are not a second pricing mechanism. They exist so a
+// single expensive action cannot eat a whole period's grant in one press — a
+// 350-credit deep article is 23% of an Agency month — and so the plan cards can
+// promise a countable number rather than "as many as your credits allow".
 // ============================================================================
 
 export const PLAN_TIERS = ["FREE", "TRIAL", "GO", "PRO", "AGENCY"] as const;
@@ -57,7 +97,8 @@ export const FEATURE_KEYS = [
   "post.manual",
   "post.publish",
   "media.upload",
-  // The only AI a Free account touches: the scheduler's best-time pick.
+  // The only AI a Free account touches: the scheduler's best-time pick and the
+  // brand scan that onboarding opens with. Both are cheap, both are counted.
   "schedule.bestTime",
   // Content Studio (/dashboard/ai-studio)
   "aistudio.generate",
@@ -72,6 +113,12 @@ export const FEATURE_KEYS = [
   // Article Writer
   "article.quick",
   "article.deep",
+  // The small buttons beside the article form — topic ideas, title options, a
+  // rewritten meta description, the live SERP read. Its own key so it can carry
+  // its own counter: these cost 2-4 credits each and are pressed while deciding
+  // what to write, so counting them against `article.quick` would let one press of
+  // "suggest titles" consume the article a plan promised.
+  "article.assist",
   // Lead Goal (/dashboard/goals)
   "goals.manage",
   "goals.autopilot",
@@ -104,6 +151,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   "plugins.connect": "The Plugin tab",
   "article.quick": "Article Writer — Quick mode",
   "article.deep": "Article Writer — Deep research mode",
+  "article.assist": "The Article Writer's research and title helpers",
   "goals.manage": "The Lead Goal tab",
   "goals.autopilot": "Goal autopilot",
   "optimize.run": "Performance optimisation runs",
@@ -159,8 +207,14 @@ const FREE_FEATURES = [
   "post.manual",
   "post.publish",
   "media.upload",
+  // The only AI a Free account touches: the scheduler's best-time pick, and the
+  // website scan that fills in the brand profile. The scan is here rather than on
+  // Go because it is the first thing a new account is asked to do — onboarding's
+  // "Generate Magic Profile" is a free signup's opening AI call, and a plan that
+  // refuses it turns the first minute of the product into an upgrade wall.
   "schedule.bestTime",
   "brandDna.manual",
+  "brandDna.analyze",
 ] as const satisfies readonly FeatureKey[];
 
 /** Go adds the Content Studio's AI, the chat, plugins, and quick articles. */
@@ -174,7 +228,10 @@ const GO_FEATURES = [
   "chat.tools",
   "plugins.connect",
   "article.quick",
-  "brandDna.analyze",
+  // Always granted with `article.quick` and never capped. The gate on the helpers
+  // is still the article tab; this key exists only so their count does not draw on
+  // the articles the plan sold.
+  "article.assist",
   "competitors.track",
   "wordpress.publish",
 ] as const satisfies readonly FeatureKey[];
@@ -202,15 +259,21 @@ export const PLAN_ENTITLEMENTS: Record<PlanTier, PlanEntitlements> = {
     socialAccountsPerWorkspace: 6,
     storageMb: 500,
     analyticsRetentionDays: 30,
-    monthlyCredits: 0,
+    // Not zero. Free is sold on AI best-time scheduling and on the brand scan that
+    // onboarding opens with, and both are priced actions — a zero balance would
+    // refuse the plan's own headline feature on the first press. Sized to exactly
+    // what the caps below allow (60 picks at 1 credit, 3 brand calls at 2), so the
+    // grant cannot be spent on anything that is not advertised.
+    monthlyCredits: 70,
     seats: 1,
     chatMaxToolLoops: 0,
     imageQuality: "standard",
     canBuyTopUps: false,
     features: FREE_FEATURES,
-    // The best-time pick is one cheap model call, but it is still a model call,
-    // so it is counted rather than left open on a plan that pays nothing.
-    caps: { "schedule.bestTime": 60 },
+    // Every model call a Free account can reach is counted. Nothing else in the
+    // product is reachable without a feature this plan does not have, so these two
+    // rows are the whole of Free's exposure.
+    caps: { "schedule.bestTime": 60, "brandDna.analyze": 3 },
   },
 
   TRIAL: {
@@ -218,19 +281,45 @@ export const PLAN_ENTITLEMENTS: Record<PlanTier, PlanEntitlements> = {
     socialAccountsPerWorkspace: 6,
     storageMb: 1_024,
     analyticsRetentionDays: 30,
-    monthlyCredits: 500,
+    // Sized against the caps below rather than picked. Spending every cap to its
+    // ceiling costs 676 credits — 1 video (120), 8 images (120), 6 chat messages at
+    // three rounds each (216), 1 quick article (150), 1 autopilot cycle (20), 1
+    // optimisation run (30), 20 best-time picks (20) — and the uncapped rows a trial
+    // is expected to reach add about another 90: a campaign across every connected
+    // account (60), a couple of extra format variants (16), a trend refresh (6) and
+    // the brand scan (6). 800 covers all of it with room to press one button twice.
+    // A trial that promises more than its balance can buy is worse than a smaller
+    // trial.
+    monthlyCredits: 800,
     seats: 1,
-    chatMaxToolLoops: 4,
+    // Three rounds, not four. Enough to show the chat calling a tool, reading the
+    // result and answering — which is the thing being demonstrated — without any one
+    // message costing 48 credits of a trial that has to cover six of them.
+    chatMaxToolLoops: 3,
     imageQuality: "standard",
     canBuyTopUps: false,
     // Everything a paying account gets, minus the two things one run of which
     // would consume the whole trial balance and leave nothing else testable.
     features: [...GO_FEATURES, "goals.manage", "goals.autopilot", "optimize.run"],
     caps: {
-      "aistudio.generate": 2,
+      // Deliberately NOT capped: `aistudio.generate`. Every small button in the
+      // editor — one hashtag set, one title, a trend refresh, a rewrite — is an
+      // `aistudio.generate` action, and `goal.taskPost` and `media.reelScript`
+      // count against it too. A count here of the size a trial wants (two or
+      // three) is spent by pressing "regenerate hashtags" twice, which is not
+      // what anybody means by trying the product. The 800-credit balance and the
+      // three-day clock are the limits; the rows below exist only for the actions
+      // expensive enough to empty that balance in one press.
       "media.video": 1,
-      "media.image": 4,
-      "chat.message": 10,
+      // Eight, not four: a carousel is five slides in one press, so a four-image
+      // ceiling refuses the deck the trial is meant to show off.
+      "media.image": 8,
+      // Six MESSAGES, which is what this counts — the rounds a message takes are
+      // charged as `chat.toolLoop` under `chat.tools`, which is uncapped here on
+      // purpose. Counting rounds against this row would turn the card's promise of
+      // six messages into six model calls, and a single tool-using question would
+      // eat half of them.
+      "chat.message": 6,
       "article.quick": 1,
       "goals.autopilot": 1,
       "optimize.run": 1,
@@ -325,7 +414,16 @@ export interface PlanConfig {
   notIncluded?: string[];
 }
 
-/** Yearly is ten months' money for twelve months' service, on every paid plan. */
+/**
+ * Yearly is ten months' money for twelve months' service, on every paid plan.
+ *
+ * Two months free is only affordable because the grant does not grow with the
+ * discount: the same monthly credits against a $15.83 Go month still floors at
+ * $5.63 (see HOW THE GRANTS WERE SIZED at the top of this file). Before the chat
+ * was repriced per round it did not — Agency yearly floored at -$1.99, because a
+ * flat-priced chat turn could cost more than it charged. Anything that widens
+ * this discount has to be re-checked against those floors, not eyeballed.
+ */
 function yearlyFor(monthly: number): number {
   return monthly * 10;
 }
@@ -352,6 +450,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "Connect up to 6 social accounts",
       "Write and publish to every connected account",
       "AI best-time scheduling — 60 posts a month",
+      "AI brand analysis from your website — 3 scans a month",
       "Upload your own images and video",
       "500 MB media storage",
       "30 days of analytics history",
@@ -370,22 +469,23 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
     name: "3-Day Trial",
     tagline: "The whole product, for three days.",
     blurb:
-      "Sized for trying it properly rather than skimming it: generate one campaign for every account you have connected, render a video, and put the CEO chat to work. Cancel inside the three days and you are never charged again.",
+      "Sized for trying it properly rather than skimming it: generate a full campaign for every account you have connected, render a carousel and a video, put the CEO chat to work, and write an article. Cancel inside the three days and you are never charged again.",
     priceMonthly: 0,
     priceYearly: 0,
-    oneTimePrice: 1,
+    oneTimePrice: 7,
     trialDays: 3,
     convertsTo: "GO",
     badge: "Try everything",
-    ctaLabel: "Start the 3-day trial — $1",
+    ctaLabel: "Start the 3-day trial — $7",
     features: [
-      "500 credits, valid for 3 days",
+      "800 credits, valid for 3 days",
       "1 workspace, up to 6 connected accounts",
-      "Content Studio: 1 full campaign across every connected account",
-      "1 AI video and up to 4 AI images",
-      "Up to 10 CEO chat messages",
+      "Content Studio: a full campaign across every connected account",
+      "Up to 8 AI images — enough for a 5-slide carousel and more",
+      "1 AI video",
+      "Up to 6 CEO chat messages, tools included",
       "1 quick article",
-      "1 goal with autopilot",
+      "1 goal with autopilot, and 1 optimisation run",
       "Cancel any time in the first 3 days",
     ],
     notIncluded: ["Deep research articles", "The premium image model"],
@@ -408,7 +508,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "CEO chat in Automate Task, with your plugins",
       "Article Writer — Quick mode, up to 4 a month",
       "Up to 3 AI videos a month",
-      "AI brand analysis and competitor tracking",
+      "Unlimited brand scans, plus competitor tracking",
       "5 GB media storage, 12 months of analytics",
     ],
     notIncluded: ["The Lead Goal tab", "Deep research articles"],
