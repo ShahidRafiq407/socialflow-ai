@@ -6,10 +6,11 @@ import { motion } from "framer-motion";
 import {
   Sparkles, Bot, BarChart3, ArrowRight, Check, CalendarClock,
   Wand2, BrainCircuit, Rocket, Globe2, ShieldCheck, Star,
-  MousePointerClick, LineChart, Layers,
+  MousePointerClick, LineChart, Layers, Minus,
 } from "lucide-react";
 import { Robot3D } from "./robot-3d";
 import { PostloomLogo } from "./logo";
+import { PLAN_CATALOG, yearlySavingPercent, type PlanConfig } from "@/lib/billing/plans";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 40 },
@@ -46,28 +47,23 @@ function GradientText({ children }: { children: React.ReactNode }) {
   );
 }
 
-const PLANS = [
-  {
-    name: "Starter", price: "$0", period: "forever", tagline: "Test the waters",
-    features: ["1 social account", "10 AI posts / month", "Basic analytics", "Community support"],
-    cta: "Start Free", highlight: false,
-  },
-  {
-    name: "Pro", price: "$29", period: "/month", tagline: "For creators & solopreneurs",
-    features: ["5 social accounts", "Unlimited AI posts", "AI image studio", "Smart auto-scheduling", "Advanced analytics"],
-    cta: "Start 14-Day Trial", highlight: true,
-  },
-  {
-    name: "Business", price: "$79", period: "/month", tagline: "For growing brands",
-    features: ["15 social accounts", "Everything in Pro", "AI video studio", "3 team seats", "Approval workflows", "Priority support"],
-    cta: "Start 14-Day Trial", highlight: false,
-  },
-  {
-    name: "Enterprise", price: "Custom", period: "", tagline: "For agencies & teams",
-    features: ["Unlimited accounts", "Custom AI brand models", "Unlimited seats", "API access & SSO", "Dedicated success manager"],
-    cta: "Talk to Sales", highlight: false,
-  },
-];
+/**
+ * The pricing section reads the same catalogue the billing tab and the entitlement
+ * checks read. It is imported rather than retyped because this page is a promise:
+ * a number here that the product does not enforce is a refund request, and a
+ * feature listed here that the plan does not grant is a support ticket. `plans.ts`
+ * has no imports of its own, so a client component can hold it.
+ *
+ * The trial is not in the grid. One payment, one clock, one per person is a
+ * different kind of thing from a plan that renews, and drawing it as a fifth
+ * column invites a buyer to compare $7 against $19 a month.
+ */
+const ONGOING_PLANS: PlanConfig[] = (["FREE", "GO", "PRO", "AGENCY"] as const).map(
+  (tier) => PLAN_CATALOG[tier]
+);
+const TRIAL_PLAN: PlanConfig = PLAN_CATALOG.TRIAL;
+const YEARLY_SAVING = yearlySavingPercent("PRO");
+
 
 const TESTIMONIALS = [
   { name: "Sarah Kim", role: "Founder, GlowSkin Co.", quote: "We went from posting twice a week to daily on 4 platforms. Engagement is up 312% and I haven't touched a scheduler in months." },
@@ -287,7 +283,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
               variants={fadeUp} initial="hidden" animate="show" custom={4}
               className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-3 text-sm mkt-faint"
             >
-              <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 14-day free trial</span>
+              <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Free plan, no card</span>
               <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Cancel anytime</span>
               <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 10,000+ marketers</span>
             </motion.div>
@@ -413,12 +409,54 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           <SectionHeading
             badge="Pricing"
             title={<>Simple Plans, <GradientText>Serious Results</GradientText></>}
-            sub="Start free. Upgrade when you're ready to scale. 20% off on yearly billing."
+            sub={`Start free and stay free. Every paid plan runs on credits you can see being spent, and yearly billing is two months on us — ${YEARLY_SAVING}% off.`}
           />
+
+          {/* The trial, on its own. Three days at $7 is the honest way to find out
+              whether the AI is any good, so it sits above the grid where a buyer
+              reads it before choosing a monthly commitment. */}
+          <motion.div
+            variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}
+            className="rounded-3xl mkt-glass !bg-[#48357B]/10 border-[#48357B]/40 p-8 mb-10 flex flex-col lg:flex-row lg:items-center gap-8"
+          >
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="px-3 py-1 rounded-full bg-[#48357B] text-[11px] font-black tracking-wide uppercase">
+                  {TRIAL_PLAN.badge}
+                </span>
+                <h3 className="text-2xl font-bold">{TRIAL_PLAN.name}</h3>
+              </div>
+              <p className="mkt-muted leading-relaxed max-w-2xl">{TRIAL_PLAN.blurb}</p>
+              <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mt-5">
+                {TRIAL_PLAN.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2.5 text-sm mkt-muted">
+                    <Check className="w-4 h-4 mt-0.5 shrink-0 mkt-accent2-text" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="lg:w-64 shrink-0 text-center lg:text-right">
+              <div className="mb-1">
+                <span className="text-5xl font-black">${TRIAL_PLAN.oneTimePrice}</span>
+                <span className="mkt-muted ml-1">once</span>
+              </div>
+              <p className="text-sm mkt-faint mb-6">
+                {TRIAL_PLAN.trialDays} days · cancel any time · one per person
+              </p>
+              <Link
+                href={isLoggedIn ? "/dashboard/billing" : "/sign-up"}
+                className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03]"
+              >
+                {TRIAL_PLAN.ctaLabel}
+              </Link>
+            </div>
+          </motion.div>
+
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
-            {PLANS.map((p, i) => (
+            {ONGOING_PLANS.map((p, i) => (
               <motion.div
-                key={p.name}
+                key={p.id}
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
                 whileHover={{ y: -12 }}
                 className={`relative rounded-3xl p-8 flex flex-col mkt-glass transition-colors ${
@@ -427,18 +465,21 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                     : "hover:border-[#18713C]/40"
                 }`}
               >
-                {p.highlight && (
-                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg">
-                    Most Popular
+                {p.badge && (
+                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg whitespace-nowrap">
+                    {p.badge}
                   </span>
                 )}
                 <h3 className="text-lg font-bold mkt-muted">{p.name}</h3>
                 <div className="mt-4 mb-1">
-                  <span className="text-5xl font-black">{p.price}</span>
-                  {p.period && <span className="mkt-muted ml-1">{p.period}</span>}
+                  <span className="text-5xl font-black">${p.priceMonthly}</span>
+                  <span className="mkt-muted ml-1">{p.priceMonthly === 0 ? "forever" : "/month"}</span>
                 </div>
-                <p className="text-sm mkt-faint mb-8">{p.tagline}</p>
-                <ul className="space-y-3.5 mb-10 flex-1">
+                <p className="text-sm mkt-faint mb-2">{p.tagline}</p>
+                <p className="text-xs mkt-faint mb-8 h-4">
+                  {p.priceYearly > 0 && `or $${p.priceYearly} a year — ${YEARLY_SAVING}% off`}
+                </p>
+                <ul className="space-y-3.5 mb-6 flex-1">
                   {p.features.map((f) => (
                     <li key={f} className="flex items-start gap-3 text-sm mkt-muted">
                       <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
@@ -446,25 +487,38 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                     </li>
                   ))}
                 </ul>
+                {/* Where the plan stops, not only where it starts. A buyer who finds
+                    this out after paying asks for their money back. */}
+                {p.notIncluded && p.notIncluded.length > 0 && (
+                  <ul className="space-y-2 mb-8 pt-5 border-t mkt-border">
+                    {p.notIncluded.map((f) => (
+                      <li key={f} className="flex items-start gap-3 text-sm mkt-faint">
+                        <Minus className="w-4 h-4 mt-0.5 shrink-0 opacity-60" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <Link
-                  href={isLoggedIn ? "/dashboard" : "/sign-up"}
+                  href={isLoggedIn ? "/dashboard/billing" : "/sign-up"}
                   className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
                     p.highlight
                       ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
                       : "border mkt-border mkt-surface hover:mkt-surface2"
                   }`}
                 >
-                  {p.cta}
+                  {p.ctaLabel}
                 </Link>
               </motion.div>
             ))}
           </div>
           <p className="text-center text-sm mkt-faint mt-10 flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            30-day money-back guarantee · No hidden fees · Cancel anytime
+            Cancel any time · No hidden fees · Refundable while your credits are unspent
           </p>
         </div>
       </section>
+
 
       {/* ================= TESTIMONIALS ================= */}
       <section id="testimonials" className="relative py-28 px-4 sm:px-6 lg:px-8">

@@ -102,7 +102,7 @@ const POST_1: BlogPost = {
     },
     {
       type: "p",
-      text: "Within one week you'll have a self-sustaining content engine. If you want a head start, [create a free PostloomAI account](/sign-up) — the Starter plan includes everything you need for day one, no credit card required. And if you're weighing up costs, our [pricing breakdown](/#pricing) shows exactly what each tier includes.",
+      text: "Within one week you'll have a self-sustaining content engine. If you want a head start, [create a free PostloomAI account](/sign-up) — the Free plan includes everything you need for day one, no credit card required. And if you're weighing up costs, our [pricing breakdown](/#pricing) shows exactly what each tier includes.",
     },
     { type: "h2", text: "The Bottom Line" },
     {
@@ -192,7 +192,7 @@ const POST_2: BlogPost = {
     },
     {
       type: "p",
-      text: "That's under two hours of marketing work per week — with output that rivals a small agency. All seven workflows come built into [PostloomAI](/#features); you can try them free on the Starter plan and upgrade when you're ready — see [pricing](/#pricing). Your future self, the one with 20 extra hours a week, says thanks.",
+      text: "That's under two hours of marketing work per week — with output that rivals a small agency. All seven workflows come built into [PostloomAI](/#features); you can start on the Free plan and upgrade when you're ready — see [pricing](/#pricing). Your future self, the one with 20 extra hours a week, says thanks.",
     },
     {
       type: "links",

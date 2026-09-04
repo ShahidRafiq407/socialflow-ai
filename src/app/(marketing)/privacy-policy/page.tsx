@@ -23,7 +23,7 @@ export default function PrivacyPolicy() {
           <ul className="list-disc pl-6 mt-2 space-y-2">
             <li><strong>Identity Data:</strong> includes first name, last name, username or similar identifier.</li>
             <li><strong>Contact Data:</strong> includes email address and telephone numbers.</li>
-            <li><strong>OAuth & Social Data:</strong> includes access tokens, profile pictures, and handles for connected platforms (Facebook, Instagram, LinkedIn, X, TikTok, YouTube, Pinterest) authorized via OAuth 2.0. We request specific scopes such as <code>pages_manage_posts</code> exclusively for publishing content on your behalf.</li>
+            <li><strong>OAuth &amp; Social Data:</strong> includes access tokens, profile pictures, and handles for connected platforms (Facebook, Instagram, LinkedIn, TikTok, YouTube, Pinterest) authorized via OAuth 2.0. We request specific scopes such as <code>pages_manage_posts</code> exclusively for publishing content on your behalf.</li>
             <li><strong>Technical Data:</strong> includes internet protocol (IP) address, your login data, browser type and version.</li>
           </ul>
         </section>

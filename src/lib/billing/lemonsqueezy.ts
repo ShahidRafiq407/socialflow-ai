@@ -52,13 +52,36 @@ export type BillingCycleValue = "monthly" | "yearly";
  * particular only appear on a supporting device — Apple Pay needs Safari or an
  * Apple device, Google Pay needs Chrome or Android. So the UI should present
  * this as "what the checkout can offer", never as a promise for every visitor.
+ *
+ * Sourced from Lemon Squeezy's own material on 2026-09-04 — their PayPal
+ * Subscriptions page enumerates "credit cards, ACH, debit cards, Apple Pay,
+ * WeChat Pay, AliPay, and more", and their payments page claims "dozens of
+ * payment methods in 150+ countries". The canonical docs page
+ * (docs.lemonsqueezy.com/help/checkout/payment-methods) refuses automated
+ * fetches, so this list is deliberately the set they name themselves rather than
+ * a guess at the long tail. `storeGoverned` is the reason that is safe: the store
+ * dashboard decides what is actually offered, so a method missing from this array
+ * is a gap in our copy, never a buyer who cannot pay.
  */
 export const LEMON_PAYMENT_METHODS = [
   { id: "card", label: "Credit and debit cards", detail: "Visa, Mastercard, American Express, Discover, Diners Club, JCB, China UnionPay" },
   { id: "paypal", label: "PayPal", detail: "Including PayPal subscriptions for recurring plans" },
   { id: "apple_pay", label: "Apple Pay", detail: "On Safari and Apple devices" },
   { id: "google_pay", label: "Google Pay", detail: "On Chrome and Android devices" },
+  { id: "bank_debit", label: "Bank debit", detail: "ACH and local equivalents, where the buyer's country supports it" },
+  { id: "alipay", label: "Alipay", detail: "Where supported" },
+  { id: "wechat_pay", label: "WeChat Pay", detail: "Where supported" },
 ] as const;
+
+/**
+ * True because payment methods are a store setting rather than a checkout field.
+ *
+ * The UI reads this to caption the list honestly: the methods a given buyer sees
+ * are whatever the Lemon Squeezy store has switched on, narrowed by their country
+ * and device. Nothing in this codebase can widen or narrow that.
+ */
+export const LEMON_METHODS_STORE_GOVERNED = true;
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuration

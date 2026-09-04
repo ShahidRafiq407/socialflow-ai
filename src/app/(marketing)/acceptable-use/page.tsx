@@ -20,7 +20,7 @@ export default function AcceptableUsePage() {
             "Create or distribute hate speech, harassment, violence, or content that exploits or harms minors.",
             "Generate or spread malware, phishing pages, scams or fraudulent schemes.",
             "Impersonate people or brands, or publish content you don't have the rights to use.",
-            "Violate the terms of connected platforms (Instagram, TikTok, X, LinkedIn, Facebook, YouTube) or applicable laws in your country.",
+            "Violate the terms of connected platforms (Instagram, TikTok, LinkedIn, Facebook, YouTube, Pinterest) or applicable laws in your country.",
           ],
         },
         {
