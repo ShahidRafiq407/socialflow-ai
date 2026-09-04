@@ -11,12 +11,11 @@ export type PublisherFunction = (post: any, account: any) => Promise<PublishResu
 import { publishToFacebook } from './facebook';
 import { publishToInstagram } from './instagram';
 import { publishToLinkedIn } from './linkedin';
-import { publishToX } from './x';
 import { publishToYouTube } from './youtube';
 import { publishToTikTok } from './tiktok';
 import { publishToPinterest } from './pinterest';
 
-export function normalizePlatformToEnum(plat: string): 'FACEBOOK' | 'INSTAGRAM' | 'LINKEDIN' | 'X' | 'YOUTUBE' | 'TIKTOK' | 'PINTEREST' | null {
+export function normalizePlatformToEnum(plat: string): 'FACEBOOK' | 'INSTAGRAM' | 'LINKEDIN' | 'YOUTUBE' | 'TIKTOK' | 'PINTEREST' | null {
   if (!plat) return null;
   const p = String(plat).toLowerCase().replace(/[^a-z0-9]/g, '');
   if (p.includes('instagram') || p.includes('igreel') || p.includes('igstory') || p.includes('igpost')) return 'INSTAGRAM';
@@ -25,7 +24,6 @@ export function normalizePlatformToEnum(plat: string): 'FACEBOOK' | 'INSTAGRAM' 
   if (p.includes('youtube') || p.includes('ytshort') || p.includes('ytvideo')) return 'YOUTUBE';
   if (p.includes('linkedin')) return 'LINKEDIN';
   if (p.includes('pinterest') || p.includes('pin')) return 'PINTEREST';
-  if (p.includes('twitter') || p === 'x' || p.startsWith('xtweet') || p.startsWith('xpost')) return 'X';
   return null;
 }
 
@@ -39,8 +37,6 @@ export async function publishToPlatformProvider(post: any, account: any): Promis
       return publishToInstagram(post, account);
     case 'LINKEDIN':
       return publishToLinkedIn(post, account);
-    case 'X':
-      return publishToX(post, account);
     case 'YOUTUBE':
       return publishToYouTube(post, account);
     case 'TIKTOK':

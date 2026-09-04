@@ -77,10 +77,10 @@ describe("family taxonomy — the groups the user asked for", () => {
     expect(videoFamilies[0].renderAspectRatio).toBe("9:16");
   });
 
-  it("does not merge square stills with landscape stills — the ratio changes the artefact", () => {
+  it("does not merge square stills with vertical stills — the ratio changes the artefact", () => {
     const families = computeFormatFamilies(
-      ["instagram", "x"],
-      { instagram: ["feed"], x: ["post"] }
+      ["instagram", "pinterest"],
+      { instagram: ["feed"], pinterest: ["pin"] }
     );
 
     const imageFamilies = families.filter((f) => f.kind === "image");

@@ -123,8 +123,6 @@ const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
   linkedin: "LinkedIn",
   facebook: "Facebook",
-  x: "X",
-  twitter: "X",
   tiktok: "TikTok",
   youtube: "YouTube",
   pinterest: "Pinterest",
@@ -144,7 +142,6 @@ function platformKey(raw: string): string {
   if (p.includes("youtube") || p === "yt") return "youtube";
   if (p.includes("pinterest")) return "pinterest";
   if (p.includes("website") || p.includes("wordpress")) return "website";
-  if (p === "x" || p.includes("twitter")) return "x";
   if (p.includes("threads")) return "threads";
   if (p.includes("reddit")) return "reddit";
   return p;

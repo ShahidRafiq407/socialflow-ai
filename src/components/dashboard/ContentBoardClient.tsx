@@ -92,7 +92,6 @@ export function ContentBoardClient({
     { id: "LinkedIn", label: "LinkedIn", icon: Briefcase },
     { id: "Instagram", label: "Instagram", icon: Camera },
     { id: "TikTok", label: "TikTok", icon: Video },
-    { id: "X", label: "X", icon: MessageSquare },
     { id: "YouTube", label: "YouTube", icon: Globe },
     { id: "Facebook", label: "Facebook", icon: Share2 },
     { id: "Pinterest", label: "Pinterest", icon: Globe },

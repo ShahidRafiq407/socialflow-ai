@@ -318,7 +318,6 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       "INSTAGRAM",
       "LINKEDIN",
       "FACEBOOK",
-      "X",
       "YOUTUBE",
       "TIKTOK",
       "PINTEREST",

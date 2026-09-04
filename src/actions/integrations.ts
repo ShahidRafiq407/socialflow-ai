@@ -24,7 +24,6 @@ const PLATFORM_DEFINITIONS: Record<string, { platform: string; color: string; de
   instagram: { platform: "Instagram", color: "#E4405F", description: "Publish reels, stories, carousels, and feed posts to grow your visual brand." },
   linkedin: { platform: "LinkedIn", color: "#0A66C2", description: "Share executive posts, carousels, and short videos for B2B thought leadership." },
   facebook: { platform: "Facebook", color: "#1877F2", description: "Post to your page or profile with reels, stories, and community engagement." },
-  x: { platform: "X (Twitter)", color: "#14171A", description: "Publish posts and threads for real-time engagement and brand visibility." },
   youtube: { platform: "YouTube", color: "#FF0000", description: "Upload Shorts and videos to build subscriber growth and brand authority." },
   tiktok: { platform: "TikTok", color: "#000000", description: "Create viral short-form videos for maximum reach and brand awareness." },
   pinterest: { platform: "Pinterest", color: "#E60023", description: "Pin visual infographics and diagrams for evergreen SEO traffic." }
@@ -148,7 +147,6 @@ export async function connectPlatform(
       instagram: "INSTAGRAM",
       linkedin: "LINKEDIN",
       facebook: "FACEBOOK",
-      x: "X",
       youtube: "YOUTUBE",
       tiktok: "TIKTOK",
       pinterest: "PINTEREST",
@@ -209,7 +207,6 @@ export async function disconnectPlatform(
       instagram: "INSTAGRAM",
       linkedin: "LINKEDIN",
       facebook: "FACEBOOK",
-      x: "X",
       youtube: "YOUTUBE",
       tiktok: "TIKTOK",
       pinterest: "PINTEREST",

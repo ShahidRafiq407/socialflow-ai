@@ -59,7 +59,6 @@ export default function PublishStatusModal({
     if (p.includes("instagram")) return "📸";
     if (p.includes("facebook")) return "📘";
     if (p.includes("linkedin")) return "💼";
-    if (p.includes("x") || p.includes("twitter")) return "🐦";
     if (p.includes("youtube")) return "▶️";
     if (p.includes("tiktok")) return "🎵";
     if (p.includes("pinterest")) return "📌";

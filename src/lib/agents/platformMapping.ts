@@ -54,11 +54,6 @@ export const PLATFORM_FORMAT_MAP: Record<string, Record<string, PlatformFormatSp
     video: { mediaType: "video", aspectRatio: "16:9", description: "YouTube Landscape Video" },
     community: { mediaType: "image", aspectRatio: "1:1", description: "YouTube Community Post Image" },
   },
-  x: {
-    post: { mediaType: "image", aspectRatio: "16:9", description: "X / Twitter Image Post" },
-    feed: { mediaType: "image", aspectRatio: "16:9", description: "X / Twitter Feed Image" },
-    thread: { mediaType: "text_only", aspectRatio: "16:9", description: "X / Twitter Thread" },
-  },
   pinterest: {
     pin: { mediaType: "image", aspectRatio: "2:3", description: "Pinterest Vertical Pin Image" },
     "video pin": { mediaType: "video", aspectRatio: "9:16", description: "Pinterest Video Pin" },

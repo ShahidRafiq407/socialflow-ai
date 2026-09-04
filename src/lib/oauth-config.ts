@@ -13,8 +13,6 @@ export interface OAuthPlatformConfig {
   scopes: string;
   clientId: string;
   clientSecret: string;
-  /** Some platforms (TikTok, X) need PKCE or special params */
-  usesPKCE?: boolean;
   /** Extra query params to add to the authorize URL */
   extraAuthParams?: Record<string, string>;
   /** How to send client credentials in token exchange: "body" or "header" */
@@ -98,18 +96,6 @@ export function getOAuthConfig(platform: string): OAuthPlatformConfig | null {
       extraAuthParams: { access_type: "offline", prompt: "consent" },
       profileUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     },
-    x: {
-      platformKey: "x",
-      displayName: "X (Twitter)",
-      authorizeUrl: "https://twitter.com/i/oauth2/authorize",
-      tokenUrl: "https://api.twitter.com/2/oauth2/token",
-      scopes: "tweet.read tweet.write users.read media.write offline.access",
-      clientId: process.env.TWITTER_CLIENT_ID || "",
-      clientSecret: process.env.TWITTER_CLIENT_SECRET || "",
-      usesPKCE: true,
-      tokenAuthMethod: "header",
-      profileUrl: "https://api.twitter.com/2/users/me",
-    },
     pinterest: {
       platformKey: "pinterest",
       displayName: "Pinterest",
@@ -134,7 +120,6 @@ export function toPrismaEnum(platform: string): Platform | null {
     linkedin: "LINKEDIN",
     facebook: "FACEBOOK",
     instagram: "INSTAGRAM",
-    x: "X",
     youtube: "YOUTUBE",
     tiktok: "TIKTOK",
     pinterest: "PINTEREST",
@@ -154,15 +139,3 @@ export function generateState(): string {
   return result;
 }
 
-/**
- * Generate PKCE code verifier and challenge for OAuth 2.0 PKCE flow (used by X/Twitter)
- */
-export function generatePKCE(): { codeVerifier: string; codeChallenge: string } {
-  // Simple PKCE: use plain method (code_challenge = code_verifier)
-  // For production, use S256 method with crypto
-  const verifier = generateState() + generateState(); // 64 chars
-  return {
-    codeVerifier: verifier,
-    codeChallenge: verifier, // plain method
-  };
-}

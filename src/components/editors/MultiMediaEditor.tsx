@@ -25,7 +25,6 @@ import { PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import CharacterCounter from "@/components/CharacterCounter";
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
-import XGuidelinesBanner from "./XGuidelinesBanner";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
@@ -134,11 +133,7 @@ export default function MultiMediaEditor({
   const [imageStyle, setImageStyle] = useState<string>("photorealistic");
   const [imageQuality, setImageQuality] = useState<string>("studio_4k");
   const formatKey = `${capability.platform}-${capability.format}`;
-  // X Thread = sequence of connected posts: label slots "Post 2/5" (Phase 13 numbering);
-  // other multi-photo platforms keep the plain "Asset N" wording.
-  const isThreadFormat = capability.formatKey === "x_thread";
-  const slotLabel = (idx: number) =>
-    isThreadFormat ? `Post ${idx + 1}/${mediaItems.length}` : `Asset ${idx + 1}`;
+  const slotLabel = (idx: number) => `Asset ${idx + 1}`;
   const activeMedia = mediaItems[activeMediaIndex] || mediaItems[0] || {
     id: "item_1",
     url: "",
@@ -156,12 +151,11 @@ export default function MultiMediaEditor({
   // graphic. It deliberately does not stop at writing visual prompts: prompts are an
   // internal step of generating the media, never the deliverable.
   // The page knows how much media the format actually publishes; fall back to the strip
-  // length only when it did not say (a thread reports 0 and promises no visual).
+  // length only when it did not say.
   const onePressAssetCount =
     typeof onePressMediaAssets === "number" ? onePressMediaAssets : mediaItems.length;
-  const fullPostLabel = isThreadFormat
-    ? "Generate Complete Thread with AI"
-    : capability.format === "Post"
+  const fullPostLabel =
+    capability.format === "Post"
       ? "Generate Complete Post with AI"
       : `Generate Complete ${capability.format} Post with AI`;
 
@@ -209,7 +203,7 @@ export default function MultiMediaEditor({
     onRenderSingleAI(assetRenderOptions({ prompt: prompt.trim() || undefined }));
   };
 
-  // Per-post text (X Thread): each connected post carries its own tweet text.
+  // Per-asset caption, for the formats that carry text on each slot.
   const handleUpdateActiveMediaText = (text: string) => {
     const updated = mediaItems.map((item, i) =>
       i === activeMediaIndex ? { ...item, caption: text } : item
@@ -219,15 +213,13 @@ export default function MultiMediaEditor({
 
   return (
     <div className="space-y-4 text-left">
-      {capability.platform === "x" && <XGuidelinesBanner format={capability.format} />}
-
       {/* MEDIA GRID / STRIP */}
       <div className="p-3 bg-primary/5 dark:bg-primary/10 rounded-xl border border-primary/15 dark:border-primary/20 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
             <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
               <Layers className="h-3.5 w-3.5 text-primary" />
-              {isThreadFormat ? "Thread Posts" : "Media Assets"}
+              {"Media Assets"}
               <span className="px-1.5 py-0.5 rounded-md bg-secondary/10 text-secondary text-[10px] font-bold tracking-normal normal-case">
                 {mediaItems.length} of {capability.maxMedia}
               </span>
@@ -268,7 +260,7 @@ export default function MultiMediaEditor({
             disabled={activeMediaIndex === 0}
             onClick={() => onActiveMediaChange(Math.max(0, activeMediaIndex - 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
-            title={`Previous ${isThreadFormat ? "Post" : "Asset"}`}
+            title="Previous Asset"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -298,7 +290,7 @@ export default function MultiMediaEditor({
             disabled={activeMediaIndex >= mediaItems.length - 1}
             onClick={() => onActiveMediaChange(Math.min(mediaItems.length - 1, activeMediaIndex + 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
-            title={`Next ${isThreadFormat ? "Post" : "Asset"}`}
+            title="Next Asset"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -309,7 +301,7 @@ export default function MultiMediaEditor({
               onClick={handleAddMedia}
               className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-slate-800 border border-dashed border-secondary/40 text-secondary hover:bg-secondary/10 hover:border-secondary flex items-center gap-1 shrink-0 transition-colors"
             >
-              <Plus className="h-3.5 w-3.5" /> {isThreadFormat ? "Add Post" : "Add Asset"}
+              <Plus className="h-3.5 w-3.5" /> {"Add Asset"}
             </button>
           )}
 
@@ -325,7 +317,7 @@ export default function MultiMediaEditor({
             className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20 disabled:opacity-40 disabled:hover:bg-destructive/10 disabled:cursor-not-allowed flex items-center gap-1 ml-auto shrink-0 transition-colors"
             title={
               mediaItems.length <= 1
-                ? `A post needs at least one ${isThreadFormat ? "post" : "asset"}`
+                ? "A post needs at least one asset"
                 : `Delete ${slotLabel(activeMediaIndex)}`
             }
           >
@@ -402,24 +394,6 @@ export default function MultiMediaEditor({
 
         {/* POST COPY — caption, hashtags and the one action that builds the whole post */}
         <div className="xl:col-span-7 space-y-3">
-          {isThreadFormat && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
-                  <Layers className="h-3.5 w-3.5 text-secondary" /> {slotLabel(activeMediaIndex)} Text
-                </label>
-                <CharacterCounter current={(activeMedia.caption || "").length} max={capability.captionLimit} />
-              </div>
-              <Textarea
-                rows={2}
-                value={activeMedia.caption || ""}
-                onChange={(e) => handleUpdateActiveMediaText(e.target.value)}
-                placeholder={`Write the text for post ${activeMediaIndex + 1} of this thread...`}
-                className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed"
-              />
-            </div>
-          )}
-
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
@@ -518,9 +492,7 @@ export default function MultiMediaEditor({
                 ? `Writes the caption and hashtags, then designs all ${onePressAssetCount} assets.`
                 : onePressAssetCount === 1
                   ? "Writes the caption and hashtags, then designs the visual."
-                  : isThreadFormat
-                    ? "Writes every post in the thread plus the hashtags. Add a visual per post below when you want one."
-                    : "Writes the caption and hashtags for this post."}
+                  : "Writes the caption and hashtags for this post."}
               {" "}Every selected platform that shares this format gets the same post.
             </p>
           </div>

@@ -151,36 +151,6 @@ async function fetchLinkedInProfile(accessToken: string, personUrn: string): Pro
 }
 
 /**
- * Fetch real-time profile data from X (Twitter) API v2
- */
-async function fetchXProfile(accessToken: string): Promise<{ username: string; displayName: string; avatarUrl: string } | null> {
-  try {
-    // X API v2 - get authenticated user
-    const url = `https://api.twitter.com/2/users/me?user.fields=profile_image_url,username,name`;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("X profile fetch error:", data);
-      return null;
-    }
-
-    return {
-      username: data.data?.username || "",
-      displayName: data.data?.name || "",
-      avatarUrl: data.data?.profile_image_url?.replace("_normal", "") || null, // Get larger image
-    };
-  } catch (error) {
-    console.error("X profile fetch exception:", error);
-    return null;
-  }
-}
-
-/**
  * Fetch real-time profile data from YouTube API
  */
 async function fetchYouTubeProfile(accessToken: string): Promise<{ username: string; displayName: string; avatarUrl: string } | null> {
@@ -312,7 +282,6 @@ export async function fetchPlatformProfile(platformKey: string): Promise<Platfor
       instagram: "INSTAGRAM",
       linkedin: "LINKEDIN",
       facebook: "FACEBOOK",
-      x: "X",
       youtube: "YOUTUBE",
       tiktok: "TIKTOK",
       pinterest: "PINTEREST",
@@ -376,9 +345,6 @@ export async function fetchPlatformProfile(platformKey: string): Promise<Platfor
         break;
       case "linkedin":
         profileData = await fetchLinkedInProfile(account.accessToken, account.accountId);
-        break;
-      case "x":
-        profileData = await fetchXProfile(account.accessToken);
         break;
       case "youtube":
         profileData = await fetchYouTubeProfile(account.accessToken);

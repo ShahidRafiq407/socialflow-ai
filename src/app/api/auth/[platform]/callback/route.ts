@@ -89,18 +89,9 @@ export async function GET(
       tokenBody.client_key = config.clientId;
       tokenBody.client_secret = config.clientSecret;
     } else if (config.tokenAuthMethod === "header") {
-      // X/Twitter and Pinterest use Basic auth header
+      // Pinterest authenticates the token exchange with a Basic auth header
       const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64");
       headers["Authorization"] = `Basic ${credentials}`;
-
-      // X/Twitter PKCE
-      if (platform === "x") {
-        const codeVerifier = cookieStore.get(`oauth_pkce_${platform}`)?.value;
-        if (codeVerifier) {
-          tokenBody.code_verifier = codeVerifier;
-          cookieStore.delete(`oauth_pkce_${platform}`);
-        }
-      }
     } else {
       // LinkedIn, Facebook, Instagram, YouTube — send credentials in body
       tokenBody.client_id = config.clientId;
@@ -183,15 +174,6 @@ export async function GET(
         handle = userData?.display_name || "TikTok User";
         pageName = userData?.display_name || null;
         avatarUrl = userData?.avatar_url || null;
-      } else if (platform === "x") {
-        const profileRes = await fetch("https://api.twitter.com/2/users/me?user.fields=profile_image_url", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        const profileData = await profileRes.json();
-        accountId = profileData.data?.id || "x-user";
-        handle = profileData.data?.username ? `@${profileData.data.username}` : "X User";
-        pageName = profileData.data?.name || null;
-        avatarUrl = profileData.data?.profile_image_url || null;
       } else if (platform === "pinterest") {
         const profileRes = await fetch("https://api.pinterest.com/v5/user_account", {
           headers: { Authorization: `Bearer ${accessToken}` },

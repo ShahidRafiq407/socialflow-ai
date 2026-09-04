@@ -1,12 +1,17 @@
 /**
  * CENTRAL PLATFORM CAPABILITY REGISTRY
- * 
+ *
  * Defines official capabilities, limits, aspect ratios, fields, and publishing
  * capabilities for every social platform and content format.
  * Zero invented capabilities — strictly grounded in official platform behaviors.
+ *
+ * Six platforms. `PlatformId` is the type the rest of the codebase narrows
+ * against, so adding or removing one here is what makes the compiler find every
+ * list, label map, editor, preview and publisher that has to agree.
  */
 
-export type PlatformId = "instagram" | "facebook" | "pinterest" | "linkedin" | "tiktok" | "youtube" | "x";
+export type PlatformId = "instagram" | "facebook" | "pinterest" | "linkedin" | "tiktok" | "youtube";
+
 
 export type FormatCategory = "organic" | "ads";
 
@@ -850,82 +855,6 @@ export const PLATFORM_CAPABILITIES: Record<string, PlatformCapability> = {
     supportsAIDocument: false,
   },
 
-  // ==========================================================================
-  // X (TWITTER)
-  // ==========================================================================
-  "x:Post": {
-    platform: "x",
-    format: "Post",
-    formatKey: "x_post",
-    label: "Post (Single / Media)",
-    category: "organic",
-    mediaType: "image",
-    defaultAspectRatio: "16:9",
-    supportedAspectRatios: ["16:9", "1:1"],
-    maxMedia: 4,
-    minMedia: 0,
-    supportsTitle: false,
-    supportsDescription: false,
-    supportsCaption: true,
-    supportsFirstComment: true,
-    supportsHashtags: true,
-    supportsDestinationUrl: false,
-    supportsBoard: false,
-    supportsTaggedTopics: false,
-    supportsAltText: true,
-    supportsProductTags: false,
-    supportsStorySettings: false,
-    supportsPrivacySettings: false,
-    supportsDuetStitch: false,
-    supportsAIModifiedDisclosure: false,
-    supportsMultiSlide: false,
-    supportsDocumentExport: false,
-    captionLimit: 280,
-    altTextLimit: 1000,
-    firstCommentLimit: 280,
-    hashtagLimit: 5,
-    publishingMode: "api_direct",
-    supportsAIImage: true,
-    supportsAIVideo: true,
-    supportsAICarousel: false,
-    supportsAIDocument: false,
-  },
-  "x:Thread": {
-    platform: "x",
-    format: "Thread",
-    formatKey: "x_thread",
-    label: "Thread (Multi-Tweet)",
-    category: "organic",
-    mediaType: "carousel",
-    defaultAspectRatio: "16:9",
-    supportedAspectRatios: ["16:9", "1:1"],
-    maxMedia: 10,
-    minMedia: 2,
-    supportsTitle: false,
-    supportsDescription: false,
-    supportsCaption: true,
-    supportsFirstComment: true,
-    supportsHashtags: true,
-    supportsDestinationUrl: false,
-    supportsBoard: false,
-    supportsTaggedTopics: false,
-    supportsAltText: true,
-    supportsProductTags: false,
-    supportsStorySettings: false,
-    supportsPrivacySettings: false,
-    supportsDuetStitch: false,
-    supportsAIModifiedDisclosure: false,
-    supportsMultiSlide: true,
-    supportsDocumentExport: false,
-    captionLimit: 280,
-    firstCommentLimit: 280,
-    hashtagLimit: 5,
-    publishingMode: "api_direct",
-    supportsAIImage: true,
-    supportsAIVideo: false,
-    supportsAICarousel: true,
-    supportsAIDocument: false,
-  },
 };
 
 /**

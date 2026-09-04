@@ -15,7 +15,6 @@ import {
   getOAuthConfig,
   getCallbackUrl,
   generateState,
-  generatePKCE,
 } from "@/lib/oauth-config";
 
 export const dynamic = "force-dynamic";
@@ -91,23 +90,6 @@ export async function GET(
       authUrl.searchParams.set("client_key", config.clientId);
       authUrl.searchParams.set("response_type", "code");
       authUrl.searchParams.set("scope", config.scopes);
-    } else if (platform === "x") {
-      // X/Twitter uses PKCE
-      authUrl.searchParams.set("response_type", "code");
-      authUrl.searchParams.set("scope", config.scopes);
-      authUrl.searchParams.set("code_challenge_method", "plain");
-
-      const pkce = generatePKCE();
-      authUrl.searchParams.set("code_challenge", pkce.codeChallenge);
-
-      // Store code verifier for token exchange
-      cookieStore.set(`oauth_pkce_${platform}`, pkce.codeVerifier, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        maxAge: 600,
-        path: "/",
-      });
     } else if (platform === "pinterest") {
       authUrl.searchParams.set("response_type", "code");
       authUrl.searchParams.set("scope", config.scopes);

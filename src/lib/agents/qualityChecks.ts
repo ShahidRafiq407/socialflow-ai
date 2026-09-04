@@ -141,8 +141,6 @@ export function findSelfPromotion(text: string): string[] {
  * not a style preference.
  */
 export const PLATFORM_TEXT_LIMITS: Record<string, { captionMax: number; hashtagMax: number }> = {
-  x: { captionMax: 280, hashtagMax: 3 },
-  twitter: { captionMax: 280, hashtagMax: 3 },
   instagram: { captionMax: 2200, hashtagMax: 30 },
   facebook: { captionMax: 5000, hashtagMax: 10 },
   linkedin: { captionMax: 3000, hashtagMax: 8 },

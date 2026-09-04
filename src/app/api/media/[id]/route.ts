@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * GET /api/media/[id]?idx=0
  *
  * Streams the post's image/video binary with proper headers so external social platforms
- * (Instagram Graph API, Facebook Graph API, TikTok, LinkedIn, Pinterest, Twitter)
+ * (Instagram Graph API, Facebook Graph API, TikTok, LinkedIn, Pinterest, YouTube)
  * can easily and reliably fetch the media over HTTPS without encountering 403 hotlink blocks.
  */
 export async function GET(

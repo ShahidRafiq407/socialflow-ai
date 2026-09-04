@@ -177,9 +177,9 @@ export const AI_IMAGE_SHAPES: {
   format: string;
   aspectRatio: string;
 }[] = [
-  { value: "wide", label: "Wide 16:9 — in-article", platform: "x", format: "Post", aspectRatio: "16:9" },
+  { value: "wide", label: "Wide 16:9 — in-article", platform: "facebook", format: "Feed", aspectRatio: "16:9" },
   { value: "social", label: "Social preview 1.91:1 — featured", platform: "linkedin", format: "Post", aspectRatio: "1.91:1" },
-  { value: "square", label: "Square 1:1", platform: "x", format: "Post", aspectRatio: "1:1" },
+  { value: "square", label: "Square 1:1", platform: "facebook", format: "Feed", aspectRatio: "1:1" },
   { value: "portrait", label: "Portrait 4:5", platform: "linkedin", format: "Multi-Image", aspectRatio: "4:5" },
 ];
 

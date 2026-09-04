@@ -23,7 +23,6 @@ export const SUPPORTED_PLATFORMS = [
   "linkedin",
   "instagram",
   "facebook",
-  "x",
   "youtube",
   "tiktok",
   "pinterest",
@@ -33,8 +32,6 @@ export const PLATFORM_LABEL: Record<string, string> = {
   linkedin: "LinkedIn",
   instagram: "Instagram",
   facebook: "Facebook",
-  x: "X",
-  twitter: "X",
   youtube: "YouTube",
   tiktok: "TikTok",
   pinterest: "Pinterest",
@@ -97,7 +94,6 @@ function baseRank(platform: string, leadType: string): number {
   const shape: Record<string, number> = {
     linkedin: 3,
     facebook: 2,
-    x: 2,
     youtube: 2,
     instagram: wantsChat ? 3 : 1,
     tiktok: wantsChat ? 2 : 1,
@@ -232,17 +228,15 @@ export async function suggestChannels(params: {
 
   const connected = new Set(
     accounts.map((a) => {
-      const key = String(a.platform).toLowerCase();
-      return key === "twitter" ? "x" : key;
+      return String(a.platform).toLowerCase();
     })
   );
 
   const attributionMap = new Map<string, { clicks: number; leads: number }>();
   for (const row of attribution.byPlatform || []) {
     const key = String(row.key || "").toLowerCase();
-    const norm = key === "twitter" ? "x" : key;
-    const cur = attributionMap.get(norm) || { clicks: 0, leads: 0 };
-    attributionMap.set(norm, { clicks: cur.clicks + row.clicks, leads: cur.leads + row.leads });
+    const cur = attributionMap.get(key) || { clicks: 0, leads: 0 };
+    attributionMap.set(key, { clicks: cur.clicks + row.clicks, leads: cur.leads + row.leads });
   }
 
   // How many platforms are worth running at this size of goal. A small target
@@ -316,7 +310,7 @@ Return JSON only:
 
     for (const row of rows) {
       const key = String(row?.platform || "").toLowerCase();
-      const base = byKey.get(key === "twitter" ? "x" : key);
+      const base = byKey.get(key);
       if (!base || seen.has(base.platform)) continue;
       seen.add(base.platform);
 

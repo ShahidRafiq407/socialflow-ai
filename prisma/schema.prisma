@@ -97,11 +97,14 @@ model BrandDNA {
   @@index([workspaceId])
 }
 
+// The six networks the product can actually connect, publish to and preview.
+// Kept in step with `PlatformId` in src/lib/capabilities/platformCapabilities.ts —
+// a value here that has no capability entry, OAuth config and publisher is a
+// platform a user can select and never publish to.
 enum Platform {
   INSTAGRAM
   LINKEDIN
   FACEBOOK
-  X
   YOUTUBE
   TIKTOK
   PINTEREST

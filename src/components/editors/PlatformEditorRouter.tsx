@@ -381,11 +381,10 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
   }
 
   // 5. MULTI-MEDIA / MULTIPLE PHOTOS (Facebook Multiple Photos, LinkedIn Multi-Image,
-  //    X Thread, X Post, TikTok Photo, Pinterest Carousel)
+  //    TikTok Photo, Pinterest Carousel)
   if (
     (platform === "facebook" && (format === "Multiple Photos" || format === "Multiple Photos & Videos")) ||
     (platform === "linkedin" && format === "Multi-Image") ||
-    (platform === "x" && (format === "Thread" || format === "Post")) ||
     (platform === "tiktok" && format === "Photo") ||
     (platform === "pinterest" && format === "Carousel")
   ) {

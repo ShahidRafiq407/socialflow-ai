@@ -3,7 +3,7 @@
  *
  * WHY THIS EXISTS: the CEO auditor used to fall back to a fabricated
  * `{ passed: true, score: 95 }` whenever the judgement call errored or timed out.
- * A campaign with a missing video, a 4000-character X caption, or brand-forbidden
+ * A campaign with a missing video, a 4000-character LinkedIn caption, or brand-forbidden
  * wording sailed through with a green verdict, so the audit stage was theatre.
  *
  * `runDeterministicChecks` is the half of the verdict that cannot lie — it decides
@@ -45,7 +45,7 @@ function content(platforms: Record<string, Record<string, any>>) {
 
 describe("limitsFor", () => {
   it("returns the real published limit per platform", () => {
-    expect(limitsFor("x").captionMax).toBe(280);
+    expect(limitsFor("linkedin").captionMax).toBe(3000);
     expect(limitsFor("instagram").captionMax).toBe(2200);
     expect(limitsFor("pinterest").captionMax).toBe(500);
   });
@@ -156,9 +156,9 @@ describe("runDeterministicChecks — blockers cannot be waved through", () => {
 
 describe("runDeterministicChecks — platform text limits", () => {
   it("flags a caption that exceeds the platform's published limit", () => {
-    const families = computeFormatFamilies(["x"], { x: ["post"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["post"] });
     const report = runDeterministicChecks({
-      content: content({ x: { post: goodPost({ caption: "a".repeat(400) }) } }),
+      content: content({ linkedin: { post: goodPost({ caption: "a".repeat(3200) }) } }),
       families,
     });
 
@@ -166,7 +166,7 @@ describe("runDeterministicChecks — platform text limits", () => {
     expect(issue).toBeDefined();
     expect(issue!.field).toBe("caption");
     // The fix hint has to name the real number or the rewrite is a guess.
-    expect(issue!.fixHint).toContain("280");
+    expect(issue!.fixHint).toContain("3000");
   });
 
   it("does not flag the same length on a platform that allows it", () => {
@@ -191,10 +191,15 @@ describe("runDeterministicChecks — platform text limits", () => {
   });
 
   it("flags a missing hook and too many hashtags", () => {
-    const families = computeFormatFamilies(["x"], { x: ["post"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["post"] });
     const report = runDeterministicChecks({
       content: content({
-        x: { post: goodPost({ hook: "", hashtags: ["#a", "#b", "#c", "#d", "#e"] }) },
+        linkedin: {
+          post: goodPost({
+            hook: "",
+            hashtags: ["#a", "#b", "#c", "#d", "#e", "#f", "#g", "#h", "#i"],
+          }),
+        },
       }),
       families,
     });
@@ -318,9 +323,11 @@ describe("runDeterministicChecks — deck storyboard integrity", () => {
 
 describe("runDeterministicChecks — text-only formats", () => {
   it("does not demand media for a text-only post", () => {
-    const families = computeFormatFamilies(["x"], { x: ["thread"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["article"] });
     const report = runDeterministicChecks({
-      content: content({ x: { thread: goodPost({ imageUrl: undefined, hashtags: ["#a"] }) } }),
+      content: content({
+        linkedin: { article: goodPost({ imageUrl: undefined, hashtags: ["#a"] }) },
+      }),
       families,
     });
 
@@ -328,9 +335,9 @@ describe("runDeterministicChecks — text-only formats", () => {
   });
 
   it("reports media generated for a text-only post as a wasted render", () => {
-    const families = computeFormatFamilies(["x"], { x: ["thread"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["article"] });
     const report = runDeterministicChecks({
-      content: content({ x: { thread: goodPost({ hashtags: ["#a"] }) } }),
+      content: content({ linkedin: { article: goodPost({ hashtags: ["#a"] }) } }),
       families,
     });
 
@@ -441,9 +448,11 @@ describe("runDeterministicChecks — scoring", () => {
   });
 
   it("never returns a negative score", () => {
-    const families = computeFormatFamilies(["x"], { x: ["post"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["post"] });
     const report = runDeterministicChecks({
-      content: content({ x: { post: { caption: "", hook: "", title: "", hashtags: [] } } }),
+      content: content({
+        linkedin: { post: { caption: "", hook: "", title: "", hashtags: [] } },
+      }),
       families,
     });
 
@@ -461,17 +470,17 @@ describe("runDeterministicChecks — scoring", () => {
 
 describe("groupIssuesByPost", () => {
   it("groups issues per post and collapses the fields to rewrite", () => {
-    const families = computeFormatFamilies(["x"], { x: ["post"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["post"] });
     const report = runDeterministicChecks({
       content: content({
-        x: { post: goodPost({ caption: "a".repeat(400), hook: "", title: "" }) },
+        linkedin: { post: goodPost({ caption: "a".repeat(3200), hook: "", title: "" }) },
       }),
       families,
     });
 
     const groups = groupIssuesByPost(report.fixable);
     expect(groups).toHaveLength(1);
-    expect(groups[0].platform).toBe("x");
+    expect(groups[0].platform).toBe("linkedin");
     expect(groups[0].contentType).toBe("post");
     expect(groups[0].fields).toContain("caption");
     expect(groups[0].fields).toContain("hook");
@@ -519,9 +528,11 @@ describe("summarizeReport", () => {
   });
 
   it("reports real counts when there are issues", () => {
-    const families = computeFormatFamilies(["x"], { x: ["post"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["post"] });
     const report = runDeterministicChecks({
-      content: content({ x: { post: goodPost({ caption: "a".repeat(400), title: "" }) } }),
+      content: content({
+        linkedin: { post: goodPost({ caption: "a".repeat(3200), title: "" }) },
+      }),
       families,
     });
 

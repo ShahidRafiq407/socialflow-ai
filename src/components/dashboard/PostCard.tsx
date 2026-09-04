@@ -164,13 +164,6 @@ export function PostCard({ post }: { post: PostProps }) {
         colorClass: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
       };
     }
-    if (lowerPlat.includes("x") || lowerPlat.includes("twitter")) {
-      return {
-        icon: isVideo ? Video : MessageSquare,
-        formatTag: isVideo ? "16:9 X Video" : "X Post",
-        colorClass: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
-      };
-    }
     if (lowerPlat.includes("pinterest")) {
       return {
         icon: isVideo ? Video : Globe,
@@ -758,7 +751,6 @@ export function PostCard({ post }: { post: PostProps }) {
                 <option value="LinkedIn">LinkedIn</option>
                 <option value="Instagram">Instagram</option>
                 <option value="TikTok">TikTok</option>
-                <option value="X">X (Twitter)</option>
                 <option value="YouTube">YouTube</option>
                 <option value="Facebook">Facebook</option>
                 <option value="Pinterest">Pinterest</option>

@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { fetchPlatformProfile, PlatformProfile } from "@/actions/fetch-profile";
 import InstagramPreview from "./InstagramPreview";
 import LinkedInPreview from "./LinkedInPreview";
-import XPreview from "./XPreview";
 import TikTokPreview from "./TikTokPreview";
 import YoutubePreview from "./YoutubePreview";
 import FacebookPreview from "./FacebookPreview";
@@ -21,8 +20,6 @@ interface PlatformPreviewWrapperProps {
   activeSlideIdx?: number;
   onSlideChange?: (idx: number) => void;
   currentCaption?: string;
-  // X Thread
-  threadPosts?: Array<{ text: string; mediaUrl?: string | null }>;
   // Facebook / LinkedIn — vertical frame for 9:16 video formats
   isVertical?: boolean;
   // Explicit media type from the pipeline (URL extensions can lie)
@@ -49,7 +46,6 @@ export default function PlatformPreviewWrapper({
   activeSlideIdx = 0,
   onSlideChange,
   currentCaption = "",
-  threadPosts = [],
   isVertical = false,
   displayMediaIsVideo = false,
   isHtmlSlideFormat = false,
@@ -127,20 +123,6 @@ export default function PlatformPreviewWrapper({
             <div className="px-3.5 py-1.5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
               <div className="h-3 w-20 bg-slate-200 dark:bg-slate-800 rounded" />
               <div className="h-3 w-24 bg-slate-200 dark:bg-slate-800 rounded" />
-            </div>
-          </div>
-        );
-      case "x":
-        return (
-          <div className="w-full max-w-[420px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-black p-4 rounded-xl shadow-xs animate-pulse">
-            <div className="flex gap-3">
-              <div className="h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-800 shrink-0" />
-              <div className="flex-1 space-y-2">
-                <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-800 rounded" />
-                <div className="h-3 w-full bg-slate-200 dark:bg-slate-800 rounded" />
-                <div className="h-3 w-5/6 bg-slate-200 dark:bg-slate-800 rounded" />
-                <div className="w-full max-h-[280px] bg-slate-900 rounded-2xl" />
-              </div>
             </div>
           </div>
         );
@@ -235,7 +217,6 @@ export default function PlatformPreviewWrapper({
     const platformLabels: Record<string, string> = {
       instagram: "Instagram",
       linkedin: "LinkedIn",
-      x: "X (Twitter)",
       tiktok: "TikTok",
       youtube: "YouTube",
       facebook: "Facebook",
@@ -361,18 +342,6 @@ export default function PlatformPreviewWrapper({
             displayMediaIsVideo={displayMediaIsVideo}
           />
         );
-      case "x":
-        return (
-          <XPreview
-            key={previewKey}
-            {...commonProps}
-            displayMediaIsVideo={displayMediaIsVideo}
-            userName={userName}
-            userImage={userImage}
-            userHandle={userHandle}
-            threadPosts={threadPosts}
-          />
-        );
       case "tiktok":
         return (
           <TikTokPreview
@@ -433,8 +402,6 @@ function getDefaultUserName(platform: string): string {
       return "Instagram Account";
     case "linkedin":
       return "LinkedIn Member";
-    case "x":
-      return "X User";
     case "tiktok":
       return "TikTok Creator";
     case "youtube":
@@ -452,8 +419,6 @@ function getDefaultUserHandle(platform: string): string {
   switch (platform) {
     case "instagram":
       return "@your_instagram";
-    case "x":
-      return "@your_x_handle";
     case "tiktok":
       return "@your_tiktok";
     case "youtube":

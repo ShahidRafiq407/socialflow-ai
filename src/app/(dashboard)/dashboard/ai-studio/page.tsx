@@ -221,7 +221,6 @@ const PLATFORMS: PlatformDef[] = [
   { id: "facebook", label: "Facebook", icon: Globe, contentTypes: ["Feed", "Multiple Photos", "Reel", "Story"], captionLimit: 63206, firstCommentLimit: 8000, hashtagLimit: 30, color: "from-blue-500 to-blue-700" },
   { id: "tiktok", label: "TikTok", icon: Video, contentTypes: ["Video", "Photo"], captionLimit: 2200, firstCommentLimit: 0, hashtagLimit: 10, color: "from-slate-900 to-pink-600" },
   { id: "youtube", label: "YouTube", icon: PlayCircle, contentTypes: ["Shorts", "Video"], captionLimit: 5000, firstCommentLimit: 5000, hashtagLimit: 15, color: "from-red-500 to-red-700" },
-  { id: "x", label: "X", icon: MessageSquare, contentTypes: ["Post", "Thread"], captionLimit: 280, firstCommentLimit: 280, hashtagLimit: 5, color: "from-slate-800 to-black" },
 ];
 
 const getPlatformDef = (id: string) => PLATFORMS.find((p) => p.id === id)!;
@@ -2634,14 +2633,6 @@ export default function AIStudioPage() {
     }
     return items;
   })();
-
-  // X Thread preview data: every connected post with its own text + media
-  const threadPosts = activePlatformTab === "x" && currentFormatName === "Thread"
-    ? currentMediaItems.map((item, idx) => ({
-        text: item.caption || (idx === 0 ? currentCaption : ""),
-        mediaUrl: item.url || null,
-      }))
-    : [];
 
   // Shared per-index media remapper: rewrites customMediaDict / renderedImageUrlsDict /
   // clearedMediaKeys keys for the current format according to a remap function
@@ -5568,7 +5559,6 @@ export default function AIStudioPage() {
                           activeSlideIdx={activeSlideIdx}
                           onSlideChange={(idx) => setActiveSlideIdx(idx)}
                           currentCaption={currentCaption}
-                          threadPosts={threadPosts}
                           isVertical={previewIsVertical}
                           displayMediaIsVideo={displayMediaIsVideo}
                           isHtmlSlideFormat={isHtmlSlideFormat}
@@ -5642,34 +5632,6 @@ export default function AIStudioPage() {
                           </div>
                         )}
 
-                        {/* X — real reply + sensitive controls (publisher sends them) */}
-                        {activePlatformTab === "x" && (
-                          <div className="space-y-2 text-xs">
-                            <div className="space-y-1">
-                              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Who Can Reply?</label>
-                              <select
-                                value={currentPublishSettings.xReplySetting || "everyone"}
-                                onChange={(e) => updatePublishSetting("xReplySetting", e.target.value)}
-                                className="w-full h-7 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 outline-none"
-                              >
-                                <option value="everyone">Everyone</option>
-                                <option value="following">Accounts you follow</option>
-                                <option value="mentioned">Only accounts you mention</option>
-                              </select>
-                            </div>
-                            <label className="flex items-center justify-between text-slate-700 dark:text-slate-300 font-medium cursor-pointer">
-                              <span>Mark as Sensitive Content</span>
-                              <input
-                                type="checkbox"
-                                checked={currentPublishSettings.xMarkSensitive === true}
-                                onChange={(e) => updatePublishSetting("xMarkSensitive", e.target.checked)}
-                                className="rounded border-slate-300 text-primary focus:ring-primary"
-                              />
-                            </label>
-                          </div>
-                        )}
-
-                        {/* FACEBOOK — page posts via API are public; no fake privacy/location controls */}
                         {activePlatformTab === "facebook" && (
                           <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                             Page posts are published publicly through the Facebook Graph API. Audience restrictions, location tags and Instagram cross-posting are managed in Meta's publishing tools.
@@ -6093,7 +6055,7 @@ export default function AIStudioPage() {
             <div className="mt-6 max-w-md mx-auto text-left space-y-2">
               {[
                 { platform: "Instagram", count: 23, icon: Camera },
-                { platform: "X", count: 12, icon: MessageSquare },
+                { platform: "Facebook", count: 12, icon: Globe },
                 { platform: "LinkedIn", count: 5, icon: Briefcase },
               ].map(i => {
                 const Icon = i.icon;

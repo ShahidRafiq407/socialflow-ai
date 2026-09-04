@@ -104,7 +104,7 @@ describe('getPlatformFormatSpec — deck formats resolve to a multi-slide asset'
   it('still resolves single visuals and video normally', () => {
     expect(getPlatformFormatSpec('instagram', 'feed').mediaType).toBe('image');
     expect(getPlatformFormatSpec('instagram', 'reel').mediaType).toBe('video');
-    expect(getPlatformFormatSpec('x', 'thread').mediaType).toBe('text_only');
+    expect(getPlatformFormatSpec('linkedin', 'article').mediaType).toBe('text_only');
   });
 });
 

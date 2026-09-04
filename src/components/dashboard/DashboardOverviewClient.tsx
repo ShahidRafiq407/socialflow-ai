@@ -139,9 +139,6 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
     } else if (p.includes("facebook")) {
       label = "Facebook";
       badgeClass = "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-200";
-    } else if (p.includes("x") || p.includes("twitter")) {
-      label = "X (Twitter)";
-      badgeClass = "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100";
     } else if (p.includes("youtube")) {
       label = "YouTube";
       badgeClass = "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300";

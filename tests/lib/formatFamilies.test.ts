@@ -220,9 +220,9 @@ describe("computeFormatFamilies — shared render ratio", () => {
 
 describe("computeFormatFamilies — text-only formats", () => {
   it("marks text-only targets as needing no render", () => {
-    // x/thread and linkedin/article are text posts; paying for an image the
-    // platform will not show is pure waste.
-    const families = computeFormatFamilies(["x"], { x: ["thread"] });
+    // A LinkedIn article is a text post; paying for an image the platform will
+    // not show is pure waste.
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["article"] });
     const textFamilies = families.filter((f) => !f.visualRequired);
 
     expect(textFamilies.length).toBeGreaterThan(0);
@@ -237,8 +237,8 @@ describe("computeFormatFamilies — text-only formats", () => {
 
   it("excludes text-only members from the visual target count", () => {
     const families = computeFormatFamilies(
-      ["x", "instagram"],
-      { x: ["thread"], instagram: ["reel"] }
+      ["linkedin", "instagram"],
+      { linkedin: ["article"], instagram: ["reel"] }
     );
     // Only the reel needs pixels.
     expect(countVisualTargets(families)).toBe(1);
@@ -303,7 +303,7 @@ describe("countVisualTargets", () => {
   });
 
   it("is zero when nothing needs a visual", () => {
-    const families = computeFormatFamilies(["x"], { x: ["thread"] });
+    const families = computeFormatFamilies(["linkedin"], { linkedin: ["article"] });
     expect(countVisualTargets(families)).toBe(0);
   });
 });
@@ -378,8 +378,8 @@ describe("assetAttachmentKey", () => {
   });
 
   it("treats a missing slideIndex as slide 0", () => {
-    const withIdx = { platform: "x", contentType: "post", slideIndex: 0, url: "u" };
-    const without = { platform: "x", contentType: "post", url: "u" };
+    const withIdx = { platform: "linkedin", contentType: "post", slideIndex: 0, url: "u" };
+    const without = { platform: "linkedin", contentType: "post", url: "u" };
     expect(assetAttachmentKey(without)).toBe(assetAttachmentKey(withIdx));
   });
 });

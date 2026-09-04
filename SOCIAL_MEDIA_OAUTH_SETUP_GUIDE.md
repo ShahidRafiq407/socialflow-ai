@@ -34,7 +34,7 @@ In enterprise SaaS platforms (like Buffer, Hootsuite, or Later), **end-users nev
 
 ## Why Pinterest & Reddit Are Essential for Modern SaaS (Expert Recommendation)
 
-You asked whether we should include **Pinterest** and **Reddit** alongside LinkedIn, FB, Instagram, TikTok, YouTube, and X. Here is the strategic breakdown:
+You asked whether we should include **Pinterest** and **Reddit** alongside LinkedIn, FB, Instagram, TikTok, and YouTube. Here is the strategic breakdown:
 
 ### 1. Pinterest (SEO & Evergreen Visual Backlinks)
 - **Why it matters:** Unlike standard social posts that disappear in 24 hours, **Pinterest pins rank on Google and live for months**.
@@ -139,22 +139,7 @@ Below is the step-by-step guide to register apps and obtain API keys for all **8
 
 ---
 
-### 6. X (formerly Twitter) API v2
-
-1. **Developer Console:** Open [X Developer Portal](https://developer.x.com/en/portal/dashboard).
-2. **Create Project & App:** Enable **OAuth 2.0 User Authentication Settings**.
-3. **App Permissions:** Select **Read and Write and Direct message**.
-4. **OAuth 2.0 Scopes Required:**
-   - `tweet.read`, `tweet.write`, `users.read`, `offline.access`
-5. **Redirect URI Configuration:**
-   - `http://localhost:3000/api/auth/callback/x`
-6. **Keys to copy to `.env.local`:**
-   - `X_CLIENT_ID`
-   - `X_CLIENT_SECRET`
-
----
-
-### 7. Pinterest API v5
+### 6. Pinterest API v5
 
 1. **Developer Console:** Open [Pinterest Developers](https://developers.pinterest.com/).
 2. **Create App:** Go to **My Apps** -> **Create App** -> Name: `SMB Robotics Pin Automator`.
@@ -168,7 +153,7 @@ Below is the step-by-step guide to register apps and obtain API keys for all **8
 
 ---
 
-### 8. Reddit API (OAuth 2.0 Web App)
+### 7. Reddit API (OAuth 2.0 Web App)
 
 1. **Developer Console:** Open [Reddit App Preferences](https://www.reddit.com/prefs/apps).
 2. **Create App:** Scroll to bottom -> click **create another app...**:
@@ -207,10 +192,6 @@ TIKTOK_CLIENT_SECRET=""
 # YouTube (Google)
 YOUTUBE_CLIENT_ID=""
 YOUTUBE_CLIENT_SECRET=""
-
-# X (Twitter)
-X_CLIENT_ID=""
-X_CLIENT_SECRET=""
 
 # Pinterest
 PINTEREST_APP_ID=""

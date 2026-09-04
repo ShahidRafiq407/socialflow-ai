@@ -2,7 +2,7 @@
 CREATE SCHEMA IF NOT EXISTS "public";
 
 -- CreateEnum
-CREATE TYPE "Platform" AS ENUM ('INSTAGRAM', 'LINKEDIN', 'FACEBOOK', 'X', 'YOUTUBE', 'TIKTOK', 'PINTEREST');
+CREATE TYPE "Platform" AS ENUM ('INSTAGRAM', 'LINKEDIN', 'FACEBOOK', 'YOUTUBE', 'TIKTOK', 'PINTEREST');
 
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('USER', 'AGENT');
@@ -220,7 +220,7 @@ CREATE TABLE "GrowthGoal" (
     "customLeadTypeName" TEXT,
     "timeframeDays" INTEGER NOT NULL DEFAULT 60,
     "startDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "targetPlatforms" TEXT[] DEFAULT ARRAY['LinkedIn', 'Instagram', 'X', 'TikTok']::TEXT[],
+    "targetPlatforms" TEXT[] DEFAULT ARRAY['LinkedIn', 'Instagram', 'Facebook', 'TikTok']::TEXT[],
     "pausedPlatforms" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "status" TEXT NOT NULL DEFAULT 'INSUFFICIENT_DATA',
     "statusReason" TEXT,
