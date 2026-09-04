@@ -52,6 +52,7 @@ import ArticleEditor, { type ArticleEditorHandle } from "./article-writer/Articl
 import BusinessPanel from "./article-writer/BusinessPanel";
 import EvidencePanel from "./article-writer/EvidencePanel";
 import MediaStudioModal, { type MediaPick } from "./article-writer/MediaStudioModal";
+import PerformancePanel from "./article-writer/PerformancePanel";
 import RunProgress from "./article-writer/RunProgress";
 import SeoSidebar from "./article-writer/SeoSidebar";
 import type { RunAnalysis } from "./article-writer/runArticle";
@@ -617,6 +618,40 @@ export function ArticleWriterHQ({
       push("error", message);
     }
   }, [adoptRun, pipeline, push]);
+
+  /**
+   * A verification run somebody approved from the performance panel.
+   *
+   * Resumed with exactly the code that continues any other run: one endpoint, one
+   * stage at a time, the same evidence panel, the same Publish card. That is what
+   * keeps the promise this whole loop is built on true in the UI as well as on the
+   * server — approving a proposal buys a draft, and a person publishes the draft.
+   * Nothing about an approved proposal reaches the live page by itself.
+   */
+  const walkVerifyRun = useCallback(
+    async (runId: string) => {
+      if (!runId) return;
+      setRunError(null);
+      setRunNote(null);
+      setOutcome(null);
+      // The last run's facts belong to the last run. A verification run establishes
+      // its own, and leaving the previous profile beside a fresh progress list would
+      // attribute one run's reading to another.
+      setAnalysis({});
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      try {
+        adoptRun(await pipeline.resume(runId));
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "The verification run could not be continued.";
+        setRunError(message);
+        push("error", message);
+      }
+    },
+    [adoptRun, pipeline, push]
+  );
   const loadIdeas = useCallback(
     async (seedHint?: string) => {
       setIdeasBusy(true);
@@ -1750,12 +1785,37 @@ export function ArticleWriterHQ({
                           ))}
                         </ul>
                       )}
+                      {/* Only ever non-zero when the run being published was a
+                          verification run somebody approved, so the sentence names
+                          the loop that produced it rather than appearing from
+                          nowhere. The server marked them, not this component. */}
+                      {!!outcome.appliedProposals && outcome.appliedProposals > 0 && (
+                        <p className="mt-1.5 border-t border-border pt-1.5 text-[10px] leading-snug text-muted-foreground">
+                          {outcome.appliedProposals} optimisation proposal
+                          {outcome.appliedProposals === 1 ? " was" : "s were"} marked applied,
+                          because this run was verifying{" "}
+                          {outcome.appliedProposals === 1 ? "it" : "them"}.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
               )}
             </Card>
           )}
+
+          {/* Not gated on a run: this card is about the weeks after publishing, and
+              a workspace with no run in progress is exactly when somebody comes
+              looking at how last month's articles are doing. Approving a proposal
+              here starts a run and hands it to `walkVerifyRun` — it never writes to
+              a live page. `reloadKey` changes when a publish records a new
+              `PublishResult`, so the page that just went live shows up. */}
+          <PerformancePanel
+            workspaceId={workspaceId}
+            onVerifyRun={(runId) => void walkVerifyRun(runId)}
+            onNotice={(kind, message) => push(kind, message)}
+            reloadKey={outcome?.publicationId}
+          />
 
           {/*
             Connecting a site lives in the Plugins tab, next to every other

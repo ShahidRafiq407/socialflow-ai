@@ -132,6 +132,17 @@ async function verifyProvider(
       ? { ok: true, accountLabel: res.email || res.name || undefined }
       : { ok: false, error: res.error };
   }
+  if (providerKey === "search-console") {
+    const { getSearchConsoleAccount } = await import("@/lib/connectors/searchConsole");
+    const res = await getSearchConsoleAccount({
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+      refreshToken: credentials.refreshToken,
+    });
+    return res.success
+      ? { ok: true, accountLabel: res.accountLabel ?? undefined }
+      : { ok: false, error: res.error };
+  }
   if (providerKey === "canva") {
     const { getCanvaAccount } = await import("@/lib/connectors/canva");
     let rotated = "";

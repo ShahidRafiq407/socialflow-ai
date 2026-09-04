@@ -159,6 +159,19 @@ function GoogleDriveMark({ className }: MarkProps) {
   );
 }
 
+function SearchConsoleMark({ className }: MarkProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="8" fill="#fff" />
+      <path d="M16.2 16.2 21.4 21.4" stroke="#4285F4" strokeWidth="2.6" strokeLinecap="round" />
+      <circle cx="10.5" cy="10.5" r="8" fill="none" stroke="#4285F4" strokeWidth="1.8" />
+      <rect x="6.4" y="11.4" width="2.1" height="3.9" rx="0.6" fill="#34A853" />
+      <rect x="9.5" y="8.6" width="2.1" height="6.7" rx="0.6" fill="#FBBC04" />
+      <rect x="12.6" y="6.2" width="2.1" height="9.1" rx="0.6" fill="#EA4335" />
+    </svg>
+  );
+}
+
 function CodeMark({ className }: MarkProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
@@ -271,6 +284,7 @@ const MARKS: Record<PluginLogoId, FC<MarkProps>> = {
   heygen: HeyGenMark,
   gmail: GmailMark,
   gdrive: GoogleDriveMark,
+  searchconsole: SearchConsoleMark,
   code: CodeMark,
   tag: TagMark,
   mcp: McpMark,

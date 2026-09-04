@@ -1,6 +1,7 @@
 // ============================================================================
 // GOOGLE API CLIENT (GMAIL + DRIVE) — server-only. Never import from a client
-// component.
+// component. Search Console builds on the request helper at the bottom of the
+// token section rather than repeating it.
 //
 // There is no hosted OAuth app here on purpose: the workspace owner creates their
 // own client in the Cloud Console and pastes clientId + clientSecret +
@@ -132,6 +133,23 @@ async function gapi<T>(
       error: err instanceof Error ? err.message : "Network error contacting Google.",
     };
   }
+}
+
+/**
+ * The authenticated Google request, for the other Google clients in this project.
+ *
+ * Exported so Search Console does not carry its own copy of the token minting:
+ * the access-token cache is keyed by refresh token and shared, and the sentence
+ * a 403 produces — "the API may not be enabled on your project" — is the single
+ * most useful error in this whole flow. Two copies of it would drift into two
+ * different explanations of the same failure.
+ */
+export async function googleApiRequest<T>(
+  creds: GoogleCredentials,
+  url: string,
+  init?: RequestInit
+): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
+  return gapi<T>(creds, url, init);
 }
 
 // --------------------------------------------------------------------- Gmail

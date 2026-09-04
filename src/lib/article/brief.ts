@@ -50,10 +50,40 @@ export interface ArticleBrief {
 
   imageCount?: number;
   imageStyle?: string;
+
+  /**
+   * The live page this run is updating, set only when the run was started from an
+   * optimisation proposal somebody approved. Stage 3 reads it as a decision already
+   * made rather than asking a model to re-derive it from a crawl — the page is one
+   * this workspace published, and a person approved the proposal against it.
+   */
+  updateUrl?: string;
+  /**
+   * The approved points the update has to cover, in the proposal's own words.
+   * Stage 3 hands these to the outline as `requiredElements`, which is the same
+   * path the form's runs take — so nothing downstream needs to know where they
+   * came from.
+   */
+  mustCover?: string[];
 }
 function str(value: unknown): string | undefined {
   const text = typeof value === "string" ? value.trim() : "";
   return text || undefined;
+}
+
+/** An absolute http(s) address, or nothing. A relative path is not a page. */
+function absoluteUrl(value: unknown): string | undefined {
+  const text = str(value);
+  return text && /^https?:\/\//i.test(text) ? text : undefined;
+}
+
+function lines(value: unknown, limit = 16): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map((item) => str(item))
+    .filter((item): item is string => !!item)
+    .slice(0, limit);
+  return out.length ? out : undefined;
 }
 
 /** A toggle the form ships as on unless it was explicitly turned off. */
@@ -102,6 +132,9 @@ export function normalizeBrief(raw: unknown): ArticleBrief | null {
 
     imageCount: positive(body.imageCount),
     imageStyle: str(body.imageStyle),
+
+    updateUrl: absoluteUrl(body.updateUrl),
+    mustCover: lines(body.mustCover),
   };
 }
 /** Reading a stored brief back. Same coercions, so an old row cannot break a stage. */

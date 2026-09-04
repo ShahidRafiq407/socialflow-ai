@@ -20,6 +20,11 @@
  * names are recorded on the run, the outline plans against `requiredElements`, and
  * the person who asked for the article is the one who decides what to do about
  * being told they already have it.
+ *
+ * One case skips the judgement entirely: a run carrying `brief.updateUrl` was
+ * started from an optimisation proposal a person approved against a page this
+ * workspace published. There the decision is an input, so this stage records it and
+ * spends nothing.
  */
 
 import {
@@ -156,6 +161,29 @@ function prompt(
 export const runContentTypeStage: StageRunner = async (ctx: StageContext): Promise<StageResult> => {
   const business = readArtifact(ctx, "business", readBusinessProfile);
   const inventory = readArtifact(ctx, "inventory", readContentInventory);
+
+  // A run started from an approved optimisation proposal already knows the answer:
+  // the page is one this workspace published, and a person read the proposal and
+  // approved it against that page. Asking a model to re-derive that from a crawl
+  // would let it overturn a decision that has already been made — and a crawl that
+  // happened not to reach the page would overturn it by accident. No model call.
+  if (ctx.brief.updateUrl) {
+    const stated: PageTypeDecision = {
+      choice: "update_existing",
+      reason: `This run updates ${ctx.brief.updateUrl}, the page an approved optimisation proposal was raised against. The page and the points below came from that proposal, not from this stage.`,
+      existingUrl: ctx.brief.updateUrl,
+      requiredElements: (ctx.brief.mustCover ?? []).slice(0, 16),
+    };
+    const decision = readPageTypeDecision(stated) ?? stated;
+    return done(decision, {
+      pageType: decision.choice,
+      pageTypeReason: decision.reason,
+      requiredElements: decision.requiredElements,
+      updateExistingUrl: decision.existingUrl,
+      // Stated, not chosen — the run's log should not imply pages were weighed.
+      pageTypeSource: "approved_proposal",
+    });
+  }
 
   const known = new Map<string, string>();
   for (const page of inventory?.pages ?? []) {

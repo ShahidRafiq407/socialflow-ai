@@ -207,6 +207,42 @@ export const CONNECTOR_REGISTRY: ConnectorDef[] = [
     ],
   },
   {
+    key: "search-console",
+    name: "Google Search Console",
+    tagline: "What your published articles are actually found for",
+    description:
+      "Connect your own Google OAuth client and the Article Writer can read the queries, impressions, clicks and average position of a page it published — then propose an update when a query starts arriving that the page never answers. Read-only: the scope it asks for cannot change a property or touch a page.",
+    category: "automation",
+    fields: [
+      {
+        key: "clientId",
+        label: "OAuth client ID",
+        type: "text",
+        required: true,
+        placeholder: "1234-abc.apps.googleusercontent.com",
+        help: "The same client as Gmail or Drive works — enable the Search Console API on that project first.",
+        docsUrl:
+          "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
+      },
+      {
+        key: "clientSecret",
+        label: "OAuth client secret",
+        type: "password",
+        required: true,
+        placeholder: "GOCSPX-...",
+      },
+      {
+        key: "refreshToken",
+        label: "Refresh token",
+        type: "password",
+        required: true,
+        placeholder: "1//0g...",
+        help: "Authorise the webmasters.readonly scope in the OAuth Playground with the same Google account that is verified on the property. Only that one scope is needed.",
+        docsUrl: "https://developers.google.com/oauthplayground",
+      },
+    ],
+  },
+  {
     key: "canva",
     name: "Canva",
     tagline: "List designs, export them as PNG or PDF, reuse brand assets",

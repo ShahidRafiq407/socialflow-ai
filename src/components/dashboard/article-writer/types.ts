@@ -197,6 +197,18 @@ export interface PublishOutcome {
   error?: string;
   warnings?: string[];
   label?: string;
+  /**
+   * The `PublishResult` row the publish step recorded, and the URL it was keyed on.
+   * The performance panel watches `publicationId` so a page that has just gone live
+   * appears in its list without a reload.
+   */
+  publicationId?: string;
+  publicationUrl?: string;
+  /**
+   * How many optimisation proposals this publish marked applied. Non-zero only when
+   * the run being published was a verification run somebody approved.
+   */
+  appliedProposals?: number;
 }
 
 /**

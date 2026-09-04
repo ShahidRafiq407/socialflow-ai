@@ -86,6 +86,12 @@ const AI_STEPS = new Set([
   // run it already paid for.
   "run-start",
   "advance",
+  // The optimisation scan reads a live page and pays for one judgement about it.
+  // `optimize-verify` spends nothing itself, but it creates a 23-stage run, so it is
+  // gated at the door for the same reason `run-start` is. The reads next to them —
+  // publications, performance, status — are deliberately not here.
+  "optimize-scan",
+  "optimize-verify",
 ]);
 
 
@@ -622,7 +628,549 @@ export async function POST(req: Request) {
         featuredImageAlt: payload.featuredImageAlt ? String(payload.featuredImageAlt) : undefined,
       });
 
-      return NextResponse.json(result, { status: result.success ? 200 : 502 });
+      // The live URL is the join key to Search Console, and until this point the
+      // step threw it away. Recorded on success only, and a failure to record it is
+      // reported as a warning rather than turned into a failed publish: the article
+      // is live either way, and saying otherwise would have somebody publish twice.
+      let publication: { id: string; url: string } | null = null;
+      let publicationWarning = "";
+      let appliedProposals = 0;
+      if (result.success && result.url) {
+        try {
+          const { normalizePageUrl } = await import("@/lib/connectors/searchConsole");
+          const url = normalizePageUrl(result.url);
+          if (url) {
+            const { recordPublication, applyOptimizationsForRun } = await import(
+              "@/lib/article/performanceStore"
+            );
+            const runId = typeof body?.runId === "string" ? body.runId.trim() : null;
+            publication = await recordPublication(workspaceId, {
+              runId,
+              targetId: result.targetId,
+              providerKey: result.providerKey,
+              url,
+              remoteId: result.id ? String(result.id) : null,
+              title: String(payload.title),
+              keyword: payload.focusKeyword ? String(payload.focusKeyword) : null,
+              status: result.status || undefined,
+            });
+            // Publishing the run that was verifying a proposal is what applies it.
+            // This is the only place a proposal becomes `applied`, and it happens
+            // because a person pressed Publish — nothing was inserted into the live
+            // page by this app on its own.
+            if (runId) appliedProposals = await applyOptimizationsForRun(workspaceId, runId);
+          }
+        } catch (error: unknown) {
+          publicationWarning =
+            "The article published, but this workspace could not record the URL for performance tracking.";
+          console.error("[article-writer] recordPublication failed", error);
+        }
+      }
+
+      return NextResponse.json(
+        {
+          ...result,
+          publicationId: publication?.id,
+          publicationUrl: publication?.url,
+          ...(appliedProposals ? { appliedProposals } : {}),
+          ...(publicationWarning
+            ? { warnings: [...(result.warnings || []), publicationWarning] }
+            : {}),
+        },
+        { status: result.success ? 200 : 502 }
+      );
+    }
+
+    // =====================================================================
+    // STEP: publications, performance and the optimisation loop
+    //
+    // Read steps, deliberately outside `AI_STEPS`: reading what a live page is
+    // found for spends no model calls, and a lapsed plan must still be able to see
+    // how the articles it already paid for are doing.
+    //
+    // `performance-sync` does call Google, with the workspace's own read-only
+    // credentials. It is still not an AI step — it buys rows, not tokens.
+    // =====================================================================
+    if (step === "publications") {
+      const { listPublications, listOptimizations } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const [publications, optimizations] = await Promise.all([
+        listPublications(workspaceId, Number(body?.limit) || 50),
+        listOptimizations(workspaceId, { statuses: ["proposed", "verified"], limit: 30 }),
+      ]);
+      return NextResponse.json({ success: true, publications, optimizations });
+    }
+
+    if (step === "performance-read") {
+      const { findPublication, readPerformance, listOptimizations } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const publication = await findPublication(workspaceId, String(body?.publicationId || ""));
+      if (!publication) {
+        return NextResponse.json(
+          { error: "That published page could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+
+      const { summarizePerformance } = await import("@/lib/article/performance");
+      const days = Number(body?.days) || 90;
+      const [rows, optimizations] = await Promise.all([
+        readPerformance(workspaceId, publication.url, days),
+        listOptimizations(workspaceId, { publicationId: publication.id, limit: 20 }),
+      ]);
+
+      return NextResponse.json({
+        success: true,
+        publication,
+        // Totalled in the same file the browser imports, so the panel and this
+        // response cannot disagree about what the rows add up to.
+        summary: summarizePerformance(rows, publication.url),
+        optimizations,
+      });
+    }
+
+    /**
+     * PERFORMANCE SYNC — the one step here that spends somebody else's quota.
+     *
+     * Three things it refuses to guess at:
+     *
+     *   The property. Search Console keys data by property, not by domain, and a
+     *   workspace can be verified on several. `resolveProperty` picks the longest
+     *   URL prefix that actually contains this page and falls back to the domain
+     *   property; if nothing covers the page, that is an answer, not a retry.
+     *
+     *   The page URL. `equals` on the `page` dimension is case-sensitive and
+     *   exact, so `queryPagePerformance` tries the few legitimate spellings of the
+     *   same address and stores under whichever one returned rows.
+     *
+     *   Which days are final. `incompleteFrom` comes back from the API and is
+     *   handed to the browser, so a still-counting Tuesday is labelled rather than
+     *   drawn as a cliff.
+     */
+    if (step === "performance-sync") {
+      const { findPublication, savePerformanceRows, readPerformance } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const publication = await findPublication(workspaceId, String(body?.publicationId || ""));
+      if (!publication) {
+        return NextResponse.json(
+          { error: "That published page could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+
+      const { getConnectorCredentials } = await import("@/lib/connectors/credentials");
+      const connection = await getConnectorCredentials(workspaceId, "search-console");
+      if (!connection) {
+        return NextResponse.json(
+          {
+            error:
+              "Search Console is not connected for this workspace. Add it in Plugins to read what this page is found for.",
+            needsConnection: "search-console",
+          },
+          { status: 400 }
+        );
+      }
+
+      const creds = {
+        clientId: connection.credentials.clientId || "",
+        clientSecret: connection.credentials.clientSecret || "",
+        refreshToken: connection.credentials.refreshToken || "",
+      };
+
+      const { listProperties, resolveProperty, dayRange, queryPagePerformance } = await import(
+        "@/lib/connectors/searchConsole"
+      );
+
+      const list = await listProperties(creds);
+      if (!list.success) {
+        return NextResponse.json({ error: list.error || "Search Console refused the request." }, { status: 502 });
+      }
+
+      const property = resolveProperty(publication.url, list.properties || []);
+      if (!property) {
+        return NextResponse.json(
+          {
+            error: `None of the Search Console properties this account can read cover ${publication.url}. Verify that property first, then sync.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const window = dayRange(Number(body?.days) || 28);
+      const performance = await queryPagePerformance(creds, {
+        property: property.siteUrl,
+        page: publication.url,
+        startDate: window.startDate,
+        endDate: window.endDate,
+      });
+      if (!performance.success) {
+        return NextResponse.json(
+          { error: performance.error || "Search Console refused the query." },
+          { status: 502 }
+        );
+      }
+
+      const { toPerformanceRows, summarizePerformance } = await import("@/lib/article/performance");
+      // Stored under the publication's own URL, not `matchedPage`: the stored page
+      // is the join key for everything else in this workspace, and the spelling
+      // Search Console happened to accept is an API detail.
+      const rows = toPerformanceRows(publication.url, performance.rows || []);
+      const written = await savePerformanceRows(workspaceId, {
+        page: publication.url,
+        startDate: window.startDate,
+        endDate: window.endDate,
+        rows,
+      });
+
+      const stored = await readPerformance(workspaceId, publication.url, 90);
+      return NextResponse.json({
+        success: true,
+        publication,
+        property: property.siteUrl,
+        matchedPage: performance.matchedPage || publication.url,
+        window: { from: written.from, to: written.to },
+        written: written.written,
+        incompleteFrom: performance.incompleteFrom || "",
+        summary: summarizePerformance(stored, publication.url),
+      });
+    }
+
+    /**
+     * OPTIMISATION SCAN — the only paid step in this section.
+     *
+     * Reads the live page, ranks the queries mechanically, then lets a model that
+     * has actually read the page decide which of those candidates are real. The row
+     * it writes is a proposal: `sections` a person can approve, `answered` queries
+     * that turned out to be covered already, and `declined` ones with a reason.
+     *
+     * A scan with nothing to approve does not create a row. `performance.ts` has the
+     * reason written down — an empty proposal rendered as a card is worse than no
+     * card, because somebody would press Approve on it.
+     */
+    if (step === "optimize-scan") {
+      const { findPublication, readPerformance, saveOptimization } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const publication = await findPublication(workspaceId, String(body?.publicationId || ""));
+      if (!publication) {
+        return NextResponse.json(
+          { error: "That published page could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+
+      const { summarizePerformance, rankOpportunities } = await import("@/lib/article/performance");
+      const rows = await readPerformance(workspaceId, publication.url, Number(body?.days) || 90);
+      const summary = summarizePerformance(rows, publication.url);
+      if (summary.days === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "There are no stored Search Console rows for this page yet. Sync it first — a scan with nothing measured behind it would be guesswork.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { fetchPage } = await import("@/lib/agents/article/fetchPage");
+      const live = await fetchPage(publication.url, { maxChars: 30_000, signal: req.signal });
+      if (!live.ok || !live.text.trim()) {
+        return NextResponse.json(
+          {
+            error: `The live page could not be read${
+              live.status ? ` (HTTP ${live.status})` : ""
+            }${live.error ? `: ${live.error}` : ""}. Nothing was assumed about what it covers.`,
+          },
+          { status: 502 }
+        );
+      }
+
+      const opportunities = rankOpportunities(summary, {
+        title: live.title,
+        headings: live.headings,
+        body: live.text,
+      });
+
+      const { scanForOptimizations } = await import("@/lib/agents/article/optimize");
+      const { newMeter } = await import("@/lib/agents/article/router");
+      const meter = newMeter();
+      const scan = await scanForOptimizations({
+        page: publication.url,
+        title: live.title || publication.title,
+        keyword: publication.keyword || undefined,
+        headings: live.headings,
+        text: live.text,
+        summary,
+        opportunities,
+        meter,
+        signal: req.signal,
+      });
+
+      const dropped = scan.dropped;
+      const note = [
+        `Scanned ${opportunities.length} candidate quer${opportunities.length === 1 ? "y" : "ies"} against the live page (${live.headings.length} headings read).`,
+        dropped.queries || dropped.sections || dropped.edits
+          ? `Discarded: ${dropped.queries} query mention${dropped.queries === 1 ? "" : "s"}, ${dropped.sections} section${dropped.sections === 1 ? "" : "s"}, ${dropped.edits} edit${dropped.edits === 1 ? "" : "s"} that named something not measured or not on the page.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const optimizationId = scan.actionable
+        ? await saveOptimization(workspaceId, {
+            publicationId: publication.id,
+            triggers: opportunities,
+            proposal: scan.proposal,
+            status: "proposed",
+            note,
+          })
+        : null;
+
+      return NextResponse.json({
+        success: true,
+        publication,
+        summary,
+        opportunities,
+        proposal: scan.proposal,
+        actionable: scan.actionable,
+        optimizationId,
+        dropped,
+        note,
+        modelCalls: meter.calls,
+        page: { status: live.status, finalUrl: live.finalUrl, headings: live.headings.length },
+      });
+    }
+
+    /**
+     * VERIFY A PROPOSAL — by starting a real run, not by asserting anything.
+     *
+     * This is the part of the loop the plan is most specific about: an approved
+     * proposal goes through the same stages the first draft went through. So it does
+     * not get a special lightweight path. It gets an `ArticleRun` in deep mode,
+     * carrying the approved headings and the facts the proposal said it needed, and
+     * that run does its own research, faces the same evidence gate, and is advanced
+     * by the same `advance` endpoint one stage at a time.
+     *
+     * Nothing is written to the live page here, and nothing is written to it later
+     * without somebody pressing Publish on the draft that run produces.
+     *
+     * Called twice, it returns the run it already started. A double-click must not
+     * buy a second pipeline.
+     */
+    if (step === "optimize-verify") {
+      const { findOptimization, updateOptimization } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const optimization = await findOptimization(workspaceId, String(body?.optimizationId || ""));
+      if (!optimization) {
+        return NextResponse.json(
+          { error: "That proposal could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+      if (optimization.verifyRunId) {
+        const existing = await loadArticleRun(workspaceId, optimization.verifyRunId);
+        if (existing) {
+          return NextResponse.json({
+            success: true,
+            alreadyStarted: true,
+            run: toRunView(existing),
+            optimizationId: optimization.id,
+          });
+        }
+      }
+
+      const proposal = optimization.proposal;
+      if (!proposal || (proposal.sections.length === 0 && proposal.edits.length === 0)) {
+        return NextResponse.json(
+          {
+            error:
+              "That proposal has nothing to verify: no section and no edit survived the scan. Re-scan the page instead.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // The query the update is for. The queries a proposed section names are the
+      // point of the update, so the highest-weight trigger one of them names wins
+      // over the keyword the page was originally written for — that keyword is
+      // already answered, which is why the page is live.
+      const named = new Set(
+        [...proposal.sections, ...proposal.edits].flatMap((item) => item.queries)
+      );
+      const keyword =
+        optimization.triggers.find((trigger) => named.has(trigger.query))?.query ||
+        optimization.keyword ||
+        optimization.triggers[0]?.query ||
+        "";
+      if (!keyword) {
+        return NextResponse.json(
+          { error: "This proposal names no query, so there is nothing to research." },
+          { status: 400 }
+        );
+      }
+
+      // The approved points, in the proposal's own words. Stage 3 hands these to the
+      // outline as `requiredElements`, and everything a section needs established is
+      // in the list — which is what sends it through research and the evidence gate
+      // rather than into the draft on trust.
+      const mustCover = [
+        ...proposal.sections.map((section) =>
+          [
+            `New section "${section.heading}": ${section.covers.join("; ")}`,
+            section.needsResearch.length
+              ? `It must establish, with a source: ${section.needsResearch.join("; ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        ),
+        ...proposal.edits.map((edit) => `Change "${edit.target}": ${edit.change}`),
+      ];
+
+      // Resolved exactly the way `run-start` resolves it, so the update run is
+      // written for — and publishes back to — the site the page came from.
+      const { target, siteUrl } = await resolvePublishSite(
+        workspaceId,
+        { targetId: optimization.targetId || undefined },
+        workspace.website
+      );
+      const brief = normalizeBrief({
+        keyword,
+        title: optimization.title,
+        // Set server-side from a publication this workspace owns, never from the body.
+        updateUrl: optimization.page,
+        mustCover,
+        targetId: target?.id,
+        targetWebsite: siteUrl || undefined,
+      });
+      if (!brief) {
+        return NextResponse.json(
+          { error: "A focus keyword is required to start a verification run." },
+          { status: 400 }
+        );
+      }
+
+      const run = await createArticleRun({ workspaceId, mode: "deep", brief });
+      const linked = await updateOptimization(workspaceId, optimization.id, {
+        // Still `proposed`: the run has been created, not passed. Only the evidence
+        // gate's own row can make this `verified`.
+        status: "proposed",
+        verifyRunId: run.id,
+      });
+
+      return NextResponse.json({
+        success: true,
+        run,
+        brief,
+        linked,
+        optimizationId: optimization.id,
+        stages: run.total,
+      });
+    }
+
+    /**
+     * WHERE A PROPOSAL HAS GOT TO — read from the run, not from the browser.
+     *
+     * `verified` is the one word on this card that has to mean something, so it is
+     * never sent in a request body. It is derived here from the verification run's
+     * own stage rows: the evidence gate finished, or the gate blocked the run. A
+     * person can dismiss a proposal, and publishing marks it applied. Nobody can
+     * type "verified".
+     */
+    if (step === "optimization-status") {
+      const { findOptimization, updateOptimization } = await import(
+        "@/lib/article/performanceStore"
+      );
+      const optimization = await findOptimization(workspaceId, String(body?.optimizationId || ""));
+      if (!optimization) {
+        return NextResponse.json(
+          { error: "That proposal could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+      if (!optimization.verifyRunId) {
+        return NextResponse.json({
+          success: true,
+          status: optimization.status,
+          run: null,
+          reason: "No verification run has been started for this proposal yet.",
+        });
+      }
+
+      const row = await loadArticleRun(workspaceId, optimization.verifyRunId);
+      if (!row) {
+        return NextResponse.json({
+          success: true,
+          status: optimization.status,
+          run: null,
+          reason: "The verification run for this proposal is no longer on file.",
+        });
+      }
+      const run = toRunView(row);
+      const gate = run.stages.find((stage) => stage.stage === "evidence_gate");
+
+      let status = optimization.status;
+      let reason = "";
+      if (run.blockedBy === "evidence_gate") {
+        status = "failed";
+        reason =
+          run.blockedReason ||
+          "The evidence gate stopped the verification run: something the proposal wanted to say could not be supported.";
+      } else if (gate?.status === "done") {
+        status = "verified";
+        reason = "The verification run passed the same evidence gate the first draft passed.";
+      } else if (gate?.status === "skipped") {
+        reason =
+          "The verification run reached the evidence gate and skipped it, so nothing has been verified yet.";
+      } else {
+        reason = `The verification run is at step ${run.position} of ${run.total}.`;
+      }
+
+      // Only written when it changed, and never backwards out of a decision a
+      // person already made.
+      const changed =
+        status !== optimization.status && optimization.status !== "dismissed" && optimization.status !== "applied"
+          ? await updateOptimization(workspaceId, optimization.id, { status, note: reason })
+          : false;
+
+      return NextResponse.json({
+        success: true,
+        status: changed ? status : optimization.status,
+        changed,
+        reason,
+        run: { id: run.id, status: run.status, position: run.position, total: run.total, currentStage: run.currentStage },
+        evidenceGate: gate?.status ?? "pending",
+      });
+    }
+
+    /**
+     * DISMISS — the only status a person is allowed to set by hand.
+     *
+     * Approving is not a status change, it is starting a verification run, and
+     * applying is publishing one. What is left is the human judgement this whole
+     * loop is built around: "not worth doing", with a reason if they want to give
+     * one.
+     */
+    if (step === "optimization-dismiss") {
+      const { updateOptimization } = await import("@/lib/article/performanceStore");
+      const dismissed = await updateOptimization(
+        workspaceId,
+        String(body?.optimizationId || ""),
+        {
+          status: "dismissed",
+          note: typeof body?.note === "string" ? body.note : undefined,
+        }
+      );
+      return dismissed
+        ? NextResponse.json({ success: true, status: "dismissed" })
+        : NextResponse.json(
+            { error: "That proposal could not be found in this workspace." },
+            { status: 404 }
+          );
     }
 
     // =====================================================================

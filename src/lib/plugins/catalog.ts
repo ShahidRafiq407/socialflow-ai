@@ -38,6 +38,7 @@ export type PluginLogoId =
   | "heygen"
   | "gmail"
   | "gdrive"
+  | "searchconsole"
   | "code"
   | "tag"
   | "mcp"
@@ -305,6 +306,43 @@ export const PLUGIN_CATALOG: PluginCatalogEntry[] = [
         title: "Paste the live URL and the same secret below",
         detail:
           "Exact path, live domain, no redirect. Prove it first with the curl self-test, then Connect & verify sends {\"event\":\"ping\"} and your route only has to answer 2xx.",
+      },
+    ],
+  },
+  {
+    key: "search-console",
+    backend: "connector",
+    name: "Google Search Console",
+    blurb: "See what a published article is really found for, and update it when a new query arrives.",
+    section: "content",
+    logo: "searchconsole",
+    can: ["Read queries & clicks", "Spot unanswered queries", "Propose an update"],
+    docsUrl: "https://developers.google.com/webmaster-tools/v1/searchanalytics/query",
+    setup: [
+      {
+        title: "Enable the Search Console API",
+        detail: "Google Cloud Console → APIs & Services → Library → Google Search Console API → Enable.",
+        href: "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
+        linkLabel: "Enable the API",
+      },
+      {
+        title: "Reuse the OAuth client you made for Gmail or Drive",
+        detail: "Same project, same client ID and secret. Only the scope differs.",
+        href: "https://console.cloud.google.com/apis/credentials",
+        linkLabel: "Open Credentials",
+      },
+      {
+        title: "Get a refresh token for the read-only scope",
+        detail:
+          "OAuth Playground → gear icon → your own credentials → authorise this one scope. It cannot change a property or submit anything:",
+        href: "https://developers.google.com/oauthplayground",
+        linkLabel: "Open OAuth Playground",
+        copy: "https://www.googleapis.com/auth/webmasters.readonly",
+      },
+      {
+        title: "Use the Google account that is verified on the property",
+        detail:
+          "Connect & verify lists what that account can read. An account added as an unverified user is listed but returns no data, so we refuse it here rather than showing you an empty chart later.",
       },
     ],
   },
