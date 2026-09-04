@@ -36,6 +36,7 @@ import { DashboardTrendingNiche } from "@/components/dashboard/DashboardTrending
 import { DashboardPeakTimeRadar } from "@/components/dashboard/DashboardPeakTimeRadar";
 import { DashboardTopPerformer } from "@/components/dashboard/DashboardTopPerformer";
 import { DashboardFailuresBanner } from "@/components/dashboard/DashboardFailuresBanner";
+import { DashboardPlanStatus } from "@/components/dashboard/DashboardPlanStatus";
 
 interface DashboardOverviewClientProps {
   initialData: DashboardOverviewData;
@@ -244,46 +245,11 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         </div>
       </div>
 
-      {/* 2. Compact Plan & Status Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card/60 px-3.5 py-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1.5">
-            <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="font-semibold text-foreground">{credits.planName} Plan</span>
-          </div>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-muted-foreground">
-            <span className="font-medium text-foreground">{connectedCount} of 6</span> channels connected
-          </span>
-          {credits.plan !== "FREE" && (
-            <>
-              <span className="text-muted-foreground/40">·</span>
-              <span className="text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {credits.isUnlimited ? "Unlimited" : `${credits.creditsLeft} credits`}
-                </span> remaining
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 ml-auto">
-          {credits.plan === "FREE" ? (
-            <Link href="/dashboard/billing">
-              <Button size="xs" className="h-6 gap-1 px-2.5 text-[11px] shadow-2xs font-medium">
-                <Zap className="h-3 w-3" />
-                Upgrade Plan
-              </Button>
-            </Link>
-          ) : (
-            <Link href="/dashboard/billing">
-              <Button variant="ghost" size="xs" className="h-6 text-[11px] text-muted-foreground hover:text-foreground">
-                Billing →
-              </Button>
-            </Link>
-          )}
-        </div>
-      </div>
+      {/* 2. Plan, Quota & Billing Status Hub */}
+      <DashboardPlanStatus
+        credits={credits}
+        connectedCount={connectedCount}
+      />
 
       {/* 3. Action Feedback Notification */}
       {actionMessage && (
