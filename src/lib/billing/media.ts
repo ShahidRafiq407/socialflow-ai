@@ -24,11 +24,34 @@
 //   fallback and no "unknown" bucket. If the scope is missing, the render is
 //   refused with an error that names this file, because a render nobody is billed
 //   for is exactly the leak this system exists to close.
+//   A render with nowhere to go does not happen either. The plan's storage ceiling
+//   is checked before the reservation, so a full account is told it is full instead
+//   of being charged for pixels that cannot be kept.
 // ============================================================================
 
 import type { ActionKey } from "./actions";
-import { beginAction, completeAction, failAction, EntitlementError } from "./entitlements";
+import {
+  beginAction,
+  checkStorage,
+  completeAction,
+  failAction,
+  EntitlementError,
+} from "./entitlements";
 import { childMeterContext, getMeterContext, withMeterContext } from "./meter";
+
+/**
+ * What a render is expected to weigh, for the storage check only.
+ *
+ * The real size is not knowable before the model returns, and this number is never
+ * charged for or written anywhere — it is the "will this fit" probe that keeps a
+ * plan from being talked past by an asset that does not exist yet. The figures are
+ * what this pipeline actually produces: a 1024px PNG lands around 2 MB, an 8-second
+ * 720p MP4 around 12 MB.
+ */
+const ESTIMATED_BYTES = {
+  image: 2 * 1024 * 1024,
+  video: 12 * 1024 * 1024,
+} as const;
 
 /** What the render is, in the terms the action catalogue prices. */
 export interface MediaChargeRequest {
@@ -95,6 +118,16 @@ export async function beginMediaCharge(
   const quantity = Math.max(1, Math.round(request.count || 1));
   const action = actionFor(request);
   const referenceId = request.referenceId ?? scope?.referenceId ?? null;
+
+  // Room to put it, before credits to make it. The bucket ceiling is the one limit
+  // in this system that is shared: a plan that overruns it does not degrade its own
+  // account, it fills the bucket every account renders into. Checked here rather
+  // than at the upload helper because this is the only place that knows who is
+  // asking — `saveMediaBuffer` also runs from crons and warm-ups that own nothing.
+  const storage = await checkStorage(userId, ESTIMATED_BYTES[
+    request.mediaType === "video" ? "video" : "image"
+  ] * quantity);
+  if (!storage.allowed) throw new EntitlementError(storage);
 
   const ticket = await beginAction({
     userId,

@@ -359,6 +359,11 @@ export function gateToResponseBody(gate: GateResult): Record<string, unknown> {
     credits: gate.credits,
     available: gate.available,
     shortfall: gate.shortfall,
+    // Carried so a refusal can be drawn as a usage bar rather than only read as a
+    // sentence. Only STORAGE_FULL sets them; everywhere else they are undefined and
+    // drop out of the JSON.
+    limitMb: gate.limitMb,
+    usedMb: gate.usedMb,
     upgrade: true,
   };
 }

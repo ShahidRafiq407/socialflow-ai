@@ -3,6 +3,33 @@ import { auth } from '@clerk/nextjs/server';
 import { saveMediaBuffer, createSignedUploadUrl, indexMediaAsset } from '@/lib/supabase';
 import prisma from '@/lib/db';
 import { activeWorkspaceQuery } from '@/lib/workspace/active';
+import { checkStorage, gateToResponseBody } from '@/lib/billing/entitlements';
+
+/**
+ * The plan's storage ceiling, as a response.
+ *
+ * Uploads are the other half of the check in `lib/billing/media.ts`: a render is
+ * refused there, a file the customer brought is refused here. Both read the same
+ * ceiling, and both have to, because bytes cost the same however they arrived.
+ *
+ * Returns null when there is room, so a caller reads as `const full = await …; if
+ * (full) return full;`.
+ */
+async function storageRefusal(userId: string, addBytes: number): Promise<NextResponse | null> {
+  const gate = await checkStorage(userId, addBytes);
+  if (gate.allowed) return null;
+  const body = gateToResponseBody(gate);
+  return NextResponse.json(
+    // `error` holds the sentence, not a sentinel: every one of this route's callers —
+    // the AI Studio pickers, the three platform editors, the article Media Studio —
+    // renders `data.error` in its toast, so a machine code there would put the words
+    // "UPGRADE_REQUIRED" in front of the customer. The machine-readable parts travel
+    // beside it (`reason`, `upgrade`, `requiredPlan`, `limitMb`, `usedMb`) for a
+    // caller that wants to open the upgrade dialog instead.
+    { ...body, message: body.error },
+    { status: 403 }
+  );
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,6 +40,14 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const filename = searchParams.get('filename') || 'media_asset';
+
+    // A signed ticket is the one upload path whose bytes never touch this server —
+    // the browser PUTs them straight into the bucket. If the ceiling is checked only
+    // where we can see the file, this is the door around it, so a full account does
+    // not get a ticket. The size is unknown here, hence the check for "any room at
+    // all"; the exact figure is enforced on the POST paths below.
+    const full = await storageRefusal(userId, 0);
+    if (full) return full;
 
     const signed = await createSignedUploadUrl(filename);
     if (signed.ok) {
@@ -47,6 +82,11 @@ export async function POST(req: NextRequest) {
 
     if (remoteUrl && remoteUrl.startsWith('http')) {
       try {
+        // Before the download, not after: a full account should not cause a fetch of
+        // bytes that have nowhere to land.
+        const preFull = await storageRefusal(userId, 0);
+        if (preFull) return preFull;
+
         const dlRes = await fetch(remoteUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -69,6 +109,11 @@ export async function POST(req: NextRequest) {
         // Derive filename from URL
         const urlPath = new URL(remoteUrl).pathname;
         const filename = urlPath.split('/').pop() || `stock_${Date.now()}.${contentType.includes('video') ? 'mp4' : 'png'}`;
+
+        // Now the size is known, so the ceiling is enforced exactly rather than as
+        // "any room at all". Nothing has been persisted yet.
+        const sizedFull = await storageRefusal(userId, arrayBuffer.byteLength);
+        if (sizedFull) return sizedFull;
 
         const saved = await saveMediaBuffer(arrayBuffer, filename, contentType, workspace?.id);
 
@@ -96,6 +141,9 @@ export async function POST(req: NextRequest) {
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
+
+    const full = await storageRefusal(userId, file.size);
+    if (full) return full;
 
     const arrayBuffer = await file.arrayBuffer();
     const contentType = file.type || 'application/octet-stream';

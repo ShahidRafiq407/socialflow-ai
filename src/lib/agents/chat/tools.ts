@@ -416,6 +416,9 @@ INSTRUCTIONS:
             url: first.url,
             filename: `ai-image-${platform.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.png`,
             contentType: "image/png",
+            // What the render weighed, when it persisted its own pixels. A row with
+            // no size counts as nothing against the plan's storage ceiling.
+            size: first.bytes ?? null,
             workspaceId: ctx.workspaceId,
           },
         });
@@ -516,6 +519,7 @@ INSTRUCTIONS:
             url: first.url,
             filename: `ai-video-${platform.toLowerCase()}-${Date.now()}.mp4`,
             contentType: "video/mp4",
+            size: first.bytes ?? null,
             workspaceId: ctx.workspaceId,
           },
         });
@@ -2015,17 +2019,32 @@ async function saveHeyGenVideoToAssets(
 
   ctx.onProgress?.("Saving video to Media Assets...");
   try {
-    const { saveMediaBuffer } = await import("@/lib/supabase");
+    const { saveMediaBuffer, indexMediaAsset } = await import("@/lib/supabase");
     const saved = await saveMediaBuffer(
       buffer,
       `heygen-${videoId}.mp4`,
       "video/mp4",
       ctx.workspaceId
     );
+    // `saveMediaBuffer` writes a MediaAsset row only on its database fallback; with
+    // Supabase configured it returns a bucket URL and nothing is filed. This tool
+    // then told the model "saved to Media Assets" about a video with no row — absent
+    // from the library, and weighing nothing against the plan's storage ceiling. So
+    // index it here, with the byte count we are holding, unless the fallback already
+    // made the row (its URL is the asset route).
+    const assetId = saved.url.includes("/api/media/asset/")
+      ? saved.url.split("/api/media/asset/")[1]?.split(".")[0]
+      : await indexMediaAsset(
+          saved.url,
+          saved.filename,
+          "video/mp4",
+          buffer.length,
+          ctx.workspaceId
+        );
     return {
       status: "completed",
       videoId,
-      mediaAssetId: (saved as any)?.assetId ?? undefined,
+      mediaAssetId: assetId ?? undefined,
       url: saved.url,
       sizeBytes: buffer.length,
       thumbnailUrl: meta.thumbnailUrl ?? undefined,

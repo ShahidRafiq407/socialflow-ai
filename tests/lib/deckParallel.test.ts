@@ -94,6 +94,11 @@ vi.mock("@/lib/billing/entitlements", async () => {
 
   return {
     EntitlementError: class EntitlementError extends Error {},
+    // Room in the bucket. This suite is about what a deck reserves and settles, and
+    // the storage ceiling is proved separately in storageLimits.test.ts — but it is
+    // stubbed rather than omitted, because `beginMediaCharge` checks it before it
+    // reserves anything and an absent stub would refuse every render here.
+    checkStorage: vi.fn(async () => ({ allowed: true, plan: "AGENCY" })),
     beginAction: vi.fn(async (args: any) => {
       const quantity = Math.max(1, Math.round(args.quantity ?? 1));
       const credits = actionCredits(args.action) * quantity;

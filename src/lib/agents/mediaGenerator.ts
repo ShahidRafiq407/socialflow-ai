@@ -167,10 +167,35 @@ export interface MediaAssetOutput {
   provider: string;
   model: string;
   createdAt: number;
+  /**
+   * Bytes actually stored, when this render persisted its own pixels.
+   *
+   * Carried so a caller that files the asset in the media library can record a
+   * weight on the row. Without it those rows count as nothing against the plan's
+   * storage ceiling, which makes the ceiling untrue for everything the AI made.
+   * Absent when the model returned a URL we never held the bytes for.
+   */
+  bytes?: number;
   duration?: number;
   slideIndex?: number;
   totalSlides?: number;
   error?: string;
+}
+
+/**
+ * What a base64 payload weighs, without decoding it into a second copy.
+ *
+ * Used to stamp `bytes` on a render that persisted its own pixels; a data URL of a
+ * 12 MB video would otherwise have to be materialised as a Buffer purely to be
+ * measured, at the point in the pipeline least able to afford the memory.
+ */
+function base64Bytes(dataUrlOrBase64: string): number | undefined {
+  const payload = dataUrlOrBase64.startsWith("data:")
+    ? dataUrlOrBase64.slice(dataUrlOrBase64.indexOf(",") + 1)
+    : dataUrlOrBase64;
+  if (!payload) return undefined;
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
 }
 
 function validateAssetUrl(url: string, type: "image" | "video") {
@@ -638,8 +663,10 @@ async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOu
     }
 
     let finalVideoUrl = videoUrl;
+    let videoBytes: number | undefined;
     if (videoUrl.startsWith("data:")) {
       onProgress?.(`[Visualizer] Persisting video asset to Storage CDN...`);
+      videoBytes = base64Bytes(videoUrl);
       const storageUrl = await uploadBase64ToStorage(videoUrl, `video-${platform}-${contentType}-${Date.now()}.mp4`, "video/mp4", undefined, input.signal);
       if (storageUrl) {
         finalVideoUrl = storageUrl;
@@ -659,6 +686,7 @@ async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOu
       provider: "google_vertex",
       model: MODELS.VIDEO,
       createdAt: Date.now(),
+      bytes: videoBytes,
     });
 
     return results;
@@ -1220,7 +1248,9 @@ async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOu
       }
 
       let finalImageUrl = imageUrl;
+      let imageBytes: number | undefined;
       if (imageUrl.startsWith("data:")) {
+        imageBytes = base64Bytes(imageUrl);
         const storageUrl = await uploadBase64ToStorage(imageUrl, `img-${platform}-${contentType}-${idx}-${Date.now()}.png`, "image/png", undefined, input.signal);
         if (storageUrl) {
           finalImageUrl = storageUrl;
@@ -1243,6 +1273,7 @@ async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOu
         createdAt: Date.now(),
         slideIndex: deckSlideIndex,
         totalSlides: deckSlideTotal,
+        bytes: imageBytes,
       } as MediaAssetOutput;
     } catch (err: any) {
       if (err?.isCancelled || input.signal?.aborted) {
