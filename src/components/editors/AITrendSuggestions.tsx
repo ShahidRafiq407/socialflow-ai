@@ -85,7 +85,19 @@ export default function AITrendSuggestions({
   const isLocked = isApplyingTrend || isBusyElsewhere;
 
   /** The research names a format; the press always builds the one on screen. Say so. */
-  const normalize = (v: string) => v.toLowerCase().replace(/[^a-z]/g, "");
+  // Singular/plural and spacing only: the researcher writes "Reels" where the tab says
+  // "Reel", and flagging that as a mismatch would be noise on every card. The -ies rule
+  // is what makes "Stories" reach "Story" — without it the plural strip leaves "storie"
+  // and the banner cries mismatch on the one format most likely to be named in plural.
+  // No two real format names collide under this: Feed, Carousel, Reel, Story, Pin, Video
+  // Pin, Idea Pin, Post, Multi-Image, Document, Video, Multiple Photos, Photo, Shorts,
+  // Thread all stay distinct.
+  const normalize = (v: string) =>
+    v
+      .toLowerCase()
+      .replace(/[^a-z]/g, "")
+      .replace(/ies$/, "y")
+      .replace(/s$/, "");
   const differentFormat = (recommended: string) =>
     Boolean(recommended?.trim()) && normalize(recommended) !== normalize(format);
 
