@@ -1,307 +1,240 @@
+// ============================================================================
+// GATE — THE OLD DOOR, REBUILT ON THE NEW FOUNDATION
+//
+// This file used to be the whole billing system: plan state in a JSON blob inside
+// the `Memory` table, a `BILLING_ENABLED = false` at the top that made every check
+// return "yes, Agency", and a Payoneer-shaped event log. All three are gone.
+//
+// What remains is a thin adapter. A dozen routes already call `checkAIAccess()` and
+// `checkSocialAccountLimit()`, and those call sites are correct — the question they
+// ask is the right question. So the names stay and the answers now come from
+// `entitlements.ts`, which reads the real `Subscription` row.
+//
+// There is deliberately no kill switch any more. A flag that turns enforcement off
+// is a flag that gets left off, and the whole point of this rewrite is that a user
+// cannot reach a model without a plan that permits it and a balance that covers it.
+//
+// New code should call `entitlements.ts` directly — ideally `runAction()`, which
+// gates, charges and meters in one call. This file exists so the existing routes
+// keep working, and so a check that only needs "may they?" does not have to learn
+// the whole ticket lifecycle.
+// ============================================================================
+
 import prisma from "@/lib/db";
 import { auth } from "@clerk/nextjs/server";
-import { activeWorkspaceQuery } from "@/lib/workspace/active";
-import { PlanTier, getPlanConfig, canAccessAI, getMaxSocialAccounts } from "./plans";
+import type { PlanTier } from "./plans";
+import { getPlanConfig } from "./plans";
+import type { FeatureKey } from "./plans";
+import {
+  checkFeature,
+  checkSocialAccountLimit as checkSocialAccountLimitFor,
+  getPlanContext,
+  type GateReason,
+} from "./entitlements";
 
-// ──────────────────────────────────────────────────────────────────────────
-// TEMPORARY KILL-SWITCH: billing/subscription gating is DISABLED so every
-// feature can be tested without a paid plan. Flip back to `true` to re-enable
-// plan checks (AI generation gating + social account limits).
-// ──────────────────────────────────────────────────────────────────────────
-export const BILLING_ENABLED = false;
-
+/**
+ * The shape the existing routes already destructure. Widened only in `reason`,
+ * which every caller passes straight through to the client.
+ */
 export interface PlanGateResult {
   allowed: boolean;
   currentPlan: PlanTier;
-  reason?: "UPGRADE_REQUIRED" | "ACCOUNT_LIMIT_REACHED" | "FEATURE_LOCKED";
+  reason?: GateReason | "UPGRADE_REQUIRED" | "ACCOUNT_LIMIT_REACHED";
   message?: string;
   requiredPlan?: PlanTier;
 }
 
-export interface BillingEvent {
-  id?: string;
-  type:
-    | "SUBSCRIPTION_ACTIVATED"
-    | "SUBSCRIPTION_VERIFYING"
-    | "PAYMENT_FAILED"
-    | "PAYMENT_CANCELLED"
-    | "PLAN_CHANGED"
-    | "TEST_ACTIVATION";
-  plan: PlanTier;
-  billingCycle: "monthly" | "yearly";
+/**
+ * May this account use an AI feature?
+ *
+ * `feature` defaults to the Content Studio's generator because that is what the
+ * original single-purpose check meant. Every call site should pass its own: the
+ * chat should ask about `chat.message`, the article route about `article.quick`,
+ * the autopilot about `goals.autopilot`. Asking the wrong question is how a plan
+ * boundary quietly stops existing.
+ *
+ * `workspaceId` is accepted and ignored. Plans are per account — one person, one
+ * subscription, one wallet, however many workspaces the plan allows.
+ */
+export async function checkAIAccess(
+  workspaceId?: string,
+  feature: FeatureKey = "aistudio.generate"
+): Promise<PlanGateResult> {
+  void workspaceId;
+  const { userId } = await auth();
+  if (!userId) {
+    return {
+      allowed: false,
+      currentPlan: "FREE",
+      reason: "FEATURE_LOCKED",
+      message: "Sign in to continue.",
+    };
+  }
+
+  const gate = await checkFeature(userId, feature);
+  return {
+    allowed: gate.allowed,
+    currentPlan: gate.plan,
+    reason: gate.reason,
+    message: gate.message,
+    requiredPlan: gate.requiredPlan,
+  };
+}
+
+/** May another social profile be connected to this workspace? */
+export async function checkSocialAccountLimit(workspaceId: string): Promise<PlanGateResult> {
+  const { userId } = await auth();
+  if (!userId) {
+    return { allowed: false, currentPlan: "FREE", message: "Sign in to continue." };
+  }
+
+  const gate = await checkSocialAccountLimitFor(userId, workspaceId);
+  return {
+    allowed: gate.allowed,
+    currentPlan: gate.plan,
+    reason: gate.reason,
+    message: gate.message,
+    requiredPlan: gate.requiredPlan,
+  };
+}
+
+/**
+ * The plan and status for the signed-in account.
+ *
+ * Kept for the handful of callers that only want the tier. `workspaceId` is
+ * accepted for source compatibility and ignored, as above.
+ */
+export async function getWorkspacePlan(
+  workspaceId?: string
+): Promise<{ plan: PlanTier; status: string }> {
+  void workspaceId;
+  const { userId } = await auth();
+  if (!userId) return { plan: "FREE", status: "NONE" };
+
+  const ctx = await getPlanContext(userId);
+  return { plan: ctx.plan, status: ctx.status };
+}
+
+/** The same, for code that already has a user id and no Clerk session. */
+export async function getPlanForUser(userId: string): Promise<{ plan: PlanTier; status: string }> {
+  const ctx = await getPlanContext(userId);
+  return { plan: ctx.plan, status: ctx.status };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Billing history
+//
+// Read from the `BillingEvent` table the webhook writes, which is the record of
+// what Lemon Squeezy actually told us — not a summary we composed. The customer's
+// invoice list, the "payment failed" banner and the support answer to "did my
+// renewal go through" all come from these rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BillingHistoryEntry {
+  id: string;
+  /** The Lemon Squeezy event name: "subscription_payment_success", … */
+  type: string;
+  createdAt: string;
+  plan?: PlanTier;
+  planName?: string;
+  billingCycle?: "monthly" | "yearly";
+  /** Major units, e.g. 19 for $19.00. */
   amount?: number;
   currency?: string;
-  provider: "payoneer" | "test";
-  transactionId?: string;
+  status?: string;
+  /** The LS invoice/receipt URL when the event carried one. */
+  receiptUrl?: string;
   message?: string;
-  createdAt?: string;
+  testMode?: boolean;
 }
 
-/**
- * Server-side guard to verify if an action requiring AI generation is permitted.
- */
-export async function checkAIAccess(workspaceId?: string): Promise<PlanGateResult> {
-  // TEMP: billing disabled — allow every workspace (see BILLING_ENABLED above).
-  if (!BILLING_ENABLED) {
-    return { allowed: true, currentPlan: "AGENCY" };
-  }
-  const { plan } = await getWorkspacePlan(workspaceId);
-  const allowed = canAccessAI(plan);
-
-  if (!allowed) {
-    return {
-      allowed: false,
-      currentPlan: plan,
-      reason: "UPGRADE_REQUIRED",
-      requiredPlan: "PRO",
-      message:
-        "AI generation is available on Creator Pro and Agency & Scale plans. The Free plan supports manual composition, media upload, and publishing.",
-    };
-  }
-
-  return {
-    allowed: true,
-    currentPlan: plan,
-  };
-}
-
-/**
- * Server-side guard to verify if adding a new social account is permitted under
- * the current plan limits (Free = up to 2 accounts).
- */
-export async function checkSocialAccountLimit(workspaceId: string): Promise<PlanGateResult> {
-  // TEMP: billing disabled — allow unlimited connected accounts for testing.
-  if (!BILLING_ENABLED) {
-    return { allowed: true, currentPlan: "AGENCY" };
-  }
-  const { plan } = await getWorkspacePlan(workspaceId);
-  const maxAccounts = getMaxSocialAccounts(plan);
-
-  const currentCount = await prisma.socialAccount.count({
-    where: { workspaceId },
-  });
-
-  if (currentCount >= maxAccounts) {
-    return {
-      allowed: false,
-      currentPlan: plan,
-      reason: "ACCOUNT_LIMIT_REACHED",
-      requiredPlan: plan === "FREE" ? "PRO" : "AGENCY",
-      message: `The ${getPlanConfig(plan).name} plan supports up to ${maxAccounts} connected accounts. Upgrade to connect more platforms.`,
-    };
-  }
-
-  return {
-    allowed: true,
-    currentPlan: plan,
-  };
-}
-
-/**
- * Persists a billing event into the existing Memory table (category "billing_event")
- * for billing history — no schema migration required.
- */
-export async function recordBillingEvent(workspaceId: string, event: BillingEvent): Promise<void> {
-  const payload = JSON.stringify({
-    ...event,
-    createdAt: new Date().toISOString(),
-  });
-
-  await prisma.memory.create({
-    data: {
-      workspaceId,
-      category: "billing_event",
-      content: payload,
-    },
-  });
-}
-
-/**
- * Reads billing history (most recent first).
- */
-export async function getBillingHistory(workspaceId?: string, limit = 25): Promise<BillingEvent[]> {
+/** Most recent first. Never throws — an empty history is better than a broken tab. */
+export async function getBillingHistory(limit = 25): Promise<BillingHistoryEntry[]> {
   try {
     const { userId } = await auth();
     if (!userId) return [];
-
-    const workspace =
-      workspaceId && workspaceId !== "default-workspace"
-        ? await prisma.workspace.findFirst({
-            where: { id: workspaceId, userId },
-            select: { id: true },
-          })
-        : await prisma.workspace.findFirst({
-            ...(await activeWorkspaceQuery(userId)),
-            select: { id: true },
-          });
-
-    if (!workspace) return [];
-
-    const rows = await prisma.memory.findMany({
-      where: { workspaceId: workspace.id, category: "billing_event" },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-
-    const events: BillingEvent[] = [];
-    for (const row of rows) {
-      try {
-        events.push({ ...(JSON.parse(row.content) as BillingEvent), id: row.id });
-      } catch {
-        // Skip corrupted/unparseable rows
-      }
-    }
-    return events;
-  } catch {
+    return await getBillingHistoryForUser(userId, limit);
+  } catch (err) {
+    console.error("[gate] getBillingHistory failed", err);
     return [];
   }
 }
 
 /**
- * Retrieves the active plan for a user's workspace.
- * Plan state is stored in the existing Memory table (category "subscription_plan")
- * so the app remains fully functional without requiring a schema migration.
+ * Pulls the receipt link and the billing cycle out of the stored payload.
+ *
+ * Neither has a column of its own, and neither needs one: the whole verified
+ * payload is kept precisely so a display detail can be added later without a
+ * migration. Lemon Squeezy names the link `invoice_url` on a subscription invoice
+ * and `receipt` on a one-off order, so both spellings are checked.
  */
-export async function getWorkspacePlan(workspaceId?: string): Promise<{ plan: PlanTier; status: string }> {
+function readPayloadDetails(payload: unknown): {
+  receiptUrl?: string;
+  billingCycle?: "monthly" | "yearly";
+} {
+  const root = (payload ?? {}) as {
+    meta?: { custom_data?: Record<string, unknown> };
+    data?: { attributes?: Record<string, unknown> };
+  };
+  const attributes = root.data?.attributes ?? {};
+  const urls = (attributes.urls ?? {}) as Record<string, unknown>;
+
+  const receipt = [urls.invoice_url, urls.receipt].find((value) => typeof value === "string");
+
+  const custom = root.meta?.custom_data ?? {};
+  const declared = typeof custom.cycle === "string" ? custom.cycle.toLowerCase() : "";
+  const variant = typeof attributes.variant_name === "string" ? attributes.variant_name : "";
+
+  let billingCycle: "monthly" | "yearly" | undefined;
+  if (declared === "monthly" || declared === "yearly") billingCycle = declared;
+  else if (/year|annual/i.test(variant)) billingCycle = "yearly";
+  else if (/month/i.test(variant)) billingCycle = "monthly";
+
+  return { receiptUrl: receipt as string | undefined, billingCycle };
+}
+
+export async function getBillingHistoryForUser(
+  userId: string,
+  limit = 25
+): Promise<BillingHistoryEntry[]> {
   try {
-    const { userId } = await auth();
-    if (!userId) return { plan: "FREE", status: "ACTIVE" };
-
-    const workspace = workspaceId
-      ? await prisma.workspace.findFirst({
-          where: { id: workspaceId, userId },
-          select: { id: true },
-        })
-      : await prisma.workspace.findFirst({
-          ...(await activeWorkspaceQuery(userId)),
-          select: { id: true },
-        });
-
-    if (!workspace) return { plan: "FREE", status: "ACTIVE" };
-
-    const planMemory = await prisma.memory.findFirst({
-      where: {
-        workspaceId: workspace.id,
-        category: "subscription_plan",
+    const rows = await prisma.billingEvent.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        eventName: true,
+        createdAt: true,
+        plan: true,
+        status: true,
+        amountCents: true,
+        currency: true,
+        payload: true,
+        error: true,
+        testMode: true,
       },
-      orderBy: { updatedAt: "desc" },
     });
 
-    if (planMemory && planMemory.content) {
-      try {
-        const parsed = JSON.parse(planMemory.content);
-        return {
-          plan: (parsed.plan || "FREE").toUpperCase() as PlanTier,
-          status: parsed.status || "ACTIVE",
-        };
-      } catch {
-        // fallback
-      }
-    }
-
-    return { plan: "FREE", status: "ACTIVE" };
-  } catch (error) {
-    console.warn("[getWorkspacePlan] Fallback to FREE:", error);
-    return { plan: "FREE", status: "ACTIVE" };
-  }
-}
-
-/**
- * Server-only plan setter. Intentionally NOT imported by any client component —
- * plan upgrades must go through the checkout + webhook flow to remain trustworthy.
- * Used for downgrades to Free and for explicit test-activation mode.
- */
-export async function setWorkspacePlan(
-  workspaceId: string,
-  newPlan: PlanTier,
-  status: string = "ACTIVE"
-): Promise<{ success: boolean; plan: PlanTier }> {
-  try {
-    const { userId } = await auth();
-    if (!userId) throw new Error("Unauthorized");
-
-    const workspace = await prisma.workspace.findFirst({
-      where: { id: workspaceId, userId },
-      select: { id: true },
+    return rows.map((row) => {
+      const details = readPayloadDetails(row.payload);
+      return {
+        id: row.id,
+        type: row.eventName,
+        createdAt: row.createdAt.toISOString(),
+        plan: (row.plan ?? undefined) as PlanTier | undefined,
+        planName: row.plan ? getPlanConfig(row.plan as PlanTier).name : undefined,
+        billingCycle: details.billingCycle,
+        amount: row.amountCents !== null ? row.amountCents / 100 : undefined,
+        currency: row.currency ?? undefined,
+        status: row.status ?? undefined,
+        receiptUrl: details.receiptUrl,
+        message: row.error ?? undefined,
+        testMode: row.testMode ?? undefined,
+      };
     });
-    if (!workspace) throw new Error("Workspace not found");
-
-    const payload = JSON.stringify({
-      plan: newPlan,
-      status,
-      updatedAt: new Date().toISOString(),
-    });
-
-    const existing = await prisma.memory.findFirst({
-      where: { workspaceId, category: "subscription_plan" },
-    });
-
-    if (existing) {
-      await prisma.memory.update({
-        where: { id: existing.id },
-        data: { content: payload },
-      });
-    } else {
-      await prisma.memory.create({
-        data: { workspaceId, category: "subscription_plan", content: payload },
-      });
-    }
-
-    return { success: true, plan: newPlan };
-  } catch (error: unknown) {
-    console.error("[setWorkspacePlan Error]:", error);
-    return { success: false, plan: "FREE" };
-  }
-}
-
-/**
- * Server-side plan activation invoked by the payment webhook AFTER the payment is
- * verified against Payoneer. Runs without a Clerk session, so it confirms the
- * workspace exists before applying the plan change.
- */
-export async function activatePlanFromWebhook(
-  workspaceId: string,
-  plan: PlanTier,
-  billingCycle: "monthly" | "yearly",
-  transactionId: string,
-  provider: "payoneer" | "test" = "payoneer"
-): Promise<{ success: boolean; plan: PlanTier }> {
-  try {
-    const workspace = await prisma.workspace.findFirst({
-      where: { id: workspaceId },
-      select: { id: true },
-    });
-    if (!workspace) {
-      throw new Error("Workspace not found for payment activation.");
-    }
-
-    const payload = JSON.stringify({
-      plan,
-      status: "ACTIVE",
-      billingCycle,
-      provider,
-      transactionId,
-      activatedAt: new Date().toISOString(),
-    });
-
-    const existing = await prisma.memory.findFirst({
-      where: { workspaceId, category: "subscription_plan" },
-    });
-
-    if (existing) {
-      await prisma.memory.update({
-        where: { id: existing.id },
-        data: { content: payload },
-      });
-    } else {
-      await prisma.memory.create({
-        data: { workspaceId, category: "subscription_plan", content: payload },
-      });
-    }
-
-    return { success: true, plan };
-  } catch (error) {
-    console.error("[activatePlanFromWebhook Error]:", error);
-    return { success: false, plan: "FREE" };
+  } catch (err) {
+    console.error("[gate] getBillingHistoryForUser failed", err);
+    return [];
   }
 }

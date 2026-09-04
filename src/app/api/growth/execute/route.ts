@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { requireFeature } from "@/lib/billing/entitlements";
+import { entitlementResponse } from "@/lib/billing/route";
 import prisma from "@/lib/db";
 import { GrowthPlanTask, GrowthStrategy } from "@/lib/types/growth";
 
@@ -61,13 +63,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
-    const { checkAIAccess } = await import("@/lib/billing/gate");
-    const gate = await checkAIAccess(workspaceId);
-    if (!gate.allowed) {
-      return NextResponse.json(
-        { error: gate.message || "Upgrade required", reason: gate.reason, requiredPlan: gate.requiredPlan },
-        { status: 403 }
-      );
+    // The Goal tab is what this endpoint runs, so that is what the plan is asked
+    // about. Each task's own credits are taken inside `executeGrowthPlanTask` /
+    // `executeGrowthArticleTask` — a post and an article are not the same price, and
+    // the queue below can hold both. Asking here is so a lapsed plan is told once,
+    // before an event stream opens and reports twenty individual refusals.
+    try {
+      await requireFeature(userId, "goals.autopilot");
+    } catch (gateErr) {
+      const refusal = entitlementResponse(gateErr);
+      if (!refusal) throw gateErr;
+      return refusal;
     }
 
     // ── Resolve the tasks to run from the saved plan

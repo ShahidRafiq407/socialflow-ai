@@ -3,6 +3,19 @@ import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
 import { envInt, sleep, createLimiter } from "@/lib/agents/concurrency";
 import { getModelRatePacer } from "@/lib/agents/rateLimit";
+// Media is the only place in the product that reaches past VertexAIProvider's public
+// methods to call Google directly (`(vertexProvider as any).ai`), so it does its own
+// metering rather than inheriting the provider's. Images bill per render and video
+// bills per second of output — the two most expensive rows on the rate card.
+import {
+  classifyError,
+  estimateTokens,
+  extractUsageMetadata,
+  recordUsageAsync,
+} from "@/lib/billing/meter";
+// Renders are charged here rather than by the five callers that ask for them, so a
+// carousel costs its slides and a campaign's media is never free.
+import { withMediaCharge } from "@/lib/billing/media";
 import {
   buildDesignSystemInstruction,
   buildInfographicSlidePrompt,
@@ -126,6 +139,13 @@ export interface GenerateMediaInput {
   industry?: string;
   /** Extra art direction typed by the user in the Carousel Studio. */
   extraInstructions?: string;
+  /**
+   * Who pays for this render, when the call is not already inside a metering
+   * scope. Every render is charged — see `@/lib/billing/media` — and the owner is
+   * normally read from the ambient scope the route opened. Server actions that
+   * hold a userId directly pass it here instead.
+   */
+  billing?: { userId: string; workspaceId?: string | null; referenceId?: string | null } | null;
 }
 
 export interface MediaAssetOutput {
@@ -213,6 +233,36 @@ async function generateRealVideo(options: {
 
   let lastErr: any = null;
 
+  // ── Metering ───────────────────────────────────────────────────────────────
+  //
+  // Video is the most expensive thing this product can do — billed per second of
+  // output, ~$0.10 a second, so a single clip costs more than a whole article. The
+  // request never asks for a duration, which means the model returns its default
+  // 8-second clip; that is the figure the 120-credit price for `media.video` was
+  // derived from, and it is what a successful render is recorded against.
+  //
+  // A failed render is recorded too, at zero seconds: Google does not bill for a
+  // clip it never produced, but a render that keeps failing is a cost signal of its
+  // own and the usage table is where it should be visible.
+  const assumedVideoSeconds = envInt("VIDEO_ASSUMED_SECONDS", 8, { min: 1, max: 60 });
+
+  const meterVideo = (modelName: string, startedAt: number, ok: boolean, err?: unknown) =>
+    recordUsageAsync({
+      model: modelName,
+      callKind: "video",
+      inputTokens: estimateTokens(prompt),
+      videoSeconds: ok ? assumedVideoSeconds : 0,
+      latencyMs: Date.now() - startedAt,
+      ok,
+      errorKind: ok ? null : classifyError(err),
+    });
+
+  /** Records the render, then hands back the asset. Every success path goes through it. */
+  const deliver = (uri: string, modelName: string, startedAt: number): string => {
+    meterVideo(modelName, startedAt, true);
+    return uri;
+  };
+
   for (const targetVideoModel of candidateModels) {
     console.log(`[Visualizer] Dispatching Video synthesis on Instance: ${targetVideoModel} for topic: "${topic}" (Task: ${videoTask || "auto"})`);
 
@@ -227,6 +277,12 @@ async function generateRealVideo(options: {
         ),
     });
     if (signal?.aborted) throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
+
+    const startedAt = Date.now();
+    // Whether a request actually reached Google on this pass. Guards the fall-through
+    // record below: an SDK that exposes neither video method costs nothing and must
+    // not be charged for a call it never made.
+    let requestSent = false;
 
     try {
       // 1. Primary: Google Interactions API (native endpoint for Omni-class models)
@@ -301,6 +357,7 @@ async function generateRealVideo(options: {
           if (videoTimeout) clearTimeout(videoTimeout);
           if (signal && onAbortVideo) signal.removeEventListener("abort", onAbortVideo);
         });
+        requestSent = true;
 
         // Check direct output_video (standard response format from Omni-class models)
         const directVideo = (interaction as any)?.output_video || (interaction as any)?.outputVideo;
@@ -308,7 +365,12 @@ async function generateRealVideo(options: {
           onProgress?.(`[Visualizer] ✅ Video synthesis complete via ${targetVideoModel}!`);
           const mime = directVideo.mime_type || directVideo.mimeType || "video/mp4";
           const base64Data = `data:${mime};base64,${directVideo.data}`;
-          
+
+          // Recorded here rather than on the returns below: the render is what Google
+          // billed for, and the Supabase upload that follows is our own problem. A clip
+          // that generated and then failed to upload still cost what it cost.
+          meterVideo(targetVideoModel, startedAt, true);
+
           try {
             const uploadedUrl = await uploadBase64ToStorage(base64Data, `video-${Date.now()}.mp4`, mime, undefined, signal);
             if (uploadedUrl) return uploadedUrl;
@@ -321,7 +383,7 @@ async function generateRealVideo(options: {
 
         if (directVideo?.uri) {
           onProgress?.(`[Visualizer] ✅ Video asset ready via ${targetVideoModel}!`);
-          return directVideo.uri;
+          return deliver(directVideo.uri, targetVideoModel, startedAt);
         }
 
         // Check steps format
@@ -331,9 +393,9 @@ async function generateRealVideo(options: {
               for (const part of step.content) {
                 if (part.type === "video" && part.data) {
                   onProgress?.(`[Visualizer] ✅ Video synthesis complete!`);
-                  return `data:video/mp4;base64,${part.data}`;
+                  return deliver(`data:video/mp4;base64,${part.data}`, targetVideoModel, startedAt);
                 } else if (part.type === "video" && part.uri) {
-                  return part.uri;
+                  return deliver(part.uri, targetVideoModel, startedAt);
                 }
               }
             }
@@ -354,6 +416,7 @@ async function generateRealVideo(options: {
             numberOfVideos: 1,
           },
         });
+        requestSent = true;
 
         if (operation) {
           const startTime = Date.now();
@@ -395,16 +458,31 @@ async function generateRealVideo(options: {
 
           if (videoBytes) {
             onProgress?.(`[Visualizer] ✅ Video frame synthesis completed 100%!`);
-            return `data:video/mp4;base64,${videoBytes}`;
+            return deliver(`data:video/mp4;base64,${videoBytes}`, targetVideoModel, startedAt);
           }
           if (videoUri) {
             onProgress?.(`[Visualizer] ✅ Video asset ready 100%!`);
-            return videoUri;
+            return deliver(videoUri, targetVideoModel, startedAt);
           }
         }
       }
+
+      // A request went out and nothing usable came back — a timed-out operation, or a
+      // response shape none of the branches above matched. Recorded as a failed render
+      // at zero seconds, because a call that produced nothing is still a call.
+      if (requestSent) {
+        recordUsageAsync({
+          model: targetVideoModel,
+          callKind: "video",
+          inputTokens: estimateTokens(prompt),
+          latencyMs: Date.now() - startedAt,
+          ok: false,
+          errorKind: "no_video_returned",
+        });
+      }
     } catch (err: any) {
       lastErr = err;
+      meterVideo(targetVideoModel, startedAt, false, err);
       if (err?.isCancelled || signal?.aborted) throw err;
       const message = err?.message ? String(err.message) : String(err);
       if (isQuotaFailure(message)) videoPacer.penalize(parseRetryDelayMs(message));
@@ -482,7 +560,50 @@ export function resolveVisualRequirements(
   };
 }
 
+/**
+ * Renders media, and charges for it.
+ *
+ * Every path that produces an image or a video in this product comes through
+ * here — the Content Studio, the campaign graph, the chat's tools, the goal
+ * autopilot, the visualizer worker — which is exactly why the charge lives here
+ * and not in the five callers. Credits are reserved for the deck the caller asked
+ * for, the render runs, and the reservation settles against the slides that
+ * actually came back. A render that produces nothing costs nothing.
+ *
+ * Throws `EntitlementError` when the plan does not include this kind of media or
+ * the balance will not cover it. Routes turn that into a 402/403 via
+ * `entitlementResponse`; the campaign graph reports it as a failed family.
+ */
 export async function generateMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOutput[]> {
+  // How many assets the reservation has to cover. A deck asks for its slides in
+  // one call, so the count is the deck length rather than one. Counted exactly the
+  // way `renderMediaAsset` counts it below — a reservation for a different number
+  // of slides than the renderer produces is a reservation that never settles clean.
+  const usableSlideTexts = (input.slideTexts || []).filter(
+    (s) => s && ((s.title || "").trim() || (s.body || "").trim() || (s.points || []).length > 0)
+  );
+  const plannedCount =
+    input.mediaType === "multi_image"
+      ? clampDeckSlides(
+          Math.max(input.slideCount || 0, input.visualPrompts?.length || 0, usableSlideTexts.length),
+          3
+        )
+      : 1;
+
+  return withMediaCharge(
+    {
+      mediaType: input.mediaType,
+      count: plannedCount,
+      imageModel: input.imageModel ?? null,
+      owner: input.billing ? { userId: input.billing.userId, workspaceId: input.billing.workspaceId ?? null } : null,
+      referenceId: input.billing?.referenceId ?? null,
+    },
+    () => renderMediaAsset(input),
+    (assets) => assets.filter((a) => a && a.url).length
+  );
+}
+
+async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOutput[]> {
   const { platform, contentType, mediaType, prompt, aspectRatio, topic = "Marketing", onProgress } = input;
 
   const hasKey =
@@ -800,6 +921,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
           }
 
+          // Declared outside the try so the catch can bill the latency of a call that
+          // threw. A failed render still consumed the prompt Google read.
+          const imageStartedAt = Date.now();
+
           try {
             const slideNoun = isInfographic
               ? (isDocumentFormat(contentType) ? "document page" : "designed slide")
@@ -910,8 +1035,32 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                 console.warn(`[Visualizer] ${lastFailure}.`);
               }
             }
+
+            // Image models bill per render on top of the prompt's own tokens, so the
+            // row is written once the response has been read and it is known whether
+            // a render actually came back. A call that returned nothing is recorded at
+            // zero images but is still recorded — a model refusing prompts in a loop
+            // costs input tokens every time.
+            recordUsageAsync({
+              model: modelName,
+              callKind: "image",
+              inputTokens:
+                extractUsageMetadata(genRes).inputTokens || estimateTokens(slidePrompt),
+              imageCount: imageUrl ? 1 : 0,
+              latencyMs: Date.now() - imageStartedAt,
+              ok: !!imageUrl,
+              errorKind: imageUrl ? null : "no_image_returned",
+            });
           } catch (e: any) {
             lastFailure = e?.message || String(e);
+            recordUsageAsync({
+              model: modelName,
+              callKind: "image",
+              inputTokens: estimateTokens(slidePrompt),
+              latencyMs: Date.now() - imageStartedAt,
+              ok: false,
+              errorKind: classifyError(e),
+            });
             console.warn(`[Visualizer] generateContent on ${modelName} (${modalities.join(",")}) failed (attempt ${attempt}/${maxAttempts}):`, lastFailure);
             if (e?.isCancelled || input.signal?.aborted) {
               throw new VisualizerError("VISUALIZER_VALIDATION_FAILED", "Workflow cancelled by user");
@@ -961,6 +1110,10 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
 
       // 2. interactions.create fallback if available
       if (!imageUrl && typeof (ai as any)?.interactions?.create === "function") {
+        // Declared outside the try so a request that threw is still billed for the
+        // prompt Google read. This is a second render request on the same model — it
+        // gets its own usage row, not a share of the first one's.
+        const interactionStartedAt = Date.now();
         try {
           // Still the same model on the same quota, so this request queues in the same
           // window as the attempts above rather than jumping it.
@@ -1014,8 +1167,27 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
             imageUrl = directImg.uri;
             console.log(`[Visualizer] ✅ Image asset ready via interactions.create on ${modelName}`);
           }
+
+          recordUsageAsync({
+            model: modelName,
+            callKind: "image",
+            inputTokens:
+              extractUsageMetadata(interaction).inputTokens || estimateTokens(slidePrompt),
+            imageCount: imageUrl ? 1 : 0,
+            latencyMs: Date.now() - interactionStartedAt,
+            ok: !!imageUrl,
+            errorKind: imageUrl ? null : "no_image_returned",
+          });
         } catch (e: any) {
           if (e?.isCancelled || input.signal?.aborted || e instanceof VisualizerError) throw e;
+          recordUsageAsync({
+            model: modelName,
+            callKind: "image",
+            inputTokens: estimateTokens(slidePrompt),
+            latencyMs: Date.now() - interactionStartedAt,
+            ok: false,
+            errorKind: classifyError(e),
+          });
           // The primary path's failure is the real story. Keep it ahead of the
           // fallback's own error so a quota wall is never masked by a 400.
           const fallbackFailure = e?.message ? String(e.message) : "";

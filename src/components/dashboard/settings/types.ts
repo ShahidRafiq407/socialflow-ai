@@ -6,6 +6,8 @@
 // state is booleans only.
 // ============================================================================
 
+import type { PlanTier } from "@/lib/billing/plans";
+
 export type SettingsView = "profile" | "workspace" | "preferences" | "billing" | "data" | "danger";
 
 export const SETTINGS_VIEW_KEYS: SettingsView[] = [
@@ -31,10 +33,19 @@ export interface ChatSettingsSummary {
 }
 
 export interface SettingsBillingData {
-  /** Kill-switch state from src/lib/billing/gate.ts — read server-side only. */
-  billingEnabled: boolean;
-  tier: "FREE" | "PRO" | "AGENCY";
+  tier: PlanTier;
   status: string;
+  /**
+   * The subscription came from a Lemon Squeezy test store, so no real money moved.
+   * Worth saying on screen: a test-mode subscription grants nothing in production.
+   */
+  testMode: boolean;
+  /** Spendable right now — this period's grant plus purchased credits, net of holds. */
+  creditsAvailable: number;
+  /** What the plan grants at the start of each period. */
+  monthlyGrant: number;
+  /** Share of this period's grant already spent, 0-100. */
+  percentUsed: number;
 }
 
 export interface SettingsWorkspaceData {

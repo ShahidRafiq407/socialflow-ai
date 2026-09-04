@@ -1,15 +1,45 @@
+// ============================================================================
+// THE DASHBOARD'S CREDIT WIDGET
+//
+// One small read for the header strip on the overview page: the plan, what is
+// left, and the two or three limits worth showing before a user goes looking for
+// the billing tab.
+//
+// It used to guess. It counted AI-looking posts for the month, multiplied article
+// runs by five, and called the result "credits used" — a number that matched
+// nothing anyone was ever charged. Now it reads the wallet, which is the same
+// balance every gate checks and every debit writes to, so the figure on the
+// dashboard and the figure on the invoice are the same figure.
+//
+// Scoped to the account, not the workspace: credits are bought by a person and
+// spent across all of their workspaces, so a per-workspace balance would be a
+// fiction. The workspace id is still taken, because the connected-account count
+// genuinely is per workspace.
+// ============================================================================
+
 import prisma from "@/lib/db";
-import { PlanTier, getPlanConfig } from "./plans";
-import { getWorkspacePlan } from "./gate";
+import {
+  PlanTier,
+  UNLIMITED,
+  getEntitlements,
+  getPlanConfig,
+  isUnlimited,
+  planHasFeature,
+} from "./plans";
+import { getPlanContext } from "./entitlements";
+import { getWalletBalance } from "./wallet";
 
 export interface WorkspaceCreditInfo {
   plan: PlanTier;
   planName: string;
   tagline: string;
   status: string;
-  creditsTotal: number; // -1 = unlimited
+  /** This period's grant. -1 = unlimited. */
+  creditsTotal: number;
+  /** Spent out of this period's grant. */
   creditsUsed: number;
-  creditsLeft: number; // -1 = unlimited
+  /** Spendable right now, including purchased credits and net of holds. -1 = unlimited. */
+  creditsLeft: number;
   percentUsed: number;
   isUnlimited: boolean;
   canAccessAI: boolean;
@@ -18,89 +48,66 @@ export interface WorkspaceCreditInfo {
   connectedAccounts: number;
 }
 
+/** What Free looks like, for the paths where nothing else is known. */
+function freeInfo(connectedAccounts = 0): WorkspaceCreditInfo {
+  const config = getPlanConfig("FREE");
+  const entitlements = getEntitlements("FREE");
+  return {
+    plan: "FREE",
+    planName: config.name,
+    tagline: config.tagline,
+    status: "NONE",
+    creditsTotal: 0,
+    creditsUsed: 0,
+    creditsLeft: 0,
+    percentUsed: 0,
+    isUnlimited: false,
+    canAccessAI: false,
+    canGenerateVideo: false,
+    maxSocialAccounts: entitlements.socialAccountsPerWorkspace,
+    connectedAccounts,
+  };
+}
+
 export async function getWorkspaceCreditInfo(workspaceId: string): Promise<WorkspaceCreditInfo> {
   try {
-    const [{ plan, status }, accountCount] = await Promise.all([
-      getWorkspacePlan(workspaceId),
-      prisma.socialAccount.count({ where: { workspaceId } }),
+    // The owner of the workspace is who the credits belong to.
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { userId: true },
+    });
+    if (!workspace) return freeInfo();
+
+    const [context, accountCount] = await Promise.all([
+      getPlanContext(workspace.userId),
+      prisma.socialAccount.count({ where: { workspaceId } }).catch(() => 0),
     ]);
 
-    const config = getPlanConfig(plan);
-    const isUnlimited = config.aiCreditsPerMonth === -1;
-    const creditsTotal = config.aiCreditsPerMonth;
-
-    // Count generations this calendar month from Post and ArticleRun
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const [aiPostsCount, articleRunsCount] = await Promise.all([
-      prisma.post.count({
-        where: {
-          workspaceId,
-          createdAt: { gte: startOfMonth },
-          OR: [
-            { source: { contains: "AI", mode: "insensitive" } },
-            { campaignTopic: { not: null } },
-            { imagePrompt: { not: null } },
-          ],
-        },
-      }).catch(() => 0),
-      prisma.articleRun.count({
-        where: {
-          workspaceId,
-          createdAt: { gte: startOfMonth },
-        },
-      }).catch(() => 0),
-    ]);
-
-    const creditsUsed = aiPostsCount + articleRunsCount * 5;
-
-    let creditsLeft = 0;
-    let percentUsed = 0;
-
-    if (isUnlimited) {
-      creditsLeft = -1;
-      percentUsed = 0;
-    } else if (creditsTotal === 0) {
-      creditsLeft = 0;
-      percentUsed = 100;
-    } else {
-      creditsLeft = Math.max(0, creditsTotal - creditsUsed);
-      percentUsed = Math.min(100, Math.round((creditsUsed / creditsTotal) * 100));
-    }
+    const config = getPlanConfig(context.plan);
+    const wallet = await getWalletBalance(workspace.userId, context.plan);
+    const unlimitedCredits = isUnlimited(context.entitlements.monthlyCredits);
 
     return {
-      plan,
+      plan: context.plan,
       planName: config.name,
       tagline: config.tagline,
-      status,
-      creditsTotal,
-      creditsUsed,
-      creditsLeft,
-      percentUsed,
-      isUnlimited,
-      canAccessAI: config.canAccessAI,
-      canGenerateVideo: config.canGenerateVideo,
-      maxSocialAccounts: config.maxSocialAccounts,
+      status: context.status,
+      creditsTotal: unlimitedCredits ? UNLIMITED : wallet.monthlyGrant,
+      // Out of the grant, not out of the balance: a top-up should not make the
+      // period's usage bar jump backwards.
+      creditsUsed: Math.max(0, wallet.monthlyGrant - wallet.grantBalance),
+      creditsLeft: unlimitedCredits ? UNLIMITED : wallet.available,
+      percentUsed: unlimitedCredits ? 0 : wallet.percentUsed,
+      isUnlimited: unlimitedCredits,
+      // "AI" on this widget means the Content Studio generator — the thing a
+      // visitor is looking for when they ask whether their plan writes posts.
+      canAccessAI: planHasFeature(context.plan, "aistudio.generate"),
+      canGenerateVideo: planHasFeature(context.plan, "media.video"),
+      maxSocialAccounts: context.entitlements.socialAccountsPerWorkspace,
       connectedAccounts: accountCount,
     };
   } catch (error) {
-    console.warn("[getWorkspaceCreditInfo] Fallback to free default:", error);
-    return {
-      plan: "FREE",
-      planName: "Free Starter",
-      tagline: "Essential manual social posting & scheduling",
-      status: "ACTIVE",
-      creditsTotal: 0,
-      creditsUsed: 0,
-      creditsLeft: 0,
-      percentUsed: 0,
-      isUnlimited: false,
-      canAccessAI: false,
-      canGenerateVideo: false,
-      maxSocialAccounts: 2,
-      connectedAccounts: 0,
-    };
+    console.warn("[getWorkspaceCreditInfo] falling back to Free", error);
+    return freeInfo();
   }
 }

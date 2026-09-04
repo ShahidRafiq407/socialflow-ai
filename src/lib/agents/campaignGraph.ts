@@ -1815,6 +1815,13 @@ Return the same JSON shape with keys: coreIdea, hook, hookVariations, caption, v
       signal: familySignal,
       onProgress: (msg) =>
         emit({ type: "agent_action", agentId, data: { label: msg, scope: family.label } }),
+      // Every render inside a campaign is charged per asset at `generateMediaAsset`,
+      // and that charge refuses to run without an owner. Named here rather than left
+      // to the ambient scope because a family renders behind several awaits and a
+      // cancel, and a lost context would turn a billing detail into a failed render.
+      // The run id it files the charge under still comes from the scope the route
+      // opened, which is the only place that knows it.
+      billing: { userId, workspaceId },
     });
 
     if (assets.length === 0) {

@@ -32,6 +32,15 @@ import { auth } from "@clerk/nextjs/server";
 import { isInternalCall, INTERNAL_CALL_TOKEN } from "@/lib/growth/internalCall";
 import { leadTypeLabel } from "@/lib/types/growth";
 import { buildBrandProfile } from "@/lib/brand/profile";
+import {
+  completeAction,
+  failAction,
+  isEntitlementError,
+  requireAction,
+  requireFeature,
+  type ActionTicket,
+} from "@/lib/billing/entitlements";
+import { withMeterContext } from "@/lib/billing/meter";
 
 /**
  * Lead Goal HQ server actions.
@@ -76,6 +85,23 @@ async function ownsWorkspace(workspaceId: string, internalToken?: string | null)
     .catch(() => null);
 
   return Boolean(owned);
+}
+
+/**
+ * Who a workspace's AI spend belongs to.
+ *
+ * Not `auth()`: the autopilot reaches these actions from a cron with an internal
+ * token and no Clerk session, and the spend still belongs to somebody. The
+ * workspace row is the one answer that is right in both cases.
+ */
+async function workspaceOwnerId(workspaceId: string): Promise<string> {
+  const row = await prisma.workspace
+    .findUnique({ where: { id: workspaceId }, select: { userId: true } })
+    .catch(() => null);
+  if (!row?.userId) {
+    throw new Error("This workspace has no owner, so there is nobody to bill for the AI it uses.");
+  }
+  return row.userId;
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight. Order of results is preserved. */
@@ -668,6 +694,9 @@ export async function executeGrowthPlanTask(
     internalToken?: string;
   }
 ): Promise<ExecuteTaskResult> {
+  // Held outside the try so the catch can hand the credits back. A task that threw
+  // half way through wrote nothing the customer can post.
+  let taskTicket: ActionTicket | null = null;
   try {
     if (!(await ownsWorkspace(workspaceId, options?.internalToken))) {
       return { success: false, taskId: task.id, error: NOT_YOURS };
@@ -699,6 +728,32 @@ export async function executeGrowthPlanTask(
     const dna: any = workspace.brandDNA || {};
     const brandProfile = buildBrandProfile(workspace);
     const clickable = isCaptionLinkClickable(task.platform);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // WHAT THIS TASK COSTS
+    //
+    // The owner comes from the workspace row, not from `auth()`. The autopilot
+    // runs this from a cron with an internal token and no Clerk session, and the
+    // spend still belongs to somebody — the same somebody in both cases.
+    //
+    // Taken before the model is called, so a plan that does not include the Goal
+    // tab, or a balance that will not cover the post, stops here rather than after
+    // the money is spent.
+    // ─────────────────────────────────────────────────────────────────────────
+    const billTo = workspace.userId;
+    try {
+      taskTicket = await requireAction({
+        userId: billTo,
+        action: "goal.taskPost",
+        workspaceId,
+        referenceId: task.id,
+      });
+    } catch (gateErr) {
+      if (isEntitlementError(gateErr)) {
+        return { success: false, taskId: task.id, error: gateErr.gate.message };
+      }
+      throw gateErr;
+    }
 
     options?.onProgress?.(`Writing ${task.platform} ${task.format} copy…`);
 
@@ -751,12 +806,18 @@ OUTPUT VALID JSON ONLY:
   "mediaType": "${capability.mediaType}"
 }`;
 
-    const res = await vertexProvider.generateJSON([{ role: "user", content: prompt }], {
-      modelName: MODELS.CONTENT_CREATOR,
-      temperature: 0.4,
-    });
+    const res = await withMeterContext(
+      { userId: billTo, workspaceId, feature: "goals", action: "goal.taskPost", referenceId: task.id },
+      () =>
+        vertexProvider.generateJSON([{ role: "user", content: prompt }], {
+          modelName: MODELS.CONTENT_CREATOR,
+          temperature: 0.4,
+        })
+    );
 
     if (options?.signal?.aborted) {
+      await failAction(taskTicket, { note: "Refunded: stopped by the user" });
+      taskTicket = null;
       return { success: false, taskId: task.id, error: "Stopped by user." };
     }
 
@@ -789,6 +850,9 @@ OUTPUT VALID JSON ONLY:
           topic: task.topic,
           signal: options?.signal,
           onProgress: options?.onProgress,
+          // The render is charged per asset at the choke point, which refuses to run
+          // without an owner — and there is no session here to infer one from.
+          billing: { userId: billTo, workspaceId, referenceId: task.id },
         } as any);
         if (assets[0]?.url) {
           mediaUrl = assets[0].url;
@@ -796,6 +860,11 @@ OUTPUT VALID JSON ONLY:
         }
       } catch (mediaErr: any) {
         if (mediaErr?.name === "AbortError" || options?.signal?.aborted) {
+          // Nothing is persisted on this path — the caption is discarded with the
+          // run — so the customer got nothing and pays nothing. The render refunded
+          // itself at its own choke point.
+          await failAction(taskTicket, { note: "Refunded: stopped by the user" });
+          taskTicket = null;
           return { success: false, taskId: task.id, error: "Stopped by user." };
         }
         mediaWarning = `Copy is ready but the visual failed: ${mediaErr?.message || "media generation error"}`;
@@ -902,6 +971,16 @@ OUTPUT VALID JSON ONLY:
 
     revalidateGoalSurfaces();
 
+    // The post row exists and is scheduled — this is the one exit that delivered
+    // something, so it is the one exit that charges.
+    await completeAction({
+      ticket: taskTicket,
+      measureCost: true,
+      referenceType: "growth_task",
+      referenceId: post.id,
+    });
+    taskTicket = null;
+
     return {
       success: true,
       taskId: task.id,
@@ -925,6 +1004,9 @@ OUTPUT VALID JSON ONLY:
     const message =
       error?.name === "AbortError" ? "Stopped by user." : error?.message || "Failed to execute the task.";
     console.error("[executeGrowthPlanTask] error:", error);
+    if (taskTicket) {
+      await failAction(taskTicket, { note: `Refunded: ${message.slice(0, 160)}` }).catch(() => null);
+    }
     await patchStrategyTask(workspaceId, task.id, { status: "FAILED", error: message }).catch(() => null);
     return { success: false, taskId: task.id, error: message };
   }
@@ -967,6 +1049,9 @@ export async function executeGrowthArticleTask(
   }
 ): Promise<ExecuteArticleResult> {
   const keyword = (task.keyword || task.topic || "").trim();
+  // Held outside the try so every exit below can settle it. An article is the most
+  // expensive thing the autopilot does, and it does it unattended.
+  let articleTicket: ActionTicket | null = null;
 
   try {
     if (!(await ownsWorkspace(workspaceId, options?.internalToken))) {
@@ -996,27 +1081,67 @@ export async function executeGrowthArticleTask(
 
     const dna: any = workspace.brandDNA || {};
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // WHAT AN AUTOPILOT ARTICLE COSTS
+    //
+    // The same `generateSeoArticle` the Article Writer's one-shot path runs, so it
+    // is charged the same: `article.quick`. Filing it under the article action
+    // rather than under a goals action is deliberate — an article the autopilot
+    // wrote draws down the article allowance, so the Goal tab cannot be used as a
+    // way around it. That also means a plan with the Goal tab but no article tab
+    // stops here, before the WordPress site fills up.
+    //
+    // Billed to the workspace owner, because the cron reaches this with an internal
+    // token and no Clerk session.
+    // ─────────────────────────────────────────────────────────────────────────
+    const billTo = workspace.userId;
+    try {
+      articleTicket = await requireAction({
+        userId: billTo,
+        action: "article.quick",
+        workspaceId,
+        referenceId: task.id,
+      });
+    } catch (gateErr) {
+      if (isEntitlementError(gateErr)) {
+        return { success: false, taskId: task.id, keyword, error: gateErr.gate.message };
+      }
+      throw gateErr;
+    }
+
     options?.onProgress?.(`Analysing search results for “${keyword}”…`);
     const { fetchSerpAnalysis } = await import("@/actions/serp");
     const serp = await fetchSerpAnalysis(keyword).catch(() => ({ success: false } as any));
 
-    if (options?.signal?.aborted) return { success: false, taskId: task.id, error: "Stopped by user." };
+    if (options?.signal?.aborted) {
+      await failAction(articleTicket, { note: "Refunded: stopped by the user" });
+      articleTicket = null;
+      return { success: false, taskId: task.id, keyword, error: "Stopped by user." };
+    }
 
     options?.onProgress?.("Writing the schema-rich SEO article…");
     const { generateSeoArticle } = await import("@/lib/agents/workers/article-generator");
-    const article = await generateSeoArticle({
-      keyword,
-      title: task.topic && task.topic !== keyword ? task.topic : undefined,
-      serpData: serp?.success ? serp.data : undefined,
-      brandName: workspace.name || undefined,
-      brandTone: dna.tone || undefined,
-      targetAudience: dna.targetAudience || undefined,
-      industry: workspace.industry || undefined,
-      articleSize: "medium",
-      targetWebsite: wp.siteUrl,
-    } as any);
+    const article = await withMeterContext(
+      { userId: billTo, workspaceId, feature: "article", action: "article.quick", referenceId: task.id },
+      () =>
+        generateSeoArticle({
+          keyword,
+          title: task.topic && task.topic !== keyword ? task.topic : undefined,
+          serpData: serp?.success ? serp.data : undefined,
+          brandName: workspace.name || undefined,
+          brandTone: dna.tone || undefined,
+          targetAudience: dna.targetAudience || undefined,
+          industry: workspace.industry || undefined,
+          articleSize: "medium",
+          targetWebsite: wp.siteUrl,
+        } as any)
+    );
 
-    if (options?.signal?.aborted) return { success: false, taskId: task.id, error: "Stopped by user." };
+    if (options?.signal?.aborted) {
+      await failAction(articleTicket, { note: "Refunded: stopped by the user" });
+      articleTicket = null;
+      return { success: false, taskId: task.id, keyword, error: "Stopped by user." };
+    }
 
     // ── Tracked CTA inside the article body. The link is created first (there is
     //    no Post row for an article) and points back at the user's own
@@ -1100,6 +1225,13 @@ export async function executeGrowthArticleTask(
     });
 
     if (!result.success) {
+      // The article was written, but nothing about it survives this failure: the
+      // body is not stored anywhere the customer can reach, only the title and the
+      // reason are. So they paid for a draft they cannot read. Refunded.
+      await failAction(articleTicket, {
+        note: `Refunded: the article could not be published (${result.error || "rejected by the site"})`,
+      }).catch(() => null);
+      articleTicket = null;
       await patchStrategyTask(workspaceId, task.id, {
         status: "FAILED",
         error: result.error || "WordPress publish failed.",
@@ -1121,6 +1253,19 @@ export async function executeGrowthArticleTask(
       error: undefined,
     }).catch(() => null);
 
+    // Live on the customer's own site, which is the whole deliverable. Settled with
+    // `measureCost` so the 150 credits an article costs can be argued with against
+    // what this run actually spent.
+    await completeAction({
+      ticket: articleTicket,
+      measureCost: true,
+      referenceType: "growth_article",
+      referenceId: logId || task.id,
+    }).catch((billingErr) => {
+      console.error("[executeGrowthArticleTask] settling the article's charge failed:", billingErr);
+    });
+    articleTicket = null;
+
     revalidatePath("/dashboard/goals");
     revalidatePath("/dashboard/article-writer");
 
@@ -1140,6 +1285,11 @@ export async function executeGrowthArticleTask(
     const message =
       error?.name === "AbortError" ? "Stopped by user." : error?.message || "Failed to publish the article.";
     console.error("[executeGrowthArticleTask] error:", error);
+    // Nothing reached the customer's site, so nothing is owed. Every successful
+    // exit above has already nulled the ticket, so this cannot double-refund.
+    if (articleTicket) {
+      await failAction(articleTicket, { note: `Refunded: ${message.slice(0, 160)}` }).catch(() => null);
+    }
     await patchStrategyTask(workspaceId, task.id, { status: "FAILED", error: message }).catch(() => null);
     return { success: false, taskId: task.id, keyword, error: message };
   }
@@ -1325,6 +1475,17 @@ export async function regenerateGrowthTaskMedia(
     const capability = getPlatformCapability(post.platform.toLowerCase() as any, post.format || task.format);
     const isVideo = post.mediaType === "video" || /reel|short|video/i.test(post.format || "");
 
+    // The Goal tab is a Pro entitlement, and a server action is reachable without the
+    // tab that renders it, so the plan is checked here rather than in the component.
+    // The render itself is priced and charged per asset at its own choke point.
+    const billTo = await workspaceOwnerId(workspaceId);
+    try {
+      await requireFeature(billTo, "goals.autopilot");
+    } catch (gateErr) {
+      if (isEntitlementError(gateErr)) return { success: false, error: gateErr.gate.message };
+      throw gateErr;
+    }
+
     const assets = await generateMediaAsset({
       platform: post.platform,
       contentType: post.format || task.format,
@@ -1334,6 +1495,7 @@ export async function regenerateGrowthTaskMedia(
       imageModel: MODELS.VISUALIZER,
       topic: task.topic,
       signal: options?.signal,
+      billing: { userId: billTo, workspaceId, referenceId: post.id },
     } as any);
 
     const url = assets[0]?.url;
@@ -1758,6 +1920,9 @@ export async function buildGrowthStrategyAction(
     revalidatePath("/dashboard/goals");
     return { success: true, strategy };
   } catch (error: any) {
+    // `generateGrowthStrategy` gates and charges, so a refusal arrives here as an
+    // `EntitlementError` whose message is already the sentence to show.
+    if (isEntitlementError(error)) return { success: false, error: error.gate.message };
     console.error("[buildGrowthStrategyAction] error:", error);
     return { success: false, error: error?.message || "Failed to build the plan." };
   }

@@ -20,7 +20,7 @@ import type { ChatSettings } from "./settingsShape";
 import { buildDeepLink, type DashboardTab } from "./navigation";
 import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { PLATFORM_CAPABILITIES } from "@/lib/capabilities/platformCapabilities";
-import { getPlanConfig } from "@/lib/billing/plans";
+import { getPlanConfig, planHasFeature } from "@/lib/billing/plans";
 
 /** Why something cannot be done. Ordered from "user can fix it" to "we can't". */
 export type LimitReason =
@@ -238,10 +238,14 @@ export function computeLimits(params: {
   }
 
   if (params.planTier) {
-    const plan = getPlanConfig(params.planTier);
+    const tier = params.planTier;
+    const plan = getPlanConfig(tier);
     const billingFix: LimitFix = { label: "See plans", href: buildDeepLink("billing"), tab: "billing" };
 
-    if (!plan.canAccessAI) {
+    // Asked of the entitlement table rather than of a boolean on the plan card,
+    // so the answer the chat gives a user is the same answer the gate will give
+    // their next request.
+    if (!planHasFeature(tier, "aistudio.generate")) {
       limits.push({
         key: "plan:ai",
         capability: "Any AI generation at all — copy, images, video, research",
@@ -250,7 +254,7 @@ export function computeLimits(params: {
         fix: billingFix,
       });
     } else {
-      if (!plan.canGenerateVideo) {
+      if (!planHasFeature(tier, "media.video")) {
         limits.push({
           key: "plan:video",
           capability: "AI video generation",
@@ -259,7 +263,7 @@ export function computeLimits(params: {
           fix: billingFix,
         });
       }
-      if (!plan.canUploadZip) {
+      if (!planHasFeature(tier, "export.zip")) {
         limits.push({
           key: "plan:zip",
           capability: "Inspecting a ZIP or a whole project folder",

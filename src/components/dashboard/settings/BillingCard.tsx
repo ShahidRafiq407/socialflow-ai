@@ -2,48 +2,47 @@
 
 import React from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Clock, Sparkles, Video, Wallet, Share2 } from "lucide-react";
+import { ArrowRight, Check, FlaskConical, Share2, Sparkles, Video, Wallet } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getPlanConfig } from "@/lib/billing/plans";
+import { formatCap, getEntitlements, getPlanConfig, planHasFeature } from "@/lib/billing/plans";
 import type { SettingsData } from "./types";
 
 /**
  * Billing section — a read-only summary of the current plan.
  *
- * Plan changes, checkout and billing history live on the billing page; this
- * card only shows what the user already has. Limits are plan facts, not usage
- * metering — there is no credit tracking system yet, so none is faked here.
+ * Plan changes, checkout and invoices live on the billing page; this card only
+ * shows what the account already has. The credit figures come from the wallet, so
+ * they are the same numbers the gates enforce rather than a display estimate.
  */
 export function BillingCard({ data }: { data: SettingsData }) {
-  const { tier, status, billingEnabled } = data.billing;
+  const { tier, status, testMode, creditsAvailable, monthlyGrant, percentUsed } = data.billing;
   const config = getPlanConfig(tier);
+  const entitlements = getEntitlements(tier);
   const connected = data.counts.socialAccounts;
 
   const limits = [
     {
       icon: <Share2 className="h-4 w-4" />,
       label: "Social accounts",
-      value: `${connected} / ${config.maxSocialAccounts} connected`,
+      value: `${connected} / ${formatCap(entitlements.socialAccountsPerWorkspace)} connected`,
     },
     {
       icon: <Sparkles className="h-4 w-4" />,
       label: "AI generation",
-      value: config.canAccessAI ? "Included" : "Manual mode only",
+      value: planHasFeature(tier, "aistudio.generate") ? "Included" : "Manual mode only",
     },
     {
       icon: <Video className="h-4 w-4" />,
       label: "AI video",
-      value: config.canGenerateVideo ? "Included" : "Not included",
+      value: planHasFeature(tier, "media.video") ? "Included" : "Not included",
     },
     {
       icon: <Wallet className="h-4 w-4" />,
-      label: "AI credits",
+      label: "Credits",
       value:
-        config.aiCreditsPerMonth === -1
-          ? "Unlimited"
-          : config.aiCreditsPerMonth === 0
-            ? "None on this plan"
-            : `${config.aiCreditsPerMonth} / month`,
+        monthlyGrant === 0
+          ? "None on this plan"
+          : `${creditsAvailable.toLocaleString()} left of ${monthlyGrant.toLocaleString()} / month`,
     },
   ];
 
@@ -52,16 +51,15 @@ export function BillingCard({ data }: { data: SettingsData }) {
       <CardHeader>
         <CardTitle>Current plan</CardTitle>
         <CardDescription>
-          What your workspace is on today. Upgrades, downgrades and invoices happen on the billing
+          What your account is on today. Upgrades, downgrades and invoices happen on the billing
           page.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        {!billingEnabled && (
+        {testMode && (
           <div className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-            <Clock className="h-4 w-4 shrink-0" />
-            Test mode — no real payments. Plan checks are disabled while the product is being
-            tested.
+            <FlaskConical className="h-4 w-4 shrink-0" />
+            This subscription came from a test store, so no real payment was taken.
           </div>
         )}
 
@@ -91,9 +89,22 @@ export function BillingCard({ data }: { data: SettingsData }) {
             </span>
           </div>
           <p className="text-sm text-muted-foreground">
-            {config.priceMonthly === 0 ? "Free" : `$${config.priceMonthly} / month`}
+            {config.oneTimePrice !== undefined
+              ? `$${config.oneTimePrice} once`
+              : config.priceMonthly === 0
+                ? "Free"
+                : `$${config.priceMonthly} / month`}
           </p>
         </div>
+
+        {monthlyGrant > 0 && (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${Math.min(100, Math.max(0, percentUsed))}%` }}
+            />
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           {limits.map((limit) => (

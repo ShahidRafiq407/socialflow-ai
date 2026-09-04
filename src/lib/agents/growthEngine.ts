@@ -402,7 +402,42 @@ function platformFormats(platformKey: string): { formats: string[]; mediaTypes: 
   return { formats, mediaTypes };
 }
 
+/**
+ * Builds a plan, and charges the workspace one autopilot cycle for it.
+ *
+ * The charge lives here rather than in the callers because there are four of them
+ * — the Goal tab's SSE route, the non-streaming server action, the daily cron and
+ * the chat's `recalculate_growth_strategy` tool — and a planning pass that is
+ * free from one of those entrances is free from all of them. The cron is the one
+ * that makes this non-negotiable: it plans every day, unattended, for every
+ * workspace with an autopilot goal, and nobody is watching the balance.
+ *
+ * `runAction` also gates. A workspace whose plan no longer has the Goal tab stops
+ * being planned for, which is the difference between a subscription lapsing and a
+ * subscription lapsing while our models keep working.
+ *
+ * The posts and articles the plan decides to make are not charged here. Each one
+ * is its own `goal.taskPost` (or its own article run) when something actually
+ * executes it, so a plan that is never run costs one cycle and nothing more.
+ */
 export async function generateGrowthStrategy(
+  input: GenerateStrategyInput
+): Promise<GrowthStrategy> {
+  const { runAction } = await import("@/lib/billing/entitlements");
+  return runAction(
+    {
+      userId: input.userId,
+      action: "goal.autopilotCycle",
+      workspaceId: input.workspaceId,
+      referenceId: input.workspaceId,
+      surface: "goals",
+      measureCost: true,
+    },
+    () => buildGrowthStrategy(input)
+  );
+}
+
+async function buildGrowthStrategy(
   input: GenerateStrategyInput
 ): Promise<GrowthStrategy> {
   const {

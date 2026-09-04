@@ -33,6 +33,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -47,7 +48,12 @@ export default function OnboardingPage() {
   const handleExtract = async () => {
     if (!url) return;
     setIsExtracting(true);
+    setExtractError(null);
     try {
+      // Charged as a brand analysis inside the action. There is no workspace yet at
+      // this point, so the usage row carries the account and no workspace — which is
+      // why `brandDna.analyze` has to be on the entry plan: this is the first thing a
+      // new account does, and it is the one AI call onboarding makes.
       const data = await extractFromUrl(url);
       form.reset({
         companyName: data.companyName,
@@ -55,9 +61,15 @@ export default function OnboardingPage() {
         targetAudience: data.targetAudience,
         brandTone: data.brandTone,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert("Failed to extract data. Please try again or enter manually.");
+      // The server's own sentence, so a plan refusal or a firewalled site reads as
+      // what it is instead of as "try again".
+      setExtractError(
+        typeof error?.message === "string" && error.message.trim()
+          ? error.message
+          : "We could not read that site. Try again, or fill this in manually."
+      );
     } finally {
       setIsExtracting(false);
     }
@@ -90,7 +102,7 @@ export default function OnboardingPage() {
             </TabsList>
 
             <TabsContent value="auto">
-              <div className="flex gap-2 mb-8">
+              <div className="flex gap-2 mb-2">
                 <Input
                   placeholder="https://yourwebsite.com"
                   value={url}
@@ -105,6 +117,11 @@ export default function OnboardingPage() {
                   Generate Magic Profile
                 </Button>
               </div>
+              {extractError ? (
+                <p className="mb-8 text-sm text-red-600 dark:text-red-400">{extractError}</p>
+              ) : (
+                <div className="mb-8" />
+              )}
             </TabsContent>
 
             <TabsContent value="manual">

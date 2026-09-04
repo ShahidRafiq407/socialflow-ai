@@ -19,10 +19,12 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import prisma from "@/lib/db";
+import { checkWorkspaceLimit } from "@/lib/billing/entitlements";
 import {
   resolveActiveWorkspaceId,
   setActiveWorkspaceCookie,
 } from "@/lib/workspace/active";
+import { attributeReferral } from "@/lib/affiliate/referral";
 
 export interface WorkspaceSummary {
   id: string;
@@ -30,10 +32,11 @@ export interface WorkspaceSummary {
 }
 
 /**
- * A ceiling exists only to stop runaway automation from filling the account
- * with empty workspaces; nobody organising real work hits 25.
+ * How many workspaces an account may own is a plan decision, so it is not decided
+ * here — `checkWorkspaceLimit` reads the entitlement and counts the rows, and its
+ * refusal already names the limit and the plan that raises it. Free gets one,
+ * Agency gets as many as the work needs.
  */
-const MAX_WORKSPACES_PER_USER = 25;
 
 /** Every dashboard route hangs off the same layout, so one call covers all. */
 function revalidateDashboard() {
@@ -114,6 +117,10 @@ async function ensureUserRow(userId: string): Promise<void> {
       data: { id: userId, email: `${userId}@placeholder.local`, name },
     });
   }
+
+  // A user row born here is a signup that skipped onboarding's hook; attribute
+  // any pending referral the same way. Idempotent and never fatal.
+  await attributeReferral(userId).catch(() => undefined);
 }
 
 /**
@@ -145,12 +152,12 @@ export async function createWorkspace(input: {
   }
 
   try {
-    const existingCount = await prisma.workspace.count({ where: { userId } });
-    if (existingCount >= MAX_WORKSPACES_PER_USER) {
-      return {
-        success: false,
-        error: `You have reached the limit of ${MAX_WORKSPACES_PER_USER} workspaces. Delete one from Settings to add another.`,
-      };
+    // The plan's ceiling, checked before anything is written. The gate counts the
+    // account's own workspaces, so a second workspace on Free is refused with the
+    // sentence that says which plan includes it.
+    const gate = await checkWorkspaceLimit(userId);
+    if (!gate.allowed) {
+      return { success: false, error: gate.message ?? "Your plan does not include another workspace." };
     }
 
     const duplicate = await prisma.workspace.findFirst({

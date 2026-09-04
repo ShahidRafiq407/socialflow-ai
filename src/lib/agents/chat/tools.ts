@@ -194,7 +194,7 @@ export const TOOLS: ToolDef[] = [
       let brand = ctx.brandDNA;
       if (!brand && ctx.workspaceId) {
         try {
-          brand = await getWorkspaceBrandDNA(ctx.workspaceId);
+          brand = await getWorkspaceBrandDNA(ctx.workspaceId, ctx.userId);
         } catch {
           brand = null;
         }
@@ -277,8 +277,24 @@ INSTRUCTIONS:
       properties: { url: { type: "string" } },
       required: ["url"],
     },
-    execute: async (args) => {
-      return extractFromUrl(args.url);
+    execute: async (args, ctx) => {
+      // Charged as a brand analysis, because that is what it is: the same fetch and
+      // the same extraction call. A tool the model reached for is not cheaper than
+      // the button the user could have pressed instead.
+      try {
+        return await extractFromUrl(args.url, {
+          userId: ctx.userId,
+          workspaceId: ctx.workspaceId,
+        });
+      } catch (err: any) {
+        const { isEntitlementError } = await import("@/lib/billing/entitlements");
+        if (!isEntitlementError(err)) throw err;
+        return {
+          success: false,
+          error: err.gate.message || "Reading a website is not available on the current plan.",
+          upgrade: true,
+        };
+      }
     },
   },
 
@@ -289,7 +305,7 @@ INSTRUCTIONS:
       "Read the workspace Brand DNA (tone, audience, mission, pain points, differentiator, forbidden words). Use before writing any marketing copy.",
     parameters: { type: "object", properties: {} },
     execute: async (args, ctx) => {
-      return getWorkspaceBrandDNA(ctx.workspaceId);
+      return getWorkspaceBrandDNA(ctx.workspaceId, ctx.userId);
     },
   },
   {
@@ -386,6 +402,9 @@ INSTRUCTIONS:
         sourceImage,
         onProgress: ctx.onProgress,
         signal: ctx.signal,
+        // The render is charged per asset at the choke point, which refuses to run
+        // for nobody. The chat's stream settles its own turn separately.
+        billing: { userId: ctx.userId, workspaceId: ctx.workspaceId, referenceId: ctx.sessionId ?? null },
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate image" };
@@ -485,6 +504,7 @@ INSTRUCTIONS:
         sourceImage,
         onProgress: ctx.onProgress,
         signal: ctx.signal,
+        billing: { userId: ctx.userId, workspaceId: ctx.workspaceId, referenceId: ctx.sessionId ?? null },
       });
       const first = assets[0];
       if (!first || !first.url) return { error: "Failed to generate video" };
@@ -662,6 +682,7 @@ INSTRUCTIONS:
             imageModel: MODELS.VISUALIZER,
             onProgress: ctx.onProgress,
             signal: ctx.signal,
+            billing: { userId: ctx.userId, workspaceId: ctx.workspaceId, referenceId: ctx.sessionId ?? null },
           });
           if (assets[0]?.url) {
             mediaUrl = assets[0].url;
@@ -681,6 +702,7 @@ INSTRUCTIONS:
             aspectRatio: args.aspectRatio || "9:16",
             onProgress: ctx.onProgress,
             signal: ctx.signal,
+            billing: { userId: ctx.userId, workspaceId: ctx.workspaceId, referenceId: ctx.sessionId ?? null },
           });
           if (assets[0]?.url) {
             mediaUrl = assets[0].url;
@@ -739,9 +761,9 @@ INSTRUCTIONS:
       },
     },
     execute: async (args, ctx) => {
-      const current = await getWorkspaceBrandDNA(ctx.workspaceId).catch(() => ({} as any));
+      const current = await getWorkspaceBrandDNA(ctx.workspaceId, ctx.userId).catch(() => ({} as any));
       const merged = { ...current, ...args };
-      await saveWorkspaceBrandDNA(ctx.workspaceId, merged);
+      await saveWorkspaceBrandDNA(ctx.workspaceId, merged, ctx.userId);
       return { ok: true };
     },
   },
@@ -1109,7 +1131,7 @@ INSTRUCTIONS:
           where: { workspaceId: ctx.workspaceId },
           _count: true,
         }),
-        getWorkspaceBrandDNA(ctx.workspaceId).catch(() => null),
+        getWorkspaceBrandDNA(ctx.workspaceId, ctx.userId).catch(() => null),
         prisma.post.findMany({
           where: { workspaceId: ctx.workspaceId },
           orderBy: { createdAt: "desc" },
@@ -1513,18 +1535,34 @@ INSTRUCTIONS:
         };
       }
 
-      const strategy = await generateGrowthStrategy({
-        workspaceId: ctx.workspaceId,
-        userId: ctx.userId,
-        leadTarget: current.goal.leadTarget,
-        leadType: current.goal.leadType,
-        timeframeDays: current.goal.timeframeDays,
-        targetPlatforms: current.goal.targetPlatforms,
-        leadSources: current.goal.leadSources,
-        articlesPerWeek: current.goal.articlesPerWeek ?? undefined,
-        ctaDestinations: current.goal.ctaDestinations,
-        customGuidance: args.guidance,
-      });
+      // The planner charges one autopilot cycle at its own choke point, and it
+      // gates on the Goal tab. The chat is not a way past either, so a refusal is
+      // reported back to the model as a result rather than thrown — the model can
+      // then tell the user what their plan does not include, instead of the turn
+      // dying on an error the customer cannot act on.
+      let strategy;
+      try {
+        strategy = await generateGrowthStrategy({
+          workspaceId: ctx.workspaceId,
+          userId: ctx.userId,
+          leadTarget: current.goal.leadTarget,
+          leadType: current.goal.leadType,
+          timeframeDays: current.goal.timeframeDays,
+          targetPlatforms: current.goal.targetPlatforms,
+          leadSources: current.goal.leadSources,
+          articlesPerWeek: current.goal.articlesPerWeek ?? undefined,
+          ctaDestinations: current.goal.ctaDestinations,
+          customGuidance: args.guidance,
+        });
+      } catch (gateErr) {
+        const { isEntitlementError } = await import("@/lib/billing/entitlements");
+        if (!isEntitlementError(gateErr)) throw gateErr;
+        return {
+          success: false,
+          error: gateErr.gate.message || "Rebuilding the plan is not available on the current plan.",
+          upgrade: true,
+        };
+      }
 
       try {
         await (prisma as any).growthGoal.update({
@@ -1759,11 +1797,17 @@ INSTRUCTIONS:
       const script = (args.script || "").trim();
       if (!script) return { error: "No script provided — the avatar needs text to speak." };
 
-      // Billing gate: HeyGen renders cost real credits.
-      const { checkAIAccess } = await import("@/lib/billing/gate");
-      const gate = await checkAIAccess(ctx.workspaceId);
-      if (!gate.allowed) {
-        return { error: gate.message || "AI video generation is not available on the current plan." };
+      // A HeyGen render runs on the customer's own HeyGen key and their own HeyGen
+      // quota, so this is not a credit charge — it is the connector check. The
+      // plugin was connected under a plan that allowed plugins, and a plan can be
+      // downgraded afterwards; without this, a lapsed account keeps a working
+      // avatar-video pipeline (and keeps filling our storage with the results).
+      const { requireFeature, isEntitlementError } = await import("@/lib/billing/entitlements");
+      try {
+        await requireFeature(ctx.userId, "plugins.connect");
+      } catch (gateErr) {
+        if (!isEntitlementError(gateErr)) throw gateErr;
+        return { error: gateErr.gate.message || "Plugins are not available on the current plan." };
       }
 
       ctx.onProgress?.("Loading HeyGen avatars & voices...");

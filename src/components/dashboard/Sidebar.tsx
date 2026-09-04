@@ -15,6 +15,7 @@ import {
   Share2,
   Blocks,
   CreditCard,
+  Gift,
   Settings,
 } from "lucide-react";
 import { PostloomLogo } from "@/components/marketing/logo";
@@ -31,6 +32,7 @@ export const sidebarLinks = [
   { name: "Integrations", href: "/dashboard/integrations", icon: Share2 },
   { name: "Plugin", href: "/dashboard/plugins", icon: Blocks },
   { name: "Billing", href: "/dashboard/billing", icon: CreditCard },
+  { name: "Affiliate", href: "/dashboard/affiliate", icon: Gift },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

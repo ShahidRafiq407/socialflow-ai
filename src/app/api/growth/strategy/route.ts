@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { isEntitlementError, requireFeature } from "@/lib/billing/entitlements";
+import { entitlementResponse } from "@/lib/billing/route";
 import prisma from "@/lib/db";
 import { generateGrowthStrategy } from "@/lib/agents/growthEngine";
 import { LeadSource, LeadType } from "@/lib/types/growth";
@@ -45,17 +47,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
-    const { checkAIAccess } = await import("@/lib/billing/gate");
-    const gate = await checkAIAccess(workspaceId);
-    if (!gate.allowed) {
-      return NextResponse.json(
-        {
-          error: gate.message || "Upgrade required",
-          reason: gate.reason,
-          requiredPlan: gate.requiredPlan,
-        },
-        { status: 403 }
-      );
+    // Asked before the event stream opens, because a refusal delivered as an SSE
+    // `strategy_error` frame reads like a failure rather than like a plan boundary.
+    // The cycle's own credits are taken inside `generateGrowthStrategy`, which is
+    // the choke point all four entrances to the planner go through.
+    try {
+      await requireFeature(userId, "goals.autopilot");
+    } catch (gateErr) {
+      const refusal = entitlementResponse(gateErr);
+      if (!refusal) throw gateErr;
+      return refusal;
     }
 
     // ── The plan is built from the saved goal, never from defaults.
@@ -177,6 +178,11 @@ export async function POST(req: Request) {
         if (!aborted) console.error("[growth/strategy] error:", err);
         await sendEvent("strategy_error", {
           error: aborted ? "Stopped by user." : err?.message || "Failed to build the plan.",
+          // The gate above runs before the stream opens, so reaching here means the
+          // credits ran out between the two — the one refusal this endpoint has to
+          // be able to report mid-stream.
+          upgrade: isEntitlementError(err) || undefined,
+          reason: isEntitlementError(err) ? err.gate.reason : undefined,
         });
       } finally {
         closed = true;

@@ -5,6 +5,12 @@
  *
  * The key is read from the environment here and never reaches the browser.
  *
+ * It is behind a session check for the same reason. No model runs here, so there
+ * is nothing to charge and no plan question to ask — but this is a `"use server"`
+ * export, which makes it a public HTTP endpoint, and the quota it spends is ours
+ * and rate-limited. An anonymous caller looping it takes the stock grid down for
+ * paying accounts.
+ *
  * One behaviour is worth knowing about before reading the code: when a niche
  * term returns nothing, this used to quietly re-run the search as "business"
  * and hand back generic office photography as if it had answered the question.
@@ -13,6 +19,7 @@
  * found nothing instead of implying these are the results for it.
  */
 
+import { auth } from "@clerk/nextjs/server";
 import { getPixabayKeys, PIXABAY_MISSING_MESSAGE } from "@/lib/apiKeys";
 
 export interface StockHit {
@@ -159,6 +166,17 @@ export async function searchStockMedia(
   orientation: Orientation = "all"
 ): Promise<StockSearchResult> {
   const term = (query || "").trim() || GENERIC_FALLBACK;
+
+  const { userId } = await auth().catch(() => ({ userId: null }) as any);
+  if (!userId) {
+    return {
+      success: false,
+      configured: true,
+      error: "Please sign in to search stock media.",
+      hits: [],
+      totalHits: 0,
+    };
+  }
 
   // Environment only. A literal key here would spend somebody else's quota.
   const apiKey = getPixabayKeys()[0];

@@ -1,216 +1,267 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
+import { ArrowRight, Check, Loader2, Lock, Shield } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { PLANS, PlanTier } from "@/lib/billing/plans";
-import { Check, Sparkles, Zap, Shield, ArrowRight, Loader2 } from "lucide-react";
-import Link from "next/link";
+import {
+  FEATURE_LABELS,
+  PLAN_CATALOG,
+  PURCHASABLE_PLANS,
+  lowestPlanWith,
+  planRank,
+  yearlySavingPercent,
+  type FeatureKey,
+  type PlanConfig,
+  type PlanTier,
+} from "@/lib/billing/plans";
 
+/**
+ * The upgrade prompt a gate opens when a feature is not on the current plan.
+ *
+ * Every word, price and bullet is read from the plan catalogue. That is the whole
+ * point of the file: a modal carrying its own copy is a modal that will one day
+ * advertise a feature the plan no longer includes, or a price nobody is charged.
+ * These are the same cards the billing page renders, and the button posts to the
+ * same checkout route — so what is promised here is what is sold there.
+ */
 interface UpgradeModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The feature the user just hit a wall on. Decides the copy and which card leads. */
+  feature?: FeatureKey;
+  /** The plan to lead with. Defaults to the cheapest one that includes `feature`. */
+  highlightPlan?: PlanTier;
+  /** What the account is on now, so its own card reads "current" and not an upsell. */
+  currentPlan?: PlanTier;
   title?: string;
   description?: string;
-  highlightPlan?: PlanTier;
+}
+
+/** Yearly is quoted per month, because that is the number being compared. */
+function perMonth(plan: PlanConfig, cycle: "monthly" | "yearly"): number {
+  return cycle === "yearly" ? Math.round(plan.priceYearly / 12) : plan.priceMonthly;
 }
 
 export function UpgradeModal({
   open,
   onOpenChange,
-  title = "Unlock Autonomous AI Marketing",
-  description = "AI generation features are available on Creator Pro and Agency plans. Upgrade your plan to generate viral multi-platform campaigns in seconds.",
-  highlightPlan = "PRO",
+  feature,
+  highlightPlan,
+  currentPlan = "FREE",
+  title,
+  description,
 }: UpgradeModalProps) {
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
-  const [upgradingTo, setUpgradingTo] = useState<string | null>(null);
+  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
+  const [busy, setBusy] = useState<PlanTier | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const handleUpgrade = (tier: PlanTier) => {
-    setUpgradingTo(tier);
-    // Redirect to billing dashboard with selected plan
-    window.location.href = `/dashboard/billing?plan=${tier}&cycle=${billingCycle}`;
-  };
+  // The cheapest plan that actually unlocks what they tried to do. Leading with the
+  // most expensive one is how a paywall starts reading as a shakedown.
+  const suggested: PlanTier = highlightPlan ?? (feature ? lowestPlanWith(feature) : "PRO");
+  const featureName = feature ? FEATURE_LABELS[feature] : null;
+
+  const heading = title ?? (featureName ? `${featureName} needs a plan` : "Unlock the rest of it");
+  const blurb =
+    description ??
+    (featureName
+      ? `${featureName} is included from ${PLAN_CATALOG[suggested].name} upwards. Nothing you have already made is affected, and it works on the next click.`
+      : "Each plan includes everything in the one before it. Change or cancel whenever you like.");
+
+  // Said as "up to" and read from the catalogue, so a plan priced differently one
+  // day cannot make this line a lie.
+  const topSaving = Math.max(...PURCHASABLE_PLANS.map((tier) => yearlySavingPercent(tier)));
+
+  async function choose(plan: PlanTier) {
+    setBusy(plan);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "subscribe", plan, cycle }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        url?: string;
+        message?: string;
+      };
+
+      if (!res.ok || !json.ok) {
+        setError(json.message || "We could not start the checkout. Please try again.");
+        setBusy(null);
+        return;
+      }
+
+      // A first subscription returns a hosted checkout to send them to. An existing
+      // subscriber's plan change returns only what will happen, because the webhook
+      // is what applies it — so there is nothing to redirect to, only to report.
+      if (json.url) {
+        window.location.href = json.url;
+        return; // leave the spinner running; the page is on its way out
+      }
+
+      setNotice(json.message || "Your plan has been changed.");
+      setBusy(null);
+    } catch {
+      setError("We could not reach the checkout. Check your connection and try again.");
+      setBusy(null);
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl p-6 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 font-sans shadow-2xl">
-        <DialogHeader className="text-center space-y-2 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900">
-            <Sparkles className="h-6 w-6" />
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-6 font-sans">
+        <DialogHeader className="space-y-2 pb-4 text-center border-b border-border">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Lock className="h-5 w-5" />
           </div>
-          <DialogTitle className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            {title}
-          </DialogTitle>
-          <DialogDescription className="text-sm text-slate-500 dark:text-slate-400 max-w-lg mx-auto">
-            {description}
+          <DialogTitle className="text-2xl font-bold">{heading}</DialogTitle>
+          <DialogDescription className="mx-auto max-w-xl text-sm text-muted-foreground">
+            {blurb}
           </DialogDescription>
 
-          {/* Billing cycle toggle */}
-          <div className="flex items-center justify-center gap-2 pt-2">
+          <div className="flex items-center justify-center gap-1 pt-2">
             <button
               type="button"
-              onClick={() => setBillingCycle("monthly")}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                billingCycle === "monthly"
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              onClick={() => setCycle("monthly")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                cycle === "monthly"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Monthly
             </button>
             <button
               type="button"
-              onClick={() => setBillingCycle("yearly")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                billingCycle === "yearly"
-                  ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              onClick={() => setCycle("yearly")}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                cycle === "yearly"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              <span>Yearly</span>
-              <span className="text-[10px] px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-semibold">
-                Save 17%
-              </span>
+              Yearly
+              {topSaving > 0 && (
+                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                  Save up to {topSaving}%
+                </span>
+              )}
             </button>
           </div>
         </DialogHeader>
 
-        {/* Plan Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-          {/* Creator Pro */}
+        {(error || notice) && (
           <div
-            className={`relative rounded-xl border p-5 transition-all ${
-              highlightPlan === "PRO"
-                ? "border-slate-900 dark:border-white bg-slate-50/50 dark:bg-slate-800/40 shadow-sm"
-                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+            className={`mt-4 rounded-xl border px-3.5 py-2.5 text-xs font-medium ${
+              error
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : "border-primary/30 bg-primary/10 text-primary"
             }`}
           >
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
-                  Most Popular
-                </span>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                  {PLANS.PRO.name}
-                </h3>
-              </div>
-              <Badge className="bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs">
-                Pro
-              </Badge>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-extrabold text-slate-900 dark:text-slate-100">
-                  ${billingCycle === "monthly" ? PLANS.PRO.priceMonthly : Math.round(PLANS.PRO.priceYearly / 12)}
-                </span>
-                <span className="text-xs text-slate-500">/ month</span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">{PLANS.PRO.tagline}</p>
-            </div>
-
-            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300 mb-6">
-              {PLANS.PRO.features.slice(0, 6).map((f, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <Check className="h-3.5 w-3.5 text-slate-900 dark:text-white shrink-0 mt-0.5" />
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-
-            <Button
-              className="w-full bg-slate-900 hover:bg-black text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 font-semibold text-xs h-10 gap-2"
-              onClick={() => handleUpgrade("PRO")}
-              disabled={upgradingTo === "PRO"}
-            >
-              {upgradingTo === "PRO" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <span>Upgrade to Creator Pro</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </>
-              )}
-            </Button>
+            {error || notice}
           </div>
+        )}
 
-          {/* Agency & Scale */}
-          <div
-            className={`relative rounded-xl border p-5 transition-all ${
-              highlightPlan === "AGENCY"
-                ? "border-slate-900 dark:border-white bg-slate-50/50 dark:bg-slate-800/40 shadow-sm"
-                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
-            }`}
-          >
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <span className="text-xs font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
-                  Maximum Power
-                </span>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                  {PLANS.AGENCY.name}
-                </h3>
+        <div className="grid gap-4 pt-4 md:grid-cols-3">
+          {PURCHASABLE_PLANS.map((tier) => {
+            const plan = PLAN_CATALOG[tier];
+            const leads = tier === suggested;
+            const isCurrent = tier === currentPlan;
+            const isDowngrade = planRank(tier) < planRank(currentPlan);
+            const shown = plan.features.slice(0, 6);
+            const rest = plan.features.length - shown.length;
+
+            return (
+              <div
+                key={tier}
+                className={`relative flex flex-col rounded-2xl border p-5 transition-all ${
+                  leads
+                    ? "border-primary bg-primary/[0.04] shadow-sm"
+                    : "border-border bg-card"
+                }`}
+              >
+                {leads && (
+                  <Badge className="absolute -top-2.5 left-5 bg-primary text-primary-foreground text-[10px]">
+                    {isCurrent ? "Your plan" : featureName ? "Unlocks this" : plan.badge || "Recommended"}
+                  </Badge>
+                )}
+
+                <h3 className="text-lg font-bold text-foreground">{plan.name}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">{plan.tagline}</p>
+
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="text-3xl font-extrabold text-foreground">
+                    ${perMonth(plan, cycle)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">/ month</span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {cycle === "yearly"
+                    ? `Billed $${plan.priceYearly} once a year`
+                    : "Billed monthly, cancel any time"}
+                </p>
+
+                <ul className="mt-4 mb-5 flex-1 space-y-2 text-xs text-foreground/90">
+                  {shown.map((line) => (
+                    <li key={line} className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                  {rest > 0 && (
+                    <li className="pl-5 text-[11px] text-muted-foreground">
+                      + {rest} more on the billing page
+                    </li>
+                  )}
+                </ul>
+
+                <Button
+                  className="w-full gap-2 text-xs font-semibold"
+                  variant={leads ? "default" : "outline"}
+                  onClick={() => choose(tier)}
+                  disabled={isCurrent || busy !== null}
+                >
+                  {busy === tier ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isCurrent ? (
+                    "Your current plan"
+                  ) : (
+                    <>
+                      {/* A downgrade is not an upgrade, and saying so avoids the
+                          support ticket that starts "I thought I was getting more". */}
+                      <span>{isDowngrade ? `Move to ${plan.name}` : plan.ctaLabel}</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </Button>
               </div>
-              <Badge variant="outline" className="border-slate-400 text-xs">
-                All 6 Platforms
-              </Badge>
-            </div>
-
-            <div className="mb-4">
-              <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-extrabold text-slate-900 dark:text-slate-100">
-                  ${billingCycle === "monthly" ? PLANS.AGENCY.priceMonthly : Math.round(PLANS.AGENCY.priceYearly / 12)}
-                </span>
-                <span className="text-xs text-slate-500">/ month</span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">{PLANS.AGENCY.tagline}</p>
-            </div>
-
-            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300 mb-6">
-              {PLANS.AGENCY.features.slice(0, 6).map((f, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <Check className="h-3.5 w-3.5 text-slate-900 dark:text-white shrink-0 mt-0.5" />
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-
-            <Button
-              variant="outline"
-              className="w-full border-slate-900 dark:border-white text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs h-10 gap-2"
-              onClick={() => handleUpgrade("AGENCY")}
-              disabled={upgradingTo === "AGENCY"}
-            >
-              {upgradingTo === "AGENCY" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <span>Upgrade to Agency &amp; Scale</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </>
-              )}
-            </Button>
-          </div>
+            );
+          })}
         </div>
 
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
             <Shield className="h-4 w-4 text-emerald-500" />
-            <span>Encrypted payment handling • Cancel anytime</span>
-          </div>
+            Payments are handled by Lemon Squeezy — we never see your card.
+          </span>
           <Link
             href="/dashboard/billing"
             onClick={() => onOpenChange(false)}
-            className="hover:underline font-medium text-slate-800 dark:text-slate-200"
+            className="font-medium text-foreground hover:underline"
           >
-            Compare all plan details →
+            Compare every plan &rarr;
           </Link>
         </div>
       </DialogContent>

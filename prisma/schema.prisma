@@ -15,6 +15,28 @@ model User {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   workspaces       Workspace[]
+
+  // ── Billing (see the BILLING section at the end of this file) ─────────────
+  // A subscription and a credit wallet belong to the person, not to a
+  // workspace: someone on Pro with three workspaces draws all three from one
+  // balance, so the plan cannot be sidestepped by making another workspace.
+  subscription   Subscription?
+  creditWallet   CreditWallet?
+  creditLedger   CreditLedger[]
+  usageEvents    UsageEvent[]
+  featureUsage   FeatureUsage[]
+  trialClaims    TrialClaim[]
+  billingEvents  BillingEvent[]
+
+  // ── Affiliate program (see the AFFILIATE section at the end of this file) ─
+  /// Generated lazily on the user's first visit to the Affiliate tab, so
+  /// existing rows need no backfill and nobody carries a code they never asked
+  /// for.
+  referralCode   String?      @unique
+  referralsMade  Referral[]   @relation("ReferralReferrer")
+  referral       Referral?    @relation("ReferralReferred")
+  commissions    Commission[]
+  payouts        Payout[]
 }
 
 model Workspace {
@@ -878,3 +900,654 @@ model SystemNotice {
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BILLING
+//
+// Everything a paid plan needs, and nothing that pretends to be one. The old
+// arrangement kept the plan as a JSON blob in `Memory` and inferred credit use
+// by counting Post rows, which meant two things: the plan could not be trusted,
+// and model spend that produced no row was invisible. Both are fixed here.
+//
+// Five tables carry the whole system:
+//
+//   Subscription  — what the person is entitled to, mirrored from Lemon Squeezy
+//   CreditWallet  — what they have left to spend
+//   CreditLedger  — every movement of credits, append-only, idempotent
+//   UsageEvent    — every model call that cost money, in real micro-dollars
+//   FeatureUsage  — per-period counters for the caps credits alone cannot express
+//
+// Plus two guards: TrialClaim (one trial per person, not per signup) and
+// BillingEvent (the raw webhook log, so a replay cannot double-grant).
+//
+// The unit: 1 credit = $0.01 of list model spend. UsageEvent.costMicros is the
+// measured truth; CreditLedger is what the customer was charged for it. They are
+// kept separate on purpose — the first tells us whether a plan is priced right,
+// the second is what the customer can audit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PlanTier {
+  FREE
+  TRIAL
+  GO
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  /// No paid subscription has ever existed, or it ended and was not replaced.
+  NONE
+  /// Inside the 3-day trial window. Entitlements are the trial's, not Go's.
+  TRIALING
+  /// Paid and current.
+  ACTIVE
+  /// A renewal failed and Lemon Squeezy is retrying. Access is kept — the
+  /// customer has not chosen to leave, a card expired.
+  PAST_DUE
+  /// Recovery ran out of retries. Access drops to Free.
+  UNPAID
+  /// Cancelled but still inside the paid period; ends at `endsAt`.
+  CANCELLED
+  /// The period is over. Access is Free.
+  EXPIRED
+  /// Paused by the customer through the portal.
+  PAUSED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+/// The person's plan, mirrored from Lemon Squeezy. Nothing in the product reads
+/// Lemon Squeezy directly on a request path — the webhook writes here and the
+/// app reads here, so entitlement checks stay fast and work when LS is down.
+model Subscription {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan   PlanTier           @default(FREE)
+  status SubscriptionStatus @default(NONE)
+  cycle  BillingCycle       @default(MONTHLY)
+
+  // ── Lemon Squeezy identity ───────────────────────────────────────────────
+  /// LS customer id. Survives plan changes, so it is how a returning customer is
+  /// recognised at checkout instead of creating a second customer record.
+  lsCustomerId     String?
+  /// LS subscription id. Null on Free and on a trial that has no LS record yet.
+  lsSubscriptionId String? @unique
+  lsOrderId        String?
+  lsProductId      String?
+  lsVariantId      String?
+  /// Which variant the plan came from, kept as text so a variant rename in the
+  /// LS dashboard cannot orphan a live subscription.
+  lsVariantName    String?
+
+  // ── Period ───────────────────────────────────────────────────────────────
+  /// Start of the current billing period. The credit grant is keyed to this, so
+  /// a renewal that arrives twice cannot grant twice.
+  periodStart DateTime @default(now())
+  periodEnd   DateTime
+  /// Set while status is TRIALING. Read directly rather than inferred from the
+  /// plan, because a trial can be extended without changing the plan.
+  trialEndsAt DateTime?
+  renewsAt    DateTime?
+  /// When a cancelled subscription actually loses access.
+  endsAt      DateTime?
+  /// True once the customer has cancelled but before `endsAt` passes. The UI
+  /// says "ends on 12 March" rather than "cancelled", which is the truth.
+  cancelAtPeriodEnd Boolean @default(false)
+
+  // ── Payment instrument, for display only ─────────────────────────────────
+  cardBrand    String?
+  cardLastFour String?
+  /// "card" | "paypal" | ... — LS reports card fields as null for PayPal, so the
+  /// method is stored explicitly instead of being guessed from a missing brand.
+  paymentMethod String?
+
+  // ── Portal links (LS pre-signs these; each is valid 24h from issue) ───────
+  portalUrl              String?
+  updatePaymentMethodUrl String?
+  portalUrlsFetchedAt    DateTime?
+
+  /// True when the subscription came from an LS test-mode store. A test-mode
+  /// subscription never grants live entitlements in production.
+  testMode Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([plan, status])
+  @@index([lsCustomerId])
+  @@index([periodEnd])
+}
+
+/// What is left to spend. One wallet per person; every workspace they own draws
+/// from it.
+///
+/// Two balances, because they expire differently: the monthly grant is use-it-or-
+/// lose-it (it is what the subscription paid for this period) and a top-up is
+/// bought outright and never expires. Debits take the grant first, so a top-up
+/// is not silently burned before the thing the customer already paid for.
+model CreditWallet {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// This period's plan grant, decremented as it is spent.
+  grantBalance Int @default(0)
+  /// Purchased credits. Never reset.
+  topUpBalance Int @default(0)
+
+  /// What the plan grants each period, so a renewal can reset without reading
+  /// the plan catalogue inside a transaction.
+  monthlyGrant Int @default(0)
+
+  /// The period this grant belongs to. A renewal for a period that already
+  /// granted is a no-op, which is what makes webhook replay safe.
+  grantPeriodStart DateTime @default(now())
+  grantPeriodEnd   DateTime
+
+  /// Running totals, for the usage panel and for pricing post-mortems.
+  lifetimeGranted Int @default(0)
+  lifetimeSpent   Int @default(0)
+
+  /// Credits held for an in-flight run (a deep article, a video) so two parallel
+  /// requests cannot both spend the last of the balance. Released on completion
+  /// or by the sweeper if the run dies.
+  heldCredits Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ledger CreditLedger[]
+  holds  CreditHold[]
+}
+
+enum LedgerKind {
+  /// Plan grant at the start of a period.
+  GRANT
+  /// Purchased top-up.
+  TOPUP
+  /// Spent on an action.
+  DEBIT
+  /// Returned because the action failed after the debit.
+  REFUND
+  /// Manual adjustment by an operator. Always carries a note.
+  ADJUSTMENT
+  /// Unused grant removed at period end.
+  EXPIRY
+}
+
+/// Append-only. Every credit that moves leaves a row, and the row records the
+/// balance it produced — so the wallet can be re-derived from the ledger if the
+/// two ever disagree, and the customer can be shown exactly what was charged.
+model CreditLedger {
+  id       String       @id @default(uuid())
+  userId   String
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletId String
+  wallet   CreditWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  kind LedgerKind
+  /// Positive for GRANT/TOPUP/REFUND, negative for DEBIT/EXPIRY.
+  credits Int
+
+  /// The action catalogue key this was charged for — "ai.post.campaign",
+  /// "media.video", "article.deep", "chat.message". Free text on purpose: a new
+  /// action must not require a migration before it can be metered.
+  action String?
+  /// Which workspace the spend happened in. Null for account-level movements.
+  workspaceId String?
+
+  /// What the credits bought, for the customer's own audit trail: a post id, an
+  /// ArticleRun id, a chat message id.
+  referenceType String?
+  referenceId   String?
+
+  /// The wallet total after this row was written (grant + top-up).
+  balanceAfter Int
+
+  /// Measured list cost of the work this row paid for, in micro-dollars. Written
+  /// after the fact from the UsageEvents the action produced. Lets us see which
+  /// action prices are wrong without re-reading provider bills.
+  costMicros Int?
+
+  /// Makes a retry safe. Two requests carrying the same key produce one row.
+  idempotencyKey String? @unique
+
+  note String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([walletId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([action])
+}
+
+/// A reservation taken before an expensive run starts.
+///
+/// Without this, two tabs both starting a deep article when 400 credits remain
+/// would both pass the balance check and both run. The hold is taken in the same
+/// transaction as the check, converted to a DEBIT on success, and released on
+/// failure. `expiresAt` exists because a process that dies mid-run cannot release
+/// its own hold.
+model CreditHold {
+  id       String       @id @default(uuid())
+  walletId String
+  wallet   CreditWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  credits     Int
+  action      String
+  workspaceId String?
+  referenceId String?
+
+  /// Swept and released after this passes. Sized to the longest a run can take.
+  expiresAt DateTime
+  /// Set when the hold became a debit or was released, so the sweeper skips it.
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([walletId, settledAt])
+  @@index([expiresAt, settledAt])
+}
+
+/// One row per model call that cost money. Written by the provider itself, not by
+/// the feature that called it, which is the point: a new code path cannot spend
+/// without appearing here, because it cannot reach a model without going through
+/// the provider.
+///
+/// This is the answer to "no user may use AI without our knowledge". Credits are
+/// what the customer is charged; this is what it actually cost.
+model UsageEvent {
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Null for account-level work (a website scan during onboarding).
+  workspaceId String?
+
+  /// The product surface that caused the call — "ai-studio", "chat", "article",
+  /// "goals", "schedule", "brand-dna". Set from the async context the request
+  /// established, so it is right even for a call five frames deep.
+  feature String @default("unknown")
+  /// The action key, when the call belongs to a billed action.
+  action  String?
+
+  /// Resolved model id, exactly as sent to Vertex.
+  model String
+  /// "text" | "json" | "grounded" | "vision" | "stream" | "image" | "video" | "embed"
+  callKind String
+
+  inputTokens    Int @default(0)
+  outputTokens   Int @default(0)
+  /// Billed as output by Gemini 3.x, tracked separately so a thinking-heavy
+  /// prompt is visible as such rather than as a large answer.
+  thinkingTokens Int @default(0)
+  cachedTokens   Int @default(0)
+  /// Google Search grounding requests this call issued. Billed per request on top
+  /// of tokens, and one call can issue several.
+  groundingRequests Int @default(0)
+  /// Images returned, for image models priced per image.
+  imageCount     Int @default(0)
+  /// Seconds of video returned, for video models priced per second.
+  videoSeconds   Float @default(0)
+
+  /// Measured list cost in micro-dollars (1_000_000 = $1). Integer on purpose:
+  /// floats accumulate error over millions of rows and this feeds pricing.
+  costMicros Int @default(0)
+
+  latencyMs Int?
+  /// False when the call errored. A failed call that still consumed input tokens
+  /// is still billed by Google, so it is still recorded.
+  ok        Boolean @default(true)
+  errorKind String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([model, createdAt])
+  @@index([feature, createdAt])
+  @@index([createdAt])
+}
+
+/// Counters for the limits credits cannot express.
+///
+/// Credits stop a user spending more money than they bought. They do not stop a
+/// Go customer running twelve deep articles, because Go is not sold with deep
+/// articles at any credit balance. Anything shaped "at most N of X per period"
+/// lives here: videos, articles by mode, active goals, autopilot cycles, uses of
+/// the best-time scheduler on Free.
+model FeatureUsage {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Catalogue key of the capped feature — "media.video", "article.quick",
+  /// "article.deep", "schedule.bestTime", "goal.autopilotCycle".
+  feature String
+
+  /// The billing period this count belongs to, so the reset is the subscription's
+  /// own boundary and not a calendar month.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  used Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, feature, periodStart])
+  @@index([userId, periodStart])
+}
+
+enum TrialDecision {
+  /// The trial was granted.
+  ALLOWED
+  /// Refused: something about this attempt matched a trial already taken.
+  BLOCKED
+  /// Granted, but the attempt scored high enough to be worth looking at.
+  FLAGGED
+}
+
+/// One trial per person, enforced on the evidence available rather than on the
+/// email address alone.
+///
+/// A row is written for every *attempt*, allowed or not, because the blocked
+/// attempts are the data: they are how we learn a range is being farmed, and how
+/// a wrongly-blocked customer can be found and let in. Raw IPs are never stored —
+/// only a salted hash — which is enough to recognise a repeat without holding
+/// personal data we have no reason to hold.
+///
+/// Signals, in the order they carry weight:
+///   fingerprintHash — the strongest, hardest to change casually
+///   ipHash          — defeated by a VPN, which is why the VPN flags exist
+///   emailHash       — normalised (dots and +tags stripped) so aliases collapse
+///   asn / isVpn …   — a datacenter IP during signup is itself the signal
+model TrialClaim {
+  id     String  @id @default(uuid())
+  /// Null when the attempt was refused before an account existed.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// sha256(normalised email + salt).
+  emailHash String
+  /// sha256(ip + salt). Same construction as LinkClick.ipHash.
+  ipHash    String
+  /// sha256 of the client-side signal bundle (canvas, fonts, timezone, screen,
+  /// hardware concurrency). Absent when the client refused to produce one, which
+  /// is itself scored.
+  fingerprintHash String?
+
+  /// Geo and network context, from the IP-intelligence lookup. Kept for the
+  /// scoring rule and for reviewing a block, not for targeting.
+  ipCountry String?
+  ipRegion  String?
+  asn       String?
+  asnOrg    String?
+
+  isVpn        Boolean @default(false)
+  isProxy      Boolean @default(false)
+  isTor        Boolean @default(false)
+  isDatacenter Boolean @default(false)
+  isRelay      Boolean @default(false)
+  /// True when the email domain is a known disposable-mail provider.
+  isDisposableEmail Boolean @default(false)
+
+  /// 0–100. The rule that produced the decision, so a threshold change can be
+  /// evaluated against attempts that already happened.
+  riskScore Int    @default(0)
+  /// Which signals fired, as a list of short codes, for the operator view.
+  riskFlags String[]
+
+  decision TrialDecision
+  /// Why, in a sentence the support inbox can quote back to a customer.
+  reason   String?
+
+  /// The claim this attempt collided with, when it was blocked as a repeat.
+  collidedWithId String?
+
+  /// LS ids, when the trial reached checkout.
+  lsCustomerId     String?
+  lsSubscriptionId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([emailHash])
+  @@index([ipHash])
+  @@index([fingerprintHash])
+  @@index([decision, createdAt])
+  @@index([userId])
+}
+
+/// The raw webhook log.
+///
+/// Written before anything is acted on and keyed by the id Lemon Squeezy sends,
+/// so a redelivery — which LS does on any non-2xx, and which an operator can
+/// trigger by hand from the dashboard — finds the row already there and grants
+/// nothing twice. `payload` is kept whole because a billing dispute is settled by
+/// what the provider actually sent, not by what we parsed out of it.
+model BillingEvent {
+  id     String  @id @default(uuid())
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// LS event id from the X-Event-Id header, falling back to a hash of the body
+  /// when the header is absent. Unique — this column is the replay guard.
+  eventId String @unique
+  /// "subscription_created", "subscription_payment_success", "order_created", …
+  eventName String
+
+  lsCustomerId     String?
+  lsSubscriptionId String?
+  lsOrderId        String?
+
+  /// What it moved the account to, when the event changed the plan.
+  plan   PlanTier?
+  status SubscriptionStatus?
+
+  /// Amount in cents, as LS reported it, and the currency it settled in.
+  amountCents Int?
+  currency    String?
+
+  /// The whole verified payload.
+  payload Json
+
+  /// False until the handler finished. A row that stays false is a webhook we
+  /// accepted and failed to apply — the thing worth alerting on.
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?
+
+  testMode Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([eventName, createdAt])
+  @@index([processed])
+  @@index([lsSubscriptionId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AFFILIATE PROGRAM
+//
+// A referral is earned, not claimed. The chain of custody runs:
+//
+//   1. A visitor arrives with ?ref=CODE. Middleware drops a 30-day cookie.
+//   2. When that person's User row is born (onboarding), the cookie is read and
+//      a Referral row links them to the code's owner — after the fraud checks
+//      below. Most attempts die here, and the row says why.
+//   3. When their FIRST paid plan goes live, the billing webhook converts the
+//      referral and mints a Commission — locked for 30 days so a refund or
+//      chargeback kills it before it ever becomes money.
+//   4. After the lock the commission is available as either platform credits
+//      (added to the existing CreditWallet) or a cash payout. Cash is requested
+//      against saved account details and paid by hand: an admin sees the
+//      request, transfers through JazzCash / Easypaisa / PayPal themselves, and
+//      marks it paid. No money moves automatically.
+//
+// Fraud posture (deliberately strict): a signup arriving through a VPN, proxy,
+// Tor, a relay or a datacenter IP is rejected outright, as is a disposable
+// email, a self-referral, or a device/IP that matches the referrer's own.
+// Only salted hashes are stored — never a raw IP, email or fingerprint.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ReferralStatus {
+  /// Signed up through the link; nothing earned yet.
+  PENDING
+  /// First paid plan went live; a Commission exists.
+  CONVERTED
+  /// Blocked by the fraud checks, or the qualifying payment was refunded.
+  REJECTED
+}
+
+enum CommissionStatus {
+  /// Earned but inside the 30-day refund window.
+  LOCKED
+  /// The window passed; can become credits or a payout.
+  AVAILABLE
+  /// Spent — attached to a payout or converted to wallet credits.
+  CASHED_OUT
+  /// Refund or fraud clawback.
+  REJECTED
+}
+
+enum PayoutMethod {
+  JAZZCASH
+  EASYPAISA
+  PAYPAL
+}
+
+enum PayoutStatus {
+  /// Requested by the user; waiting for an admin.
+  REQUESTED
+  /// Acknowledged by an admin; transfer in progress.
+  APPROVED
+  /// The admin completed the manual transfer.
+  PAID
+  /// Refused. The commissions return to AVAILABLE.
+  REJECTED
+}
+
+/// One referred account. `referredId` is unique: a person can only ever be
+/// attributed once, to the first code they arrived with.
+model Referral {
+  id         String @id @default(uuid())
+  referrerId String
+  referrer   User   @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId String @unique
+  referred   User   @relation("ReferralReferred", fields: [referredId], references: [id], onDelete: Cascade)
+
+  status       ReferralStatus @default(PENDING)
+  /// Why a referral was rejected, in words the affiliate page can show.
+  rejectReason String?
+
+  // ── Signup-time fraud signals (salted hashes only) ────────────────────────
+  /// Same construction as TrialClaim.ipHash, so the two can be compared.
+  signupIpHash  String?
+  /// sha256 of UA + accept-language, the device signal available without a
+  /// client-side fingerprint bundle.
+  signupUaHash  String?
+  ipCountry     String?
+  asn           String?
+
+  isVpn        Boolean @default(false)
+  isProxy      Boolean @default(false)
+  isTor        Boolean @default(false)
+  isDatacenter Boolean @default(false)
+  isRelay      Boolean @default(false)
+
+  /// 0–100, the rule that produced the decision.
+  riskScore Int     @default(0)
+  /// Short codes for the signals that fired, for the operator view.
+  riskFlags String[]
+
+  // ── Conversion ────────────────────────────────────────────────────────────
+  convertedAt      DateTime?
+  /// PlanTier of the first paid plan, e.g. "PRO".
+  planPurchased    String?
+  firstPaymentCents Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  commission Commission?
+
+  @@index([referrerId, createdAt])
+  @@index([signupIpHash])
+}
+
+/// The money a referral earned. Born LOCKED; the 30-day window exists because
+/// Lemon Squeezy refunds arrive inside it and a commission must die before it
+/// is paid out, not after.
+model Commission {
+  id         String @id @default(uuid())
+  referralId String @unique
+  referral   Referral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  referrerId String
+  referrer   User     @relation(fields: [referrerId], references: [id], onDelete: Cascade)
+
+  /// What the affiliate earns, in USD cents.
+  amountCents Int
+  /// The first payment it was calculated from, for the audit trail.
+  basisCents  Int
+
+  status       CommissionStatus @default(LOCKED)
+  /// When LOCKED becomes AVAILABLE.
+  unlocksAt    DateTime
+
+  /// Set when this commission became part of a payout request.
+  payoutId String?
+  payout   Payout? @relation(fields: [payoutId], references: [id])
+
+  /// True when the affiliate chose credits over cash.
+  convertedToCredits Boolean @default(false)
+  rejectReason       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referrerId, status])
+  @@index([status, unlocksAt])
+}
+
+/// A cash withdrawal the user asked for and an admin pays by hand. The account
+/// details are encrypted at rest (APP_ENCRYPTION_KEY) and only ever decrypted
+/// on the admin screen; everywhere else the masked form is shown.
+model Payout {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  amountCents Int
+
+  method PayoutMethod
+  /// Account holder name as it appears with the provider.
+  accountName   String
+  /// Encrypted: JazzCash/Easypaisa mobile number, or PayPal email.
+  accountDetail String
+  /// What the user and the affiliate page may see: 03••••••21 / j•••@gmail.com
+  accountMasked String
+
+  status PayoutStatus @default(REQUESTED)
+
+  /// The admin's own transaction reference for the manual transfer.
+  reference    String?
+  adminNote    String?
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  paidAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  commissions Commission[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}

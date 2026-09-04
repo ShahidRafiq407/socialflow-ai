@@ -1117,7 +1117,16 @@ export default function AIStudioPage() {
   // Shared handler for plan-gated AI features. Shows a clear upgrade prompt instead
   // of silently failing or exposing raw API codes.
   const isUpgradeSignal = (data: any): boolean => {
-    return Boolean(data && (data.error === "UPGRADE_REQUIRED" || data.reason === "UPGRADE_REQUIRED"));
+    return Boolean(
+      data &&
+        (data.error === "UPGRADE_REQUIRED" ||
+          data.reason === "UPGRADE_REQUIRED" ||
+          // The structured refusal body carries `upgrade: true` with `reason` set to the
+          // specific limit that was hit (FEATURE_LOCKED / CAP_REACHED /
+          // INSUFFICIENT_CREDITS). Matching only the sentinel string meant a plan
+          // refusal from any route that omits it surfaced as a generic failure.
+          data.upgrade === true)
+    );
   };
   const handleUpgradeRequired = (message?: string) => {
     setUpgradeRequired(true);
@@ -1243,7 +1252,15 @@ export default function AIStudioPage() {
   const currentOverlayTexts = currentGenerated?.overlayText || [];
   const currentHashtags = currentGenerated?.hashtags || [];
   const currentBestTime = currentGenerated?.bestTime || "";
-  const currentAspectRatio = getAspectRatio(currentFormatName);
+  // The ratio the editors themselves send. `getAspectRatio` is a format-LABEL table that
+  // disagreed with the capability registry on 8 of the 22 formats, and it is what a press
+  // carrying no renderOptions (TRENDING NOW) fell back to — so a picked trend rendered
+  // YouTube long-form at 9:16 and TikTok Photo at 16:9 while the format's own button, one
+  // click away, rendered the same subject correctly. The label table stays as the fallback
+  // for editor labels the capability registry does not know.
+  const currentAspectRatio: string =
+    getPlatformCapability(activePlatformTab, currentFormatName).defaultAspectRatio ||
+    getAspectRatio(currentFormatName);
 
   // Caption undo/redo history per format
   // captionHistory and captionHistoryIdx are now in the persisted session store
@@ -1610,6 +1627,16 @@ export default function AIStudioPage() {
             }
           });
         });
+      } else {
+        // A refused or malformed copy response used to fall straight through to the
+        // `return true` below. The caller read that as success and went on to render
+        // media against the PREVIOUS storyboard — fresh pictures under stale copy, with
+        // no error anywhere on screen. Say so, and report the run as failed.
+        const message = data?.error || data?.message || "The writer returned no copy for this format.";
+        console.error("Platform copy AI generation failed:", message);
+        setPublishResult({ success: false, message });
+        setTimeout(() => setPublishResult(null), 4500);
+        return false;
       }
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
@@ -2550,11 +2577,27 @@ export default function AIStudioPage() {
   const currentMediaItems: MultiMediaItem[] = (() => {
     const stored = mediaItemsDict[currentFormatKey];
     const campaignUrls = currentGenerated?.imageUrls;
+
+    // How many slide slots this format has actually been FILLED with. A deck batch writes
+    // `${platform}-${format}-${i}` for every slide, but the count below was seeded only
+    // from `stored` / `campaignUrls` — so on Facebook Multiple Photos, LinkedIn
+    // Multi-Image and Pinterest Carousel every slide past the first was generated, billed,
+    // and then unreachable, because this editor renders exactly the slots it is handed.
+    // The scan stops at the first empty slot; 40 is a ceiling above every platform's
+    // maxMedia (TikTok Photo, the largest, allows 35).
+    let filledSlotCount = 0;
+    for (let i = 0; i < 40; i++) {
+      const slotKey = `${activePlatformTab}-${currentFormatName}-${i}`;
+      if (!(customMediaDict[slotKey]?.url || renderedImageUrlsDict[slotKey])) break;
+      filledSlotCount = i + 1;
+    }
+
     // Once the user has managed assets (stored exists), respect its structure;
     // otherwise seed slots from campaign results (or a single empty slot).
-    const sourceCount = stored
-      ? Math.max(stored.length, 1)
-      : Math.max(campaignUrls?.length || 0, 1);
+    const sourceCount = Math.max(
+      stored ? Math.max(stored.length, 1) : Math.max(campaignUrls?.length || 0, 1),
+      filledSlotCount
+    );
 
     const items: MultiMediaItem[] = [];
     for (let i = 0; i < sourceCount; i++) {
@@ -3311,9 +3354,21 @@ export default function AIStudioPage() {
     if (clearedMediaKeys[currentMediaKey]) return null;
     const currentFamily = getFormatFamily(activePlatformTab, currentFormatName);
 
+    // Borrowed media still has to be publishable HERE. Steps 3 and 4 reach outside
+    // the family entirely, and a video borrowed into a still format did real damage:
+    // StandardSocialEditor latches itself into video mode whenever the URL on screen
+    // is a video, so the format's own freshly rendered PNG then mounted inside a
+    // <video> element — a blank box exactly where the image had just appeared, and
+    // the failure text suppressed with it.
+    const borrowCap = getPlatformCapability(activePlatformTab, currentFormatName);
+    const canShowVideoHere = borrowCap.mediaType === "video" || borrowCap.supportsAIVideo === true;
+    const canShowImageHere = borrowCap.mediaType !== "video";
+    const publishableHere = (url: string, type?: "image" | "video") =>
+      (type ? type === "video" : isVideoUrl(url)) ? canShowVideoHere : canShowImageHere;
+
     // 1. Check custom uploads for matching family
     for (const [key, item] of Object.entries(customMediaDict)) {
-      if (item?.url && !clearedMediaKeys[key]) {
+      if (item?.url && !clearedMediaKeys[key] && publishableHere(item.url, item.type)) {
         const [p, f] = key.split("-");
         if (getFormatFamily(p, f) === currentFamily) return item.url;
       }
@@ -3321,7 +3376,7 @@ export default function AIStudioPage() {
 
     // 2. Check rendered images for matching family
     for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
-      if (url && !clearedMediaKeys[key]) {
+      if (url && !clearedMediaKeys[key] && publishableHere(url)) {
         const [p, f] = key.split("-");
         if (getFormatFamily(p, f) === currentFamily) return url;
       }
@@ -3329,12 +3384,12 @@ export default function AIStudioPage() {
 
     // 3. Any available custom media
     for (const [key, item] of Object.entries(customMediaDict)) {
-      if (item?.url && !clearedMediaKeys[key]) return item.url;
+      if (item?.url && !clearedMediaKeys[key] && publishableHere(item.url, item.type)) return item.url;
     }
 
     // 4. Any rendered image
     for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
-      if (url && !clearedMediaKeys[key]) return url;
+      if (url && !clearedMediaKeys[key] && publishableHere(url)) return url;
     }
 
     return null;
@@ -3428,8 +3483,14 @@ export default function AIStudioPage() {
         (currentFormatSpec.mediaType === "video" || currentMediaType === "video" ? "video" : "image");
 
       // This family already paid for this exact creative and fanned it onto this slot.
+      // Two things this must NOT do. Dedupe on an EMPTY prompt: when the copy call
+      // returns no visual prompt every press collapses onto one signature, so a second,
+      // unrelated subject silently reuses the first one's picture. And treat BORROWED
+      // media as "already filled": `displayImageUrl` falls back to another tab's asset,
+      // which would skip a render this slot never actually received.
       const signature = `${family}|${mediaKind}|${freshPrompt}`;
-      if (familyRenderSignatureRef.current[family] === signature && displayImageUrl) return;
+      const slotOwnsMedia = Boolean(customMedia?.url || renderedImageUrl);
+      if (freshPrompt && familyRenderSignatureRef.current[family] === signature && slotOwnsMedia) return;
 
       await handleRenderMedia({
         ...renderOptions,
@@ -3452,6 +3513,22 @@ export default function AIStudioPage() {
     Boolean(completePostKeys[currentFormatKey]) ||
     Boolean(generatingCopyKeys[currentFormatKey]) ||
     Boolean(renderingAllSlidesKeys[currentFormatKey]);
+
+  /**
+   * Is ANY paid press in flight, on any format — not just the one on screen?
+   *
+   * Every render captures its target from the closure at the moment it starts
+   * (`handleRenderMedia`, `handleGenerateCompletePost`), so switching platform or format
+   * mid-press delivers the finished asset to the format the user just LEFT, with no
+   * spinner on the one they are now looking at: it reads exactly like "the media never
+   * generated". None of these dicts is persisted, so a closed tab cannot leave the
+   * switchers stuck.
+   */
+  const isAnyGenerationInFlight =
+    Object.values(renderingMediaKeys).some(Boolean) ||
+    Object.values(renderingAllSlidesKeys).some(Boolean) ||
+    Object.values(generatingCopyKeys).some(Boolean) ||
+    Object.values(completePostKeys).some(Boolean);
 
 
   const currentHtmlSlide = null;
@@ -3793,27 +3870,77 @@ export default function AIStudioPage() {
   // This sweeper converts every data:/blob: URL found in the editor state into
   // a persistent server asset (/api/uploads → Supabase public URL), so media
   // previews survive refreshes and publishing always has a public URL.
-  const mediaSweepDoneRef = useRef(false);
+  /**
+   * Every transient URL this sweeper has already taken a run at.
+   *
+   * This used to be a single `done` boolean, re-armed by `generationState === "running"`
+   * — a value nothing in the app ever assigns (the store types it, but the only calls
+   * are `setGenerationState("completed")` and `setGenerationState("idle")`). So the
+   * sweeper fired exactly once, on mount, always BEFORE any media existed: a data: URL
+   * produced by a later Generate press was never converted, and the session store strips
+   * data: URLs on write — media that was plainly on screen vanished on the next refresh
+   * or tab switch, which reads as "the render never happened".
+   *
+   * Keyed per URL rather than per run, so the effect may re-check on every media state
+   * change without re-uploading what it already handled and without looping forever on
+   * a URL whose upload failed (`ensureCleanMediaUrl` returns the input unchanged then).
+   */
+  const sweptMediaUrlsRef = useRef<Set<string>>(new Set());
+  const mediaSweepInFlightRef = useRef(false);
   useEffect(() => {
-    if (generationState === "running") {
-      // A new campaign is generating — re-arm the sweeper for when it lands.
-      mediaSweepDoneRef.current = false;
-      return;
-    }
-    if (mediaSweepDoneRef.current) return;
-    mediaSweepDoneRef.current = true;
+    if (mediaSweepInFlightRef.current) return;
 
     const isTransient = (u: unknown): u is string =>
       typeof u === "string" && (u.startsWith("data:") || u.startsWith("blob:"));
 
+    const swept = sweptMediaUrlsRef.current;
+    /** Transient AND not already attempted. Marks the URL as attempted on the way past. */
+    const claim = (u: unknown): u is string => {
+      if (!isTransient(u) || swept.has(u)) return false;
+      swept.add(u);
+      return true;
+    };
+
     const sweep = async () => {
+      // ── PHASE 1: collect every distinct transient URL, and resolve each ONCE ──
+      // The family fan-out writes one asset URL into many slots, so resolving per slot
+      // re-uploaded the same multi-MB base64 payload once per slot. Resolve per URL, then
+      // apply the result to every store it appears in — including generatedContents,
+      // which a per-store pass would have skipped once another store claimed the URL.
+      const candidates = new Set<string>();
+      const consider = (u: unknown) => {
+        if (claim(u)) candidates.add(u);
+      };
+      for (const item of Object.values(customMediaDict)) consider(item?.url);
+      for (const url of Object.values(renderedImageUrlsDict)) consider(url);
+      for (const items of Object.values(mediaItemsDict)) {
+        if (Array.isArray(items)) for (const item of items) consider(item?.url);
+      }
+      for (const formats of Object.values(generatedContents)) {
+        for (const data of Object.values(formats)) {
+          consider(data?.imageUrl);
+          consider(data?.videoUrl);
+          if (Array.isArray(data?.imageUrls)) for (const u of data.imageUrls) consider(u);
+        }
+      }
+      if (candidates.size === 0) return;
+
+      const resolved = new Map<string, string>();
+      for (const url of candidates) {
+        const clean = await ensureCleanMediaUrl(url);
+        if (clean && clean !== url) resolved.set(url, clean);
+      }
+      if (resolved.size === 0) return;
+      /** The persistent URL for a transient one, or undefined if it is not being replaced. */
+      const cleanOf = (u: unknown): string | undefined =>
+        typeof u === "string" ? resolved.get(u) : undefined;
+
+      // ── PHASE 2: apply the resolution wherever that URL is stored ──
       // 1. customMediaDict
       const customUpdates: Record<string, { url: string; type: "image" | "video"; name?: string }> = {};
       for (const [key, item] of Object.entries(customMediaDict)) {
-        if (isTransient(item?.url)) {
-          const clean = await ensureCleanMediaUrl(item.url);
-          if (clean !== item.url) customUpdates[key] = { ...item, url: clean };
-        }
+        const clean = cleanOf(item?.url);
+        if (clean) customUpdates[key] = { ...item, url: clean };
       }
       if (Object.keys(customUpdates).length > 0) {
         setCustomMediaDict((prev) => ({ ...prev, ...customUpdates }));
@@ -3823,10 +3950,8 @@ export default function AIStudioPage() {
       // 2. renderedImageUrlsDict
       const renderedUpdates: Record<string, string> = {};
       for (const [key, url] of Object.entries(renderedImageUrlsDict)) {
-        if (isTransient(url)) {
-          const clean = await ensureCleanMediaUrl(url);
-          if (clean !== url) renderedUpdates[key] = clean;
-        }
+        const clean = cleanOf(url);
+        if (clean) renderedUpdates[key] = clean;
       }
       if (Object.keys(renderedUpdates).length > 0) {
         setRenderedImageUrlsDict((prev) => ({ ...prev, ...renderedUpdates }));
@@ -3837,18 +3962,12 @@ export default function AIStudioPage() {
       for (const [key, items] of Object.entries(mediaItemsDict)) {
         if (!Array.isArray(items)) continue;
         let changed = false;
-        const nextItems = await Promise.all(
-          items.map(async (item) => {
-            if (isTransient(item?.url)) {
-              const clean = await ensureCleanMediaUrl(item.url);
-              if (clean !== item.url) {
-                changed = true;
-                return { ...item, url: clean };
-              }
-            }
-            return item;
-          })
-        );
+        const nextItems = items.map((item) => {
+          const clean = cleanOf(item?.url);
+          if (!clean) return item;
+          changed = true;
+          return { ...item, url: clean };
+        });
         if (changed) itemUpdates[key] = nextItems;
       }
       if (Object.keys(itemUpdates).length > 0) {
@@ -3863,18 +3982,12 @@ export default function AIStudioPage() {
         for (const [fmt, data] of Object.entries(formats)) {
           let { imageUrl, videoUrl, imageUrls } = data;
           let fmtChanged = false;
-          if (isTransient(imageUrl)) {
-            const clean = await ensureCleanMediaUrl(imageUrl);
-            if (clean !== imageUrl) { imageUrl = clean; fmtChanged = true; }
-          }
-          if (isTransient(videoUrl)) {
-            const clean = await ensureCleanMediaUrl(videoUrl);
-            if (clean !== videoUrl) { videoUrl = clean; fmtChanged = true; }
-          }
+          const cleanImage = cleanOf(imageUrl);
+          if (cleanImage) { imageUrl = cleanImage; fmtChanged = true; }
+          const cleanVideo = cleanOf(videoUrl);
+          if (cleanVideo) { videoUrl = cleanVideo; fmtChanged = true; }
           if (Array.isArray(imageUrls)) {
-            const nextUrls = await Promise.all(
-              imageUrls.map((u) => (isTransient(u) ? ensureCleanMediaUrl(u) : u))
-            );
+            const nextUrls = imageUrls.map((u) => cleanOf(u) || u);
             if (nextUrls.some((u, i) => u !== imageUrls![i])) {
               imageUrls = nextUrls;
               fmtChanged = true;
@@ -3890,8 +4003,13 @@ export default function AIStudioPage() {
       if (contentsChanged) setGeneratedContents(nextContents);
     };
 
-    sweep().catch((e) => console.warn("[Media Sweeper] failed:", e));
-  }, [generationState, customMediaDict, renderedImageUrlsDict, mediaItemsDict, generatedContents]);
+    mediaSweepInFlightRef.current = true;
+    sweep()
+      .catch((e) => console.warn("[Media Sweeper] failed:", e))
+      .finally(() => {
+        mediaSweepInFlightRef.current = false;
+      });
+  }, [customMediaDict, renderedImageUrlsDict, mediaItemsDict, generatedContents]);
 
   const saveAsDraft = async () => {
     const post = buildCurrentPost("draft");
@@ -5089,20 +5207,29 @@ export default function AIStudioPage() {
                                     // screen without being selected, and greying out the tab you
                                     // are already looking at reads as a bug.
                                     const isPlatformSelected = selectedPlatforms.includes(pId) || isCurrent;
+                                    // A press in flight delivers to the format captured when it
+                                    // started. Leaving mid-press hides the spinner and drops the
+                                    // finished asset on the tab behind you.
+                                    const lockedByRun = isAnyGenerationInFlight && !isCurrent;
 
                                     return (
                                       <button
                                         key={pId}
                                         type="button"
-                                        disabled={!isPlatformSelected}
+                                        disabled={!isPlatformSelected || lockedByRun}
+                                        title={
+                                          lockedByRun
+                                            ? "Generation in progress — wait for it to finish before switching platform"
+                                            : undefined
+                                        }
                                         onClick={() => {
-                                          if (!isPlatformSelected) return;
+                                          if (!isPlatformSelected || lockedByRun) return;
                                           setActivePlatformTab(pId);
                                           setActiveSlideIdx(0);
                                           setOpenEditorPlatformDropdown(false);
                                         }}
                                         className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors ${
-                                          !isPlatformSelected
+                                          !isPlatformSelected || lockedByRun
                                             ? "text-slate-400 opacity-50 cursor-not-allowed"
                                             : isCurrent
                                             ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold"
@@ -5126,17 +5253,30 @@ export default function AIStudioPage() {
                     <div className="flex items-center gap-1">
                       {validSelectedFormats.map((option) => {
                         const optCap = getPlatformCapability(activePlatformTab, option);
+                        const isCurrentPill = currentFormatName === option;
+                        // Same reason as the platform switcher: the running press already
+                        // captured its target format, so leaving now strands the result.
+                        const lockedByRun = isAnyGenerationInFlight && !isCurrentPill;
                         return (
                           <button
                             key={option}
                             type="button"
+                            disabled={lockedByRun}
+                            title={
+                              lockedByRun
+                                ? "Generation in progress — wait for it to finish before switching format"
+                                : undefined
+                            }
                             onClick={() => {
+                              if (lockedByRun) return;
                               setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: option }));
                               setActiveSlideIdx(0);
                             }}
                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all ${
-                              currentFormatName === option
+                              isCurrentPill
                                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                : lockedByRun
+                                ? "bg-slate-100 dark:bg-slate-800 text-slate-400 border border-slate-200 dark:border-slate-700 opacity-50 cursor-not-allowed"
                                 : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200/60"
                             }`}
                           >
@@ -5338,6 +5478,10 @@ export default function AIStudioPage() {
                   format={currentFormatName}
                   onSelectTrend={handleApplyTrend}
                   isApplyingTrend={isApplyingTrend}
+                  /* Also locked while the format's OWN primary AI button is running:
+                     two presses on one format key raced, and the loser's copy and paid
+                     render both landed on top of the winner's. */
+                  isBusyElsewhere={isGeneratingCompletePost}
                 />
               </CardContent>
             </Card>

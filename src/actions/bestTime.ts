@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
+import { runAction } from "@/lib/billing/entitlements";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { cacheGet, cacheSet } from "@/lib/redis";
 import { vertexProvider, MODELS } from "@/lib/agents/llm";
@@ -83,6 +84,13 @@ export async function analyzeBestTimes(platforms: string[], timeZone?: string): 
   }
 
   // 2. Fresh AI analysis (only for platforms the cache didn't cover)
+  //
+  // This is where the one credit is spent, and only here: a cache hit costs us
+  // nothing, so it costs the customer nothing. The charge is taken through
+  // `runAction`, which also asks whether the plan includes best-time scheduling at
+  // all — and a refusal is not fatal. Stage 3 below is a real industry table, so a
+  // refused or unaffordable analysis still returns a usable window marked
+  // `industry_standard`, and the post the user was scheduling still gets scheduled.
   if (missing.length > 0) {
     try {
       const prompt = `You are a social media audience-activity analyst.
@@ -119,15 +127,25 @@ Return strictly JSON:
 Constraints: hour = 0-23 (24h format), minute = 0-59, days = array of weekday numbers
 (0=Sunday ... 6=Saturday, pick 2-4 best PEAK days). platformKey must match the requested platform keys exactly.`;
 
-      const res = (await Promise.race([
-        vertexProvider.generateJSON([{ role: "user", content: prompt }], {
-          modelName: MODELS.TREND_RESEARCHER,
-          temperature: 0.2,
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Best-time analysis timed out")), 25000)
-        ),
-      ])) as any;
+      const res = (await runAction(
+        {
+          userId,
+          action: "schedule.bestTime",
+          workspaceId: workspace?.id ?? null,
+          referenceId: industry.slice(0, 120),
+          measureCost: true,
+        },
+        () =>
+          Promise.race([
+            vertexProvider.generateJSON([{ role: "user", content: prompt }], {
+              modelName: MODELS.TREND_RESEARCHER,
+              temperature: 0.2,
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Best-time analysis timed out")), 25000)
+            ),
+          ])
+      )) as any;
 
       const freshCache: Record<string, any> = { ...(cached || {}) };
       for (const p of missing) {
@@ -141,6 +159,7 @@ Constraints: hour = 0-23 (24h format), minute = 0-59, days = array of weekday nu
       // Persist the fresh analysis at industry level for all workspaces
       await cacheSet(industryCacheKey(industry), freshCache, CACHE_TTL_SECONDS);
     } catch (e) {
+      // Includes the plan refusing it. Logged, never thrown: stage 3 is the answer.
       console.warn("[BestTime] AI analysis unavailable, using industry standard:", e);
     }
   }

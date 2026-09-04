@@ -20,6 +20,12 @@ interface AITrendSuggestionsProps {
   format: string;
   onSelectTrend: (trend: TrendSuggestionItem) => void;
   isApplyingTrend?: boolean;
+  /**
+   * A press already running for this format that did NOT start here — the format's own
+   * primary AI button. Locks the cards too: both paths write the same format key, so
+   * two in flight means the loser's copy and paid render overwrite the winner's.
+   */
+  isBusyElsewhere?: boolean;
 }
 
 export default function AITrendSuggestions({
@@ -27,6 +33,7 @@ export default function AITrendSuggestions({
   format,
   onSelectTrend,
   isApplyingTrend = false,
+  isBusyElsewhere = false,
 }: AITrendSuggestionsProps) {
   const [trends, setTrends] = useState<TrendSuggestionItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -74,6 +81,14 @@ export default function AITrendSuggestions({
     fetchTrends();
   }, [platform, format]);
 
+  /** Any press that would collide with this one — whichever button started it. */
+  const isLocked = isApplyingTrend || isBusyElsewhere;
+
+  /** The research names a format; the press always builds the one on screen. Say so. */
+  const normalize = (v: string) => v.toLowerCase().replace(/[^a-z]/g, "");
+  const differentFormat = (recommended: string) =>
+    Boolean(recommended?.trim()) && normalize(recommended) !== normalize(format);
+
   return (
     <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-3 text-left">
       {/* COMPACT HEADER */}
@@ -96,7 +111,7 @@ export default function AITrendSuggestions({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={isLoading || isApplyingTrend}
+          disabled={isLoading || isLocked}
           onClick={fetchTrends}
           className="h-6 px-2 text-xs font-semibold gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
         >
@@ -126,7 +141,7 @@ export default function AITrendSuggestions({
                 isThisOneRunning
                   ? "border-indigo-500 ring-1 ring-indigo-500/30"
                   : "border-slate-200 dark:border-slate-800 hover:border-indigo-500/50"
-              } ${isApplyingTrend && !isThisOneRunning ? "opacity-60" : ""}`}
+              } ${isLocked && !isThisOneRunning ? "opacity-60" : ""}`}
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-1">
@@ -148,6 +163,15 @@ export default function AITrendSuggestions({
                   {t.topic}
                 </h5>
 
+                {/* The researcher's own format call. Shown only when it disagrees with the
+                    tab you are on, because the press builds THIS tab's format either way —
+                    silently ignoring it made the research look wrong. */}
+                {differentFormat(t.recommendedFormat) && (
+                  <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    Best as {t.recommendedFormat} — this press builds {format}
+                  </p>
+                )}
+
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                   {t.whyItFits}
                 </p>
@@ -160,7 +184,7 @@ export default function AITrendSuggestions({
                   /* EVERY card locks while one is being applied. Disabling only the card
                      that was clicked let a second click start a parallel generation that
                      overwrote the first one's copy and paid for a second render. */
-                  disabled={isApplyingTrend}
+                  disabled={isLocked}
                   onClick={() => {
                     setSelectedTrendId(t.id);
                     onSelectTrend(t);
@@ -245,8 +269,18 @@ export default function AITrendSuggestions({
                 </p>
               </div>
 
-              <div className="pt-1 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+              <div className="pt-1 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px] text-slate-400">
                 <span>Source: {detailModalTrend.source}</span>
+                {detailModalTrend.recommendedFormat?.trim() && (
+                  <span className="font-semibold text-slate-500 dark:text-slate-300 text-right">
+                    Researcher's pick: {detailModalTrend.recommendedFormat}
+                    {differentFormat(detailModalTrend.recommendedFormat) && (
+                      <span className="block text-amber-600 dark:text-amber-400">
+                        Generating for {format}
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -263,7 +297,7 @@ export default function AITrendSuggestions({
               <Button
                 type="button"
                 size="sm"
-                disabled={isApplyingTrend}
+                disabled={isLocked}
                 onClick={() => {
                   const t = detailModalTrend;
                   setDetailModalTrend(null);

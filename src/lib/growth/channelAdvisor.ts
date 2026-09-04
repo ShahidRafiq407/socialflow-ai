@@ -67,7 +67,21 @@ export interface ChannelAdvice {
   basis: "MEASURED" | "AI" | "RULES";
   /** True when nothing is connected yet, so the advice is only a shortlist. */
   nothingConnected: boolean;
+  /**
+   * True only when the model ran and its answer survived the checks below.
+   *
+   * `basis` cannot answer that question: a workspace with tracked clicks keeps
+   * `basis: "MEASURED"` whether the AI pass ran or not, and every failure path in
+   * here returns the deterministic advice rather than an error. The biller needs
+   * the difference, because a shortlist arithmetic produced is not something to
+   * charge a credit for.
+   */
+  aiWritten: boolean;
   generatedAt: string;
+  /** Set when the plan, not the data, is why `aiWritten` is false. */
+  error?: string;
+  /** True alongside `error` when an upgrade is what would fix it. */
+  upgrade?: boolean;
 }
 
 /**
@@ -175,6 +189,7 @@ function ruleAdvice(params: {
       : null,
     basis: anyMeasured ? "MEASURED" : "RULES",
     nothingConnected: connectedCount === 0,
+    aiWritten: false,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -183,6 +198,13 @@ function ruleAdvice(params: {
  * Builds the advice. The LLM only rewrites reasons and reorders the shortlist —
  * it cannot add a platform, invent a number, or recommend something that is not
  * connected.
+ *
+ * Nothing is gated or charged in here, on purpose: with `fast` this is pure
+ * arithmetic over the workspace's own rows and the Lead Goal tab runs it on every
+ * load, so a gate here would put a plan check on a page render. Without `fast` it
+ * makes exactly one frontier-model call, and the caller that asked for that —
+ * `getChannelAdvice` — is where the `goal.channelAdvice` ticket lives. `aiWritten`
+ * on the result is how that caller knows whether the model actually contributed.
  */
 export async function suggestChannels(params: {
   workspaceId: string;
@@ -337,6 +359,7 @@ Return JSON only:
       websiteNote,
       basis: rules.basis === "MEASURED" ? "MEASURED" : "AI",
       nothingConnected: rules.nothingConnected,
+      aiWritten: true,
       generatedAt: new Date().toISOString(),
     };
   } catch {

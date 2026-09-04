@@ -11,7 +11,9 @@ import { generateMediaAsset, VisualizerError, clampDeckSlides, MIN_DECK_SLIDES, 
 import { isTextRichFormat, type SlideTextSpec } from "@/lib/agents/slideDesigner";
 import { cacheGet, cacheSet } from "@/lib/redis";
 
-import { checkAIAccess } from "@/lib/billing/gate";
+import { billedRoute, unbilled, entitlementResponse } from "@/lib/billing/route";
+import { withMeterContext } from "@/lib/billing/meter";
+import type { ActionKey } from "@/lib/billing/actions";
 import { parseBrandMetadata } from "@/lib/brand/profile";
 import {
   contentDoctrine,
@@ -37,6 +39,51 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 300;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WHAT EACH STEP COSTS
+//
+// One entry per billable step. A step that is absent from this map is free: the
+// editor's validation and lookup calls run unwrapped, and an unknown step falls
+// through to the 400 without ever touching a plan.
+//
+// `generate-media` is deliberately absent and deliberately not free. A render is
+// charged per asset at `generateMediaAsset`, because one click there can ask for
+// seven carousel slides and a route-level charge would bill it as one. What this
+// route owes that choke point is a metering scope naming the owner, which the
+// dispatcher below opens for it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STEP_ACTIONS: Record<string, ActionKey> = {
+  "generate-platform-copy": "ai.post.single",
+  "analyze-media": "ai.post.fromMedia",
+  "refine-caption": "ai.post.rewrite",
+  "generate-trend-suggestions": "ai.trend.suggest",
+  "generate-field": "ai.post.field",
+  "regenerate-slide": "ai.post.field",
+  "auto-prompt-from-script": "ai.post.field",
+  "enhance-prompt": "ai.post.field",
+};
+
+/** The steps that call a model but are billed somewhere other than here. */
+const METERED_ONLY_STEPS = new Set(["generate-media"]);
+
+interface StudioStepContext {
+  body: any;
+  step: string;
+  workspace: any;
+  brandDNA: {
+    name: string;
+    industry: string;
+    website: string;
+    tone: string;
+    missionVision: string;
+    targetAudience: string;
+    writingStyle: string;
+    primaryColors: string[];
+  };
+  userId: string;
+}
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -56,32 +103,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Workspace not found. Please complete onboarding." }, { status: 404 });
     }
 
-    // Gating check: AI generation features require Creator Pro or Agency plan.
-    // Covers every LLM/media-consuming step exposed by this route.
-    const isGatedAIStep =
-      (typeof step === "string" && step.startsWith("generate-")) ||
-      step === "regenerate-slide" ||
-      step === "slide-regenerate" ||
-      step === "ai-field-generate" ||
-      step === "enhance-prompt" ||
-      step === "auto-prompt-from-script" ||
-      step === "analyze-media" ||
-      step === "refine-caption";
-    if (isGatedAIStep) {
-      const gate = await checkAIAccess(workspace.id);
-      if (!gate.allowed) {
-        return NextResponse.json(
-          {
-            error: "UPGRADE_REQUIRED",
-            reason: gate.reason,
-            requiredPlan: gate.requiredPlan,
-            message: gate.message,
-          },
-          { status: 403 }
-        );
-      }
-    }
-
     // `brandDNA.writingStyle` holds a JSON blob (offer / pain points / rules), so the
     // real rules have to be unpacked before they reach a prompt.
     const brandMeta = parseBrandMetadata(workspace.brandDNA?.writingStyle);
@@ -99,6 +120,33 @@ export async function POST(req: Request) {
         : [],
     };
 
+    const ctx: StudioStepContext = { body, step, workspace, brandDNA, userId };
+    const action = typeof step === "string" ? STEP_ACTIONS[step] : undefined;
+
+    if (action) {
+      return await billedRoute(
+        { userId, action, workspaceId: workspace.id, surface: "ai-studio", measureCost: true },
+        () => runStudioStep(ctx)
+      );
+    }
+
+    if (typeof step === "string" && METERED_ONLY_STEPS.has(step)) {
+      return await withMeterContext(
+        { userId, workspaceId: workspace.id, feature: "ai-studio", action: null },
+        () => runStudioStep(ctx)
+      );
+    }
+
+    return await runStudioStep(ctx);
+  } catch (error: any) {
+    console.error("AI Studio API Error:", error);
+    return NextResponse.json({ error: error.message || "An error occurred in AI Studio." }, { status: 500 });
+  }
+}
+
+async function runStudioStep(ctx: StudioStepContext): Promise<NextResponse> {
+  const { body, step, workspace, brandDNA, userId } = ctx;
+  try {
     // =========================================================================
     // STEP: Generate Platform-Specific Copy & Media Prompt (Multi-Agent)
     // =========================================================================
@@ -804,6 +852,10 @@ Return ONLY the prompt string.`;
           brandName: brandDNA.name,
           brandColors: brandDNA.primaryColors,
           industry: brandDNA.industry,
+          // Named explicitly as well as ambiently: the render is charged per asset
+          // inside `generateMediaAsset`, and that charge refuses to run without an
+          // owner. Passing it here means a lost async context cannot break the step.
+          billing: { userId, workspaceId: workspace.id },
         });
 
         const asset = mediaAssets[0];
@@ -842,6 +894,12 @@ Return ONLY the prompt string.`;
         });
       } catch (err: any) {
         console.error(`[AI Studio] Media generation failed:`, err);
+        // A plan refusal is not a provider fault. `generate-media` is metered-only, so
+        // nothing above this catch converts it: without this, a Trial that has used its
+        // image or video allowance got a generic 500 and the studio reported "Media
+        // synthesis failed" instead of opening the upgrade prompt.
+        const refusal = entitlementResponse(err);
+        if (refusal) return refusal;
         return NextResponse.json({
           success: false,
           status: "failed",
@@ -1072,7 +1130,12 @@ Return ONLY raw JSON:
       const cachedTrends = await cacheGet<any>(trendCacheKey);
       if (cachedTrends) {
         console.log(`[AI Studio] Returning Redis cached trend suggestions for ${platform} ${format}`);
-        return NextResponse.json({ success: true, trends: cachedTrends, fromCache: true });
+        // Nothing was researched, so nothing is charged — the hold taken for this
+        // step is released and the balance never moves.
+        return unbilled(
+          NextResponse.json({ success: true, trends: cachedTrends, fromCache: true }),
+          "served from cache"
+        );
       }
 
       const searchQuery = trendSearchQuery(brandDNA, null, platform);

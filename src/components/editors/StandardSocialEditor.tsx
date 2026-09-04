@@ -175,10 +175,21 @@ export default function StandardSocialEditor({
     return "image";
   });
 
-  // Automatically switch to video tab when an active video URL is rendered or loaded
+  /**
+   * Keep the media tab in step with whatever is ACTUALLY in the slot — both ways.
+   *
+   * This used to latch one way (still → video, never back). A single video anywhere in the
+   * format family flipped this editor into video mode permanently, and every later image it
+   * rendered was then shown through the video player: a black box with a play button that
+   * never plays. Only fires when the URL itself changes, so a user who deliberately picks
+   * "Video" on a slot that currently holds an image keeps that choice.
+   */
   React.useEffect(() => {
-    if (displayImageUrl && isMediaVideo(displayImageUrl)) {
+    if (!displayImageUrl) return;
+    if (isMediaVideo(displayImageUrl)) {
       setSelectedMediaType("video");
+    } else if (capability.supportsAIImage || capability.mediaType !== "video") {
+      setSelectedMediaType("image");
     }
   }, [displayImageUrl]);
 
@@ -300,13 +311,19 @@ export default function StandardSocialEditor({
             ) : displayImageUrl ? (
               <ContentMediaRenderer
                 url={displayImageUrl}
-                mediaType={selectedMediaType === "video" || isMediaVideo(displayImageUrl) ? "video" : "auto"}
+                /* The URL decides, not the tab. Forcing "video" because the tab said video
+                   rendered stills inside a <video> element — a black box with a dead play
+                   button. "auto" re-sniffs the URL. */
+                mediaType={isMediaVideo(displayImageUrl) ? "video" : "auto"}
                 isVertical={isVertical}
                 onRemove={onRemoveMedia}
                 showDownloadButton={false}
                 alt={`${capability.format} preview`}
               />
-            ) : renderError && selectedMediaType === "image" ? (
+            ) : renderError ? (
+              /* Ungated on the tab: a failure that arrives while the video tab is active is
+                 still a failure the user has to see. It used to be swallowed, leaving the
+                 empty "No media attached yet" placeholder in place of the error. */
               <div className="text-center p-4 space-y-2.5">
                 <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
                 <div className="space-y-0.5">

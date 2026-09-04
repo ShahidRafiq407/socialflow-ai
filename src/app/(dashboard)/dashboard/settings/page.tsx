@@ -12,7 +12,7 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getChatSettings } from "@/lib/agents/controller/settings";
-import { BILLING_ENABLED, getWorkspacePlan } from "@/lib/billing/gate";
+import { getAccountSummary } from "@/lib/billing/entitlements";
 import { SettingsShell } from "@/components/dashboard/settings/SettingsShell";
 import type { SettingsData } from "@/components/dashboard/settings/types";
 
@@ -43,7 +43,7 @@ export default async function SettingsPage() {
 
   const [
     chatSettings,
-    plan,
+    account,
     workspaceCount,
     posts,
     socialAccounts,
@@ -57,7 +57,9 @@ export default async function SettingsPage() {
     totalChatSessions,
   ] = await Promise.all([
     getChatSettings(workspaceId),
-    getWorkspacePlan(workspaceId),
+    // The plan belongs to the account, not the workspace — one balance is spent
+    // across every workspace the person owns.
+    getAccountSummary(userId),
     prisma.workspace.count({ where: { userId } }),
     prisma.post.count({ where: { workspaceId } }),
     prisma.socialAccount.count({ where: { workspaceId } }),
@@ -89,9 +91,12 @@ export default async function SettingsPage() {
       customInstructions: chatSettings.customInstructions,
     },
     billing: {
-      billingEnabled: BILLING_ENABLED,
-      tier: plan.plan,
-      status: plan.status,
+      tier: account.context.plan,
+      status: account.context.status,
+      testMode: account.context.testMode,
+      creditsAvailable: account.wallet.available,
+      monthlyGrant: account.wallet.monthlyGrant,
+      percentUsed: account.wallet.percentUsed,
     },
     counts: {
       posts,

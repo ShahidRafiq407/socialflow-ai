@@ -31,7 +31,7 @@ import type { Artifact, ControllerEvent, ToolRun } from "./types";
 import { getChatModel } from "./models";
 import { batchCalls, settleRuns } from "./turnFlow";
 import { computeLimits, type CapabilityLimit } from "./limits";
-import { BILLING_ENABLED, getWorkspacePlan } from "@/lib/billing/gate";
+import { getWorkspacePlan } from "@/lib/billing/gate";
 
 const MAX_TOOL_RESULT_CHARS = 24_000;
 
@@ -66,6 +66,19 @@ export interface RunControllerParams {
   /** Overrides the stored model for this turn only. */
   modelOverride?: string;
   settings?: ChatSettings;
+  /**
+   * The plan this turn was authorised under. Passed in by the route that already
+   * holds a ticket, so the controller does not read the plan a second time — and
+   * so what the chat is told it may do is the same plan that paid for the turn.
+   */
+  planTier?: string | null;
+  /**
+   * The plan's tool-loop allowance. A ceiling over the workspace's own
+   * `maxToolLoops` setting, never a replacement for it: a workspace that asked for
+   * four loops gets four on Agency, and a workspace that asked for twenty-four gets
+   * whatever its plan pays for.
+   */
+  maxToolLoops?: number;
   signal?: AbortSignal;
   emit: (event: ControllerEvent) => void;
 }
@@ -270,7 +283,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
   let memory: ControllerMemoryFact[] = [];
   let playbooks: ControllerMemoryFact[] = [];
   let outcomes: OutcomeEvent[] = [];
-  let planTier: string | null = null;
+  let planTier: string | null = params.planTier ?? null;
   const [snapshot, registry] = await Promise.all([
     buildWorkspaceSnapshot(params.workspaceId),
     buildToolRegistry(params.workspaceId, settings),
@@ -291,10 +304,15 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       outcomes = await loadOutcomeEvents(params.workspaceId);
     })(),
     (async () => {
-      // Only when billing is actually enforced. With the kill-switch off every
-      // plan feature works, so telling the user their plan blocks something
-      // would be a lie in the other direction.
-      if (!BILLING_ENABLED) return;
+      // The plan is what decides which capabilities the chat may claim. There is
+      // no kill-switch around this any more: entitlements are always enforced, so
+      // a chat that ignored them would promise work the next request refuses.
+      //
+      // Skipped when the caller passed the plan it charged the turn against. That
+      // is not only a saved read: `getWorkspacePlan` goes back through `auth()`,
+      // so a turn started by anything other than a signed-in browser would read
+      // FREE here and quietly narrow a paying account's capabilities.
+      if (params.planTier !== undefined) return;
       try {
         planTier = (await getWorkspacePlan(params.workspaceId)).plan;
       } catch {
@@ -387,7 +405,10 @@ export async function runController(params: RunControllerParams): Promise<RunCon
 
   // ---- agent loop ---------------------------------------------------------
 
-  const maxLoops = Math.max(1, settings.maxToolLoops);
+  // Each loop is another full model call, so this is where a turn's cost stops
+  // being open-ended. The workspace setting asks; the plan's allowance decides.
+  const loopCeiling = params.maxToolLoops ?? settings.maxToolLoops;
+  const maxLoops = Math.max(1, Math.min(settings.maxToolLoops, loopCeiling));
   let loop = 0;
   let announcedModel = false;
 

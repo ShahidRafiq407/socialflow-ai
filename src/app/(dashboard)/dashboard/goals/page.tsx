@@ -53,7 +53,8 @@ export default async function LeadGoalPage() {
   ]);
 
   // "Post here" advice for the first paint. `fast` keeps this render free of an
-  // LLM round trip — the tab refreshes it with the AI-written reasons on demand.
+  // LLM round trip — the tab refreshes it with the AI-written reasons on demand,
+  // and that refresh is the part that is charged.
   const advice = await suggestChannels({
     workspaceId,
     leadSources: normalizeSources(goalView.goal?.leadSources),
@@ -66,6 +67,7 @@ export default async function LeadGoalPage() {
     websiteNote: null,
     basis: "RULES" as const,
     nothingConnected: true,
+    aiWritten: false,
     generatedAt: new Date().toISOString(),
   }));
 

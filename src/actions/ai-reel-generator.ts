@@ -1,7 +1,11 @@
 "use server";
 
+import { auth } from "@clerk/nextjs/server";
+import prisma from "@/lib/db";
 import { llm, MODELS } from "@/lib/agents/llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { runAction, isEntitlementError } from "@/lib/billing/entitlements";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { searchStockMedia } from "./stock-media";
 
 export interface ReelScene {
@@ -20,9 +24,59 @@ export interface AIReelPackage {
   fullScript?: string;
   scenes?: ReelScene[];
   error?: string;
+  /** Set when the plan, not the model, is what stopped this. */
+  upgrade?: boolean;
 }
 
-export async function generateAIReelPackage(topic: string, numScenes: number = 4): Promise<AIReelPackage> {
+/**
+ * Writes a multi-scene reel script and finds a stock clip for each scene.
+ *
+ * Gated and charged here because the Video Studio modal calls this straight from
+ * the browser, which makes it a public endpoint: before this it wrote a script on
+ * the frontier model for anyone who could reach the action, with no session, no
+ * plan check and no usage row.
+ *
+ * `numScenes` is clamped — the caller asks for 1, 3 or 4, and an unclamped value
+ * would multiply the stock searches without changing the price.
+ */
+export async function generateAIReelPackage(
+  topic: string,
+  numScenes: number = 4
+): Promise<AIReelPackage> {
+  const { userId } = await auth();
+  if (!userId) return { success: false, error: "Please sign in to generate a reel script." };
+
+  const workspace = await prisma.workspace
+    .findFirst({ ...(await activeWorkspaceQuery(userId)), select: { id: true } })
+    .catch(() => null);
+
+  const scenes = Math.max(1, Math.min(6, Math.round(numScenes) || 4));
+
+  try {
+    return await runAction(
+      {
+        userId,
+        action: "media.reelScript",
+        workspaceId: workspace?.id ?? null,
+        referenceId: (topic || "").trim().slice(0, 120) || null,
+        surface: "media",
+        measureCost: true,
+      },
+      () => buildReelPackage(topic, scenes)
+    );
+  } catch (err: any) {
+    if (isEntitlementError(err)) {
+      return { success: false, error: err.gate.message, upgrade: true };
+    }
+    console.error("AI Reel Generation error:", err);
+    return {
+      success: false,
+      error: err?.message || "Failed to generate AI Reel script and scenes",
+    };
+  }
+}
+
+async function buildReelPackage(topic: string, numScenes: number): Promise<AIReelPackage> {
   try {
     const promptTopic = topic && topic.trim() ? topic.trim() : "5 Effective Growth Hacks for 2026";
     const messages = [
@@ -63,7 +117,7 @@ Respond ONLY with valid JSON in this structure:
     let res = await llm.withStructuredOutput(null).invoke(messages.map(m => {
         if (m.role === 'system') return new SystemMessage(m.content);
         return new HumanMessage(m.content);
-    }), { modelName: MODELS.VIDEO });
+    }), { modelName: MODELS.CONTENT_CREATOR });
     
     let jsonStr = res.content?.toString() || "";
     
@@ -146,6 +200,13 @@ Respond ONLY with valid JSON in this structure:
       });
     }
 
+    // Nothing usable came back, so nothing is owed. Throwing rather than returning
+    // `{ success: false }` is what makes that true: `runAction` refunds on a throw
+    // and keeps the charge on a resolved value, however unhappy that value is.
+    if (scenes.length === 0) {
+      throw new Error("The script came back empty. Try a more specific topic.");
+    }
+
     return {
       success: true,
       title: parsedData.title || promptTopic,
@@ -153,10 +214,9 @@ Respond ONLY with valid JSON in this structure:
       scenes
     };
   } catch (error: any) {
-    console.error("AI Reel Generation error:", error);
-    return {
-      success: false,
-      error: error.message || "Failed to generate AI Reel script and scenes"
-    };
+    // Rethrown for the same reason: the refund is the caller's `runAction`, and it
+    // only happens if this leaves as an error. `generateAIReelPackage` turns it back
+    // into the `{ success: false }` the modal expects.
+    throw error;
   }
 }

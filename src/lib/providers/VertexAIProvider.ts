@@ -1,4 +1,13 @@
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from "@google/genai";
+import {
+  classifyError,
+  estimateMessageTokens,
+  estimateTokens,
+  extractUsageMetadata,
+  meteredCall,
+  recordUsageAsync,
+  type CallKind,
+} from "@/lib/billing/meter";
 
 /** A tool call the model asked for during an agent turn. */
 export interface AgentFunctionCall {
@@ -76,6 +85,23 @@ const FAST_FALLBACKS = modelList("VERTEX_FAST_FALLBACKS", [
   "gemini-1.5-flash",
 ]);
 
+/**
+ * The only door to the models.
+ *
+ * Every generation in this product — campaigns, chat turns, article stages, media
+ * renders, embeddings — passes through one of this class's public methods. That is
+ * what makes metering complete rather than best-effort: each method wraps its
+ * `generateContent` / `generateContentStream` call in `meteredCall`, so a `UsageEvent`
+ * row is written for every attempt, including the retries and the fallback models
+ * that a failing call walks through. A new feature cannot spend money without
+ * appearing in the usage table, because it cannot reach a model without coming
+ * through here.
+ *
+ * Whose spend it is comes from the async context the route established (see
+ * `withMeterContext`). The provider itself never learns about users, plans or
+ * credits — it records what a call cost and lets the billing layer decide what that
+ * means.
+ */
 export class VertexAIProvider {
   public ai: GoogleGenAI;
   public mediaAi: GoogleGenAI;
@@ -165,14 +191,19 @@ export class VertexAIProvider {
       return m.content;
     }).join("\n\n");
 
+    // Only used if a response arrives without usage metadata; the real counts win.
+    const estimatedInput = estimateMessageTokens(messages);
+
     const config: any = {
       temperature: options.temperature ?? 0.7,
     };
 
+    let grounded = false;
     if (options.tools) {
       const hasSearchTool = options.tools.some((t: any) => t.googleSearchRetrieval || t.google_search_retrieval);
       if (hasSearchTool) {
         config.tools = [{ googleSearch: {} }];
+        grounded = true;
       }
     }
 
@@ -180,11 +211,20 @@ export class VertexAIProvider {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI] Executing generateText with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config,
-          });
+          const response = await meteredCall(
+            {
+              model: modelName,
+              callKind: grounded ? "grounded" : "text",
+              fallbackInputTokens: estimatedInput,
+              outputTextOf: (res) => (res as { text?: string })?.text,
+            },
+            () =>
+              this.ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
+                config,
+              })
+          );
 
           if (response.text) {
             console.log(`[Vertex AI] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
@@ -221,17 +261,34 @@ export class VertexAIProvider {
     const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FAST_MODEL);
     let lastError: unknown = null;
 
+    // Inline images dominate a vision prompt's token count and their size is not
+    // knowable from the parts array, so the text estimate is a floor. Vertex reports
+    // the real figure on the response and that is what gets recorded; this only
+    // matters for a call that fails before reporting anything.
+    const estimatedInput = estimateMessageTokens(
+      parts.map((part) => ({ role: "user", content: (part as { text?: string })?.text ?? "[media]" }))
+    );
+
     for (const modelName of candidateModels) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI Vision] Executing generateVisionText with model: ${modelName} (attempt ${attempt + 1}, ${parts.length} parts)`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: [{ role: "user", parts }],
-            config: {
-              temperature: options.temperature ?? 0.4,
+          const response = await meteredCall(
+            {
+              model: modelName,
+              callKind: "vision",
+              fallbackInputTokens: estimatedInput,
+              outputTextOf: (res) => (res as { text?: string })?.text,
             },
-          });
+            () =>
+              this.ai.models.generateContent({
+                model: modelName,
+                contents: [{ role: "user", parts }],
+                config: {
+                  temperature: options.temperature ?? 0.4,
+                },
+              })
+          );
 
           if (response.text) {
             console.log(`[Vertex AI Vision] ✅ Success with model: ${modelName} (${response.text.length} chars)`);
@@ -264,19 +321,31 @@ export class VertexAIProvider {
   ): Promise<{ text: string; searchQueries: string[]; sources: { title: string; url: string; snippet: string }[] }> {
     const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FAST_MODEL);
     let lastError: any = null;
+    const estimatedInput = estimateTokens(prompt);
 
     for (const modelName of candidateModels) {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI Grounding] Executing with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-              temperature: options.temperature ?? 0.3,
-              tools: [{ googleSearch: {} }],
+          // `meteredCall` reads `groundingMetadata.webSearchQueries` off the response
+          // to count search requests — the charge grounding adds on top of tokens.
+          const response = await meteredCall(
+            {
+              model: modelName,
+              callKind: "grounded",
+              fallbackInputTokens: estimatedInput,
+              outputTextOf: (res) => (res as { text?: string })?.text,
             },
-          });
+            () =>
+              this.ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
+                config: {
+                  temperature: options.temperature ?? 0.3,
+                  tools: [{ googleSearch: {} }],
+                },
+              })
+          );
 
           const text = response.text || "";
           const searchQueries: string[] = [];
@@ -353,6 +422,45 @@ export class VertexAIProvider {
   }
 
   /**
+   * Records one streamed attempt.
+   *
+   * Streams report usage differently to buffered calls: `usageMetadata` arrives on a
+   * late chunk and is cumulative, so the last one seen is the whole call. Grounding
+   * is counted from the DEDUPED query set — a stream repeats its grounding metadata
+   * across chunks, and counting every repetition would inflate the search charge
+   * several times over.
+   */
+  private recordStreamAttempt(args: {
+    model: string;
+    callKind: CallKind;
+    usageMetadata: unknown;
+    fallbackInputTokens: number;
+    outputText?: string;
+    thoughtChars?: number;
+    groundingRequests?: number;
+    startedAt: number;
+    error?: unknown;
+  }): void {
+    const reported = extractUsageMetadata({ usageMetadata: args.usageMetadata });
+    const failed = args.error !== undefined;
+
+    recordUsageAsync({
+      model: args.model,
+      callKind: args.callKind,
+      inputTokens: reported.reported ? reported.inputTokens : args.fallbackInputTokens,
+      outputTokens: reported.reported ? reported.outputTokens : estimateTokens(args.outputText),
+      // Thought summaries are visible as characters even when the model does not
+      // report a thoughts count, and they bill as output either way.
+      thinkingTokens: reported.thinkingTokens || Math.ceil((args.thoughtChars ?? 0) / 4),
+      cachedTokens: reported.cachedTokens,
+      groundingRequests: args.groundingRequests ?? 0,
+      latencyMs: Date.now() - args.startedAt,
+      ok: !failed,
+      errorKind: failed ? classifyError(args.error) : null,
+    });
+  }
+
+  /**
    * Core streaming call used by every "show the real reasoning" agent path.
    *
    * `thinkingConfig.includeThoughts` makes Gemini emit thought-summary parts on
@@ -385,6 +493,12 @@ export class VertexAIProvider {
   }> {
     const candidateModels = this.getFallbackModels(options.modelName || DEFAULT_FRONTIER_MODEL);
     let lastError: any = null;
+    const estimatedInput = estimateTokens(prompt);
+    const callKind: CallKind = options.grounded
+      ? "grounded"
+      : options.responseMimeType === "application/json"
+        ? "json"
+        : "stream";
 
     if (typeof (this.ai as any)?.models?.generateContentStream !== "function") {
       throw new Error("Vertex AI Provider: generateContentStream is unavailable in this SDK build.");
@@ -399,6 +513,12 @@ export class VertexAIProvider {
         if (options.grounded) config.tools = [{ googleSearch: {} }];
         if (withThinking) config.thinkingConfig = { includeThoughts: true };
 
+        const startedAt = Date.now();
+        let usageMetadata: unknown = null;
+        let answer = "";
+        let thoughtChars = 0;
+        const searchQueries: string[] = [];
+
         try {
           console.log(
             `[Vertex AI Stream] ${modelName} (thoughts: ${withThinking}, grounded: ${!!options.grounded})`
@@ -409,12 +529,12 @@ export class VertexAIProvider {
             config,
           });
 
-          let answer = "";
-          let thoughtChars = 0;
-          const searchQueries: string[] = [];
           const sources: { title: string; url: string; snippet: string }[] = [];
 
           for await (const chunk of stream) {
+            const chunkUsage = (chunk as any)?.usageMetadata;
+            if (chunkUsage) usageMetadata = chunkUsage;
+
             if (options.signal?.aborted) {
               const abortErr: any = new Error("Generation cancelled by user");
               abortErr.isCancelled = true;
@@ -455,17 +575,53 @@ export class VertexAIProvider {
           }
 
           if (answer.trim()) {
+            const uniqueQueries = Array.from(new Set(searchQueries));
+            this.recordStreamAttempt({
+              model: modelName,
+              callKind,
+              usageMetadata,
+              fallbackInputTokens: estimatedInput,
+              outputText: answer,
+              thoughtChars,
+              groundingRequests: uniqueQueries.length,
+              startedAt,
+            });
             return {
               text: answer,
               thoughtChars,
-              searchQueries: Array.from(new Set(searchQueries)),
+              searchQueries: uniqueQueries,
               sources,
               model: modelName,
               thinkingUsed: withThinking && thoughtChars > 0,
             };
           }
+          // An empty stream still opened a request and still read the prompt.
+          this.recordStreamAttempt({
+            model: modelName,
+            callKind,
+            usageMetadata,
+            fallbackInputTokens: estimatedInput,
+            thoughtChars,
+            groundingRequests: new Set(searchQueries).size,
+            startedAt,
+            error: new Error("empty response"),
+          });
           lastError = new Error(`${modelName} streamed an empty response.`);
         } catch (err: any) {
+          // Recorded before the cancellation re-throw: a stream the user aborted
+          // half-way still consumed everything it had generated by then.
+          this.recordStreamAttempt({
+            model: modelName,
+            callKind,
+            usageMetadata,
+            fallbackInputTokens: estimatedInput,
+            outputText: answer,
+            thoughtChars,
+            groundingRequests: new Set(searchQueries).size,
+            startedAt,
+            error: err,
+          });
+
           if (err?.isCancelled) throw err;
           lastError = err;
           const msg = (err?.message || "").toLowerCase();
@@ -620,6 +776,17 @@ export class VertexAIProvider {
     const wantsThinking = params.thinkingEffort !== "off";
     let lastError: any = null;
 
+    // The whole conversation is re-sent on every turn of the tool loop, which is
+    // why a long chat turn is priced the way it is: turn eight pays for turns one
+    // through seven again as input.
+    const estimatedInput =
+      estimateMessageTokens(
+        (params.contents || []).map((content) => ({
+          role: content.role,
+          content: (content.parts || []).map((part) => (part as { text?: string })?.text || "").join(" "),
+        }))
+      ) + estimateTokens(params.systemInstruction);
+
     if (typeof (this.ai as any)?.models?.generateContentStream !== "function") {
       throw new Error("Vertex AI Provider: generateContentStream is unavailable in this SDK build.");
     }
@@ -648,6 +815,12 @@ export class VertexAIProvider {
           };
         }
 
+        const startedAt = Date.now();
+        let usageMetadata: unknown = null;
+        let text = "";
+        let reasoning = "";
+        const searchQueries: string[] = [];
+
         try {
           if (modelName !== requested) callbacks.onModelFallback?.(modelName);
           console.log(
@@ -660,15 +833,15 @@ export class VertexAIProvider {
             config,
           });
 
-          let text = "";
-          let reasoning = "";
           const functionCalls: AgentFunctionCall[] = [];
           const modelParts: Part[] = [];
-          const searchQueries: string[] = [];
           const sources: { title: string; url: string; snippet: string }[] = [];
           let finishReason = "STOP";
 
           for await (const chunk of stream) {
+            const chunkUsage = (chunk as any)?.usageMetadata;
+            if (chunkUsage) usageMetadata = chunkUsage;
+
             if (params.signal?.aborted) {
               const abortErr: any = new Error("Generation cancelled by user");
               abortErr.isCancelled = true;
@@ -722,6 +895,17 @@ export class VertexAIProvider {
           }
 
           if (text.trim() || functionCalls.length > 0) {
+            const uniqueQueries = Array.from(new Set(searchQueries));
+            this.recordStreamAttempt({
+              model: modelName,
+              callKind: params.enableGoogleSearch && declarations.length === 0 ? "grounded" : "stream",
+              usageMetadata,
+              fallbackInputTokens: estimatedInput,
+              outputText: text,
+              thoughtChars: reasoning.length,
+              groundingRequests: uniqueQueries.length,
+              startedAt,
+            });
             return {
               text,
               reasoning,
@@ -730,13 +914,35 @@ export class VertexAIProvider {
               model: modelName,
               thinkingUsed: withThinking && reasoning.length > 0,
               finishReason,
-              searchQueries: Array.from(new Set(searchQueries)),
+              searchQueries: uniqueQueries,
               sources,
             };
           }
 
+          this.recordStreamAttempt({
+            model: modelName,
+            callKind: "stream",
+            usageMetadata,
+            fallbackInputTokens: estimatedInput,
+            thoughtChars: reasoning.length,
+            groundingRequests: new Set(searchQueries).size,
+            startedAt,
+            error: new Error("empty turn"),
+          });
           lastError = new Error(`${modelName} streamed neither text nor a tool call.`);
         } catch (err: any) {
+          this.recordStreamAttempt({
+            model: modelName,
+            callKind: "stream",
+            usageMetadata,
+            fallbackInputTokens: estimatedInput,
+            outputText: text,
+            thoughtChars: reasoning.length,
+            groundingRequests: new Set(searchQueries).size,
+            startedAt,
+            error: err,
+          });
+
           if (err?.isCancelled) throw err;
           lastError = err;
           const msg = (err?.message || "").toLowerCase();
@@ -810,14 +1016,23 @@ export class VertexAIProvider {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`[Vertex AI JSON] Executing generateJSON with model: ${modelName} (attempt ${attempt + 1})`);
-          const response = await this.ai.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-              temperature: options.temperature ?? 0.1,
-              responseMimeType: "application/json",
+          const response = await meteredCall(
+            {
+              model: modelName,
+              callKind: "json",
+              fallbackInputTokens: estimateMessageTokens(messages),
+              outputTextOf: (res) => (res as { text?: string })?.text,
             },
-          });
+            () =>
+              this.ai.models.generateContent({
+                model: modelName,
+                contents: prompt,
+                config: {
+                  temperature: options.temperature ?? 0.1,
+                  responseMimeType: "application/json",
+                },
+              })
+          );
 
           if (response.text) {
             const parsed = tryParseJSON(response.text);
@@ -845,19 +1060,39 @@ export class VertexAIProvider {
   /**
    * Generate text embeddings using Vertex AI (text-embedding-004, 768 dims by default).
    * Returns one float[] per input string. Configurable via MODEL_EMBEDDING.
+   *
+   * Cheap per call and easy to overlook, which is exactly why it is metered: memory
+   * extraction embeds on every chat turn, and a thousand cheap calls is a real line
+   * on the invoice.
    */
   async embed(texts: string[]): Promise<number[][]> {
     const modelName = process.env.MODEL_EMBEDDING || "text-embedding-004";
     const out: number[][] = [];
     for (const text of texts) {
+      const startedAt = Date.now();
       try {
         const response = (await this.ai.models.embedContent({
           model: modelName,
           contents: text,
         })) as any;
+        recordUsageAsync({
+          model: modelName,
+          callKind: "embed",
+          inputTokens: extractUsageMetadata(response).inputTokens || estimateTokens(text),
+          latencyMs: Date.now() - startedAt,
+          ok: true,
+        });
         const values = response?.embeddings?.[0]?.values;
         out.push(Array.isArray(values) && values.length > 0 ? values.map(Number) : []);
       } catch (err: any) {
+        recordUsageAsync({
+          model: modelName,
+          callKind: "embed",
+          inputTokens: estimateTokens(text),
+          latencyMs: Date.now() - startedAt,
+          ok: false,
+          errorKind: classifyError(err),
+        });
         console.warn(`[Vertex AI Embed] ❌ ${modelName} failed:`, err?.message || err);
         out.push([]);
       }

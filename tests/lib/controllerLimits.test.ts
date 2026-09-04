@@ -35,6 +35,7 @@ import {
   MAX_REQUEST_EXAMPLES,
   type FeatureRequest,
 } from "@/lib/agents/controller/requestShape";
+import { PLAN_TIERS, planHasFeature } from "@/lib/billing/plans";
 
 // A workspace with everything on and everything connected: the ONLY limits left
 // are the ones the product genuinely hasn't built (Pinterest API, planned
@@ -147,23 +148,47 @@ describe("computeLimits — plan gating", () => {
     expect(limits.some((l) => l.reason === "plan_locked")).toBe(false);
   });
 
-  it("locks video and zip on the Free tier, with a billing fix", () => {
+  it("locks all AI behind one umbrella row on the Free tier, with a billing fix", () => {
     const limits = computeLimits({ ...EVERYTHING, planTier: "FREE" });
     // FREE cannot access AI at all → the single umbrella row, not per-feature rows.
     expect(limits.find((l) => l.key === "plan:ai")?.reason).toBe("plan_locked");
     expect(limits.find((l) => l.key === "plan:ai")?.fix?.href).toContain("/dashboard/billing");
+    // And no per-feature rows underneath it: "you cannot generate video" is noise
+    // when the answer is that no generation of any kind is included.
+    expect(limits.some((l) => l.key === "plan:video")).toBe(false);
+    expect(limits.some((l) => l.key === "plan:zip")).toBe(false);
   });
 
-  it("on a tier WITH AI but no video, locks only video and zip", () => {
+  it("on a tier WITH AI, drops the umbrella and names only what is genuinely missing", () => {
     const limits = computeLimits({ ...EVERYTHING, planTier: "PRO" });
     expect(limits.some((l) => l.key === "plan:ai")).toBe(false);
-    expect(limits.find((l) => l.key === "plan:video")?.reason).toBe("plan_locked");
+    // Pro includes video, so claiming otherwise would send a paying user to the
+    // billing page for something they already have.
+    expect(limits.some((l) => l.key === "plan:video")).toBe(false);
     expect(limits.find((l) => l.key === "plan:zip")?.reason).toBe("plan_locked");
   });
 
   it("on the top tier, locks nothing by plan", () => {
     const limits = computeLimits({ ...EVERYTHING, planTier: "AGENCY" });
     expect(limits.some((l) => l.reason === "plan_locked")).toBe(false);
+  });
+
+  // The rows above are the ones a user reads today. This one is the rule behind
+  // them, asserted against the entitlement table itself rather than against a
+  // remembered plan matrix — so re-pricing a plan cannot make the chat tell
+  // someone a feature is locked when the gate would let it through, and cannot
+  // silently retire a row either.
+  it("mirrors the entitlement table on every tier, so a re-priced plan cannot drift", () => {
+    for (const tier of PLAN_TIERS) {
+      const limits = computeLimits({ ...EVERYTHING, planTier: tier });
+      const has = (key: string) => limits.some((l) => l.key === key);
+      const hasAi = planHasFeature(tier, "aistudio.generate");
+
+      expect(has("plan:ai")).toBe(!hasAi);
+      // Per-feature rows exist only underneath a plan that has AI at all.
+      expect(has("plan:video")).toBe(hasAi && !planHasFeature(tier, "media.video"));
+      expect(has("plan:zip")).toBe(hasAi && !planHasFeature(tier, "export.zip"));
+    }
   });
 });
 

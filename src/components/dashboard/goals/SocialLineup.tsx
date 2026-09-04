@@ -101,12 +101,25 @@ export function SocialLineup({
         timeframeDays: goal?.timeframeDays,
         leadType: goal?.leadType,
       });
+      // A plan refusal still comes back with the shortlist your own data produced,
+      // so the list is worth keeping — but it is the server's sentence that explains
+      // why the reasons did not get rewritten, not a generic failure.
+      if (next?.error) {
+        if (next.suggestions?.length) setAdvice(next);
+        onToast("error", next.error);
+        return;
+      }
       if (!next?.suggestions?.length) {
         onToast("error", "Could not work out a shortlist just now. Your current one is unchanged.");
         return;
       }
       setAdvice(next);
-      onToast("success", "Shortlist refreshed, with the reasons written for your business.");
+      onToast(
+        "success",
+        next.aiWritten
+          ? "Shortlist refreshed, with the reasons written for your business."
+          : "Shortlist refreshed from your own tracked results. No credits were used."
+      );
     } catch {
       onToast("error", "Could not reach the advisor. Your current shortlist is unchanged.");
     } finally {

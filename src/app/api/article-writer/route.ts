@@ -17,6 +17,16 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { HumanMessage } from "@langchain/core/messages";
+import type { ActionKey } from "@/lib/billing/actions";
+import { getAction } from "@/lib/billing/actions";
+import { billedRoute, entitlementResponse, unbilled } from "@/lib/billing/route";
+import {
+  checkAction,
+  getFeatureUsageMap,
+  getPlanContext,
+  requireFeature,
+} from "@/lib/billing/entitlements";
+import { withMeterContext } from "@/lib/billing/meter";
 import {
   createWPCategory,
   fetchWPAuthors,
@@ -71,28 +81,6 @@ export const revalidate = 0;
 /** The generator budgets 235s of work; the platform kills the function at 300s. */
 export const maxDuration = 300;
 
-/** Steps that spend paid model calls and therefore need the AI entitlement. */
-const AI_STEPS = new Set([
-  "generate",
-  "serp-only",
-  "topic-ideas",
-  "suggest-title",
-  "suggest-categories",
-  "enhance-seo",
-  // A run is a pipeline of paid calls. `run-start` spends nothing itself, but it
-  // is gated too: better to say "this plan does not include it" at the door than
-  // to let someone create a run they will not be allowed to advance. The two read
-  // steps are deliberately not here — a lapsed plan must still be able to open a
-  // run it already paid for.
-  "run-start",
-  "advance",
-  // The optimisation scan reads a live page and pays for one judgement about it.
-  // `optimize-verify` spends nothing itself, but it creates a 23-stage run, so it is
-  // gated at the door for the same reason `run-start` is. The reads next to them —
-  // publications, performance, status — are deliberately not here.
-  "optimize-scan",
-  "optimize-verify",
-]);
 
 
 // ---------------------------------------------------------------------------
@@ -237,6 +225,98 @@ function unfence(raw: unknown): string {
 // ROUTE
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// WHAT EACH STEP COSTS
+//
+// A step names an action and the catalogue says the price; nothing here invents a
+// number. The important line is the last one: an unrecognised step is charged as
+// an article, because the step that writes the article is this route's fallthrough
+// default. A typo in a request body must not be a free pipeline.
+//
+// `FREE_STEPS` is therefore the whole exemption list, and everything on it is
+// exempt for a reason that can be checked: it makes no model call and buys no
+// third-party request. `advance` is on it not because it is free — it is the most
+// expensive thing here — but because its run was paid for at the door and charging
+// again per stage would bill one article twelve times.
+// ---------------------------------------------------------------------------
+
+const FREE_STEPS = new Set([
+  // The staged pipeline. Charged once at `run-start`, metered per stage below.
+  "advance",
+  // Reads. A lapsed plan must still be able to open what it already paid for.
+  "run-state",
+  "run-artifact",
+  "run-bundle",
+  "run-evidence",
+  "run-modes",
+  "publications",
+  "performance-read",
+  "optimization-status",
+  "optimization-dismiss",
+  // Connections and publishing: CMS APIs and our own crawler, no model.
+  "targets",
+  "target-meta",
+  "wp-connect",
+  "create-category",
+  "publish",
+  "wp-publish",
+  "performance-sync",
+  "internal-links",
+]);
+
+function stepAction(step: string, body: any): ActionKey | null {
+  if (FREE_STEPS.has(step)) return null;
+
+  switch (step) {
+    // Both of these buy a pipeline rather than run one: the credits are taken when
+    // the run is created, and every stage afterwards advances something already
+    // paid for. `optimize-verify` always starts a deep run, whatever the page it
+    // came from was originally written by.
+    case "run-start":
+      return body?.mode === "deep" ? "article.deep" : "article.quick";
+    case "optimize-verify":
+      return "article.deep";
+
+    case "optimize-scan":
+      return "article.optimizeScan";
+    case "serp-only":
+      return "article.serp";
+    case "topic-ideas":
+    case "suggest-keyword":
+    case "suggest-title":
+    case "suggest-categories":
+    case "enhance-seo":
+      return "article.assist";
+
+    // `generate` is the one-shot writer and this route's default step, so it is
+    // also what an unknown step falls through to. Priced as a Quick article
+    // because that is what it produces.
+    default:
+      return "article.quick";
+  }
+}
+
+/** What the charge is filed against, so a ledger row points at a real thing. */
+function stepReference(step: string, body: any): string | null {
+  if (step === "optimize-verify") {
+    const id = String(body?.optimizationId || "").trim();
+    return id || null;
+  }
+  const keyword = String(body?.keyword || body?.brief?.keyword || "").trim();
+  return keyword ? keyword.slice(0, 120) : null;
+}
+
+interface ArticleStepContext {
+  req: Request;
+  requestStartedAt: number;
+  body: any;
+  step: string;
+  workspace: OwnedWorkspace;
+  workspaceId: string;
+  userId: string;
+}
+
 export async function POST(req: Request) {
   try {
     // The stage budget is measured from here, not from where the stage starts, so
@@ -257,25 +337,50 @@ export async function POST(req: Request) {
     }
     const workspaceId = workspace.id;
 
-    // ── AI entitlement ────────────────────────────────────────────────────
-    // Generation is in this set: it is the most expensive step of all, and the
-    // old build let it through because it was the untagged default.
-    if (AI_STEPS.has(step)) {
-      const { checkAIAccess } = await import("@/lib/billing/gate");
-      const gate = await checkAIAccess(workspaceId);
-      if (!gate.allowed) {
-        return NextResponse.json(
-          {
-            error: "UPGRADE_REQUIRED",
-            reason: gate.reason,
-            requiredPlan: gate.requiredPlan,
-            message: gate.message,
-          },
-          { status: 403 }
-        );
-      }
+    const ctx: ArticleStepContext = {
+      req,
+      requestStartedAt,
+      body,
+      step,
+      workspace,
+      workspaceId,
+      userId,
+    };
+
+    // ── the gate, the charge and the meter scope ──────────────────────────
+    // One call instead of the old feature-less `checkAIAccess`: the plan is asked
+    // about the thing being done, the credits are taken before the work starts,
+    // every model call inside lands in the usage table under this action, and a
+    // non-2xx answer refunds. A step that costs nothing runs unwrapped.
+    const action = stepAction(step, body);
+    if (action) {
+      return await billedRoute(
+        {
+          userId,
+          action,
+          workspaceId,
+          referenceId: stepReference(step, body),
+          surface: "article",
+          measureCost: true,
+        },
+        () => runArticleStep(ctx)
+      );
     }
 
+    return await runArticleStep(ctx);
+  } catch (error: any) {
+    console.error("[article-writer] error:", error);
+    return NextResponse.json(
+      { error: error?.message || "The request could not be completed." },
+      { status: 500 }
+    );
+  }
+}
+
+async function runArticleStep(ctx: ArticleStepContext): Promise<NextResponse> {
+  const { req, requestStartedAt, body, step, workspace, workspaceId, userId } = ctx;
+
+  try {
     // =====================================================================
     // STEP: start a run
     //
@@ -335,14 +440,53 @@ export async function POST(req: Request) {
     // continue cannot both buy the same one.
     // =====================================================================
     if (step === "advance") {
-      const outcome = await advanceArticleRun({
-        workspace: workspaceFacts(workspace),
-        runId: String(body?.runId || "").trim(),
-        // A closed tab or a pressed Stop aborts the stage. The row goes back to
-        // claimable, so nothing is lost and continue runs it again.
-        signal: req.signal,
-        deadline: requestStartedAt + STAGE_BUDGET_MS,
-      });
+      const runId = String(body?.runId || "").trim();
+      const run = runId ? await loadArticleRun(workspaceId, runId) : null;
+      if (!run) {
+        return NextResponse.json(
+          { error: "That run could not be found in this workspace." },
+          { status: 404 }
+        );
+      }
+
+      // The run was paid for when it was created, so this spends no credits. It is
+      // still gated, and gated on the article tab rather than on this run's own
+      // mode: a plan that lost Deep may finish the deep run it already bought, and
+      // a plan with no article tab at all may advance nothing. Without this, a
+      // lapsed account keeps a working 23-stage pipeline for as long as it has an
+      // unfinished run lying around.
+      try {
+        await requireFeature(userId, "article.quick");
+      } catch (gateErr) {
+        const refusal = entitlementResponse(gateErr);
+        if (!refusal) throw gateErr;
+        return refusal;
+      }
+
+      // Attributed to the action that paid for it, so the stage's model calls land
+      // on the same row the run's charge is measured against. This is the only
+      // reason `article.deep` at 350 credits can be checked against what a deep run
+      // actually costs us — the spend is spread over twenty-three requests, and
+      // this is what ties them together.
+      const runMode = run.mode === "deep" ? "deep" : "quick";
+      const outcome = await withMeterContext(
+        {
+          userId,
+          workspaceId,
+          feature: "article",
+          action: runMode === "deep" ? "article.deep" : "article.quick",
+          referenceId: run.id,
+        },
+        () =>
+          advanceArticleRun({
+            workspace: workspaceFacts(workspace),
+            runId,
+            // A closed tab or a pressed Stop aborts the stage. The row goes back to
+            // claimable, so nothing is lost and continue runs it again.
+            signal: req.signal,
+            deadline: requestStartedAt + STAGE_BUDGET_MS,
+          })
+      );
       if (!outcome) {
         return NextResponse.json(
           { error: "That run could not be found in this workspace." },
@@ -478,26 +622,65 @@ export async function POST(req: Request) {
     }
 
     // =====================================================================
-    // STEP: which pipelines this build can actually finish
+    // STEP: which pipeline this account can actually run
     //
-    // The mode is the person's choice, so the screen has to be able to offer both
-    // and say why one is unavailable. Asked of the server because the answer is a
-    // fact about which agents exist, not something a browser can know — and the
-    // day the missing stages land, this starts returning true with no UI change.
+    // Two separate questions, asked together and never merged into one answer:
+    //
+    //   does this build have an agent behind every stage of the mode, and
+    //   does the plan in force include the mode, have allowance left this period,
+    //   and cover the credits the run costs?
+    //
+    // The first is a fact about the deployment. The second is a fact about the
+    // subscription, and it is the one the screen used to learn far too late: Deep
+    // is an Agency feature, so on Pro both buttons rendered enabled and the
+    // refusal arrived only after the brief was filled in and Write was pressed.
+    //
+    // `selectable` and `available` are deliberately different. A mode the plan
+    // does not include cannot be chosen at all — there is nothing to configure
+    // and the sections below would describe work that will not happen. A mode the
+    // plan does include but whose allowance or balance is spent stays choosable,
+    // because that reason belongs next to the mode it is about, and it is fixed by
+    // waiting or topping up rather than by changing plan.
+    //
+    // On the free list: this reads the subscription row and the period counter. It
+    // spends nothing, charges nothing, and claims nothing.
     // =====================================================================
     if (step === "run-modes") {
-      return NextResponse.json({
-        success: true,
-        modes: (["quick", "deep"] as const).map((mode) => {
-          const reason = modeUnavailableReason(mode);
+      // One context, both checks. Passing it in rather than the user id means the
+      // subscription is read once for the pair instead of once per mode.
+      const plan = await getPlanContext(userId);
+      const usage = await getFeatureUsageMap(plan);
+
+      const modes = await Promise.all(
+        (["quick", "deep"] as const).map(async (mode) => {
+          const action: ActionKey = mode === "deep" ? "article.deep" : "article.quick";
+          const spec = getAction(action);
+          const missing = modeUnavailableReason(mode);
+          const gate = await checkAction(plan, action);
+          const locked = gate.reason === "FEATURE_LOCKED";
+          // The counter the cap is kept on, which is not always the action's own
+          // feature — `article.serp` and `article.assist` both count against Quick.
+          const meter = usage[spec.countsAgainst ?? spec.feature];
+
           return {
             mode,
             stages: stageCount(mode),
-            available: !reason,
-            reason: reason || undefined,
+            credits: gate.cost,
+            available: !missing && gate.allowed,
+            selectable: !missing && !locked,
+            locked,
+            reason: missing || (gate.allowed ? undefined : gate.message),
+            plan: gate.plan,
+            requiredPlan: gate.requiredPlan,
+            // Present only where this plan caps the mode by count. Deep is capped
+            // on no plan that has it, so it reports no meter rather than a zero.
+            cap: meter?.cap,
+            used: meter?.used,
           };
-        }),
-      });
+        })
+      );
+
+      return NextResponse.json({ success: true, plan: plan.plan, modes });
     }
 
     // =====================================================================
@@ -684,12 +867,12 @@ export async function POST(req: Request) {
     // =====================================================================
     // STEP: publications, performance and the optimisation loop
     //
-    // Read steps, deliberately outside `AI_STEPS`: reading what a live page is
+    // Read steps, and on `FREE_STEPS` deliberately: reading what a live page is
     // found for spends no model calls, and a lapsed plan must still be able to see
     // how the articles it already paid for are doing.
     //
     // `performance-sync` does call Google, with the workspace's own read-only
-    // credentials. It is still not an AI step — it buys rows, not tokens.
+    // credentials. It is still not charged — it buys rows, not tokens.
     // =====================================================================
     if (step === "publications") {
       const { listPublications, listOptimizations } = await import(
@@ -974,12 +1157,19 @@ export async function POST(req: Request) {
       if (optimization.verifyRunId) {
         const existing = await loadArticleRun(workspaceId, optimization.verifyRunId);
         if (existing) {
-          return NextResponse.json({
-            success: true,
-            alreadyStarted: true,
-            run: toRunView(existing),
-            optimizationId: optimization.id,
-          });
+          // The second click gets the first click's run, and pays nothing for it.
+          // `unbilled` releases the reservation this request took at the door: a
+          // deep run is 350 credits, and a double-click is the easiest way in the
+          // product to be charged twice for one pipeline.
+          return unbilled(
+            NextResponse.json({
+              success: true,
+              alreadyStarted: true,
+              run: toRunView(existing),
+              optimizationId: optimization.id,
+            }),
+            "the verification run was already started"
+          );
         }
       }
 
@@ -1184,9 +1374,19 @@ export async function POST(req: Request) {
         targetCountry: body?.targetCountry,
         measureCompetitors: body?.measureCompetitors !== false,
       });
+      // A 200 with `success: false` is how this step has always reported a refused
+      // search, and the page relies on that shape to show the reason inline. So the
+      // refund happens here rather than by changing the status: no results read,
+      // nothing to charge for.
+      if (!res.success) {
+        return unbilled(
+          NextResponse.json({ success: false, serpData: null, serpError: res.error }),
+          "the live results could not be read"
+        );
+      }
       return NextResponse.json({
-        success: res.success,
-        serpData: res.success ? res.data : null,
+        success: true,
+        serpData: res.data,
         serpError: res.error,
       });
     }
@@ -1240,12 +1440,18 @@ export async function POST(req: Request) {
         seedHint: body?.seedHint || body?.keyword,
       });
 
-      return NextResponse.json({
+      const payload = {
         success: result.ideas.length > 0,
         ...result,
         // The old shape, so a keyword list still works where only that is needed.
         keywords: result.ideas.map((i) => i.keyword),
-      });
+      };
+      // No ideas is not a finding, it is a failed suggestion — and this step reports
+      // it at 200 because the panel renders the reason. Refunded rather than kept.
+      if (result.ideas.length === 0) {
+        return unbilled(NextResponse.json(payload), "no topic ideas were produced");
+      }
+      return NextResponse.json(payload);
     }
 
     // =====================================================================

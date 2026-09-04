@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { requireFeature } from "@/lib/billing/entitlements";
+import { entitlementResponse } from "@/lib/billing/route";
 import prisma from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -30,13 +32,17 @@ export async function POST(req: Request) {
     const workspace = await prisma.workspace.findFirst({ where: { id: workspaceId, userId } });
     if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
-    const { checkAIAccess } = await import("@/lib/billing/gate");
-    const gate = await checkAIAccess(workspaceId);
-    if (!gate.allowed) {
-      return NextResponse.json(
-        { error: gate.message || "Upgrade required", reason: gate.reason },
-        { status: 403 }
-      );
+    // The Goal tab is what unlocks this, so that is what the plan is asked about.
+    // The render's own credits are taken per asset at the media choke point inside
+    // `regenerateGrowthTaskMedia` — an image and a video do not cost the same, and
+    // this route does not know yet which one the task wants. Refusing here is only
+    // so a lapsed plan is told before the work starts rather than after.
+    try {
+      await requireFeature(userId, "goals.autopilot");
+    } catch (gateErr) {
+      const refusal = entitlementResponse(gateErr);
+      if (!refusal) throw gateErr;
+      return refusal;
     }
 
     const controller = new AbortController();

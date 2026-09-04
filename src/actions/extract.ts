@@ -1,10 +1,55 @@
 "use server";
 
 import * as cheerio from "cheerio";
+import { auth } from "@clerk/nextjs/server";
 import { llm } from "@/lib/agents/llm";
 import { HumanMessage } from "@langchain/core/messages";
+import prisma from "@/lib/db";
+import { runAction } from "@/lib/billing/entitlements";
+import { activeWorkspaceQuery } from "@/lib/workspace/active";
 
-export async function extractFromUrl(url: string) {
+/**
+ * Reads a website and returns what it says about the business behind it.
+ *
+ * Three callers: onboarding, the Brand DNA panel's "scan my site" button, and the
+ * chat's `extract_brand_from_url` tool. The gate and the charge live here rather
+ * than in any of them, because this is a `"use server"` export — it is a public
+ * HTTP endpoint, and until this it was one that fetched an arbitrary URL and spent
+ * a model call for anybody who could reach it.
+ *
+ * `billing` lets the chat pass the identity it already resolved. Without it the
+ * signed-in user and their active workspace are used, which is what both browser
+ * callers want.
+ */
+export async function extractFromUrl(
+  url: string,
+  billing?: { userId?: string; workspaceId?: string | null }
+) {
+  const signedIn = billing?.userId || (await auth()).userId;
+  if (!signedIn) throw new Error("Unauthorized");
+
+  let workspaceId = billing?.workspaceId ?? null;
+  if (!workspaceId) {
+    const active = await prisma.workspace
+      .findFirst({ ...(await activeWorkspaceQuery(signedIn)), select: { id: true } })
+      .catch(() => null);
+    workspaceId = active?.id ?? null;
+  }
+
+  return runAction(
+    {
+      userId: signedIn,
+      action: "brand.analyze",
+      workspaceId,
+      referenceId: url.trim().slice(0, 200),
+      surface: "brand",
+      measureCost: true,
+    },
+    () => readSiteForBrand(url)
+  );
+}
+
+async function readSiteForBrand(url: string) {
   try {
     let targetUrl = url.trim();
     if (!/^https?:\/\//i.test(targetUrl)) {

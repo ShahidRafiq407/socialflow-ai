@@ -78,6 +78,13 @@ interface PinterestPinEditorProps {
   generationProgress?: number;
   generationStage?: string;
   renderError?: string | null;
+  /**
+   * Video Pin synthesis outcome. Long-running video jobs report through this, NOT
+   * through `renderError` — without it a failed Video Pin silently falls through to the
+   * "Upload Video Pin" placeholder and reads as "the AI generated nothing".
+   */
+  videoStatus?: "idle" | "queued" | "processing" | "completed" | "failed";
+  videoError?: string | null;
   originalPrompt?: string | null;
   onRestoreOriginalPrompt?: () => void;
   onCaptionToPrompt?: () => void;
@@ -128,6 +135,8 @@ export default function PinterestPinEditor({
   generationProgress,
   generationStage,
   renderError = null,
+  videoStatus = "idle",
+  videoError = null,
   originalPrompt = null,
   onRestoreOriginalPrompt,
   onCaptionToPrompt,
@@ -275,6 +284,28 @@ export default function PinterestPinEditor({
                 <div className="space-y-0.5">
                   <p className="text-xs font-bold text-red-400">Generation failed</p>
                   <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleGeneratePin}
+                  disabled={!prompt.trim()}
+                  className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
+              </div>
+            ) : videoStatus === "failed" ? (
+              /* A Video Pin that failed synthesis reports through videoStatus, not
+                 renderError. Without this branch the box fell back to "Upload Video
+                 Pin" and the failure looked like nothing had been generated at all. */
+              <div className="text-center p-4 space-y-2.5">
+                <AlertCircle className="h-8 w-8 text-red-400 mx-auto" />
+                <div className="space-y-0.5">
+                  <p className="text-xs font-bold text-red-400">Video Pin generation failed</p>
+                  <p className="text-[10px] text-slate-400 line-clamp-2">
+                    {videoError || "Video synthesis failed."}
+                  </p>
                 </div>
                 <Button
                   type="button"

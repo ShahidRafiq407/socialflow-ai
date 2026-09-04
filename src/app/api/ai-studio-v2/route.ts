@@ -6,6 +6,11 @@ import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { normalizeHashtags } from "@/lib/hashtags";
 import { runCampaignGraph } from "@/lib/agents/campaignGraph";
 import { createRunControls, type RunControls } from "@/lib/agents/runControls";
+import { computeFormatFamilies } from "@/lib/agents/formatFamilies";
+import { DEFAULT_DECK_SLIDES } from "@/lib/agents/mediaGenerator";
+import { ticketOrRefusal } from "@/lib/billing/route";
+import { completeAction, failAction, type ActionTicket } from "@/lib/billing/entitlements";
+import { withMeterContext } from "@/lib/billing/meter";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -110,22 +115,68 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Workspace not found. Please create or configure your workspace first." }, { status: 404 });
       }
 
-      // Check plan AI access
-      const { checkAIAccess } = await import("@/lib/billing/gate");
-      const gate = await checkAIAccess(workspace.id);
-      if (!gate.allowed) {
+      // ─────────────────────────────────────────────────────────────────────
+      // WHAT THIS RUN COSTS, DECIDED BEFORE IT STARTS
+      //
+      // A campaign is two charges, and it has to be. The spine — grounded
+      // research, the competitor read, the shared creative, the CEO audit — is
+      // one `ai.post.campaign`. Every target past the first is a per-platform
+      // adaptation off a family's creative core, so those are `ai.post.variant`,
+      // reserved up front and settled down to the posts that actually came back.
+      //
+      // That last part is not politeness. A run that hits `CAMPAIGN_RUN_BUDGET_MS`
+      // abandons its tail families and reports them skipped; charging the plan for
+      // the posts the platform's own timeout ate would be charging for our
+      // limitation. Media is not counted here at all — every render is charged per
+      // asset inside `generateMediaAsset`.
+      // ─────────────────────────────────────────────────────────────────────
+      const families = computeFormatFamilies(platforms, contentTypes, {
+        deckSlides: DEFAULT_DECK_SLIDES,
+      });
+      const plannedTargets = families.reduce((acc, f) => acc + f.members.length, 0);
+
+      if (plannedTargets === 0) {
         return NextResponse.json(
-          {
-            error: "UPGRADE_REQUIRED",
-            reason: gate.reason,
-            requiredPlan: gate.requiredPlan,
-            message: gate.message,
-          },
-          { status: 403 }
+          { error: "None of the requested platform and format combinations can be produced." },
+          { status: 400 }
         );
       }
 
       const currentRunId = runId || `run_${Date.now()}`;
+
+      const spine = await ticketOrRefusal({
+        userId,
+        action: "ai.post.campaign",
+        workspaceId: workspace.id,
+        referenceId: currentRunId,
+      });
+      if (spine.refusal) return spine.refusal;
+
+      let variantTicket: ActionTicket | null = null;
+      if (plannedTargets > 1) {
+        const extra = await ticketOrRefusal({
+          userId,
+          action: "ai.post.variant",
+          workspaceId: workspace.id,
+          referenceId: currentRunId,
+          quantity: plannedTargets - 1,
+        });
+        if (extra.refusal) {
+          // The spine was granted and nothing has run yet. Hand it back now rather
+          // than leaving a hold for the sweeper to find in five minutes — the
+          // customer would see credits missing for a run that never happened.
+          await failAction(spine.ticket, {
+            note: "Refunded: the run was refused before it started",
+          });
+          return extra.refusal;
+        }
+        variantTicket = extra.ticket;
+      }
+
+      /** Credits per adaptation, so a short run settles to what it delivered. */
+      const perVariant =
+        variantTicket && plannedTargets > 1 ? variantTicket.credits / (plannedTargets - 1) : 0;
+
       const abortController = new AbortController();
       const runControls = createRunControls();
       activeRuns.set(currentRunId, abortController);
@@ -139,6 +190,54 @@ export async function POST(req: Request) {
       });
 
       const encoder = new TextEncoder();
+
+      /**
+       * Turns the two reservations into charges, against the number of posts the run
+       * actually handed back. Called exactly once per run — on the success path with
+       * the delivered count, and on the failure path with zero.
+       */
+      const settleRun = async (delivered: number, note: string) => {
+        try {
+          if (delivered <= 0) {
+            await failAction(spine.ticket, { note });
+            if (variantTicket) await failAction(variantTicket, { note });
+            return;
+          }
+
+          await completeAction({
+            ticket: spine.ticket,
+            measureCost: true,
+            referenceType: "campaign",
+            referenceId: currentRunId,
+          });
+
+          if (variantTicket) {
+            const extras = Math.max(0, Math.min(plannedTargets - 1, delivered - 1));
+            if (extras === 0) {
+              // One post came back out of several planned. The spine paid for it;
+              // the adaptations never happened, so the hold goes back whole.
+              await failAction(variantTicket, {
+                note: "Refunded: no additional platform was produced",
+              });
+            } else {
+              await completeAction({
+                ticket: variantTicket,
+                credits: Math.round(perVariant * extras),
+                quantity: extras,
+                measureCost: true,
+                referenceType: "campaign",
+                referenceId: currentRunId,
+              });
+            }
+          }
+        } catch (billingErr) {
+          // A settle that throws must not take the stream down with it: the customer
+          // has their campaign, and an unsettled hold expires on its own. Loud in the
+          // logs because it means a hold is sitting on a balance until it does.
+          console.error("[ai-studio-v2] settling the campaign charge failed:", billingErr);
+        }
+      };
+
       const stream = new ReadableStream({
         async start(controller) {
           const sendSSE = (event: any) => {
@@ -161,27 +260,50 @@ export async function POST(req: Request) {
           });
 
           try {
-            const resultState = await runCampaignGraph(
+            // The scope every model call inside the graph is attributed to. Without
+            // it the graph's text calls land in the usage table with no owner, and
+            // its media renders — which are charged at their own choke point — have
+            // nobody to charge.
+            const resultState = await withMeterContext(
               {
                 userId,
                 workspaceId: workspace.id,
-                platforms,
-                contentTypes,
-                topic,
-                signal: abortController.signal,
-                controls: runControls,
-                workspaceData: workspace,
-                resumeState: body.resumeState,
-                resumeFromAgent: body.resumeFromAgent,
+                feature: "ai-studio",
+                action: "ai.post.campaign",
+                referenceId: currentRunId,
               },
-              (event) => {
-                sendSSE(event);
-              }
+              () =>
+                runCampaignGraph(
+                  {
+                    userId,
+                    workspaceId: workspace.id,
+                    platforms,
+                    contentTypes,
+                    topic,
+                    signal: abortController.signal,
+                    controls: runControls,
+                    workspaceData: workspace,
+                    resumeState: body.resumeState,
+                    resumeFromAgent: body.resumeFromAgent,
+                  },
+                  (event) => {
+                    sendSSE(event);
+                  }
+                )
             );
 
             // Persist generated campaign posts into Prisma Database
             const savedPostIds: string[] = [];
             const campaignPayload = resultState.generatedContent || { platforms: {} };
+
+            // What the run is charged for: one row per (platform, format) that has a
+            // post on it. A family the time budget abandoned has no entry here, so it
+            // is not billed.
+            const delivered = Object.values(campaignPayload.platforms || {}).reduce(
+              (acc: number, formats: any) => acc + Object.keys(formats || {}).length,
+              0
+            );
+            await settleRun(delivered, "Refunded: the campaign produced no post");
 
             // Do NOT auto-save posts to Content Library on generation.
             // Posts are saved only when the user explicitly clicks "Save Draft" or "Publish / Schedule" in AI Studio.
@@ -212,7 +334,17 @@ export async function POST(req: Request) {
             activeRuns.delete(currentRunId);
             activeControls.delete(currentRunId);
 
-            if (err?.isCancelled || abortController.signal.aborted) {
+            const cancelled = err?.isCancelled || abortController.signal.aborted;
+            // A cancelled run has produced nothing the user can use, so it costs
+            // nothing. The media it managed to render before the cancel was charged
+            // and kept by its own choke point, which is the right split: the render
+            // happened, the campaign did not.
+            await settleRun(
+              0,
+              cancelled ? "Refunded: cancelled before delivery" : "Refunded: the campaign failed"
+            );
+
+            if (cancelled) {
               sendSSE({
                 type: "workflow_cancelled",
                 agentId: "system",
