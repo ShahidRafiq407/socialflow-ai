@@ -149,11 +149,29 @@ export const FALLBACK_RATE: ModelRate = {
 };
 
 /**
+ * Rates an admin added or edited from the dashboard, merged over the code card
+ * by `resolveRate`. Pushed in by `runtimeConfig.applyOverrides()`.
+ */
+let rateOverrides: Record<string, ModelRate> = {};
+
+export function setModelRateOverrides(overrides: Record<string, ModelRate>): void {
+  rateOverrides = overrides || {};
+}
+
+/** The live card: code defaults with the admin's rows on top. */
+export function allModelRates(): Record<string, ModelRate> {
+  return { ...MODEL_RATES, ...rateOverrides };
+}
+
+/**
  * True when this exact id is on the rate card. Used by the admin cost view to show
  * which rows are priced from a real rate and which fell back to the ceiling.
  */
 export function isKnownModel(model: string): boolean {
-  return Object.prototype.hasOwnProperty.call(MODEL_RATES, model);
+  return (
+    Object.prototype.hasOwnProperty.call(rateOverrides, model) ||
+    Object.prototype.hasOwnProperty.call(MODEL_RATES, model)
+  );
 }
 
 /**
@@ -166,11 +184,12 @@ export function isKnownModel(model: string): boolean {
 export function resolveRate(model: string | null | undefined): ModelRate {
   const id = (model || "").trim();
   if (!id) return FALLBACK_RATE;
-  const exact = MODEL_RATES[id];
+  const card = allModelRates();
+  const exact = card[id];
   if (exact) return exact;
 
   let best: { key: string; rate: ModelRate } | null = null;
-  for (const [key, rate] of Object.entries(MODEL_RATES)) {
+  for (const [key, rate] of Object.entries(card)) {
     if (!id.startsWith(key)) continue;
     if (!best || key.length > best.key.length) best = { key, rate };
   }

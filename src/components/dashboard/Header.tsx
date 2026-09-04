@@ -28,7 +28,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/marketing/theme-toggle";
-import { sidebarLinks } from "@/components/dashboard/Sidebar";
+import { adminLink, sidebarLinks } from "@/components/dashboard/Sidebar";
 import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
 import { GlobalSearch } from "@/components/dashboard/GlobalSearch";
 import { NotificationsBell } from "@/components/dashboard/NotificationsBell";
@@ -38,12 +38,14 @@ interface HeaderProps {
   workspaces?: WorkspaceSummary[];
   activeWorkspaceId?: string | null;
   userDetails?: { name: string; email: string } | null;
+  isAdmin?: boolean;
 }
 
 export function Header({
   workspaces = [],
   activeWorkspaceId = null,
   userDetails = null,
+  isAdmin = false,
 }: HeaderProps) {
   const pathname = usePathname();
 
@@ -65,7 +67,7 @@ export function Header({
             <Menu className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64 max-h-[80vh] overflow-y-auto">
-            {sidebarLinks.map((item) => (
+            {(isAdmin ? [...sidebarLinks, adminLink] : sidebarLinks).map((item) => (
               <DropdownMenuItem key={item.href} className="p-0">
                 <Link
                   href={item.href}

@@ -11,12 +11,16 @@ import {
 } from "@/lib/agents/controller/navigation";
 import { artifactsFromToolResult, dedupeArtifacts, linkArtifact } from "@/lib/agents/controller/artifacts";
 import {
-  CHAT_MODELS,
   DEFAULT_CHAT_MODEL,
   chatModelLabel,
   getChatModel,
+  getDefaultChatModelId,
   isKnownChatModel,
+  listChatModels,
+  planMayUseModel,
+  setChatModelCatalog,
 } from "@/lib/agents/controller/models";
+import { planRank } from "@/lib/billing/plans";
 import { DEFAULT_CHAT_SETTINGS, normalizeChatSettings } from "@/lib/agents/controller/settingsShape";
 import {
   parseControllerEvent,
@@ -288,7 +292,9 @@ describe("dedupeArtifacts", () => {
 });
 
 describe("chat model registry", () => {
-  // The user asked for this model by name; it is the only brain.
+  const CHAT_MODELS = listChatModels();
+
+  // The built-in brain is what ships; the admin extends the list from the dashboard.
   it("defaults to Gemini 3.1 Pro Preview and lists it first", () => {
     expect(DEFAULT_CHAT_MODEL).toBe("gemini-3.1-pro-preview");
     expect(isKnownChatModel(DEFAULT_CHAT_MODEL)).toBe(true);
@@ -304,9 +310,8 @@ describe("chat model registry", () => {
     expect(isKnownChatModel("")).toBe(false);
   });
 
-  // One brain, not a menu: media has its own models behind generate_image /
-  // generate_video, so a second chat model would only be a worse controller.
-  it("offers exactly one model, and it can think and run tools", () => {
+  // With no admin rows there is exactly one model, and it can think and run tools.
+  it("offers exactly one built-in model, and it can think and run tools", () => {
     expect(CHAT_MODELS).toHaveLength(1);
     const [model] = CHAT_MODELS;
     expect(model.supportsTools).toBe(true);
@@ -321,6 +326,58 @@ describe("chat model registry", () => {
     expect(chatModelLabel(DEFAULT_CHAT_MODEL)).toBe(CHAT_MODELS[0].label);
     expect(chatModelLabel("gemini-2.5-flash")).toBe("gemini-2.5-flash");
     expect(chatModelLabel(null)).toBe(CHAT_MODELS[0].label);
+  });
+
+  // The admin adds a model from the back office: it appears in the picker with its
+  // own price and plan floor, a disabled one stays resolvable but not selectable,
+  // and the default follows the admin's CHAT_CONTROLLER pick.
+  it("merges admin-added models over the built-in list", () => {
+    setChatModelCatalog(
+      [
+        {
+          id: "gemini-4-ultra",
+          label: "Gemini 4 Ultra",
+          blurb: "Bigger.",
+          supportsThinking: true,
+          supportsTools: true,
+          supportsVision: true,
+          tier: "frontier",
+          enabledForChat: true,
+          chatCredits: 30,
+          minPlan: "PRO",
+          custom: true,
+          sortOrder: 10,
+        },
+        {
+          id: "gemini-old",
+          label: "Old",
+          blurb: "",
+          supportsThinking: false,
+          supportsTools: false,
+          supportsVision: false,
+          tier: "legacy",
+          enabledForChat: false,
+          custom: true,
+        },
+      ],
+      "gemini-4-ultra"
+    );
+    try {
+      const list = listChatModels();
+      expect(list.map((m) => m.id)).toEqual(["gemini-3.1-pro-preview", "gemini-4-ultra"]);
+      expect(getDefaultChatModelId()).toBe("gemini-4-ultra");
+      expect(getChatModel("gemini-4-ultra").recommended).toBe(true);
+      expect(getChatModel("gemini-4-ultra").chatCredits).toBe(30);
+      expect(isKnownChatModel("gemini-old")).toBe(false);
+      expect(chatModelLabel("gemini-old")).toBe("Old");
+      expect(planMayUseModel(getChatModel("gemini-4-ultra"), "GO", planRank)).toBe(false);
+      expect(planMayUseModel(getChatModel("gemini-4-ultra"), "AGENCY", planRank)).toBe(true);
+      expect(planMayUseModel(getChatModel(DEFAULT_CHAT_MODEL), "FREE", planRank)).toBe(true);
+    } finally {
+      setChatModelCatalog([], null);
+    }
+    expect(listChatModels()).toHaveLength(1);
+    expect(getDefaultChatModelId()).toBe(DEFAULT_CHAT_MODEL);
   });
 });
 

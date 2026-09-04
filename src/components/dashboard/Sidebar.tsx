@@ -17,6 +17,7 @@ import {
   CreditCard,
   Gift,
   Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { PostloomLogo } from "@/components/marketing/logo";
 
@@ -36,8 +37,12 @@ export const sidebarLinks = [
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
-export function Sidebar() {
+/** Shown only to admins; the pages behind it check again on the server. */
+export const adminLink = { name: "Admin", href: "/dashboard/admin", icon: ShieldCheck };
+
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const links = isAdmin ? [...sidebarLinks, adminLink] : sidebarLinks;
   // Pending navigation is derived from (href, clickedFrom) so it clears
   // automatically when the route changes — no effect needed.
   const [pendingNav, setPendingNav] = useState<{ href: string; from: string } | null>(
@@ -54,7 +59,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-        {sidebarLinks.map((item) => {
+        {links.map((item) => {
           const isActive =
             pendingNav?.href === item.href ||
             (pendingNav === null &&

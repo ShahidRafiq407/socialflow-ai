@@ -53,6 +53,8 @@ import {
 } from "./plans";
 import { getActionCostMicros, withMeterContext } from "./meter";
 import { costMicrosToCredits } from "./modelPricing";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
+import { getAccountBlock, type AccountBlock } from "@/lib/admin/block";
 import {
   attachLedgerCost,
   debitCredits,
@@ -109,6 +111,8 @@ export interface PlanContext {
   stale: boolean;
   /** From a Lemon Squeezy test store. Never grants live entitlements. */
   testMode: boolean;
+  /** Set when an admin suspended the account. No feature is available while set. */
+  blocked?: AccountBlock | null;
 }
 
 /**
@@ -165,6 +169,22 @@ function freeContext(userId: string, now: Date, patch?: Partial<PlanContext>): P
  */
 export async function getPlanContext(userId: string, now = new Date()): Promise<PlanContext> {
   if (!userId) return freeContext("", now);
+
+  // The admin's plan and model changes are read from the database at most once
+  // per cache window. This is the one place every metered path passes through,
+  // so refreshing here is what makes a change made in the back office live on
+  // every serverless instance without a deploy.
+  await ensureRuntimeConfig();
+
+  // A blocked account has no plan. Every gate refuses it with a message that
+  // names the block rather than a made-up plan boundary.
+  const block = await getAccountBlock(userId);
+  if (block) {
+    return freeContext(userId, now, {
+      entitlements: { ...getEntitlements("FREE"), features: [], caps: {} },
+      blocked: block,
+    });
+  }
 
   let sub: {
     plan: string;
@@ -757,6 +777,12 @@ export async function beginAction(args: {
   quantity?: number;
   /** A context already loaded this request, to save a read. */
   context?: PlanContext;
+  /**
+   * Per-unit price to charge instead of the catalogue's. Used when the price
+   * depends on a runtime choice the catalogue cannot know — the chat model an
+   * admin added with its own credit price.
+   */
+  unitCredits?: number;
 }): Promise<ActionTicket> {
   const ctx = args.context ?? (await getPlanContext(args.userId));
   const quantity = Math.max(1, Math.round(args.quantity ?? 1));
@@ -776,7 +802,11 @@ export async function beginAction(args: {
   }
 
   const countsAgainst = spec.countsAgainst ?? spec.feature;
-  const credits = spec.credits * quantity;
+  const unit =
+    typeof args.unitCredits === "number" && Number.isFinite(args.unitCredits) && args.unitCredits >= 0
+      ? Math.round(args.unitCredits)
+      : spec.credits;
+  const credits = unit * quantity;
 
   const featureGate = await checkFeature(ctx, spec.feature);
   if (!featureGate.allowed) {
@@ -1097,6 +1127,7 @@ export async function requireAction(args: {
   referenceId?: string | null;
   quantity?: number;
   context?: PlanContext;
+  unitCredits?: number;
 }): Promise<ActionTicket> {
   const ticket = await beginAction(args);
   if (!ticket.ok) throw new EntitlementError(ticket.gate);

@@ -37,6 +37,24 @@ model User {
   referral       Referral?    @relation("ReferralReferred")
   commissions    Commission[]
   payouts        Payout[]
+
+  // ── Administration (see the ADMIN section at the end of this file) ────────
+  /// ADMIN rows open the back office. The env allowlist (ADMIN_USERS) is the
+  /// bootstrap that makes the first admin; every later one is granted here.
+  role          UserRole  @default(USER)
+  /// Set while the account is suspended. Every gate in the product refuses a
+  /// blocked account, and the dashboard shows the reason instead of the app.
+  blockedAt     DateTime?
+  blockedReason String?
+  blockedBy     String?
+  /// Free-text notes only admins see.
+  adminNotes    String?   @db.Text
+  /// Refreshed at most once an hour from the dashboard layout, for "active users".
+  lastSeenAt    DateTime?
+
+  notifications UserNotification[]
+  chatFeedback  ChatFeedback[]
+  errorEvents   ErrorEvent[]
 }
 
 model Workspace {
@@ -1553,4 +1571,181 @@ model Payout {
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMINISTRATION
+//
+// The back office. Everything here exists so the people running the product can
+// change how it behaves without a deploy: who is an admin, which models run and
+// what they cost, which third-party keys are live, what a plan is allowed to do,
+// and what has gone wrong. Nothing below is read by a customer-facing screen
+// except UserNotification (their inbox) and ChatFeedback (their own votes).
+//
+// Two rules hold across every table:
+//
+//   Secrets are encrypted at rest with APP_ENCRYPTION_KEY and only ever shown
+//   masked. The admin screen can rotate a key; it cannot read one back.
+//   Every mutation an admin makes leaves an AdminAuditLog row. The row is the
+//   answer to "who changed the Pro grant to 9,000 credits and when".
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+/// One row per setting, keyed by a dotted name ("ai.model.CONTENT_CREATOR",
+/// "billing.plan.PRO.monthlyCredits", "keys.SERPER_API_KEY"). The value is JSON
+/// so a setting can be a string, a number, a list or an object without a schema
+/// change per setting. `secret` rows hold an encrypted string and are returned
+/// masked from every read path.
+model AppSetting {
+  key       String   @id
+  value     Json
+  secret    Boolean  @default(false)
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+/// Models an admin added or edited from the dashboard. Rows here are merged over
+/// the code-defined rate card and chat picker: a row whose id matches a built-in
+/// model overrides it, a new id becomes a new option. `enabledForChat` puts it in
+/// the chat dropdown; `chatCredits` is what one turn on it costs, so an expensive
+/// custom model can be priced honestly instead of at the flat rate.
+model AiModel {
+  id               String    @id
+  label            String
+  blurb            String?
+  provider         String    @default("vertex")
+  /// "text" | "image" | "video" | "embed"
+  kind             String    @default("text")
+  inputPerMTok     Float     @default(0)
+  outputPerMTok    Float     @default(0)
+  cachedPerMTok    Float?
+  perImage         Float?
+  perVideoSecond   Float?
+  supportsThinking Boolean   @default(true)
+  supportsTools    Boolean   @default(true)
+  supportsVision   Boolean   @default(true)
+  /// "frontier" | "fast" | "legacy"
+  tier             String    @default("frontier")
+  enabledForChat   Boolean   @default(false)
+  /// Credits charged per chat turn on this model. Null = the catalogue's flat price.
+  chatCredits      Int?
+  /// Cheapest plan that may pick this model in chat. Null = any plan with chat.
+  minPlan          PlanTier?
+  isDefaultChat    Boolean   @default(false)
+  sortOrder        Int       @default(100)
+  archived         Boolean   @default(false)
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([enabledForChat, archived])
+}
+
+/// A message from the product to one person. Unlike SystemNotice — which is a
+/// broadcast with browser-side read state — this is addressed and its read state
+/// is a column, so an admin can see whether the person it was sent to saw it.
+model UserNotification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// info | success | warning | error
+  tone      String  @default("info")
+  title     String  @db.VarChar(200)
+  body      String? @db.Text
+  href      String? @db.VarChar(512)
+  linkLabel String? @db.VarChar(80)
+
+  /// Clerk id of the admin who sent it; null for system-generated rows.
+  sentBy String?
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+/// A thumbs up or down on one assistant message, with an optional note. Unique
+/// per (message, user) so a vote can be changed but never counted twice.
+model ChatFeedback {
+  id          String @id @default(uuid())
+  messageId   String
+  sessionId   String
+  workspaceId String
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 1 = helpful, -1 = not helpful.
+  rating  Int
+  comment String? @db.Text
+  /// Snapshots so the admin view survives the message being deleted.
+  model          String?
+  messageExcerpt String? @db.VarChar(600)
+
+  /// Admin triage: null = new, else "reviewed" | "actioned" | "dismissed".
+  status     String?
+  adminNote  String?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([messageId, userId])
+  @@index([rating, createdAt])
+  @@index([status, createdAt])
+}
+
+/// A server-side failure worth an operator's attention. Written from the Next
+/// `onRequestError` hook and from the provider's failed model calls, then
+/// grouped by fingerprint so ten thousand identical failures read as one row
+/// with a count.
+model ErrorEvent {
+  id          String  @id @default(uuid())
+  /// sha256 of (source + message head), the grouping key.
+  fingerprint String  @unique
+  source      String  @default("server")
+  message     String  @db.Text
+  stack       String? @db.Text
+  path        String? @db.VarChar(512)
+  method      String?
+  /// "quota" | "timeout" | "safety" | ... for model errors; HTTP status text otherwise.
+  kind        String?
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspaceId String?
+  /// Anything else useful, redacted of secrets before it is written.
+  context     Json?
+
+  count      Int       @default(1)
+  firstSeen  DateTime  @default(now())
+  lastSeen   DateTime  @default(now())
+  resolvedAt DateTime?
+  resolvedBy String?
+
+  @@index([resolvedAt, lastSeen])
+  @@index([source, lastSeen])
+}
+
+/// Who did what in the back office. Append-only.
+model AdminAuditLog {
+  id         String  @id @default(uuid())
+  adminId    String
+  adminEmail String?
+  /// "user.block", "credits.adjust", "setting.update", "model.upsert", ...
+  action     String
+  targetType String?
+  targetId   String?
+  /// What changed, minus secrets.
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@index([adminId, createdAt])
 }

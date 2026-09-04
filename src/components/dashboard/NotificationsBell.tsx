@@ -9,10 +9,12 @@
 // tokens, approvals, receipts, setup gaps) and the dot only lights up when
 // something newer than your last visit is in the list.
 //
-// Three tabs, and the third is a different kind of thing:
+// Four tabs, and the last two are different kinds of thing:
 //
 //   Alerts  — this workspace, needs a decision or a fix
 //   Updates — this workspace, worth knowing
+//   Inbox   — addressed to you by the product or an admin (plan change, credits,
+//             a message); read state is a column, so opening the tab marks it
 //   System  — the product itself talking to everyone, no workspace involved
 //
 // "Read" is a timestamp in localStorage — per workspace for the first two, and one
@@ -28,6 +30,7 @@ import {
   CircleAlert,
   CircleCheck,
   ExternalLink,
+  Inbox,
   Info,
   Loader2,
   Megaphone,
@@ -47,6 +50,11 @@ import {
   retractSystemNotice,
   type SystemNoticeItem,
 } from "@/actions/systemNotices";
+import {
+  getUserNotifications,
+  markUserNotificationsRead,
+  type UserNotificationItem,
+} from "@/actions/userNotifications";
 import { SystemNoticeComposer } from "@/components/dashboard/SystemNoticeComposer";
 
 const TONE_ICONS: Record<NotificationTone, LucideIcon> = {
@@ -127,24 +135,27 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [notices, setNotices] = useState<SystemNoticeItem[]>([]);
+  const [inbox, setInbox] = useState<UserNotificationItem[]>([]);
   const [canPublish, setCanPublish] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [seenAt, setSeenAt] = useState<string | null>(null);
   const [systemSeenAt, setSystemSeenAt] = useState<string | null>(null);
-  const [tab, setTab] = useState<"alerts" | "updates" | "system">("alerts");
+  const [tab, setTab] = useState<"alerts" | "updates" | "inbox" | "system">("alerts");
 
-  // Both feeds in one round trip. The workspace feed is scoped by the cookie the
-  // server already resolved; the system feed is not scoped at all, which is the
-  // whole point of it.
+  // All feeds in one round trip. The workspace feed is scoped by the cookie the
+  // server already resolved; the inbox is per account; the system feed is not
+  // scoped at all, which is the whole point of it.
   const load = useCallback(async () => {
     setLoading(true);
-    const [feed, system] = await Promise.all([
+    const [feed, system, mine] = await Promise.all([
       getNotifications().catch(() => ({ items: [] as NotificationItem[] })),
       getSystemNotices().catch(() => ({ items: [] as SystemNoticeItem[], canPublish: false })),
+      getUserNotifications().catch(() => [] as UserNotificationItem[]),
     ]);
     setItems(feed.items);
     setNotices(system.items);
+    setInbox(mine);
     setCanPublish(system.canPublish);
     setLoading(false);
     setLoaded(true);
@@ -181,10 +192,24 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
   // never inflates the count.
   const workspaceUnread = useMemo(() => countUnread(items, seenAt), [items, seenAt]);
   const systemUnread = useMemo(() => countUnread(notices, systemSeenAt), [notices, systemSeenAt]);
-  const unread = workspaceUnread + systemUnread;
+  const inboxUnread = useMemo(() => inbox.filter((item) => !item.read).length, [inbox]);
+  const unread = workspaceUnread + systemUnread + inboxUnread;
+
+  // Opening the inbox is reading it: the server keeps the read column so the
+  // sender can see it landed, and the local list flips at once so the dot goes.
+  function markInboxRead() {
+    if (inboxUnread === 0) return;
+    setInbox((current) => current.map((item) => ({ ...item, read: true })));
+    void markUserNotificationsRead().catch(() => undefined);
+  }
+
+  function selectTab(next: "alerts" | "updates" | "inbox" | "system") {
+    setTab(next);
+    if (next === "inbox") markInboxRead();
+  }
 
   /**
-   * Marks both feeds up to their own newest item. One button, because "mark all
+   * Marks every feed up to its own newest item. One button, because "mark all
    * read" that leaves the badge lit on another tab is not what it says.
    */
   function markAllRead() {
@@ -201,6 +226,8 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
       setSystemSeenAt(stamp);
       writeStamp(SYSTEM_SEEN_KEY, stamp);
     }
+
+    markInboxRead();
   }
 
   async function retract(id: string) {
@@ -328,6 +355,57 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
     );
   }
 
+  /**
+   * An inbox item reads like a system notice — text with a link inside — but
+   * its "new" mark is the server's read column rather than a local stamp.
+   */
+  function renderInboxItem(item: UserNotificationItem) {
+    const Icon = TONE_ICONS[item.tone];
+    const external = /^https?:\/\//i.test(item.href);
+    const label = item.linkLabel || (external ? "Open link" : "Open");
+
+    return (
+      <div
+        key={item.id}
+        className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${TONE_CLASSES[item.tone]}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-1.5">
+            <span className="min-w-0 flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">{item.title}</span>
+            {!item.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+          </div>
+          {item.body && (
+            <p className="mt-0.5 whitespace-pre-line text-[11px] leading-snug text-slate-500 dark:text-slate-400">{item.body}</p>
+          )}
+          <div className="mt-0.5 flex items-center gap-2">
+            <span className="text-[10px] text-slate-400">{relativeTime(item.at)}</span>
+            {item.href &&
+              (external ? (
+                <a
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+                >
+                  {label}
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              ) : (
+                <Link
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className="text-[10px] font-semibold text-primary hover:underline"
+                >
+                  {label}
+                </Link>
+              ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const visible = tab === "alerts" ? alerts : tab === "updates" ? updates : [];
 
   return (
@@ -375,16 +453,22 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         </div>
 
         <div className="flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 px-2 py-1.5">
-          {(["alerts", "updates", "system"] as const).map((key) => {
+          {(["alerts", "updates", "inbox", "system"] as const).map((key) => {
             const count =
-              key === "alerts" ? alerts.length : key === "updates" ? updates.length : notices.length;
+              key === "alerts"
+                ? alerts.length
+                : key === "updates"
+                  ? updates.length
+                  : key === "inbox"
+                    ? inbox.length
+                    : notices.length;
             const isActive = tab === key;
-            const hasUnread = key === "system" ? systemUnread > 0 : false;
+            const hasUnread = key === "system" ? systemUnread > 0 : key === "inbox" ? inboxUnread > 0 : false;
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => setTab(key)}
+                onClick={() => selectTab(key)}
                 className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] capitalize transition-colors ${
                   isActive
                     ? "bg-slate-100 dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-100"
@@ -405,11 +489,21 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
           {!loaded && loading && (
             <p className="flex items-center gap-2 px-2 py-6 text-xs text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {tab === "system" ? "Checking for announcements…" : "Checking this workspace…"}
+              {tab === "system" ? "Checking for announcements…" : tab === "inbox" ? "Checking your inbox…" : "Checking this workspace…"}
             </p>
           )}
 
-          {tab === "system" ? (
+          {tab === "inbox" ? (
+            <>
+              {loaded && inbox.length === 0 && (
+                <p className="flex flex-col items-center gap-1.5 px-2 py-6 text-center text-xs text-slate-400">
+                  <Inbox className="h-4 w-4 text-slate-300" />
+                  Nothing addressed to you yet.
+                </p>
+              )}
+              {inbox.map(renderInboxItem)}
+            </>
+          ) : tab === "system" ? (
             <>
               {canPublish && <SystemNoticeComposer onPublished={() => void load()} />}
 
@@ -440,7 +534,9 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5 text-[10px] text-slate-400">
           {tab === "system"
             ? "System messages come from PostLoom and reach every workspace."
-            : "Alerts are per workspace — switch workspaces to see another brand's."}
+            : tab === "inbox"
+              ? "Inbox messages are addressed to your account and follow you across workspaces."
+              : "Alerts are per workspace — switch workspaces to see another brand's."}
         </div>
 
       </PopoverContent>

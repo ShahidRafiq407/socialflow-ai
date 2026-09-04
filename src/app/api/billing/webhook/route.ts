@@ -53,6 +53,7 @@ import {
 import type { SubscriptionStatusValue } from "@/lib/billing/entitlements";
 import { attachTrialCheckout } from "@/lib/billing/trial-guard";
 import { markReferralConverted, rejectReferralForRefund } from "@/lib/affiliate/referral";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 
 // `node:crypto` and Prisma both need the Node runtime; the raw body needs it too.
 export const runtime = "nodejs";
@@ -652,6 +653,10 @@ async function claimEvent(
 }
 
 export async function POST(req: Request) {
+  // The secret and the variant ids may have been set from the back office rather
+  // than the environment, so the cache is warmed before anything reads them.
+  await ensureRuntimeConfig();
+
   if (!lemonWebhookConfigured()) {
     // Refusing is the only safe answer: without the secret nothing can be verified,
     // and an unverified event is an upgrade request from an anonymous stranger.

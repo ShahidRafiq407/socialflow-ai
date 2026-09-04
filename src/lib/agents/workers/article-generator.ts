@@ -333,7 +333,8 @@ export function buildCitationAllowList(
 // MODEL CALLS
 // ---------------------------------------------------------------------------
 
-const ARTICLE_MODEL = MODELS.ARTICLE_GENERATOR;
+/** Read per call so an admin's model change applies to the next article, not the next deploy. */
+const ARTICLE_MODEL = () => MODELS.ARTICLE_GENERATOR;
 
 /**
  * `llm.withStructuredOutput` ignores the schema it is handed and pins temperature
@@ -346,7 +347,7 @@ async function callJson(system: string, user: string, temperature = 0.35): Promi
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    { modelName: ARTICLE_MODEL, temperature }
+    { modelName: ARTICLE_MODEL(), temperature }
   );
 }
 
@@ -356,7 +357,7 @@ async function callHtml(system: string, user: string, temperature = 0.75): Promi
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    { modelName: ARTICLE_MODEL, temperature }
+    { modelName: ARTICLE_MODEL(), temperature }
   );
   return sanitizeModelHtml(raw || "");
 }

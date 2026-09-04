@@ -9,22 +9,35 @@
 // ============================================================================
 
 import { useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
-import { getChatModel } from "@/lib/agents/controller/models";
+import { Check, Loader2, Lock, X } from "lucide-react";
+import { getChatModel, listChatModels } from "@/lib/agents/controller/models";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { Row, Section, Segmented, Slider, Toggle } from "./SettingsControls";
+
+/** What the server said about each model for this account: price and plan lock. */
+export interface ModelAvailability {
+  chatCredits?: number;
+  locked?: boolean;
+  minPlan?: string | null;
+}
 
 interface SettingsPanelProps {
   settings: ChatSettings;
   saving: boolean;
   onChange: (patch: Partial<ChatSettings>) => void;
   onClose: () => void;
+  /** Per-model availability keyed by id; undefined until the settings fetch lands. */
+  availability?: Record<string, ModelAvailability>;
+  /** False when the admin has pinned every chat to the default brain. */
+  pickerEnabled?: boolean;
 }
 
-export function SettingsPanel({ settings, saving, onChange, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ settings, saving, onChange, onClose, availability = {}, pickerEnabled = true }: SettingsPanelProps) {
   const [instructions, setInstructions] = useState(settings.customInstructions);
   const [instructionsSaved, setInstructionsSaved] = useState(false);
   const model = getChatModel(settings.model);
+  const models = listChatModels();
+  const showPicker = pickerEnabled && models.length > 1;
 
   const saveInstructions = () => {
     onChange({ customInstructions: instructions });
@@ -52,19 +65,59 @@ export function SettingsPanel({ settings, saving, onChange, onClose }: SettingsP
         <Section title="Brain">
           <div>
             <div className="mb-2 text-[12.5px] font-medium mkt-text">Model</div>
-            <div className="rounded-xl border border-[color:var(--mkt-accent)]/50 mkt-bg2 px-3 py-2">
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--mkt-accent)]" />
-                <span className="truncate text-[12.5px] font-medium mkt-text">{model.label}</span>
-                <span className="ml-auto shrink-0 rounded border border-[color:var(--mkt-accent)]/40 px-1 text-[9.5px] uppercase tracking-wide mkt-accent-text">
-                  running
-                </span>
+            {showPicker ? (
+              <div className="space-y-1.5">
+                {models.map((m) => {
+                  const info = availability[m.id] ?? {};
+                  const locked = info.locked === true;
+                  const active = m.id === model.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      disabled={locked}
+                      onClick={() => onChange({ model: m.id })}
+                      className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                        active
+                          ? "border-[color:var(--mkt-accent)]/50 mkt-bg2"
+                          : "mkt-border hover:mkt-bg2"
+                      } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[color:var(--mkt-accent)]" : "bg-[color:var(--mkt-border)]"}`} />
+                        <span className="truncate text-[12.5px] font-medium mkt-text">{m.label}</span>
+                        {locked ? (
+                          <span className="ml-auto flex shrink-0 items-center gap-1 rounded border mkt-border px-1 text-[9.5px] uppercase tracking-wide mkt-faint">
+                            <Lock className="h-2.5 w-2.5" />
+                            {info.minPlan || "upgrade"}
+                          </span>
+                        ) : (
+                          <span className="ml-auto shrink-0 text-[10.5px] tabular-nums mkt-faint">
+                            {typeof info.chatCredits === "number" ? `${info.chatCredits} cr/turn` : ""}
+                          </span>
+                        )}
+                      </div>
+                      {m.blurb && <p className="mt-1 text-[11.5px] leading-snug mkt-faint">{m.blurb}</p>}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="mt-1 text-[11.5px] leading-snug mkt-faint">{model.blurb}</p>
-            </div>
+            ) : (
+              <div className="rounded-xl border border-[color:var(--mkt-accent)]/50 mkt-bg2 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--mkt-accent)]" />
+                  <span className="truncate text-[12.5px] font-medium mkt-text">{model.label}</span>
+                  <span className="ml-auto shrink-0 rounded border border-[color:var(--mkt-accent)]/40 px-1 text-[9.5px] uppercase tracking-wide mkt-accent-text">
+                    running
+                  </span>
+                </div>
+                <p className="mt-1 text-[11.5px] leading-snug mkt-faint">{model.blurb}</p>
+              </div>
+            )}
             <p className="mt-1.5 text-[11px] leading-snug mkt-faint">
-              This is the only brain — it plans and runs the work. Images and video are produced by their own
-              dedicated models when it calls them, so nothing here changes those.
+              {showPicker
+                ? "The brain plans and runs the work; each turn costs the credits shown. Images and video are produced by their own dedicated models."
+                : "This is the only brain — it plans and runs the work. Images and video are produced by their own dedicated models when it calls them, so nothing here changes those."}
             </p>
           </div>
 

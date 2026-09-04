@@ -606,6 +606,120 @@ export function isPlanTier(value: unknown): value is PlanTier {
   return typeof value === "string" && (PLAN_TIERS as readonly string[]).includes(value);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin overrides
+//
+// The back office can change a plan's price, grant, caps and features without a
+// deploy. The change is written to the AppSetting table and pushed in here by
+// `runtimeConfig.applyOverrides()`, which mutates PLAN_CATALOG / PLAN_ENTITLEMENTS
+// in place — so every module that imported the tables keeps reading the same
+// objects and sees the new values. The code-defined tables above are the
+// baseline every override is applied on top of, never the running state.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PlanOverride {
+  name?: string;
+  tagline?: string;
+  priceMonthly?: number;
+  priceYearly?: number;
+  monthlyCredits?: number;
+  workspaces?: number;
+  socialAccountsPerWorkspace?: number;
+  storageMb?: number;
+  analyticsRetentionDays?: number;
+  seats?: number;
+  chatMaxToolLoops?: number;
+  imageQuality?: "standard" | "premium";
+  canBuyTopUps?: boolean;
+  features?: FeatureKey[];
+  caps?: Partial<Record<FeatureKey, number>>;
+}
+
+export type PlanOverrides = Partial<Record<PlanTier, PlanOverride>>;
+
+const BASE_CATALOG = Object.fromEntries(
+  PLAN_TIERS.map((tier) => [tier, { ...PLAN_CATALOG[tier], features: [...PLAN_CATALOG[tier].features] }])
+) as unknown as Record<PlanTier, PlanConfig>;
+
+const BASE_ENTITLEMENTS = Object.fromEntries(
+  PLAN_TIERS.map((tier) => [
+    tier,
+    { ...PLAN_ENTITLEMENTS[tier], features: [...PLAN_ENTITLEMENTS[tier].features], caps: { ...PLAN_ENTITLEMENTS[tier].caps } },
+  ])
+) as unknown as Record<PlanTier, PlanEntitlements>;
+
+let activeOverrides: PlanOverrides = {};
+
+function pickNumber(value: unknown, fallback: number, min = UNLIMITED): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (n === UNLIMITED) return UNLIMITED;
+  return Math.max(min, Math.round(n));
+}
+
+/** Applies the admin's plan changes on top of the code defaults, for every tier. */
+export function setPlanOverrides(overrides: PlanOverrides): void {
+  activeOverrides = overrides || {};
+  for (const tier of PLAN_TIERS) {
+    const base = BASE_ENTITLEMENTS[tier];
+    const baseConfig = BASE_CATALOG[tier];
+    const patch = activeOverrides[tier] ?? {};
+
+    const features = Array.isArray(patch.features)
+      ? (patch.features.filter((f): f is FeatureKey => (FEATURE_KEYS as readonly string[]).includes(f)) as FeatureKey[])
+      : [...base.features];
+
+    const caps: Partial<Record<FeatureKey, number>> = {};
+    const capSource = patch.caps && typeof patch.caps === "object" ? patch.caps : base.caps;
+    for (const [key, value] of Object.entries(capSource)) {
+      if ((FEATURE_KEYS as readonly string[]).includes(key) && typeof value === "number" && Number.isFinite(value)) {
+        caps[key as FeatureKey] = value;
+      }
+    }
+
+    Object.assign(PLAN_ENTITLEMENTS[tier], {
+      workspaces: pickNumber(patch.workspaces, base.workspaces, 1),
+      socialAccountsPerWorkspace: pickNumber(patch.socialAccountsPerWorkspace, base.socialAccountsPerWorkspace, 1),
+      storageMb: pickNumber(patch.storageMb, base.storageMb, 1),
+      analyticsRetentionDays: pickNumber(patch.analyticsRetentionDays, base.analyticsRetentionDays, 1),
+      monthlyCredits: pickNumber(patch.monthlyCredits, base.monthlyCredits, 0),
+      seats: pickNumber(patch.seats, base.seats, 1),
+      chatMaxToolLoops: pickNumber(patch.chatMaxToolLoops, base.chatMaxToolLoops, 0),
+      imageQuality: patch.imageQuality === "premium" || patch.imageQuality === "standard" ? patch.imageQuality : base.imageQuality,
+      canBuyTopUps: typeof patch.canBuyTopUps === "boolean" ? patch.canBuyTopUps : base.canBuyTopUps,
+      features,
+      caps,
+    } satisfies PlanEntitlements);
+
+    const priceMonthly = pickNumber(patch.priceMonthly, baseConfig.priceMonthly, 0);
+    Object.assign(PLAN_CATALOG[tier], {
+      name: typeof patch.name === "string" && patch.name.trim() ? patch.name.trim() : baseConfig.name,
+      tagline: typeof patch.tagline === "string" && patch.tagline.trim() ? patch.tagline.trim() : baseConfig.tagline,
+      priceMonthly,
+      priceYearly:
+        patch.priceYearly !== undefined
+          ? pickNumber(patch.priceYearly, baseConfig.priceYearly, 0)
+          : patch.priceMonthly !== undefined && baseConfig.priceYearly > 0
+            ? yearlyFor(priceMonthly)
+            : baseConfig.priceYearly,
+    });
+  }
+}
+
+/** The overrides currently applied, for the admin screen. */
+export function getActivePlanOverrides(): PlanOverrides {
+  return activeOverrides;
+}
+
+/** The code-defined defaults, so the admin screen can show what "reset" returns to. */
+export function basePlanEntitlements(tier: PlanTier): PlanEntitlements {
+  return BASE_ENTITLEMENTS[tier];
+}
+
+export function basePlanConfig(tier: PlanTier): PlanConfig {
+  return BASE_CATALOG[tier];
+}
+
 /** Never throws: an unknown tier reads as Free, which is the safe direction. */
 export function getPlanConfig(tier: PlanTier | string | null | undefined): PlanConfig {
   return PLAN_CATALOG[isPlanTier(tier) ? tier : "FREE"];

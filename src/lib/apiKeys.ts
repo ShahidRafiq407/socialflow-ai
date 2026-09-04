@@ -1,13 +1,19 @@
 // ============================================================================
-// THIRD-PARTY PROVIDER KEYS — one place, read from the environment only.
+// THIRD-PARTY PROVIDER KEYS — one place, dashboard first, environment second.
 //
 // Nothing in this file falls back to a literal key. A missing key makes the
 // feature that needs it report "not configured" instead of silently borrowing
 // somebody else's quota or, worse, fabricating data so the UI looks healthy.
 //
+// An admin can set or rotate any of these from the back office; that value is
+// stored encrypted and wins over the environment. `managedKey` reads the
+// runtime-config cache, which every request path warms through `getPlanContext`.
+//
 // Server-only by convention: never import from a "use client" component. The
 // browser gets provider results through server actions / route handlers.
 // ============================================================================
+
+import { managedKey } from "@/lib/admin/runtimeConfig";
 
 function clean(value: string | undefined): string {
   return (value || "").trim();
@@ -15,7 +21,7 @@ function clean(value: string | undefined): string {
 
 /** Serper.dev — Google SERP + Videos search. */
 export function getSerperKey(): string {
-  return clean(process.env.SERPER_API_KEY) || clean(process.env.SERPER_DEV_API_KEY);
+  return managedKey("SERPER_API_KEY") || clean(process.env.SERPER_DEV_API_KEY);
 }
 
 export function hasSerperKey(): boolean {
@@ -23,7 +29,7 @@ export function hasSerperKey(): boolean {
 }
 
 export const SERPER_MISSING_MESSAGE =
-  "SERP analysis is not configured. Add SERPER_API_KEY to your environment variables (Vercel → Project → Settings → Environment Variables) to enable live Google competitor data.";
+  "SERP analysis is not configured. Add SERPER_API_KEY in Admin → Keys (or your environment variables) to enable live Google competitor data.";
 
 /**
  * Pixabay stock media. Returns every configured key in priority order so a
@@ -31,10 +37,7 @@ export const SERPER_MISSING_MESSAGE =
  * whole request.
  */
 export function getPixabayKeys(): string[] {
-  const keys = [
-    clean(process.env.PIXABAY_API_KEY),
-    clean(process.env.PIXABAY_API_KEY_FALLBACK),
-  ].filter(Boolean);
+  const keys = [managedKey("PIXABAY_API_KEY"), managedKey("PIXABAY_API_KEY_FALLBACK")].filter(Boolean);
   return Array.from(new Set(keys));
 }
 
@@ -43,7 +46,7 @@ export function hasPixabayKey(): boolean {
 }
 
 export const PIXABAY_MISSING_MESSAGE =
-  "Stock image search is not configured. Add PIXABAY_API_KEY to your environment variables to enable free stock photography.";
+  "Stock image search is not configured. Add PIXABAY_API_KEY in Admin → Keys (or your environment variables) to enable free stock photography.";
 
 /**
  * Shopify Admin API version used in every REST path. Shopify supports a version
