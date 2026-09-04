@@ -1,13 +1,16 @@
 // ============================================================================
 // WORKSPACES — SERVER ACTIONS
 //
-// The header switcher talks to this file. Two jobs:
+// The header switcher talks to this file. Three jobs:
 //
 //   switchWorkspace  — remember which workspace the user is looking at
 //   createWorkspace  — add one from anywhere, without a detour to /onboarding
+//   getWorkspaceDeletionSummary — what a delete would actually destroy
 //
-// Both write the active-workspace cookie and revalidate the dashboard layout,
-// so the switch is visible on the very next render — no manual page refresh.
+// Switch and create write the active-workspace cookie and revalidate the
+// dashboard layout, so the change is visible on the very next render — no manual
+// page refresh. The delete itself lives in @/actions/account, which owns the
+// purge order for every workspace-scoped table.
 // ============================================================================
 
 "use server";
@@ -215,6 +218,74 @@ export async function getWorkspaces(): Promise<{
   ]);
 
   return { workspaces, activeWorkspaceId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deletion summary
+//
+// Deleting from the switcher has to be as honest as deleting from Settings' own
+// Danger Zone: the dialog names what disappears before the button arms. The
+// Danger Zone reads counts for the *active* workspace out of getSettingsData;
+// this answers for any workspace the user owns, because from the switcher you
+// can delete one you are not currently inside.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface WorkspaceDeletionSummary {
+  id: string;
+  name: string;
+  /** True when this is the last workspace, which sends the user to onboarding. */
+  isLast: boolean;
+  counts: {
+    posts: number;
+    scheduledPosts: number;
+    socialAccounts: number;
+    chatSessions: number;
+    mediaAssets: number;
+    articleRuns: number;
+  };
+}
+
+export async function getWorkspaceDeletionSummary(
+  workspaceId: string
+): Promise<{ success: true; summary: WorkspaceDeletionSummary } | { success: false; error: string }> {
+  const { userId } = await auth();
+  if (!userId) return { success: false, error: "Unauthorized" };
+
+  const id = typeof workspaceId === "string" ? workspaceId.trim() : "";
+  if (!id) return { success: false, error: "No workspace selected." };
+
+  const workspace = await prisma.workspace
+    .findFirst({ where: { id, userId }, select: { id: true, name: true } })
+    .catch(() => null);
+
+  if (!workspace) {
+    return { success: false, error: "That workspace is no longer available." };
+  }
+
+  // Every count is guarded on its own: a dialog that renders "0 posts" because
+  // one query hiccuped is still a dialog that lists the right consequences for
+  // everything else, and the delete itself does not depend on these numbers.
+  const scope = { workspaceId: workspace.id };
+  const [posts, scheduledPosts, socialAccounts, chatSessions, mediaAssets, articleRuns, others] =
+    await Promise.all([
+      prisma.post.count({ where: scope }).catch(() => 0),
+      prisma.post.count({ where: { ...scope, status: "SCHEDULED" } }).catch(() => 0),
+      prisma.socialAccount.count({ where: scope }).catch(() => 0),
+      prisma.chatSession.count({ where: scope }).catch(() => 0),
+      prisma.mediaAsset.count({ where: scope }).catch(() => 0),
+      prisma.articleRun.count({ where: scope }).catch(() => 0),
+      prisma.workspace.count({ where: { userId, id: { not: workspace.id } } }).catch(() => 1),
+    ]);
+
+  return {
+    success: true,
+    summary: {
+      id: workspace.id,
+      name: workspace.name,
+      isLast: others === 0,
+      counts: { posts, scheduledPosts, socialAccounts, chatSessions, mediaAssets, articleRuns },
+    },
+  };
 }
 
 

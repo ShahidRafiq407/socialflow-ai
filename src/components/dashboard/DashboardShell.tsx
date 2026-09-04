@@ -4,6 +4,7 @@ import React, { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { Header } from "@/components/dashboard/Header";
+import { ActiveWorkspaceProvider } from "@/components/dashboard/ActiveWorkspaceProvider";
 import { dispatchDueScheduledPosts } from "@/actions/publish";
 
 export function DashboardShell({
@@ -47,18 +48,31 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
-      <Sidebar />
-      <div className="flex-1 flex flex-col md:pl-[250px] min-w-0">
-        <Header
-          workspaces={workspaces}
-          activeWorkspaceId={activeWorkspaceId}
-          userDetails={userDetails}
-        />
-        <main className="flex-1 p-3.5 sm:p-5 lg:p-6 bg-slate-50 dark:bg-slate-950 overflow-x-hidden">
-          {children}
-        </main>
+    <ActiveWorkspaceProvider activeWorkspaceId={activeWorkspaceId}>
+      <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
+        <Sidebar />
+        <div className="flex-1 flex flex-col md:pl-[250px] min-w-0">
+          <Header
+            workspaces={workspaces}
+            activeWorkspaceId={activeWorkspaceId}
+            userDetails={userDetails}
+          />
+          {/*
+            The key is the fix for "the tabs below still show the old
+            workspace". Page bodies are client components that seed state with
+            `useState(initialData)`, which ignores every prop it is handed
+            afterwards — so a switch refreshed the layout and changed nothing
+            below it. Changing the key remounts this whole subtree, and a
+            remount re-runs every initialiser against the new workspace's data.
+          */}
+          <main
+            key={activeWorkspaceId || "no-workspace"}
+            className="flex-1 p-3.5 sm:p-5 lg:p-6 bg-slate-50 dark:bg-slate-950 overflow-x-hidden"
+          >
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </ActiveWorkspaceProvider>
   );
 }

@@ -44,6 +44,9 @@ model Workspace {
   leadEvents      LeadEvent[]
   publishLogs     PublishLog[]
   articleRuns     ArticleRun[]
+  publications    PublishResult[]
+  performance     PerformanceData[]
+  optimizations   OptimizationRun[]
 
   // Website lead-capture tag (one site per workspace)
   trackingKey        String?   @unique
@@ -609,6 +612,7 @@ model ArticleRun {
   stages   ArticleStage[]
   sources  ResearchSource[]
   claims   EvidenceClaim[]
+  publications PublishResult[]
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, status])
@@ -705,6 +709,172 @@ model EvidenceClaim {
 
   @@index([runId, status])
   @@index([sourceId])
+}
+
+// ===========================================================================
+// AFTER PUBLISHING: SEARCH CONSOLE AND THE OPTIMISATION LOOP
+//
+// Most tools stop at "published". These three tables are what happens next:
+// the URL an article became, what Search Console says that URL is being found
+// for, and the proposals that come out of the gap between the two.
+//
+// Nothing here touches a live page. An optimisation is a row a person reads and
+// approves; the draft it produces goes back through the editor and the fact
+// check before anybody publishes it again.
+// ===========================================================================
+
+// One published article at one URL. The row the whole phase hangs off, because
+// Search Console reports per page and this is the only place that records which
+// page an article became.
+model PublishResult {
+  id          String      @id @default(uuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id])
+  /// The run that produced it, when a run did. Kept nullable so deleting a run's
+  /// history does not erase the fact that a page is live.
+  runId       String?
+  run         ArticleRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  /// The UserConnection id of the CMS target, and which platform it was.
+  targetId    String?
+  providerKey String?
+  /// Scheme + host + path only, lowercased host, no query and no fragment — the
+  /// same normalisation Search Console reports pages under, so the two join.
+  url         String   @db.VarChar(512)
+  /// The platform's own id for the post, so a later update goes to the same one.
+  remoteId    String?
+  title       String   @db.Text
+  /// The keyword it was written for. A query that is *not* this is the signal the
+  /// optimisation loop looks for.
+  keyword     String?
+  /// publish | draft | pending, as the platform accepted it.
+  status      String   @default("publish")
+
+  publishedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  optimizations OptimizationRun[]
+
+  @@unique([workspaceId, url])
+  @@index([workspaceId, publishedAt])
+  @@index([runId])
+}
+
+// One day of Search Console data for one query on one page. Rows rather than a
+// blob because the question that matters is "which query started sending
+// traffic, and when" — that is a sort, not a scan of JSON.
+//
+// Joined to PublishResult by URL rather than by a foreign key: the data is worth
+// keeping for a page we did not publish, and worth keeping after a publication
+// row is gone.
+model PerformanceData {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+
+  /// The page as Search Console reports it, normalised the same way as above.
+  page  String   @db.VarChar(512)
+  /// What a person actually typed into Google.
+  query String   @db.VarChar(300)
+  date  DateTime @db.Date
+
+  impressions Int   @default(0)
+  clicks      Int   @default(0)
+  /// As Search Console reports them — a 0..1 ratio and an average position, not
+  /// recomputed here, so this screen cannot disagree with the console itself.
+  ctr      Float @default(0)
+  position Float @default(0)
+
+  fetchedAt DateTime @default(now())
+
+  @@unique([workspaceId, page, query, date])
+  @@index([workspaceId, page, date])
+  @@index([workspaceId, date])
+}
+
+// A proposal to update a published article, raised because it is being found for
+// something it does not answer. `status` never reaches "applied" on its own:
+// applying is a person pressing a button, and this row records that it was.
+model OptimizationRun {
+  id            String        @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace     @relation(fields: [workspaceId], references: [id])
+  publicationId String
+  publication   PublishResult @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  /// proposed | verified | applied | dismissed | failed
+  status String @default("proposed")
+
+  /// The queries that raised it, with their numbers as of that day, so a proposal
+  /// read a month later still says what it was reacting to.
+  triggers Json
+  /// What it proposes: sections to add or passages to change, each with the
+  /// queries it answers. Guarded before it is stored, like every artifact.
+  proposal Json?
+  /// The run that carried research and the evidence gate for this proposal — the
+  /// same two stages the first draft passed, so an added section's ledger is as
+  /// openable as the article's.
+  verifyRunId String?
+  /// Why it was dismissed, or why verification refused it. Its own words.
+  note String? @db.Text
+
+  raisedAt   DateTime  @default(now())
+  verifiedAt DateTime?
+  appliedAt  DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([publicationId, raisedAt])
+}
+
+// ===========================================================================
+// SYSTEM NOTICES — THE ONE THING IN THE APP THAT IS NOT PER WORKSPACE
+//
+// Everything else a user sees is scoped to a workspace. This is not: it is what
+// the people running the product say to everyone — maintenance windows, a
+// platform API that changed under us, a feature that is live.
+//
+// Deliberately standalone. No relation to User or Workspace, because a notice is
+// not owned by an account and must not disappear when one is deleted, and
+// because "read" is a timestamp the browser keeps rather than a row per user per
+// notice.
+// ===========================================================================
+
+model SystemNotice {
+  id String @id @default(uuid())
+
+  /// info | success | warning | error — the same four tones the bell already
+  /// renders, so a notice needs no special icon path.
+  tone  String  @default("info")
+  title String  @db.VarChar(200)
+  body  String? @db.Text
+
+  /// Optional "read more": an internal path or an absolute URL. The bell decides
+  /// which by looking at the value, exactly as it does for workspace alerts.
+  href      String? @db.VarChar(512)
+  linkLabel String? @db.VarChar(80)
+
+  /// ALL for now. The column exists so a future targeted broadcast — one plan,
+  /// one region — does not need a schema change to land.
+  audience String @default("ALL")
+
+  /// Off by default: a notice is written, read back, then published. Unpublishing
+  /// is how a notice is retracted, so nothing is ever deleted to hide it.
+  published Boolean @default(false)
+
+  /// The window it is shown in. A null endsAt means "until it is unpublished",
+  /// which is the right default for anything that is not a maintenance slot.
+  startsAt DateTime  @default(now())
+  endsAt   DateTime?
+
+  /// Clerk user id of whoever published it. Accountability, not authorisation —
+  /// who may publish is decided by the allowlist, not by this column.
+  createdBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([published, startsAt])
 }
 
 

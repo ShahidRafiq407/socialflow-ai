@@ -9,8 +9,15 @@
 // tokens, approvals, receipts, setup gaps) and the dot only lights up when
 // something newer than your last visit is in the list.
 //
-// "Read" is a timestamp in localStorage, per workspace — no extra table, and
-// another brand's alerts can never be marked read by looking at this one.
+// Three tabs, and the third is a different kind of thing:
+//
+//   Alerts  — this workspace, needs a decision or a fix
+//   Updates — this workspace, worth knowing
+//   System  — the product itself talking to everyone, no workspace involved
+//
+// "Read" is a timestamp in localStorage — per workspace for the first two, and one
+// account-wide key for System, because a system message is the same message in
+// every workspace and reading it twice is not reading it twice.
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,8 +30,10 @@ import {
   ExternalLink,
   Info,
   Loader2,
+  Megaphone,
   RefreshCw,
   TriangleAlert,
+  Undo2,
   type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -33,6 +42,12 @@ import {
   type NotificationItem,
   type NotificationTone,
 } from "@/actions/notifications";
+import {
+  getSystemNotices,
+  retractSystemNotice,
+  type SystemNoticeItem,
+} from "@/actions/systemNotices";
+import { SystemNoticeComposer } from "@/components/dashboard/SystemNoticeComposer";
 
 const TONE_ICONS: Record<NotificationTone, LucideIcon> = {
   error: CircleAlert,
@@ -57,12 +72,35 @@ function seenKey(workspaceId: string | null): string {
   return `postloom-notifications-seen:${workspaceId || "none"}`;
 }
 
-function readSeen(workspaceId: string | null): string | null {
+/** System messages are account-wide, so their read mark is too. */
+const SYSTEM_SEEN_KEY = "postloom-system-notices-seen";
+
+function readStamp(key: string): string | null {
   try {
-    return window.localStorage.getItem(seenKey(workspaceId));
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
+}
+
+function writeStamp(key: string, stamp: string): void {
+  try {
+    window.localStorage.setItem(key, stamp);
+  } catch {
+    // Blocked storage just means the dot comes back next load — harmless.
+  }
+}
+
+/** The newest timestamp in a list, which is what "mark all read" marks up to. */
+function newestAt(items: { at?: string | null }[]): string | null {
+  return items.reduce<string | null>(
+    (latest, item) => (item.at && (!latest || item.at > latest) ? item.at : latest),
+    null
+  );
+}
+
+function countUnread(items: { at?: string | null }[], seenAt: string | null): number {
+  return items.filter((item) => item.at && (!seenAt || item.at > seenAt)).length;
 }
 
 /** Short relative time — the rows are one line, so "2h ago" not a full date. */
@@ -88,28 +126,35 @@ export interface NotificationsBellProps {
 export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [notices, setNotices] = useState<SystemNoticeItem[]>([]);
+  const [canPublish, setCanPublish] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [seenAt, setSeenAt] = useState<string | null>(null);
-  const [tab, setTab] = useState<"alerts" | "updates">("alerts");
+  const [systemSeenAt, setSystemSeenAt] = useState<string | null>(null);
+  const [tab, setTab] = useState<"alerts" | "updates" | "system">("alerts");
 
+  // Both feeds in one round trip. The workspace feed is scoped by the cookie the
+  // server already resolved; the system feed is not scoped at all, which is the
+  // whole point of it.
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const feed = await getNotifications();
-      setItems(feed.items);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-      setLoaded(true);
-    }
+    const [feed, system] = await Promise.all([
+      getNotifications().catch(() => ({ items: [] as NotificationItem[] })),
+      getSystemNotices().catch(() => ({ items: [] as SystemNoticeItem[], canPublish: false })),
+    ]);
+    setItems(feed.items);
+    setNotices(system.items);
+    setCanPublish(system.canPublish);
+    setLoading(false);
+    setLoaded(true);
   }, []);
 
   // The dot has to be right before the panel is ever opened, so the first fetch
   // happens on mount — and again whenever the workspace changes underneath us.
   useEffect(() => {
-    setSeenAt(readSeen(activeWorkspaceId));
+    setSeenAt(readStamp(seenKey(activeWorkspaceId)));
+    setSystemSeenAt(readStamp(SYSTEM_SEEN_KEY));
     setItems([]);
     setLoaded(false);
     void load();
@@ -134,28 +179,33 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
 
   // Only timestamped items can be new; standing setup advice has no `at`, so it
   // never inflates the count.
-  const unread = useMemo(
-    () => items.filter((item) => item.at && (!seenAt || item.at > seenAt)).length,
-    [items, seenAt]
-  );
+  const workspaceUnread = useMemo(() => countUnread(items, seenAt), [items, seenAt]);
+  const systemUnread = useMemo(() => countUnread(notices, systemSeenAt), [notices, systemSeenAt]);
+  const unread = workspaceUnread + systemUnread;
 
-  const latestAt = useMemo(
-    () =>
-      items.reduce<string | null>(
-        (latest, item) => (item.at && (!latest || item.at > latest) ? item.at : latest),
-        null
-      ),
-    [items]
-  );
-
+  /**
+   * Marks both feeds up to their own newest item. One button, because "mark all
+   * read" that leaves the badge lit on another tab is not what it says.
+   */
   function markAllRead() {
-    const stamp = latestAt || new Date().toISOString();
-    setSeenAt(stamp);
-    try {
-      window.localStorage.setItem(seenKey(activeWorkspaceId), stamp);
-    } catch {
-      // Blocked storage just means the dot comes back next load — harmless.
+    const now = new Date().toISOString();
+
+    if (workspaceUnread > 0) {
+      const stamp = newestAt(items) || now;
+      setSeenAt(stamp);
+      writeStamp(seenKey(activeWorkspaceId), stamp);
     }
+
+    if (systemUnread > 0) {
+      const stamp = newestAt(notices) || now;
+      setSystemSeenAt(stamp);
+      writeStamp(SYSTEM_SEEN_KEY, stamp);
+    }
+  }
+
+  async function retract(id: string) {
+    const result = await retractSystemNotice(id).catch(() => ({ success: false as const }));
+    if (result.success) setNotices((current) => current.filter((notice) => notice.id !== id));
   }
 
   function renderItem(item: NotificationItem) {
@@ -211,7 +261,74 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
     );
   }
 
-  const visible = tab === "alerts" ? alerts : updates;
+  /**
+   * A system notice is a message, not a task: the row is text, and the link is a
+   * link inside it rather than the whole row being clickable. That difference is
+   * deliberate — clicking an announcement should not navigate you somewhere.
+   */
+  function renderSystemNotice(notice: SystemNoticeItem) {
+    const Icon = TONE_ICONS[notice.tone];
+    const isNew = Boolean(notice.at && (!systemSeenAt || notice.at > systemSeenAt));
+    const external = /^https?:\/\//i.test(notice.href);
+    const label = notice.linkLabel || (external ? "Open link" : "Read more");
+
+    return (
+      <div
+        key={notice.id}
+        className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${TONE_CLASSES[notice.tone]}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-1.5">
+            <span className="min-w-0 flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">
+              {notice.title}
+            </span>
+            {isNew && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+          </div>
+          {notice.body && (
+            <p className="mt-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              {notice.body}
+            </p>
+          )}
+          <div className="mt-0.5 flex items-center gap-2">
+            {notice.at && <span className="text-[10px] text-slate-400">{relativeTime(notice.at)}</span>}
+            {notice.href &&
+              (external ? (
+                <a
+                  href={notice.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:underline"
+                >
+                  {label}
+                  <ExternalLink className="h-2.5 w-2.5" />
+                </a>
+              ) : (
+                <Link
+                  href={notice.href}
+                  onClick={() => setOpen(false)}
+                  className="text-[10px] font-semibold text-primary hover:underline"
+                >
+                  {label}
+                </Link>
+              ))}
+            {canPublish && (
+              <button
+                type="button"
+                onClick={() => void retract(notice.id)}
+                className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-destructive transition-colors"
+              >
+                <Undo2 className="h-2.5 w-2.5" />
+                Retract
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const visible = tab === "alerts" ? alerts : tab === "updates" ? updates : [];
 
   return (
     <Popover open={open} onOpenChange={(next) => setOpen(Boolean(next))}>
@@ -258,9 +375,11 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         </div>
 
         <div className="flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 px-2 py-1.5">
-          {(["alerts", "updates"] as const).map((key) => {
-            const count = key === "alerts" ? alerts.length : updates.length;
+          {(["alerts", "updates", "system"] as const).map((key) => {
+            const count =
+              key === "alerts" ? alerts.length : key === "updates" ? updates.length : notices.length;
             const isActive = tab === key;
+            const hasUnread = key === "system" ? systemUnread > 0 : false;
             return (
               <button
                 key={key}
@@ -274,6 +393,9 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
               >
                 {key}
                 <span className="text-slate-400">{count}</span>
+                {hasUnread && !isActive && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
               </button>
             );
           })}
@@ -283,23 +405,42 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
           {!loaded && loading && (
             <p className="flex items-center gap-2 px-2 py-6 text-xs text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Checking this workspace…
+              {tab === "system" ? "Checking for announcements…" : "Checking this workspace…"}
             </p>
           )}
 
-          {loaded && visible.length === 0 && (
-            <p className="px-2 py-6 text-center text-xs text-slate-400">
-              {tab === "alerts"
-                ? "Nothing needs your attention in this workspace."
-                : "No recent activity in this workspace yet."}
-            </p>
-          )}
+          {tab === "system" ? (
+            <>
+              {canPublish && <SystemNoticeComposer onPublished={() => void load()} />}
 
-          {visible.map(renderItem)}
+              {loaded && notices.length === 0 && (
+                <p className="flex flex-col items-center gap-1.5 px-2 py-6 text-center text-xs text-slate-400">
+                  <Megaphone className="h-4 w-4 text-slate-300" />
+                  No announcements right now.
+                </p>
+              )}
+
+              {notices.map(renderSystemNotice)}
+            </>
+          ) : (
+            <>
+              {loaded && visible.length === 0 && (
+                <p className="px-2 py-6 text-center text-xs text-slate-400">
+                  {tab === "alerts"
+                    ? "Nothing needs your attention in this workspace."
+                    : "No recent activity in this workspace yet."}
+                </p>
+              )}
+
+              {visible.map(renderItem)}
+            </>
+          )}
         </div>
 
         <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5 text-[10px] text-slate-400">
-          Alerts are per workspace — switch workspaces to see another brand&apos;s.
+          {tab === "system"
+            ? "System messages come from PostLoom and reach every workspace."
+            : "Alerts are per workspace — switch workspaces to see another brand's."}
         </div>
 
       </PopoverContent>

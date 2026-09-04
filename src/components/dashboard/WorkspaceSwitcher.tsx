@@ -8,6 +8,10 @@
 // never entered. Now the active workspace comes from the server, switching
 // writes it to a cookie every server read honours, and creating one happens
 // here instead of on a detour through /onboarding.
+//
+// Deleting lives here too. Settings' Danger Zone can only delete the workspace
+// you are already inside, which is no use when the one you want gone is the one
+// you are not looking at.
 // ============================================================================
 
 import { useState, useTransition } from "react";
@@ -20,6 +24,7 @@ import {
   Loader2,
   PlusCircle,
   Settings,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import {
@@ -42,6 +47,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { DeleteWorkspaceDialog } from "@/components/dashboard/DeleteWorkspaceDialog";
 import { createWorkspace, switchWorkspace, type WorkspaceSummary } from "@/actions/workspaces";
 
 export interface WorkspaceSwitcherProps {
@@ -55,6 +61,7 @@ export function WorkspaceSwitcher({ workspaces, activeWorkspaceId }: WorkspaceSw
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // The server decides which one is active; falling back to the first keeps the
   // label sane for accounts created before the cookie existed.
@@ -167,6 +174,18 @@ export function WorkspaceSwitcher({ workspaces, activeWorkspaceId }: WorkspaceSw
                 Workspace settings
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={workspaces.length === 0}
+              onClick={() => {
+                setError(null);
+                setDeleteOpen(true);
+              }}
+              className="text-xs py-2"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              Delete workspace…
+            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
 
@@ -174,6 +193,12 @@ export function WorkspaceSwitcher({ workspaces, activeWorkspaceId }: WorkspaceSw
       </DropdownMenu>
 
       <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <DeleteWorkspaceDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        workspaces={workspaces}
+        activeWorkspaceId={active?.id ?? null}
+      />
     </>
   );
 }
