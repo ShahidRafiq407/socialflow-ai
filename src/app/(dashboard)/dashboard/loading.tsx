@@ -36,7 +36,7 @@ export default function DashboardLoading() {
         ))}
       </div>
 
-      {/* Queue + trends */}
+      {/* Queue + platform results */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="rounded-xl bg-slate-100 dark:bg-slate-800/50 p-3 space-y-3">
           <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800" />
@@ -50,21 +50,14 @@ export default function DashboardLoading() {
         </div>
         <div className="rounded-xl bg-slate-100 dark:bg-slate-800/50 p-3 space-y-3">
           <div className="h-4 w-40 rounded bg-slate-200 dark:bg-slate-800" />
+          <div className="h-8 rounded-lg bg-slate-200/70 dark:bg-slate-800/70" />
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-10 rounded-md bg-slate-200/80 dark:bg-slate-800"
+              className="h-11 rounded-md bg-slate-200/80 dark:bg-slate-800"
             />
           ))}
         </div>
-      </div>
-
-      {/* Recent activity */}
-      <div className="rounded-xl bg-slate-100 dark:bg-slate-800/50 p-3 space-y-3">
-        <div className="h-4 w-28 rounded bg-slate-200 dark:bg-slate-800" />
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-9 rounded-md bg-slate-200/80 dark:bg-slate-800" />
-        ))}
       </div>
     </div>
   );

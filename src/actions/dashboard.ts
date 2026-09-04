@@ -59,15 +59,12 @@ export interface ProductionKpiMetrics {
   };
 }
 
-/** One social network and what this workspace has actually earned through it. */
+/** One social network, its publish count and latest platform-reported metrics. */
 export interface DashboardPlatformPerformance {
   platform: string;
   connected: boolean;
   handle: string;
   published: number;
-  clicks: number;
-  leads: number;
-  conversionRate: number | null;
   /** Latest platform-insights snapshot (followers/impressions/engagement). */
   insight: DashboardPlatformInsight | null;
 }
@@ -87,15 +84,6 @@ export interface DashboardPlatformInsight {
 }
 
 /** A real publish event with the clicks/leads that tracked link collected. */
-export interface DashboardActivityItem {
-  id: string;
-  platform: string;
-  excerpt: string;
-  liveUrl: string | null;
-  publishedAt: string;
-  clicks: number;
-  leads: number;
-}
 
 export interface DashboardOverviewData {
   user: {
@@ -116,7 +104,6 @@ export interface DashboardOverviewData {
   kpis: ProductionKpiMetrics;
   upcomingPosts: DashboardPostItem[];
   pendingPosts: DashboardPostItem[];
-  recentActivity: DashboardActivityItem[];
   platformPerformance: DashboardPlatformPerformance[];
   growthGoal: {
     leadTarget: number;
@@ -301,20 +288,7 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       else if (p.status === "PENDING_APPROVAL") pendingPosts.push(item);
     }
 
-    // ── Real publish events with the clicks/leads their link collected ──────
-    const recentActivity: DashboardActivityItem[] = (analyticsData.posts || [])
-      .slice(0, 6)
-      .map((p) => ({
-        id: p.id,
-        platform: p.platform,
-        excerpt: p.excerpt,
-        liveUrl: p.liveUrl,
-        publishedAt: p.publishedAt,
-        clicks: p.clicks,
-        leads: p.leads,
-      }));
-
-    // ── Per-platform results (lifetime publishes + clicks + leads) ──────────
+    // ── Per-platform results (published + platform-reported insights) ───────
     const analyticsByKey = new Map(
       (analyticsData.platforms || []).map((row) => [row.key, row])
     );
@@ -334,8 +308,7 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
     for (const platform of SUPPORTED_PLATFORMS) {
       const row = analyticsByKey.get(platform.toLowerCase());
       const connected = connectedMap.has(platform);
-      const hasActivity = Boolean(row && (row.published || row.clicks || row.leads));
-      if (!connected && !hasActivity) continue;
+      if (!connected && !(row && row.published > 0)) continue;
 
       const insight = insightRows.find((r) => r.platform === platform);
       platformPerformance.push({
@@ -343,9 +316,6 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
         connected,
         handle: connectedMap.get(platform) || "",
         published: row?.published || 0,
-        clicks: row?.clicks || 0,
-        leads: row?.leads || 0,
-        conversionRate: row?.conversionRate ?? null,
         insight: insight
           ? {
               state: insight.state,
@@ -363,7 +333,7 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       });
     }
     platformPerformance.sort(
-      (a, b) => Number(b.connected) - Number(a.connected) || b.leads - a.leads || b.clicks - a.clicks
+      (a, b) => Number(b.connected) - Number(a.connected) || b.published - a.published
     );
 
     const connectedPlatforms = SUPPORTED_PLATFORMS.map((plat) => ({
@@ -391,7 +361,6 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       kpis,
       upcomingPosts: upcomingPosts.slice(0, 5),
       pendingPosts: pendingPosts.slice(0, 5),
-      recentActivity,
       platformPerformance,
       growthGoal: workspace.growthGoal
         ? {

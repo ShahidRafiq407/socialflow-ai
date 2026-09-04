@@ -4,7 +4,6 @@ import React, { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -20,10 +19,11 @@ import {
   Check,
   X,
   Share2,
+  Zap,
+  CreditCard,
 } from "lucide-react";
 import {
   DashboardOverviewData,
-  DashboardPlatformPerformance,
   approveDashboardPost,
 } from "@/actions/dashboard";
 import { syncWorkspaceInsights } from "@/actions/insights";
@@ -63,25 +63,6 @@ function fmtCompact(n: number | null | undefined): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
   return String(n);
-}
-
-function platformInsightSummary(row: DashboardPlatformPerformance): string | null {
-  const i = row.insight;
-  if (!i || i.state !== "live") return null;
-  const parts: string[] = [];
-  if (i.followers !== null && i.followers !== undefined) {
-    parts.push(`${fmtCompact(i.followers)} followers`);
-  }
-  if (i.impressions30d !== null && i.impressions30d !== undefined) {
-    parts.push(`${fmtCompact(i.impressions30d)} imp/30d`);
-  }
-  if (i.views30d !== null && i.views30d !== undefined) {
-    parts.push(`${fmtCompact(i.views30d)} views/30d`);
-  }
-  if (i.engagementRate !== null && i.engagementRate !== undefined) {
-    parts.push(`${i.engagementRate}% eng`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function StatCard({
@@ -195,7 +176,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
     });
   };
 
-  const { user, workspace, credits, kpis, platformPerformance, recentActivity } = data;
+  const { user, workspace, credits, kpis, platformPerformance } = data;
   const connectedCount = data.connectedPlatforms.filter((c) => c.isConnected).length;
   const anyConnected = connectedCount > 0;
 
@@ -205,8 +186,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
     kpis.published.this30d > 0 ||
     data.upcomingPosts.length > 0 ||
     data.pendingPosts.length > 0 ||
-    recentActivity.length > 0 ||
-    platformPerformance.some((p) => p.published || p.clicks || p.leads);
+    platformPerformance.some((p) => p.published > 0);
 
   const totalQueue = data.upcomingPosts.length + data.pendingPosts.length;
   const pendingNeedsReview = kpis.scheduled.pendingApproval > 0;
@@ -241,29 +221,70 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
       </div>
 
       {/* Plan / credits / channels status bar */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
-        <Badge variant="secondary" className="font-medium">
-          {credits.planName}
-        </Badge>
-        <div className="flex min-w-[170px] max-w-[240px] flex-1 items-center gap-2.5">
-          <Progress
-            value={credits.isUnlimited ? 100 : credits.percentUsed}
-            className="h-1.5 flex-1"
-          />
-          <span className="shrink-0 text-xs font-medium tabular-nums text-foreground">
-            {credits.isUnlimited
-              ? "Unlimited"
-              : `${credits.creditsLeft} / ${credits.creditsTotal} credits`}
+      <div className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent"
+        />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary ring-1 ring-primary/20">
+              <Zap className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-semibold leading-tight text-foreground">
+                {credits.planName}
+                {(() => {
+                  const key = (credits.status || "").toUpperCase();
+                  if (!key || key === "NONE") return null;
+                  const ok = !/PAST_DUE|CANCEL|PAUSED|EXPIRED|FAILED/.test(key);
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium ring-1 ${
+                        ok
+                          ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400"
+                          : "bg-amber-500/10 text-amber-600 ring-amber-500/25 dark:text-amber-400"
+                      }`}
+                    >
+                      <span className={`h-1 w-1 rounded-full ${ok ? "bg-emerald-500" : "bg-amber-500"}`} />
+                      {key.replace(/_/g, " ").toLowerCase()}
+                    </span>
+                  );
+                })()}
+              </p>
+              <p className="max-w-[220px] truncate text-[11px] text-muted-foreground">
+                {credits.tagline}
+              </p>
+            </div>
+          </div>
+
+          <div className="min-w-[180px] max-w-[260px] flex-1">
+            <div className="mb-1 flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">Credits remaining</span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {credits.isUnlimited
+                  ? "Unlimited"
+                  : `${credits.creditsLeft} of ${credits.creditsTotal}`}
+              </span>
+            </div>
+            <Progress
+              value={credits.isUnlimited ? 100 : credits.percentUsed}
+              className="h-2 bg-muted"
+            />
+          </div>
+
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+            <Share2 className="h-3 w-3 text-primary" />
+            {connectedCount}/{credits.maxSocialAccounts} channels
           </span>
+
+          <Link href="/dashboard/billing" className="ml-auto">
+            <Button size="sm" className="gap-1.5 shadow-xs">
+              <CreditCard className="h-3.5 w-3.5" />
+              {credits.plan === "AGENCY" ? "Manage Billing" : "Upgrade"}
+            </Button>
+          </Link>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {connectedCount}/{credits.maxSocialAccounts} channels
-        </span>
-        <Link href="/dashboard/billing" className="ml-auto">
-          <Button variant="outline" size="sm" className="text-xs">
-            {credits.plan === "AGENCY" ? "Billing" : "Upgrade"}
-          </Button>
-        </Link>
       </div>
 
       {/* Action feedback */}
@@ -577,71 +598,98 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="grid grid-cols-2 gap-2 px-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]">
-                      <span className="hidden sm:block">Channel</span>
-                      <span className="text-right sm:text-left">Posts</span>
-                      <span className="text-right sm:text-left">Clicks</span>
-                      <span className="text-right sm:text-left">Leads</span>
-                      <span className="text-right sm:text-left">Conv</span>
+                    {/* Desktop table header */}
+                    <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] gap-2 px-2 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                      <span>Channel</span>
+                      <span>Posts</span>
+                      <span title="Platform-reported · last 30 days">Impressions</span>
+                      <span title="Platform-reported">Followers</span>
+                      <span title="Interactions ÷ impressions · last 30 days">Eng %</span>
                     </div>
+
                     {platformPerformance.map((row) => {
-                      const liveSummary = platformInsightSummary(row);
-                      const insightStale =
-                        row.connected && row.insight && row.insight.state !== "live";
+                      const insightLive =
+                        row.insight && row.insight.state === "live" ? row.insight : null;
+                      const insightNote =
+                        row.connected && row.insight && row.insight.state !== "live"
+                          ? row.insight.message || "Live metrics unavailable"
+                          : null;
+                      const followers = insightLive?.followers ?? null;
+                      const impressions = insightLive?.impressions30d ?? null;
+                      const engagement = insightLive?.engagementRate ?? null;
+
+                      const metric = (v: number | null, suffix = "") =>
+                        v === null || v === undefined ? (
+                          <span className="text-muted-foreground/50">—</span>
+                        ) : (
+                          <span className="tabular-nums text-foreground">
+                            {fmtCompact(v)}
+                            {suffix && <span className="text-muted-foreground">{suffix}</span>}
+                          </span>
+                        );
+
                       return (
-                        <div
-                          key={row.platform}
-                          className="grid grid-cols-2 items-center gap-2 rounded-md bg-muted/30 px-2 py-2 text-xs sm:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className={`h-2 w-2 shrink-0 rounded-full ${
-                                PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
-                              }`}
-                            />
-                            <div className="min-w-0">
-                              <p
-                                className="truncate font-medium text-foreground"
-                                title={row.connected ? row.handle || undefined : undefined}
-                              >
-                                {platformLabel(row.platform)}
-                              </p>
-                              {liveSummary ? (
+                        <div key={row.platform} className="space-y-1.5 sm:space-y-0">
+                          {/* Desktop row */}
+                          <div className="hidden grid-cols-[1.7fr_1fr_1fr_1fr_1fr] items-center gap-2 rounded-md bg-muted/30 px-2 py-2 text-xs sm:grid">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${
+                                  PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
+                                }`}
+                              />
+                              <div className="min-w-0">
                                 <p
-                                  className="truncate text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                                  title={
-                                    row.insight
-                                      ? `Synced ${new Date(row.insight.fetchedAt).toLocaleString()}`
-                                      : undefined
-                                  }
+                                  className="truncate font-medium text-foreground"
+                                  title={row.connected ? row.handle || undefined : undefined}
                                 >
-                                  {liveSummary}
+                                  {platformLabel(row.platform)}
                                 </p>
-                              ) : (
-                                <p className="truncate text-[10px] text-muted-foreground">
+                                <p
+                                  className="truncate text-[10px] text-muted-foreground"
+                                  title={insightNote || undefined}
+                                >
                                   {row.connected ? row.handle || "Connected" : "Not connected"}
-                                  {insightStale && (
-                                    <span
-                                      className="text-amber-600 dark:text-amber-400"
-                                      title={row.insight?.message || ""}
-                                    >
-                                      {" · "}live metrics pending
+                                  {insightNote && (
+                                    <span className="text-amber-600 dark:text-amber-400">
+                                      {" · "}metrics pending
                                     </span>
                                   )}
                                 </p>
-                              )}
+                              </div>
                             </div>
+                            <span className="tabular-nums text-foreground">
+                              {formatNum(row.published)}
+                            </span>
+                            {metric(impressions)}
+                            {metric(followers)}
+                            {metric(engagement, "%")}
                           </div>
-                          <span className="tabular-nums text-foreground">{formatNum(row.published)}</span>
-                          <span className="hidden tabular-nums text-foreground sm:block">
-                            {formatNum(row.clicks)}
-                          </span>
-                          <span className="hidden tabular-nums text-foreground sm:block">
-                            {formatNum(row.leads)}
-                          </span>
-                          <span className="hidden tabular-nums text-foreground sm:block">
-                            {row.conversionRate === null ? "—" : `${row.conversionRate}%`}
-                          </span>
+
+                          {/* Mobile row */}
+                          <div className="rounded-md bg-muted/30 px-2.5 py-2 sm:hidden">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${
+                                  PLATFORM_DOT[row.platform.toUpperCase()] || "bg-slate-400"
+                                }`}
+                              />
+                              <p className="truncate text-xs font-medium text-foreground">
+                                {platformLabel(row.platform)}
+                              </p>
+                            </div>
+                            <p className="mt-1 truncate text-[11px] tabular-nums text-muted-foreground">
+                              {formatNum(row.published)} posts
+                              {impressions !== null && ` · ${fmtCompact(impressions)} impressions`}
+                              {followers !== null && ` · ${fmtCompact(followers)} followers`}
+                              {engagement !== null && ` · ${engagement}% eng`}
+                              {insightNote && (
+                                <span className="text-amber-600 dark:text-amber-400">
+                                  {" · "}metrics pending
+                                </span>
+                              )}
+                            </p>
+                          </div>
                         </div>
                       );
                     })}
@@ -658,63 +706,6 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
               </CardContent>
             </Card>
           </div>
-
-          {/* Recent activity */}
-          {recentActivity.length > 0 && (
-            <Card className="gap-0">
-              <CardHeader className="border-b [.border-b]:pb-3">
-                <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-                <CardAction>
-                  <Link
-                    href="/dashboard/content"
-                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
-                  >
-                    Content library
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-0.5 p-2">
-                {recentActivity.map((act) => (
-                  <div
-                    key={act.id}
-                    className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-muted/60"
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        PLATFORM_DOT[act.platform.toUpperCase()] || "bg-slate-400"
-                      }`}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <a
-                        href={act.liveUrl || "#"}
-                        target={act.liveUrl ? "_blank" : undefined}
-                        rel={act.liveUrl ? "noreferrer" : undefined}
-                        className="block truncate text-xs font-medium text-foreground hover:underline"
-                      >
-                        {act.excerpt || "Published post"}
-                      </a>
-                      <p className="text-[10px] text-muted-foreground">
-                        {platformLabel(act.platform)} ·{" "}
-                        {new Date(act.publishedAt).toLocaleDateString([], {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
-                      <span title="Clicks">
-                        {formatNum(act.clicks)} clicks
-                      </span>
-                      <span className={act.leads > 0 ? "font-medium text-primary" : ""} title="Leads">
-                        {formatNum(act.leads)} leads
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
         </>
       )}
 
