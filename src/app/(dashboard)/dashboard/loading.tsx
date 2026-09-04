@@ -59,13 +59,11 @@ export default function DashboardLoading() {
         </div>
       </div>
 
-      {/* Channels chips */}
-      <div className="flex flex-wrap items-center gap-2">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div
-            key={i}
-            className="h-6 w-24 rounded-full bg-slate-100 dark:bg-slate-800/50"
-          />
+      {/* Recent activity */}
+      <div className="rounded-xl bg-slate-100 dark:bg-slate-800/50 p-3 space-y-3">
+        <div className="h-4 w-28 rounded bg-slate-200 dark:bg-slate-800" />
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-9 rounded-md bg-slate-200/80 dark:bg-slate-800" />
         ))}
       </div>
     </div>

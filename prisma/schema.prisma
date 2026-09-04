@@ -69,6 +69,7 @@ model Workspace {
   publications    PublishResult[]
   performance     PerformanceData[]
   optimizations   OptimizationRun[]
+  platformInsights PlatformInsight[]
 
   // Website lead-capture tag (one site per workspace)
   trackingKey        String?   @unique
@@ -139,6 +140,32 @@ model Competitor {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  @@index([workspaceId])
+}
+
+/**
+ * Latest platform-insights snapshot per (workspace, platform). Written by the
+ * insights sync (cron + lazy dashboard refresh). Only numbers the platform API
+ * actually reported are stored — the row is created with state="unavailable"
+ * and a message instead of guessing.
+ */
+model PlatformInsight {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  platform       String
+  state          String    @default("unavailable")
+  message        String?
+  fetchedAt      DateTime
+  followers      Int?
+  impressions30d Int?
+  views30d       Int?
+  likes30d       Int?
+  comments30d    Int?
+  shares30d      Int?
+  engagementRate Float?
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, platform])
   @@index([workspaceId])
 }
 

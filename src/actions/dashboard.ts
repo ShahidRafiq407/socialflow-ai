@@ -6,7 +6,6 @@ import { revalidatePath } from "next/cache";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getWorkspaceAnalytics, WorkspaceAnalyticsData } from "./analytics";
 import { getWorkspaceCreditInfo, WorkspaceCreditInfo } from "@/lib/billing/credits";
-import { fetchLiveTrendingNews, TrendItem } from "./trends";
 import { approvePost, rejectPost } from "./content";
 
 export interface DashboardPostItem {
@@ -21,18 +20,28 @@ export interface DashboardPostItem {
   campaignTopic: string | null;
 }
 
+/**
+ * Every KPI is counted from real database rows (LinkClick, LeadEvent,
+ * PublishLog, Post) or from the shared analytics series. Nothing here is
+ * estimated or extrapolated.
+ */
 export interface ProductionKpiMetrics {
-  reach: {
-    today: number;
-    thisWeek: number;
-    thisMonth: number;
+  /** Tracked link clicks — the measured engagement signal on social posts. */
+  clicks: {
+    this7d: number;
+    /** vs the previous 7 days. */
     growthPct: number;
   };
-  followers: {
-    totalFollowersGained: number; // Since signup through this platform
-    new30Days: number;
+  /** Confirmed / qualified / won leads attributed to this workspace. */
+  leads: {
+    gained30d: number;
     growthPct: number;
-    signupDateFormatted: string;
+  };
+  /** Posts that actually went out (social channels only). */
+  published: {
+    this30d: number;
+    today: number;
+    failures30d: number;
   };
   scheduled: {
     today: number;
@@ -48,6 +57,44 @@ export interface ProductionKpiMetrics {
     estDate: string;
     hasGoal: boolean;
   };
+}
+
+/** One social network and what this workspace has actually earned through it. */
+export interface DashboardPlatformPerformance {
+  platform: string;
+  connected: boolean;
+  handle: string;
+  published: number;
+  clicks: number;
+  leads: number;
+  conversionRate: number | null;
+  /** Latest platform-insights snapshot (followers/impressions/engagement). */
+  insight: DashboardPlatformInsight | null;
+}
+
+/** Mirrors the PlatformInsight table for the client. */
+export interface DashboardPlatformInsight {
+  state: "live" | "unavailable" | "error" | string;
+  message: string | null;
+  fetchedAt: string;
+  followers: number | null;
+  impressions30d: number | null;
+  views30d: number | null;
+  likes30d: number | null;
+  comments30d: number | null;
+  shares30d: number | null;
+  engagementRate: number | null;
+}
+
+/** A real publish event with the clicks/leads that tracked link collected. */
+export interface DashboardActivityItem {
+  id: string;
+  platform: string;
+  excerpt: string;
+  liveUrl: string | null;
+  publishedAt: string;
+  clicks: number;
+  leads: number;
 }
 
 export interface DashboardOverviewData {
@@ -69,8 +116,8 @@ export interface DashboardOverviewData {
   kpis: ProductionKpiMetrics;
   upcomingPosts: DashboardPostItem[];
   pendingPosts: DashboardPostItem[];
-  recentPosts: DashboardPostItem[];
-  trends: TrendItem[];
+  recentActivity: DashboardActivityItem[];
+  platformPerformance: DashboardPlatformPerformance[];
   growthGoal: {
     leadTarget: number;
     leadType: string;
@@ -86,6 +133,13 @@ export interface DashboardOverviewData {
     isConnected: boolean;
   }[];
   generatedAt: string;
+}
+
+const SUPPORTED_PLATFORMS = ["INSTAGRAM", "LINKEDIN", "FACEBOOK", "YOUTUBE", "TIKTOK", "PINTEREST"] as const;
+
+function pctGrowth(cur: number, prev: number): number {
+  if (prev > 0) return Math.round(((cur - prev) / prev) * 100);
+  return cur > 0 ? 100 : 0;
 }
 
 export async function getDashboardOverviewData(): Promise<DashboardOverviewData | null> {
@@ -112,39 +166,21 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       ? `${user.firstName} ${user.lastName || ""}`.trim()
       : user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "User";
 
-    // 1. Time bounds for real production KPI metrics
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     const sevenDaysAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    // 2. Fetch real analytics, credit info, posts and KPI counts in parallel
+    // Analytics (90-day series), credit info, queue lists and count queries run
+    // together. Live trends are intentionally NOT fetched here — the dashboard
+    // must render fast from the database alone.
     const [
       analyticsData,
       creditInfo,
       posts,
-      clicksToday,
-      clicksThisWeek,
-      clicksPrevWeek,
-      clicksThisMonth,
-      postsPublishedToday,
-      postsPublishedWeek,
-      postsPublishedPrevWeek,
-      postsPublishedMonth,
       scheduledTodayCount,
       scheduledUpcomingWeekCount,
       pendingApprovalCount,
-      uniqueClicksTotal,
-      uniqueClicks30Days,
-      uniqueClicksPrev30Days,
-      leadsTotal,
-      leads30Days,
-      leadsPrev30Days,
     ] = await Promise.all([
       getWorkspaceAnalytics(workspaceId),
       getWorkspaceCreditInfo(workspaceId),
@@ -156,19 +192,6 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
         orderBy: { createdAt: "desc" },
         take: 30,
       }).catch(() => []),
-
-      // Reach components
-      prisma.linkClick.count({ where: { workspaceId, createdAt: { gte: startOfToday } } }).catch(() => 0),
-      prisma.linkClick.count({ where: { workspaceId, createdAt: { gte: sevenDaysAgo } } }).catch(() => 0),
-      prisma.linkClick.count({ where: { workspaceId, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }).catch(() => 0),
-      prisma.linkClick.count({ where: { workspaceId, createdAt: { gte: thirtyDaysAgo } } }).catch(() => 0),
-
-      prisma.publishLog.count({ where: { workspaceId, status: "PUBLISHED", publishedAt: { gte: startOfToday } } }).catch(() => 0),
-      prisma.publishLog.count({ where: { workspaceId, status: "PUBLISHED", publishedAt: { gte: sevenDaysAgo } } }).catch(() => 0),
-      prisma.publishLog.count({ where: { workspaceId, status: "PUBLISHED", publishedAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }).catch(() => 0),
-      prisma.publishLog.count({ where: { workspaceId, status: "PUBLISHED", publishedAt: { gte: thirtyDaysAgo } } }).catch(() => 0),
-
-      // Scheduled posts components
       prisma.post.count({
         where: {
           workspaceId,
@@ -189,50 +212,35 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
           status: "PENDING_APPROVAL",
         },
       }).catch(() => 0),
-
-      // Followers / Audience gained components (since signup)
-      prisma.linkClick.count({ where: { workspaceId, isUnique: true } }).catch(() => 0),
-      prisma.linkClick.count({ where: { workspaceId, isUnique: true, createdAt: { gte: thirtyDaysAgo } } }).catch(() => 0),
-      prisma.linkClick.count({ where: { workspaceId, isUnique: true, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }).catch(() => 0),
-
-      prisma.leadEvent.count({ where: { workspaceId, status: { in: ["CONFIRMED", "QUALIFIED", "WON"] } } }).catch(() => 0),
-      prisma.leadEvent.count({ where: { workspaceId, status: { in: ["CONFIRMED", "QUALIFIED", "WON"] }, occurredAt: { gte: thirtyDaysAgo } } }).catch(() => 0),
-      prisma.leadEvent.count({ where: { workspaceId, status: { in: ["CONFIRMED", "QUALIFIED", "WON"] }, occurredAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }).catch(() => 0),
     ]);
 
-    // 3. Compute Reach (Impressions) from real posts & clicks
-    const todayReach = postsPublishedToday * 180 + clicksToday * 15;
-    const weekReach = postsPublishedWeek * 180 + clicksThisWeek * 15;
-    const prevWeekReach = postsPublishedPrevWeek * 180 + clicksPrevWeek * 15;
-    const monthReach = postsPublishedMonth * 180 + clicksThisMonth * 15;
-    const reachGrowthPct =
-      prevWeekReach > 0
-        ? Math.round(((weekReach - prevWeekReach) / prevWeekReach) * 100)
-        : weekReach > 0
-        ? 100
-        : 0;
+    // ── Real KPIs from the analytics series (today is the last bucket) ──────
+    const series = analyticsData.series || [];
+    const len = series.length;
+    const sumRange = (
+      field: "clicks" | "leads" | "posts" | "failed",
+      from: number,
+      to: number
+    ): number => {
+      const start = Math.max(0, from);
+      const end = Math.max(start, to);
+      return series.slice(start, end).reduce((acc, p) => acc + (Number(p[field]) || 0), 0);
+    };
 
-    // 4. Compute Audience / Followers Gained since signup through PostloomAI
-    const totalFollowersGained = uniqueClicksTotal + leadsTotal;
-    const new30Days = uniqueClicks30Days + leads30Days;
-    const prev30Days = uniqueClicksPrev30Days + leadsPrev30Days;
-    const audienceGrowthPct =
-      prev30Days > 0
-        ? Math.round(((new30Days - prev30Days) / prev30Days) * 100)
-        : new30Days > 0
-        ? 100
-        : 0;
+    const clicks7d = sumRange("clicks", len - 7, len);
+    const clicksPrev7d = sumRange("clicks", len - 14, len - 7);
+    const leads30d = sumRange("leads", len - 30, len);
+    const leadsPrev30d = sumRange("leads", len - 60, len - 30);
+    const published30d = sumRange("posts", len - 30, len);
+    const publishedToday = sumRange("posts", len - 1, len);
+    const failures30d = sumRange("failed", len - 30, len);
 
-    const signupDate = new Date(workspace.createdAt);
-    const signupDateFormatted = signupDate.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-
-    // 5. Compute Goal Progress from real GrowthGoal or analytics leads
+    // ── Goal progress: use the goal's own measured window when one exists ───
     const goalTarget = workspace.growthGoal?.leadTarget || 100;
-    const goalAchieved = analyticsData.totals.leads;
+    const goalAchieved =
+      analyticsData.goal && analyticsData.goal.leadsAchieved !== undefined
+        ? analyticsData.goal.leadsAchieved
+        : analyticsData.totals.leads;
     const percentComplete = Math.min(100, Math.round((goalAchieved / goalTarget) * 100));
     const remaining = Math.max(0, goalTarget - goalAchieved);
 
@@ -250,17 +258,12 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
     }
 
     const kpis: ProductionKpiMetrics = {
-      reach: {
-        today: todayReach,
-        thisWeek: weekReach,
-        thisMonth: monthReach,
-        growthPct: reachGrowthPct,
-      },
-      followers: {
-        totalFollowersGained,
-        new30Days,
-        growthPct: audienceGrowthPct,
-        signupDateFormatted,
+      clicks: { this7d: clicks7d, growthPct: pctGrowth(clicks7d, clicksPrev7d) },
+      leads: { gained30d: leads30d, growthPct: pctGrowth(leads30d, leadsPrev30d) },
+      published: {
+        this30d: published30d,
+        today: publishedToday,
+        failures30d,
       },
       scheduled: {
         today: scheduledTodayCount,
@@ -278,10 +281,9 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       },
     };
 
-    // 6. Classify posts
+    // ── Queue lists from the Post rows ───────────────────────────────────────
     const upcomingPosts: DashboardPostItem[] = [];
     const pendingPosts: DashboardPostItem[] = [];
-    const recentPosts: DashboardPostItem[] = [];
 
     for (const p of posts) {
       const item: DashboardPostItem = {
@@ -295,33 +297,27 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
         createdAt: p.createdAt.toISOString(),
         campaignTopic: p.campaignTopic,
       };
-
-      if (p.status === "SCHEDULED") {
-        upcomingPosts.push(item);
-      } else if (p.status === "PENDING_APPROVAL") {
-        pendingPosts.push(item);
-      } else {
-        recentPosts.push(item);
-      }
+      if (p.status === "SCHEDULED") upcomingPosts.push(item);
+      else if (p.status === "PENDING_APPROVAL") pendingPosts.push(item);
     }
 
-    // 7. Fetch live trends based on real workspace industry or business topic
-    const trendQuery = (workspace.industry || workspace.name || "AI Social Media Marketing").trim();
-    const trendRes = await fetchLiveTrendingNews(trendQuery, 6).catch(() => ({
-      success: false,
-      trends: [],
-      query: trendQuery,
-    }));
+    // ── Real publish events with the clicks/leads their link collected ──────
+    const recentActivity: DashboardActivityItem[] = (analyticsData.posts || [])
+      .slice(0, 6)
+      .map((p) => ({
+        id: p.id,
+        platform: p.platform,
+        excerpt: p.excerpt,
+        liveUrl: p.liveUrl,
+        publishedAt: p.publishedAt,
+        clicks: p.clicks,
+        leads: p.leads,
+      }));
 
-    // 8. Map connected platforms
-    const supportedPlatforms = [
-      "INSTAGRAM",
-      "LINKEDIN",
-      "FACEBOOK",
-      "YOUTUBE",
-      "TIKTOK",
-      "PINTEREST",
-    ];
+    // ── Per-platform results (lifetime publishes + clicks + leads) ──────────
+    const analyticsByKey = new Map(
+      (analyticsData.platforms || []).map((row) => [row.key, row])
+    );
 
     const connectedMap = new Map(
       (workspace.socialAccounts || []).map((acc) => [
@@ -330,7 +326,47 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       ])
     );
 
-    const connectedPlatforms = supportedPlatforms.map((plat) => ({
+    const insightRows = await prisma.platformInsight
+      .findMany({ where: { workspaceId } })
+      .catch(() => []);
+
+    const platformPerformance: DashboardPlatformPerformance[] = [];
+    for (const platform of SUPPORTED_PLATFORMS) {
+      const row = analyticsByKey.get(platform.toLowerCase());
+      const connected = connectedMap.has(platform);
+      const hasActivity = Boolean(row && (row.published || row.clicks || row.leads));
+      if (!connected && !hasActivity) continue;
+
+      const insight = insightRows.find((r) => r.platform === platform);
+      platformPerformance.push({
+        platform,
+        connected,
+        handle: connectedMap.get(platform) || "",
+        published: row?.published || 0,
+        clicks: row?.clicks || 0,
+        leads: row?.leads || 0,
+        conversionRate: row?.conversionRate ?? null,
+        insight: insight
+          ? {
+              state: insight.state,
+              message: insight.message,
+              fetchedAt: insight.fetchedAt.toISOString(),
+              followers: insight.followers,
+              impressions30d: insight.impressions30d,
+              views30d: insight.views30d,
+              likes30d: insight.likes30d,
+              comments30d: insight.comments30d,
+              shares30d: insight.shares30d,
+              engagementRate: insight.engagementRate,
+            }
+          : null,
+      });
+    }
+    platformPerformance.sort(
+      (a, b) => Number(b.connected) - Number(a.connected) || b.leads - a.leads || b.clicks - a.clicks
+    );
+
+    const connectedPlatforms = SUPPORTED_PLATFORMS.map((plat) => ({
       platform: plat,
       handle: connectedMap.get(plat) || "",
       isConnected: connectedMap.has(plat),
@@ -355,8 +391,8 @@ export async function getDashboardOverviewData(): Promise<DashboardOverviewData 
       kpis,
       upcomingPosts: upcomingPosts.slice(0, 5),
       pendingPosts: pendingPosts.slice(0, 5),
-      recentPosts: recentPosts.slice(0, 5),
-      trends: trendRes.trends || [],
+      recentActivity,
+      platformPerformance,
       growthGoal: workspace.growthGoal
         ? {
             leadTarget: workspace.growthGoal.leadTarget,
@@ -388,10 +424,5 @@ export async function rejectDashboardPost(postId: string, reason: string) {
   const result = await rejectPost(postId, reason);
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/content");
-  return result;
-}
-
-export async function refreshDashboardTrends(industry: string) {
-  const result = await fetchLiveTrendingNews(industry, 6);
   return result;
 }
