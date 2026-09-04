@@ -196,6 +196,7 @@ import AITrendSuggestions, { TrendSuggestionItem } from "@/components/editors/AI
 import { CarouselSlideItem } from "@/components/editors/InstagramCarouselEditor";
 import { MultiMediaItem } from "@/components/editors/MultiMediaEditor";
 import { MIN_DECK_SLIDES } from "@/components/editors/deckSlides";
+import { AIRenderOptions } from "@/components/editors/aiRenderOptions";
 import { getPlatformCapability, PlatformCapability } from "@/lib/capabilities/platformCapabilities";
 import { IMAGE_MODEL_ID, IMAGE_MODEL_LABEL } from "@/lib/agents/mediaModels";
 
@@ -733,6 +734,16 @@ export default function AIStudioPage() {
   // return fewer distinct slides than requested, so this prevents re-pressing Generate
   // from rewriting a storyboard that is already as long as it is going to get.
   const deckRequestCountRef = useRef<Record<string, number>>({});
+  // Visual prompt the copy agent just wrote, keyed by `${platform}-${format}`. Same
+  // reason as freshDeckRef: the one-press action renders the moment the copy call
+  // resolves, before React has re-rendered, so the render reads the prompt from here
+  // instead of from a customPromptDict snapshot that is one render behind.
+  const freshPromptRef = useRef<Record<string, string>>({});
+  // What each format family has already paid a render for, as `${family}|${kind}|${prompt}`.
+  // Both render paths fan their finished asset onto every selected sibling in the family,
+  // so pressing the one-press action again on a sibling that already received that asset
+  // must not buy the same creative a second time.
+  const familyRenderSignatureRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const handleCancelAIAction = (e: Event) => {
@@ -1350,6 +1361,17 @@ export default function AIStudioPage() {
     : 1;
 
   const currentMediaType = getMediaType(currentFormatName);
+  // The platform taxonomy — not the editor's label — decides what this format actually
+  // publishes, and therefore what ONE press of its primary AI button has to produce.
+  const currentFormatSpec = getPlatformFormatSpec(activePlatformTab, currentFormatName);
+  // 0 = copy only (an X thread publishes text), 1 = copy + one visual,
+  // N = copy + a designed, text-rich graphic per slide.
+  const onePressMediaAssets =
+    currentFormatSpec.mediaType === "text_only" && !isDeckFormat
+      ? 0
+      : isDeckFormat
+        ? Math.max(carouselSlideCount, 1)
+        : 1;
 
   const handleFormatChange = (formatVal: string) => {
     setActiveFormatTab((prev) => ({ ...prev, [activePlatformTab]: formatVal }));
@@ -1367,6 +1389,10 @@ export default function AIStudioPage() {
   // Format-Scoped Parallel Generation States
   const [enhancingPromptKeys, setEnhancingPromptKeys] = useState<Record<string, boolean>>({});
   const [scriptPromptKeys, setScriptPromptKeys] = useState<Record<string, boolean>>({});
+  // TRUE while the ONE-PRESS "generate the complete post" action is running for a
+  // format — it spans both phases (copy, then media), so it cannot be derived from
+  // either phase's own busy flag alone.
+  const [completePostKeys, setCompletePostKeys] = useState<Record<string, boolean>>({});
 
   const currentTitle = titleDict[currentFormatKey] || currentGenerated?.title || "";
   const currentDescription = descriptionDict[currentFormatKey] || "";
@@ -1500,6 +1526,13 @@ export default function AIStudioPage() {
           delete deckRequestCountRef.current[targetKey];
         }
 
+        // …and the single-visual prompt straight to the image/video renderer.
+        if (generatedPrompt) {
+          freshPromptRef.current[targetKey] = generatedPrompt;
+        } else {
+          delete freshPromptRef.current[targetKey];
+        }
+
         setGeneratedContents(prev => {
           const updated = { ...prev };
           platformsToUpdate.forEach(pId => {
@@ -1551,7 +1584,10 @@ export default function AIStudioPage() {
               if (item.description) setDescriptionDict(prev => ({ ...prev, [otherKey]: item.description }));
               if (item.taggedTopics) setTaggedTopicsDict(prev => ({ ...prev, [otherKey]: item.taggedTopics }));
               if (item.altText) setAltTextDict(prev => ({ ...prev, [otherKey]: item.altText }));
-              if (generatedPrompt) setCustomPromptDict(prev => ({ ...prev, [otherKey]: generatedPrompt }));
+              if (generatedPrompt) {
+                setCustomPromptDict(prev => ({ ...prev, [otherKey]: generatedPrompt }));
+                freshPromptRef.current[otherKey] = generatedPrompt;
+              }
             }
           });
         });
@@ -3274,6 +3310,93 @@ export default function AIStudioPage() {
   const aiMediaUrl = currentGenerated?.videoUrl || currentGenerated?.imageUrl || (aiGeneratedImageUrls ? (displayImageUrls[activeSlideIdx] || displayImageUrls[0]) : "");
   const rawDisplayUrl = customMedia?.url || renderedImageUrl || (isMultiFormat ? (displayImageUrls[activeSlideIdx] || null) : (aiMediaUrl || fallbackMediaUrl || null));
   const displayImageUrl = clearedMediaKeys[currentMediaKey] ? null : (rawDisplayUrl || null);
+
+  // ============================================================================
+  // ONE-PRESS COMPLETE POST (COPY **AND** MEDIA, FOR EVERY FORMAT)
+  // ============================================================================
+
+  /**
+   * The action behind every format's primary AI button.
+   *
+   * A visual prompt is an INTERNAL step of producing media, never the deliverable, so
+   * this writes the copy and then renders whatever the format actually publishes:
+   *   multi_image → every slide, as a designed text-rich graphic
+   *   video       → the video
+   *   image       → the still
+   *   text_only   → nothing to render (an X thread publishes text)
+   *
+   * `renderOptions` is the same bag the editor's own visual button passes (aspect ratio,
+   * style, quality, video task, source image), so the finished post uses the settings the
+   * user actually picked in that editor. The PROMPT is deliberately not taken from the
+   * editor: it is the one the copy call just wrote, read from freshPromptRef because
+   * React has not re-rendered the editor with it yet.
+   *
+   * Credits and time: `handleGeneratePlatformCopyAI`, `handleRenderMedia` and
+   * `handleRenderAllSlides` each fan their result across every selected format in the
+   * same family, so one press fills the whole family from one copy call and one render —
+   * the same economics as `computeFormatFamilies` in the campaign pipeline. The family's
+   * paid-for signature is recorded here so pressing this again on a sibling that already
+   * received that asset costs nothing instead of buying the creative twice.
+   */
+  const handleGenerateCompletePost = async (renderOptions?: AIRenderOptions) => {
+    const targetPlatform = activePlatformTab;
+    const targetFormat = currentFormatName;
+    const targetKey = `${targetPlatform}-${targetFormat}`;
+    const family = getFormatFamily(targetPlatform, targetFormat);
+
+    setCompletePostKeys((prev) => ({ ...prev, [targetKey]: true }));
+    try {
+      const copyCompleted = await handleGeneratePlatformCopyAI(
+        isDeckFormat
+          ? { slideCount: carouselSlideCount, slideInstructions: carouselCustomPrompt }
+          : undefined
+      );
+      // Stop pressed, or the plan gate answered, during the copy phase — never start a
+      // paid render the user just cancelled.
+      if (!copyCompleted || cancelAllSlidesRef.current[targetKey]) return;
+
+      if (isDeckFormat) {
+        await handleRenderAllSlides({ instructions: carouselCustomPrompt });
+        return;
+      }
+
+      // Nothing to render: the copy IS the deliverable for a text-only format.
+      if (currentFormatSpec.mediaType === "text_only") return;
+
+      // Media the user brought in themselves is never overwritten by this action —
+      // "Analyze media with AI" is the button for writing text around an upload.
+      if (isUserUploadedMedia) return;
+
+      const freshPrompt = (freshPromptRef.current[targetKey] || "").trim();
+      const mediaKind: "image" | "video" =
+        renderOptions?.mediaType ||
+        (currentFormatSpec.mediaType === "video" || currentMediaType === "video" ? "video" : "image");
+
+      // This family already paid for this exact creative and fanned it onto this slot.
+      const signature = `${family}|${mediaKind}|${freshPrompt}`;
+      if (familyRenderSignatureRef.current[family] === signature && displayImageUrl) return;
+
+      await handleRenderMedia({
+        ...renderOptions,
+        mediaType: mediaKind,
+        prompt: freshPrompt || renderOptions?.prompt,
+      });
+      familyRenderSignatureRef.current[family] = signature;
+    } finally {
+      setCompletePostKeys((prev) => {
+        const next = { ...prev };
+        delete next[targetKey];
+        return next;
+      });
+    }
+  };
+
+  /** TRUE across BOTH phases of the one-press action (copy, then media). */
+  const isGeneratingCompletePost =
+    Boolean(completePostKeys[currentFormatKey]) ||
+    Boolean(generatingCopyKeys[currentFormatKey]) ||
+    Boolean(renderingAllSlidesKeys[currentFormatKey]);
+
 
   const currentHtmlSlide = null;
   const isCurrentSlideLoading = false;
@@ -5119,25 +5242,13 @@ export default function AIStudioPage() {
                   videoError={videoErrorDict[currentFormatKey] || null}
                   durationSec={videoDurationSec}
                   onDurationChange={setVideoDurationSec}
-                  onGenerateCopyAI={handleGeneratePlatformCopyAI}
-                  isGeneratingCopy={Boolean(generatingCopyKeys[currentFormatKey])}
+                  onGenerateCompletePostAI={handleGenerateCompletePost}
+                  isGeneratingCompletePost={isGeneratingCompletePost}
                   onRegenerateSlideAI={handleRegenerateSlideAI}
                   isRegeneratingSlide={Boolean(renderingMediaKeys[currentFormatKey])}
-                  onGenerateFullCarouselAI={async () => {
-                    const copyCompleted = await handleGeneratePlatformCopyAI(
-                      isDeckFormat
-                        ? { slideCount: carouselSlideCount, slideInstructions: carouselCustomPrompt }
-                        : undefined
-                    );
-                    // If the user stopped the copy phase, do not start the slide batch.
-                    // Every deck format (incl. LinkedIn Document / Multi-Image) renders its
-                    // slides as text-rich designed graphics from the storyboard just written.
-                    if (copyCompleted && isDeckFormat) {
-                      await handleRenderAllSlides({ instructions: carouselCustomPrompt });
-                    }
-                  }}
-                  isGeneratingFullCarousel={Boolean(generatingCopyKeys[currentFormatKey]) || Boolean(renderingAllSlidesKeys[currentFormatKey])}
-                  generatesMediaWithPost={isDeckFormat}
+                  onGenerateFullCarouselAI={handleGenerateCompletePost}
+                  isGeneratingFullCarousel={isGeneratingCompletePost}
+                  onePressMediaAssets={onePressMediaAssets}
                   onAnalyzeMedia={handleAnalyzeMediaAI}
                   isAnalyzingMedia={Boolean(analyzingMediaKeys[currentFormatKey])}
                   hasUserMedia={isUserUploadedMedia}
@@ -6173,17 +6284,17 @@ export default function AIStudioPage() {
                       <Input
                         value={templateHeadline}
                         onChange={e => setTemplateHeadline(e.target.value)}
-                        placeholder="e.g. Next-Gen AI Marketing Platform"
+                        placeholder="e.g. 3 posting habits that quietly kill reach"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sub-Headline / Call to Action</label>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sub-Headline / Closing Line</label>
                       <Input
                         value={templateSubheadline}
                         onChange={e => setTemplateSubheadline(e.target.value)}
-                        placeholder="e.g. Automate your social channels with AI-powered marketing"
+                        placeholder="e.g. The third one costs most people half their views"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>
@@ -6631,17 +6742,17 @@ export default function AIStudioPage() {
                       <Input
                         value={templateHeadline}
                         onChange={e => setTemplateHeadline(e.target.value)}
-                        placeholder="e.g. Next-Gen AI Marketing Platform"
+                        placeholder="e.g. 3 posting habits that quietly kill reach"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sub-Headline / Call to Action</label>
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Sub-Headline / Closing Line</label>
                       <Input
                         value={templateSubheadline}
                         onChange={e => setTemplateSubheadline(e.target.value)}
-                        placeholder="e.g. Automate your social channels with AI-powered marketing"
+                        placeholder="e.g. The third one costs most people half their views"
                         className="h-8 text-xs bg-white dark:bg-slate-900"
                       />
                     </div>

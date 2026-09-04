@@ -170,14 +170,24 @@ describe('buildInfographicSlidePrompt', () => {
     expect(brief).toContain(`"${baseCtx.topic}"`);
   });
 
-  it('gives slide 1 the hook role and the last slide the CTA role', () => {
+  it('gives slide 1 the hook role and the last slide the closing role', () => {
     const hook = buildInfographicSlidePrompt({ ...baseCtx, slideIndex: 0 });
     const cta = buildInfographicSlidePrompt({ ...baseCtx, slideIndex: 4 });
     const middle = buildInfographicSlidePrompt(baseCtx);
     expect(hook).toMatch(/COVER \/ HOOK slide/);
-    expect(cta).toMatch(/CLOSING \/ CTA slide/);
+    expect(cta).toMatch(/CLOSING slide/);
     expect(middle).toMatch(/TEACHING slide/);
     expect(cta).toContain('"5/5"');
+  });
+
+  it('closes the deck on a question, never on a rendered sales button', () => {
+    // The last slide used to be briefed as a CTA, so the image model typeset an
+    // offer, a price or a "contact us" block into the final frame at full render
+    // cost. The closing slide now asks the reader something instead.
+    const cta = buildInfographicSlidePrompt({ ...baseCtx, slideIndex: 4 });
+    expect(cta).toMatch(/asks the reader the question/);
+    expect(cta).toMatch(/NEVER render a sales button/);
+    expect(cta.toLowerCase()).toContain("'contact us'");
   });
 
   it('describes a Document as a paged PDF instead of a slide', () => {

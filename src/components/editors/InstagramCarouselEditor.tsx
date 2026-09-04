@@ -153,7 +153,7 @@ export default function InstagramCarouselEditor({
   const effectiveSlides = slides.length > 0 ? slides : [
     { slideNumber: 1, title: "Cover Slide", body: "Hook your audience with a compelling headline", visualPrompt: "Clean minimal cover graphic" },
     { slideNumber: 2, title: "Key Insight 1", body: "Explain the first core concept with value", visualPrompt: "Infographic visual style diagram" },
-    { slideNumber: 3, title: "Action Step", body: "Provide actionable takeaway and closing CTA", visualPrompt: "Call to action checklist graphic" },
+    { slideNumber: 3, title: "The Takeaway", body: "Give the one thing to remember, then ask the reader a question", visualPrompt: "Clean summary checklist graphic" },
   ];
 
   const currentIdx = Math.min(Math.max(0, activeSlideIndex), effectiveSlides.length - 1);
@@ -463,7 +463,7 @@ export default function InstagramCarouselEditor({
               rows={6}
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
-              placeholder="Write your comprehensive carousel caption, breakdown, and call to action..."
+              placeholder="Write your comprehensive carousel caption, the breakdown, and the question you want in the comments..."
               className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed min-h-44"
             />
             {onAIRefine && (

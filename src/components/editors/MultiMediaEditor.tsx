@@ -29,6 +29,7 @@ import XGuidelinesBanner from "./XGuidelinesBanner";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { AIRenderOptions } from "./aiRenderOptions";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { DECK_MEDIA_FIT, mediaPreviewFrame, resolvePreviewRatio } from "./mediaPreviewFrame";
 
@@ -50,26 +51,21 @@ interface MultiMediaEditorProps {
   onMediaItemsChange: (items: MultiMediaItem[]) => void;
   activeMediaIndex: number;
   onActiveMediaChange: (idx: number) => void;
-  onGenerateCopyAI: () => void;
-  isGeneratingCopy: boolean;
-  onGenerateAllMediaAI: () => void;
+  /**
+   * ONE press → the finished post: caption, hashtags AND every asset's graphic. Receives
+   * this editor's own image settings so the assets match what the user set up here.
+   */
+  onGenerateAllMediaAI: (renderOptions?: AIRenderOptions) => void;
   isGeneratingAllMedia: boolean;
   /**
-   * TRUE when the one-press action also designs the asset graphics (every multi-asset
-   * deck format). FALSE for single-media / thread formats where it only writes the copy —
-   * the button must not promise media it will not produce.
+   * How many graphics one press produces: 0 for text-only formats (an X thread publishes
+   * text), 1 for a single visual, N for a strip with a graphic per asset. Drives the
+   * helper text so the button never promises media it will not produce.
    */
-  generatesMediaWithPost?: boolean;
+  onePressMediaAssets?: number;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderSingleAI: (options?: {
-    mediaType?: "image" | "video";
-    prompt?: string;
-    aspectRatio?: string;
-    style?: string;
-    quality?: string;
-    imageModel?: string;
-  }) => void;
+  onRenderSingleAI: (options?: AIRenderOptions) => void;
   isRenderingSingleAI: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
@@ -106,11 +102,9 @@ export default function MultiMediaEditor({
   onMediaItemsChange,
   activeMediaIndex,
   onActiveMediaChange,
-  onGenerateCopyAI,
-  isGeneratingCopy,
   onGenerateAllMediaAI,
   isGeneratingAllMedia,
-  generatesMediaWithPost = true,
+  onePressMediaAssets,
   onOpenUpload,
   onOpenStock,
   onRenderSingleAI,
@@ -161,6 +155,10 @@ export default function MultiMediaEditor({
   // ONE action produces the whole post — caption, hashtags AND every asset's designed
   // graphic. It deliberately does not stop at writing visual prompts: prompts are an
   // internal step of generating the media, never the deliverable.
+  // The page knows how much media the format actually publishes; fall back to the strip
+  // length only when it did not say (a thread reports 0 and promises no visual).
+  const onePressAssetCount =
+    typeof onePressMediaAssets === "number" ? onePressMediaAssets : mediaItems.length;
   const fullPostLabel = isThreadFormat
     ? "Generate Complete Thread with AI"
     : capability.format === "Post"
@@ -192,20 +190,23 @@ export default function MultiMediaEditor({
   // Real generation request for the ACTIVE asset slot — passes the per-asset
   // prompt (campaign slide prompt or user-typed) + selected aspect ratio /
   // style / quality to the shared render pipeline.
-  const handleGenerateActiveAsset = () => {
+  const assetRenderOptions = (overrides?: AIRenderOptions): AIRenderOptions => {
     const supportedRatios = capability.supportedAspectRatios?.length ? capability.supportedAspectRatios : [];
-    const safeAspectRatio =
-      imageAspectRatio !== "auto" && supportedRatios.includes(imageAspectRatio as any)
-        ? imageAspectRatio
-        : capability.defaultAspectRatio;
-    onRenderSingleAI({
+    return {
       mediaType: "image",
-      prompt: prompt.trim() || undefined,
-      aspectRatio: safeAspectRatio,
+      aspectRatio:
+        imageAspectRatio !== "auto" && supportedRatios.includes(imageAspectRatio as any)
+          ? imageAspectRatio
+          : capability.defaultAspectRatio,
       style: imageStyle,
       quality: imageQuality,
       imageModel: IMAGE_MODEL_ID,
-    });
+      ...overrides,
+    };
+  };
+
+  const handleGenerateActiveAsset = () => {
+    onRenderSingleAI(assetRenderOptions({ prompt: prompt.trim() || undefined }));
   };
 
   // Per-post text (X Thread): each connected post carries its own tweet text.
@@ -494,8 +495,15 @@ export default function MultiMediaEditor({
                   cancelAIAction("copy", formatKey);
                   return;
                 }
-                onGenerateAllMediaAI();
+                onGenerateAllMediaAI(assetRenderOptions());
               }}
+              title={
+                isGeneratingAllMedia
+                  ? "Stop generating this post"
+                  : onePressAssetCount > 0
+                    ? `Writes the copy, then designs ${onePressAssetCount === 1 ? "the visual" : `all ${onePressAssetCount} assets`}`
+                    : "Writes every post in this format"
+              }
               className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
                 isGeneratingAllMedia
                   ? "bg-destructive text-white hover:bg-destructive/90"
@@ -506,11 +514,13 @@ export default function MultiMediaEditor({
               <span>{isGeneratingAllMedia ? "Stop Generating" : fullPostLabel}</span>
             </Button>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              {generatesMediaWithPost
-                ? `Writes the caption and hashtags, then designs all ${mediaItems.length} asset${mediaItems.length === 1 ? "" : "s"}.`
-                : isThreadFormat
-                  ? "Writes every post in the thread plus the hashtags. Add a visual per post below when you want one."
-                  : "Writes the caption and hashtags for this post. Generate the visual below."}
+              {onePressAssetCount > 1
+                ? `Writes the caption and hashtags, then designs all ${onePressAssetCount} assets.`
+                : onePressAssetCount === 1
+                  ? "Writes the caption and hashtags, then designs the visual."
+                  : isThreadFormat
+                    ? "Writes every post in the thread plus the hashtags. Add a visual per post below when you want one."
+                    : "Writes the caption and hashtags for this post."}
               {" "}Every selected platform that shares this format gets the same post.
             </p>
           </div>

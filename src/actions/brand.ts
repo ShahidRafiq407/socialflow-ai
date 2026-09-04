@@ -125,7 +125,12 @@ export async function saveWorkspaceBrandDNA(
 }
 
 /**
- * Generate a Live AI Voice / Hook Preview using the saved Brand DNA
+ * Generate a Live AI Voice / Hook Preview using the saved Brand DNA.
+ *
+ * This is a VOICE preview, not an advert. Brand DNA is read as field, audience and
+ * vocabulary — never as an offer to pitch — because the preview is what teaches the
+ * user what the generators will produce, and the generators do not sell. `ctaOffer`
+ * is deliberately not passed in: it belongs to the tracked-link goal posts, not here.
  */
 export async function generateBrandDNAPreview(
   workspaceId: string,
@@ -135,23 +140,21 @@ export async function generateBrandDNAPreview(
     const dna = await getWorkspaceBrandDNA(workspaceId);
 
     const prompt = `
-You are a senior AI Copywriting Specialist at a $10,000/month executive marketing agency.
-Generate ONE high-converting, viral ${platform} post hook and CTA based on this client's exact business profile:
+You are a subject-matter writer with a social growth instinct. You are NOT an advertiser.
+Write ONE short ${platform} post that shows this business's voice while talking about something live in its audience's field:
 
-Company Name: ${dna.name}
-Industry: ${dna.industry}
-Website URL: ${dna.website}
-What Business Does: ${dna.missionVision}
+Company Name (the narrator, never the subject): ${dna.name}
+Field: ${dna.industry}
 Target Audience: ${dna.targetAudience}
-Customer Pain Points Solved: ${dna.painPoints}
-Key Differentiator / Unfair Advantage: ${dna.differentiator}
-Primary CTA Offer: ${dna.ctaOffer}
+What that audience struggles with: ${dna.painPoints}
+Perspective the writer argues from: ${dna.differentiator}
 
 Output formatting rules:
-- Provide an attention-grabbing Hook line (1-2 sentences).
-- Provide a brief 2-bullet value insight solving their pain points.
-- Provide an authoritative Call to Action that pitches their exact CTA Offer.
-- Keep the entire preview short (under 120 words), impactful, and executive.
+- Open on a hook line (1-2 sentences) that costs the reader something to ignore.
+- Give a 2-bullet insight the reader can act on — a mechanism, a number, or a trade-off.
+- Close on a question about the reader's own experience that they can answer in one comment.
+- NOTHING promotional: no offer, no services, no availability, no pricing, no "DM us", no "link in bio", no credential boasts, and never claim this business did any work, served any client or got any result.
+- Keep the entire preview under 120 words and specific.
 `;
 
     try {
@@ -166,13 +169,13 @@ Output formatting rules:
 
     // Fallback if offline or API key limit
     return {
-      preview: `🔥 Why 90% of ${dna.industry} brands struggle with slow development cycles:\n\n• Most rely on manual prototyping instead of AI-assisted workflows.\n• Without ${dna.name}'s ${dna.differentiator.toLowerCase()}, costs multiply fast.\n\n👉 ${dna.ctaOffer} to see our engineering strategy in action.`,
+      preview: `Most ${dna.industry} teams blame slow delivery on capacity. It is usually the handoffs.\n\n• Manual prototyping burns days that an AI-assisted pass finishes in hours.\n• Every extra approval step compounds — the cost is in the waiting, not the work.\n\nWhere does your delivery time actually go: building, or waiting?`,
       modelUsed: "local-simulation",
     };
   } catch (error: any) {
     console.error("Error generating Brand DNA preview:", error);
     return {
-      preview: `🚀 Scale your brand authority with precision-engineered organic marketing. Learn more at our website today.`,
+      preview: `Organic reach did not die — the bar moved. The posts that still travel teach something specific in the first two lines.\n\nWhat is the last post you stopped scrolling for, and what made you stop?`,
       modelUsed: "local-fallback",
     };
   }

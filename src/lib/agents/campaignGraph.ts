@@ -27,9 +27,16 @@ import {
   summarizeReport,
   limitsFor,
   AI_CLICHE_PHRASES,
+  findSelfPromotion,
   type QualityIssue,
   type QualityReport,
 } from "@/lib/agents/qualityChecks";
+import {
+  contentDoctrine,
+  ENGAGEMENT_CLOSE_RULE,
+  PROMOTION_BAN_RULE,
+  PROMO_FIX_HINT,
+} from "@/lib/agents/contentStrategy";
 
 export interface AgentEventCallback {
   (event: {
@@ -1160,8 +1167,8 @@ COMPETITIVE POSITION
 - Competitors: ${(comp?.verifiedCompetitors?.length ? comp.verifiedCompetitors : comp?.topCompetitors || []).join(", ") || "not identified"}
 - How they position: ${comp?.positioning || "unknown"}
 - Their weaknesses: ${JSON.stringify(comp?.weaknesses || [])}
-- Our winning angle: ${comp?.winningAngle || (comp?.differentiation || [])[0] || "differentiate on specificity and proof"}
-- Differentiation moves: ${JSON.stringify(comp?.differentiation || [])}`;
+- The angle nobody is covering well: ${comp?.winningAngle || (comp?.differentiation || [])[0] || "differentiate on specificity and proof"}
+- Topical gaps to aim at: ${JSON.stringify(comp?.differentiation || [])}`;
 
   const bannedClause = `BANNED LANGUAGE — using any of these is an automatic rejection:
 ${bannedList.map((w) => `"${w}"`).join(", ")}
@@ -1228,11 +1235,11 @@ Each slide is rendered as a designed infographic with its headline and insight T
 - "slideTexts" and "visualPrompts" must have the SAME length, one entry per slide.
 - "slideTexts[i].title" is the words printed largest on slide i (max 60 chars). "body" is the readable insight beneath it (max 200 chars).
 - "visualPrompts[i]" describes ONLY the background / supporting graphic for slide i (abstract shapes, illustration, iconography, low-contrast imagery, data-visual accents). Never describe the text — the design engine typesets it. Keep the area behind text calm and low-contrast.
-- Storyboard arc: slide 1 hooks, middle slides carry the problem, the framework and the proof (concrete numbers, steps or benchmarks), final slide is the takeaway + CTA.`
+- Storyboard arc: slide 1 hooks, middle slides carry the problem, the framework and the proof (concrete numbers, steps or benchmarks), final slide is the takeaway + the question that pulls the reader into the comments. No sales CTA, no service pitch, no contact details on any slide.`
         : family.kind === "video"
           ? `THIS FAMILY PUBLISHES ONE VERTICAL-OR-LANDSCAPE VIDEO (${family.renderAspectRatio}).
 - "visualPrompts" holds exactly ONE prompt: the full shot description for the generated video.
-- "videoStoryboard" is a beat-by-beat shot list (0-3s hook, 3-8s payoff, 8-15s CTA) in plain sentences.
+- "videoStoryboard" is a beat-by-beat shot list (0-3s hook, 3-8s payoff, 8-15s the takeaway and the question left with the viewer) in plain sentences.
 - "slideTexts" must be an empty array.`
           : family.kind === "text_only"
             ? `THIS FAMILY PUBLISHES TEXT ONLY — no media will be generated.
@@ -1242,15 +1249,9 @@ Each slide is rendered as a designed infographic with its headline and insight T
 - "visualPrompts" holds exactly ONE production-grade image prompt: subject, composition, lighting, mood, colour.
 - "slideTexts" must be an empty array.`;
 
-    const prompt = `You are an elite creative copywriter and social growth strategist writing for ${state.brandData.name}.
+    const prompt = `You are a subject-matter writer with a social growth instinct. You are NOT an advertiser: ${state.brandData.name} publishes this, but the post belongs to the reader.
 
-BRAND
-- Industry: ${state.brandData.industry}
-- Tone: ${state.brandData.tone}
-- Writing style: ${state.brandData.writingStyle}
-- Audience: ${state.brandData.targetAudience}
-- Mission: ${state.brandData.missionVision}
-- Campaign topic: "${topic}"
+${contentDoctrine({ brand: state.brandData, topic, seed: `${family.label}:${topic}` })}
 
 ${sharedIntel}
 
@@ -1264,8 +1265,9 @@ CRAFT REQUIREMENTS
 1. Open on the audience's actual pain or a genuine curiosity gap — the first line has to survive a 1-second scroll.
 2. Write like a human expert talking to a peer: varied sentence length, plain words, a specific detail or number instead of a claim.
 3. Use the trend evidence above where it genuinely fits. Never reference a trend you were not given.
-4. End with a CTA that suits the platform (save/share on Instagram, comment on LinkedIn, follow on TikTok...).
+4. ${ENGAGEMENT_CLOSE_RULE} Platform-native is fine (a question on LinkedIn, "which one are you" on Instagram) as long as it asks for words, not clicks.
 5. Respect every caption and hashtag limit listed above — going over is a hard failure.
+6. ${PROMOTION_BAN_RULE}
 
 ${bannedClause}
 
@@ -1394,6 +1396,26 @@ ${family.members
       );
     }
 
+    // Copy that pitches is repaired BEFORE the render bill: the deck, video or image
+    // carrying it costs exactly the same whether the words sell or say something the
+    // reader keeps. Scanned with the same phrase list the writer was handed, so the
+    // brief and the gate can never disagree.
+    const promoHits = findSelfPromotion(
+      [
+        creative.hook,
+        creative.caption,
+        ...creative.slideTexts.flatMap((s) => [s.title, s.body]),
+        ...family.members.map((m) => creative.posts[memberKey(m.platform, m.contentType)]?.title || ""),
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+    if (promoHits.length > 0) {
+      problems.push(
+        `The copy pitches the business instead of giving the reader something: ${promoHits.join(", ")}. ${PROMO_FIX_HINT}`
+      );
+    }
+
     if (problems.length === 0) return creative;
 
     emit({
@@ -1437,6 +1459,8 @@ ${JSON.stringify({
 CONSTRAINTS
 - Keep everything that was already correct, word for word.
 - The caption is ONE text shared by every platform of this family; it must fit the tightest limit: ${smallestCaptionMax} chars.
+- ${PROMOTION_BAN_RULE}
+- ${ENGAGEMENT_CLOSE_RULE}
 ${family.kind === "multi_image" ? `- slideTexts and visualPrompts must both have the same length, at least ${MIN_DECK_SLIDES}, each slide with a headline and a 1-2 sentence insight.` : ""}
 ${bannedClause}
 
@@ -2427,7 +2451,7 @@ ${brandForbidden.length ? `- Forbidden words: ${brandForbidden.join(", ")}` : ""
 STRUCTURAL CHECKS ALREADY PASSED IN CODE (do not re-report these)
 - Required media is present and of the right kind for every post.
 - Caption lengths and hashtag counts are inside every platform's limits.
-- Brand-forbidden words and known AI clichés were scanned for automatically.
+- Brand-forbidden words, known AI clichés and known sales phrases were scanned for automatically.
 ${report.fixable.length ? `Already detected automatically: ${report.fixable.map((i) => i.code).join(", ")}.` : ""}
 
 JUDGE ONLY WHAT CODE CANNOT
@@ -2436,6 +2460,8 @@ JUDGE ONLY WHAT CODE CANNOT
 3. Is the claim specific and credible, or vague?
 4. Does the caption match the brand's tone and the platform's culture?
 5. Do the posts in one family tell one coherent story?
+6. Is the post about the reader's field, or is it selling? A phrase-scan cannot catch a pitch written in fresh words: an implied offer, an availability hint, a boast about the business, or a claim about work it did. Flag any of those.
+7. Would a reader have a reason to comment, or does it close on a click instead of a question?
 
 For every issue, name the exact post and field and give the instruction needed to fix it. Do not invent issues to look thorough — an empty list is a valid verdict.
 
@@ -2586,7 +2612,9 @@ BRAND VOICE
 RULES
 - Fix the actual problem. Do not merely reword around it.
 - Respect each post's captionMax and hashtagMax exactly.
-- Keep the post's meaning, offer and CTA. Do not change the subject.
+- Keep each post's subject and angle. Do not change what it is about.
+- ${PROMOTION_BAN_RULE}
+- ${ENGAGEMENT_CLOSE_RULE}
 - Do not touch any field that is not in that post's fieldsToFix.
 ${bannedClause}
 

@@ -287,8 +287,8 @@ export default function PluginsHQ({
   const handleCopyTrendPrompt = async (item: TrendItem) => {
     const prompt =
       spyMode === "competitor"
-        ? `Write a competitive counter-post about "${item.title}" (source: ${item.source}, ${item.pubDate}). Compare our positioning against this news with factual citations, and draft it for my top social platform.`
-        : `Write a thought-leadership social media post based on this trending news: "${item.title}" (source: ${item.source}, ${item.pubDate}). Include a strong hook and a clear call to action.`;
+        ? `Write a post that explains what "${item.title}" (source: ${item.source}, ${item.pubDate}) actually changes for people in this field. Cite the facts, take a clear position on the trade-offs, and draft it for my top social platform. No pitch, no positioning claims about my own company.`
+        : `Write an informational social media post based on this trending news: "${item.title}" (source: ${item.source}, ${item.pubDate}). Open on a hook that costs the reader something to ignore, teach one concrete thing from the news, and close on a question they can answer in a comment. Nothing promotional — no offer, no services, no "DM us".`;
 
     try {
       await navigator.clipboard.writeText(prompt);

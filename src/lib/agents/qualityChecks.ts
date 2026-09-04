@@ -17,6 +17,7 @@
 import { MIN_DECK_SLIDES } from "@/lib/agents/mediaGenerator";
 import type { FormatFamily } from "@/lib/agents/formatFamilies";
 import { memberKey } from "@/lib/agents/formatFamilies";
+import { PROMO_FIX_HINT } from "@/lib/agents/contentStrategy";
 
 /**
  * Phrases that mark copy as machine-written. Shared by the content-creator prompt,
@@ -48,6 +49,91 @@ export const AI_CLICHE_PHRASES = [
   "when it comes to",
   "it's no secret that",
 ];
+
+/**
+ * Phrases that turn a post into an advert. This is the deterministic half of the
+ * audience-first doctrine in `contentStrategy.ts`: the prompt forbids selling, and
+ * this list is how we find out whether the model listened — before a single paid
+ * render happens.
+ *
+ * Two kinds of violation are caught here. The sales close ("book a call", "link in
+ * bio") makes the reader the target of a pitch instead of the point of the post.
+ * The capability claim ("we build", "trusted by", "our clients") is worse: the
+ * model has no idea what the business has actually delivered, so it invents a
+ * track record the reader can catch out.
+ */
+export const SELF_PROMOTIONAL_PHRASES = [
+  // Sales closes
+  "partner with us",
+  "work with us",
+  "hire us",
+  "let's work together",
+  "book a call",
+  "book a demo",
+  "schedule a demo",
+  "schedule a call",
+  "get in touch",
+  "contact us",
+  "reach out to us",
+  "dm us",
+  "dm me",
+  "message us",
+  "call us today",
+  "get started today",
+  "sign up today",
+  "shop now",
+  "buy now",
+  "order now",
+  "book now",
+  "enroll now",
+  "register now",
+  "link in bio",
+  "link in the bio",
+  "swipe up",
+  "click the link",
+  "visit our website",
+  "check out our",
+  "learn more about our",
+  // Offers and urgency
+  "limited time",
+  "limited spots",
+  "don't miss out",
+  "act now",
+  "special offer",
+  "exclusive offer",
+  "free consultation",
+  "free trial",
+  "request a quote",
+  // Invented capability and credentials
+  "we offer",
+  "we provide",
+  "we specialize",
+  "we specialise",
+  "our services",
+  "our solutions",
+  "our clients",
+  "our team can",
+  "we can help you",
+  "we help businesses",
+  "let us help",
+  "industry leader",
+  "leading provider",
+  "trusted by",
+  "your trusted partner",
+  "we pride ourselves",
+  "award-winning",
+];
+
+/**
+ * Every self-promotional phrase the copy actually contains.
+ *
+ * Exported because three separate places need the same answer: the pre-render
+ * repair pass in the pipeline, the AI Studio's single-post auditor, and the full
+ * campaign audit below.
+ */
+export function findSelfPromotion(text: string): string[] {
+  return findPhrases(text, SELF_PROMOTIONAL_PHRASES);
+}
 
 /**
  * Real platform limits (characters for captions, count for hashtags).
@@ -311,7 +397,7 @@ export function runDeterministicChecks(input: DeterministicCheckInput): QualityR
 
       // Brand-banned vocabulary. This is why BrandDNA.forbiddenWords exists — it was
       // stored in the database and never consulted anywhere before.
-      const copyBlob = [caption, item.hook, item.title, ...(hashtags || [])]
+      const copyBlob = [caption, item.hook, item.title, item.description, ...(hashtags || [])]
         .concat((item.overlayText || []).flatMap((s: any) => [s?.title, s?.body]))
         .filter(Boolean)
         .join("\n");
@@ -337,6 +423,21 @@ export function runDeterministicChecks(input: DeterministicCheckInput): QualityR
           field: "caption",
           message: `${member.platform} ${member.contentType} reads machine-written: ${clicheHits.join(", ")}.`,
           fixHint: `Rewrite the affected sentences without these phrases: ${clicheHits.join(", ")}.`,
+        });
+      }
+
+      // The post sells instead of saying something. Fixable by a rewrite, so it is
+      // deliberately `major` rather than a blocker — but it is caught before the
+      // render bill, because a promotional slide costs exactly as much as a good one.
+      const promoHits = findSelfPromotion(copyBlob);
+      if (promoHits.length > 0) {
+        issues.push({
+          ...where,
+          code: "PROMOTIONAL_COPY",
+          severity: "major",
+          field: "caption",
+          message: `${member.platform} ${member.contentType} pitches the business instead of saying something worth reading: ${promoHits.join(", ")}.`,
+          fixHint: `${PROMO_FIX_HINT} Phrases to remove: ${promoHits.join(", ")}.`,
         });
       }
     }

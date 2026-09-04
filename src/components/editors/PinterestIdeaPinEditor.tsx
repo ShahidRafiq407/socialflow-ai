@@ -185,7 +185,7 @@ export default function PinterestIdeaPinEditor({
   const effectivePages = pages && pages.length > 0 ? pages : [
     { pageNumber: 1, title: "Intro Page", body: "Start with an eye-catching visual and problem statement.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
     { pageNumber: 2, title: "Step 2", body: "Actionable tip or process breakdown.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
-    { pageNumber: 3, title: "Summary & CTA", body: "Wrap up and call to action.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
+    { pageNumber: 3, title: "The Takeaway", body: "The one thing to remember, then a question for the reader.", visualPrompt: "Vertical aesthetic design", mediaUrl: "", mediaType: "image" as const },
   ];
 
   const currentIdx = Math.min(Math.max(activePageIndex, 0), effectivePages.length - 1);
@@ -535,7 +535,7 @@ export default function PinterestIdeaPinEditor({
               rows={6}
               value={description || ""}
               onChange={(e) => onDescriptionChange(e.target.value)}
-              placeholder="Describe the Idea Pin with searchable keywords, the value inside, and a clear call to action..."
+              placeholder="Describe the Idea Pin with searchable keywords, the value inside, and the question you want people to answer..."
               className="w-full text-xs sm:text-sm p-3 rounded-xl bg-white dark:bg-slate-900 leading-relaxed min-h-44"
             />
             {onAIRefine && (

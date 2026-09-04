@@ -192,7 +192,7 @@ const ROLE_DIRECTION: Record<SlideRole, string> = {
   hook: "This is the COVER / HOOK slide: the headline is the biggest type in the whole deck (it should dominate the canvas) and the supporting line sits directly beneath it. Add a small 'Swipe →' or 'Read more →' affordance in a corner.",
   insight:
     "This is a TEACHING slide: the headline names the idea, the body copy explains it in full readable sentences. Give the body copy real presence — it is the reason someone stopped scrolling.",
-  cta: "This is the CLOSING / CTA slide: the headline states the takeaway and the body copy carries the call to action. Render the call to action inside a clearly designed button-style pill or bordered block so it reads as an action.",
+  cta: "This is the CLOSING slide: the headline states the single takeaway and the body copy asks the reader the question that makes them comment. Set that closing line inside a clearly designed highlight block so it reads as the deliberate last word. NEVER render a sales button, an offer, a price, a website, a phone number or a 'contact us' block.",
 };
 
 /**

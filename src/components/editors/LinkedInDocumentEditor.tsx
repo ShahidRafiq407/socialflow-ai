@@ -668,8 +668,8 @@ export default function LinkedInDocumentEditor({
                 >
                   <option value="hook">Hook Slide (Cover)</option>
                   <option value="content">Content / Strategy Slide</option>
-                  <option value="proof">Proof / Case Study Slide</option>
-                  <option value="cta">Final CTA Slide</option>
+                  <option value="proof">Proof / Evidence Slide</option>
+                  <option value="cta">Final Takeaway Slide</option>
                 </select>
               </div>
 

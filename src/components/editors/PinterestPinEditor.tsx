@@ -36,6 +36,7 @@ import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
+import { AIRenderOptions } from "./aiRenderOptions";
 
 interface PinterestPinEditorProps {
   capability: PlatformCapability;
@@ -60,20 +61,15 @@ interface PinterestPinEditorProps {
   onRemoveMedia: () => void;
   onOpenUpload: () => void;
   onOpenStock: () => void;
-  onRenderAI: (options?: {
-    aspectRatio?: string;
-    style?: string;
-    quality?: string;
-    imageModel?: string;
-    mediaType?: "image" | "video";
-    duration?: number;
-    videoTask?: string;
-    sourceImage?: string | null;
-    sourceVideo?: string | null;
-  }) => void;
+  onRenderAI: (options?: AIRenderOptions) => void;
   isRenderingMedia: boolean;
-  onGenerateCopyAI: () => void;
-  isGeneratingCopy: boolean;
+  /**
+   * ONE press → the finished Pin: title, description, tagged topics AND the Pin visual
+   * (or the Video Pin). Receives this editor's own visual settings so the render honours
+   * the ratio / style / quality the user picked here.
+   */
+  onGenerateCompletePostAI: (renderOptions?: AIRenderOptions) => void;
+  isGeneratingCompletePost: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
   onEnhancePrompt: () => void;
@@ -122,8 +118,8 @@ export default function PinterestPinEditor({
   onOpenStock,
   onRenderAI,
   isRenderingMedia,
-  onGenerateCopyAI,
-  isGeneratingCopy,
+  onGenerateCompletePostAI,
+  isGeneratingCompletePost,
   prompt,
   onPromptChange,
   onEnhancePrompt,
@@ -162,25 +158,29 @@ export default function PinterestPinEditor({
   // stays responsive; changes propagate up via onAiModifiedChange.
   const [isAiModified, setIsAiModified] = useState<boolean>(aiModified ?? true);
 
+  // The visual settings this editor owns, in the shape the render pipeline expects.
+  // Shared by the standalone visual button and the one-press complete-Pin action so
+  // both produce the same artefact.
+  const pinRenderOptions = (): AIRenderOptions =>
+    isVideo
+      ? {
+          mediaType: "video",
+          aspectRatio: pinVideoAspectRatio !== "auto" ? pinVideoAspectRatio : "9:16",
+          duration: pinVideoDuration,
+          videoTask: pinVideoTask,
+          sourceImage: attachedSourceImage,
+          sourceVideo: pinVideoTask === "edit" ? displayImageUrl : null,
+        }
+      : {
+          mediaType: "image",
+          aspectRatio: pinAspectRatio === "auto" ? "2:3" : pinAspectRatio,
+          style: pinStyle,
+          quality: pinQuality,
+          imageModel: IMAGE_MODEL_ID,
+        };
+
   const handleGeneratePin = () => {
-    if (isVideo) {
-      onRenderAI({
-        mediaType: "video",
-        aspectRatio: pinVideoAspectRatio !== "auto" ? pinVideoAspectRatio : "9:16",
-        duration: pinVideoDuration,
-        videoTask: pinVideoTask,
-        sourceImage: attachedSourceImage,
-        sourceVideo: pinVideoTask === "edit" ? displayImageUrl : null,
-      });
-    } else {
-      onRenderAI({
-        mediaType: "image",
-        aspectRatio: pinAspectRatio === "auto" ? "2:3" : pinAspectRatio,
-        style: pinStyle,
-        quality: pinQuality,
-        imageModel: IMAGE_MODEL_ID,
-      });
-    }
+    onRenderAI(pinRenderOptions());
   };
 
   return (
@@ -191,21 +191,31 @@ export default function PinterestPinEditor({
           type="button"
           size="sm"
           onClick={() => {
-            if (isGeneratingCopy) {
+            if (isGeneratingCompletePost) {
               cancelAIAction("copy", formatKey);
               return;
             }
-            onGenerateCopyAI();
+            // The prompt is an internal step of rendering the Pin, so this writes the
+            // copy AND produces the visual — the Pin comes out publish-ready.
+            onGenerateCompletePostAI(pinRenderOptions());
           }}
-          title={isGeneratingCopy ? "Stop generating Pin copy" : undefined}
+          title={
+            isGeneratingCompletePost
+              ? "Stop generating this Pin"
+              : `Writes the title, description and tagged topics, then generates the ${isVideo ? "Video Pin" : "Pin visual"}`
+          }
           className={`h-auto min-h-7 px-3 py-1 text-[11px] font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-            isGeneratingCopy
+            isGeneratingCompletePost
               ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
               : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
           }`}
         >
-          {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          <span>{isGeneratingCopy ? "Stop Generating" : "Generate Pin Title, Description & Prompt with AI"}</span>
+          {isGeneratingCompletePost ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          <span>
+            {isGeneratingCompletePost
+              ? "Stop Generating"
+              : `Generate Complete ${isVideo ? "Video Pin" : "Pin"} with AI`}
+          </span>
         </Button>
       </div>
 

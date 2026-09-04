@@ -25,6 +25,7 @@ import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMedia
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { AIRenderOptions } from "./aiRenderOptions";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 
 interface StandardSocialEditorProps {
@@ -46,21 +47,15 @@ interface StandardSocialEditorProps {
   uploadFileName?: string;
   uploadTransferredMB?: string;
   uploadTotalMB?: string;
-  onRenderAI: (options?: {
-    mediaType?: "image" | "video";
-    duration?: number;
-    prompt?: string;
-    aspectRatio?: string;
-    style?: string;
-    quality?: string;
-    imageModel?: string;
-    videoTask?: string;
-    sourceImage?: string | null;
-    sourceVideo?: string | null;
-  }) => void;
+  onRenderAI: (options?: AIRenderOptions) => void;
   isRenderingMedia: boolean;
-  onGenerateCopyAI: () => void;
-  isGeneratingCopy: boolean;
+  /**
+   * ONE press → the finished post: caption, hashtags AND the rendered visual. Receives
+   * this editor's own media settings (image vs video, ratio, style, quality, duration,
+   * task, source image) so the visual matches what the user set up here.
+   */
+  onGenerateCompletePostAI: (renderOptions?: AIRenderOptions) => void;
+  isGeneratingCompletePost: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
   onEnhancePrompt: () => void;
@@ -110,8 +105,8 @@ export default function StandardSocialEditor({
   uploadTotalMB,
   onRenderAI,
   isRenderingMedia,
-  onGenerateCopyAI,
-  isGeneratingCopy,
+  onGenerateCompletePostAI,
+  isGeneratingCompletePost,
   prompt,
   onPromptChange,
   onEnhancePrompt,
@@ -218,32 +213,43 @@ export default function StandardSocialEditor({
 
   const isStoryFormat = capability.format === "Story";
 
-  const handleTriggerGenerate = () => {
+  /**
+   * The media settings the user set up in THIS editor, in the shape the renderer wants.
+   * Shared by the standalone "Generate" button and the one-press complete-post action, so
+   * both render on the same ratio / style / duration the user picked here.
+   */
+  const standardRenderOptions = (overrides?: AIRenderOptions): AIRenderOptions => {
     if (selectedMediaType === "video") {
       const activeVideoAspect = isStoryFormat ? storyVideoAspectRatio : videoAspectRatio;
       const activeVideoTask = isStoryFormat ? storyVideoTask : videoTask;
-      const safeVideoAspect = activeVideoAspect !== "auto" ? activeVideoAspect : capability.defaultAspectRatio || "9:16";
-      onRenderAI({
+      return {
         mediaType: "video",
         duration: videoDuration || durationSec || 5,
-        prompt,
-        aspectRatio: safeVideoAspect,
+        aspectRatio: activeVideoAspect !== "auto" ? activeVideoAspect : capability.defaultAspectRatio || "9:16",
         videoTask: activeVideoTask,
         sourceImage: attachedSourceImage,
         sourceVideo: activeVideoTask === "edit" ? displayImageUrl : null,
-      });
-    } else {
-      const safeAspectRatio = imageAspectRatio !== "auto" ? imageAspectRatio : capability.defaultAspectRatio || "1:1";
-      onRenderAI({
-        mediaType: "image",
-        prompt,
-        aspectRatio: safeAspectRatio,
-        style: imageStyle,
-        quality: imageQuality,
-        imageModel: IMAGE_MODEL_ID,
-      });
+        ...overrides,
+      };
     }
+    return {
+      mediaType: "image",
+      aspectRatio: imageAspectRatio !== "auto" ? imageAspectRatio : capability.defaultAspectRatio || "1:1",
+      style: imageStyle,
+      quality: imageQuality,
+      imageModel: IMAGE_MODEL_ID,
+      ...overrides,
+    };
   };
+
+  const handleTriggerGenerate = () => {
+    onRenderAI(standardRenderOptions({ prompt }));
+  };
+
+  // What the one-press action will actually render (drives its label and helper text).
+  const supportsAIMedia = Boolean(capability.supportsAIImage || capability.supportsAIVideo);
+  const completePostMediaLabel =
+    selectedMediaType === "video" ? `${videoDuration || durationSec || 5}s video` : "image";
 
   const mediaTitle = isStoryFormat
     ? `Story ${selectedMediaType === "video" ? "Video" : "Image"}`
@@ -922,29 +928,43 @@ export default function StandardSocialEditor({
             </div>
           )}
 
-          {/* AUTO-GENERATE CAPTION BUTTON */}
+          {/* ONE PRESS → THE WHOLE POST: COPY *AND* THE RENDERED VISUAL */}
           <div className="pt-1">
             <Button
               type="button"
               size="sm"
-              disabled={!isGeneratingCopy && !supportsAnyTextField}
+              disabled={!isGeneratingCompletePost && !supportsAnyTextField && !supportsAIMedia}
               onClick={() => {
-                if (isGeneratingCopy) {
+                if (isGeneratingCompletePost) {
                   cancelAIAction("copy", formatKey);
                   return;
                 }
-                onGenerateCopyAI();
+                onGenerateCompletePostAI(standardRenderOptions());
               }}
-              title={!supportsAnyTextField ? "This format cannot publish a caption — text must be burned into the visual itself" : undefined}
+              title={
+                isGeneratingCompletePost
+                  ? "Stop generating this post"
+                  : supportsAnyTextField
+                    ? `Writes the copy for this post, then generates the ${completePostMediaLabel}`
+                    : `Generates the ${completePostMediaLabel} for this format`
+              }
               className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-                isGeneratingCopy
+                isGeneratingCompletePost
                   ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
                   : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
               }`}
             >
-              {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isGeneratingCopy ? "Stop Generating" : "Generate Caption, Hashtags & Image Prompt with AI"}</span>
+              {isGeneratingCompletePost ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isGeneratingCompletePost ? "Stop Generating" : `Generate Complete ${capability.label} with AI`}</span>
             </Button>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+              {supportsAnyTextField
+                ? supportsAIMedia
+                  ? `Writes the caption and hashtags, then designs the ${completePostMediaLabel} with the settings above.`
+                  : "Writes the caption and hashtags for this post."
+                : `Designs the ${completePostMediaLabel} with the settings above — this format publishes no caption.`}{" "}
+              Every selected platform that shares this format gets the same post.
+            </p>
           </div>
         </div>
       </div>

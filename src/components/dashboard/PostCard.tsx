@@ -79,7 +79,7 @@ const QUICK_REJECT_REASONS = [
   "Caption too long",
   "Wrong platform or format",
   "Factual / claim issue",
-  "Missing CTA",
+  "Reads promotional, not informative",
 ];
 
 function formatDateTime(d: Date | string | null | undefined) {

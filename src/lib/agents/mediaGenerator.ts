@@ -346,7 +346,7 @@ async function generateRealVideo(options: {
         onProgress?.(`[Visualizer] Initializing video synthesis (${targetVideoModel})... 5%`);
         let operation = await ai.models.generateVideos({
           model: targetVideoModel,
-          prompt: `${prompt}, dynamic engaging commercial video for ${topic}`,
+          prompt: `${prompt}, dynamic engaging short-form social video about ${topic}`,
           ...(inlineImage && !inlineVideo ? { image: { imageBytes: inlineImage.bytes, mimeType: inlineImage.mimeType } } : {}),
           ...(inlineVideo ? { video: { videoBytes: inlineVideo.bytes, mimeType: inlineVideo.mimeType } } : {}),
           config: {
@@ -826,7 +826,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
                   {
                     text: isInfographic
                       ? `Use this reference image as the visual/brand foundation, then execute the following design brief on top of it:\n\n${slidePrompt}`
-                      : `Create a professional marketing image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}`,
+                      : `Create a professional editorial image incorporating the subject and aesthetic of this reference image for: ${slidePrompt}`,
                   },
                 ];
               }

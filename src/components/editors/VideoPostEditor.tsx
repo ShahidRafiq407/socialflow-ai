@@ -28,6 +28,7 @@ import CharacterCounter from "@/components/CharacterCounter";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
+import { AIRenderOptions } from "./aiRenderOptions";
 import { Square } from "lucide-react";
 
 interface VideoPostEditorProps {
@@ -53,18 +54,15 @@ interface VideoPostEditorProps {
   uploadFileName?: string;
   uploadTransferredMB?: string;
   uploadTotalMB?: string;
-  onRenderAIVideo: (options?: {
-    mediaType?: "image" | "video";
-    duration?: number;
-    prompt?: string;
-    aspectRatio?: string;
-    videoTask?: string;
-    sourceImage?: string | null;
-    sourceVideo?: string | null;
-  }) => void;
+  onRenderAIVideo: (options?: AIRenderOptions) => void;
   isRenderingVideo: boolean;
-  onGenerateCopyAI: () => void;
-  isGeneratingCopy: boolean;
+  /**
+   * ONE press → the finished post: caption, hashtags AND the rendered video. Receives
+   * this editor's own video settings (ratio, duration, task, source image) so the video
+   * matches what the user set up here.
+   */
+  onGenerateCompletePostAI: (renderOptions?: AIRenderOptions) => void;
+  isGeneratingCompletePost: boolean;
   prompt: string;
   onPromptChange: (val: string) => void;
   onEnhancePrompt?: () => void;
@@ -115,8 +113,8 @@ export default function VideoPostEditor({
   uploadTotalMB,
   onRenderAIVideo,
   isRenderingVideo,
-  onGenerateCopyAI,
-  isGeneratingCopy,
+  onGenerateCompletePostAI,
+  isGeneratingCompletePost,
   prompt,
   onPromptChange,
   onEnhancePrompt,
@@ -150,6 +148,21 @@ export default function VideoPostEditor({
   // e.g. LinkedIn Video (16:9 default) with 9:16 selected renders a vertical frame.
   const selectedAspect = videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio;
   const isVertical = selectedAspect === "9:16";
+
+  /**
+   * The video settings the user set up in THIS editor, in the shape the renderer wants.
+   * Shared by the standalone "Generate Video" button, Retry, and the one-press action —
+   * so the video a complete post produces obeys the same ratio, duration and task.
+   */
+  const videoRenderOptions = (overrides?: AIRenderOptions): AIRenderOptions => ({
+    mediaType: "video",
+    duration: durationSec,
+    aspectRatio: selectedAspect,
+    videoTask,
+    sourceImage: attachedSourceImage,
+    sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
+    ...overrides,
+  });
 
   const handleDownloadVideo = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -221,15 +234,7 @@ export default function VideoPostEditor({
                   <Button
                     type="button"
                     size="sm"
-                    onClick={() => onRenderAIVideo({
-                      mediaType: "video",
-                      duration: durationSec,
-                      prompt,
-                      aspectRatio: selectedAspect,
-                      videoTask,
-                      sourceImage: attachedSourceImage,
-                      sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
-                    })}
+                    onClick={() => onRenderAIVideo(videoRenderOptions({ prompt }))}
                     className="h-7 text-[11px] bg-red-600 hover:bg-red-700 text-white font-bold"
                   >
                     <RefreshCw className="h-3 w-3 mr-1" /> Retry
@@ -537,16 +542,7 @@ export default function VideoPostEditor({
                 window.dispatchEvent(new CustomEvent("cancel-render-media", { 
                   detail: { formatKey: `${capability.platform}-${capability.format}` } 
                 }));
-              } : () =>
-                onRenderAIVideo({
-                  mediaType: "video",
-                  duration: durationSec,
-                  prompt,
-                  aspectRatio: videoAspectRatio !== "auto" ? videoAspectRatio : capability.defaultAspectRatio,
-                  videoTask,
-                  sourceImage: attachedSourceImage,
-                  sourceVideo: videoTask === "edit" ? displayVideoUrl : null,
-                })
+              } : () => onRenderAIVideo(videoRenderOptions({ prompt }))
               }
               className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
                 isRenderingVideo 
@@ -619,7 +615,7 @@ export default function VideoPostEditor({
               rows={4}
               value={caption}
               onChange={(e) => onCaptionChange(e.target.value)}
-              placeholder="Start with a 1-second visual hook, deliver core value, and close with CTA..."
+              placeholder="Start with a 1-second visual hook, deliver core value, and close on the question you want answered..."
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 leading-relaxed"
             />
             {onAIRefine && (
@@ -699,27 +695,36 @@ export default function VideoPostEditor({
             </div>
           )}
 
-          {/* AUTO-GENERATE SCRIPT & HOOK BUTTON BELOW HASHTAGS */}
+          {/* ONE PRESS → THE WHOLE POST: SCRIPT, CAPTION, HASHTAGS *AND* THE RENDERED VIDEO */}
           <div className="pt-1">
             <Button
               type="button"
               size="sm"
               onClick={() => {
-                if (isGeneratingCopy) {
+                if (isGeneratingCompletePost) {
                   cancelAIAction("copy", formatKey);
                   return;
                 }
-                onGenerateCopyAI();
+                onGenerateCompletePostAI(videoRenderOptions());
               }}
+              title={
+                isGeneratingCompletePost
+                  ? "Stop generating this post"
+                  : `Writes the caption, hashtags and script, then generates the ${durationSec}s video`
+              }
               className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-                isGeneratingCopy
+                isGeneratingCompletePost
                   ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
                   : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white"
               }`}
             >
-              {isGeneratingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              <span>{isGeneratingCopy ? "Stop Generating" : "Generate Caption, Hashtags & Video Prompt with AI"}</span>
+              {isGeneratingCompletePost ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              <span>{isGeneratingCompletePost ? "Stop Generating" : `Generate Complete ${capability.label} with AI`}</span>
             </Button>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+              Writes the caption, hashtags and video script, then renders the {durationSec}s video with the settings above.
+              Every selected platform that shares this format gets the same post.
+            </p>
           </div>
         </div>
       </div>

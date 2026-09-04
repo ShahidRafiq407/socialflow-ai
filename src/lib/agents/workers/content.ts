@@ -1,16 +1,37 @@
 import { AgentStateType } from "../graph/state";
 import { llm, MODELS } from "../llm";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import {
+  contentDoctrine,
+  ENGAGEMENT_CLOSE_RULE,
+  PROMOTION_BAN_RULE,
+  VISUAL_PROMPT_RULE,
+} from "../contentStrategy";
 
 export async function contentWorkerNode(state: AgentStateType) {
   console.log("--- [Content Creator Agent] Writing Pro-Level Viral Copy ---");
 
-  const prompt = `You are a world-class, elite Social Media Copywriter (Pro Writer).
-Your job is to synthesize research into incredibly engaging, human-sounding social media posts.
+  // Brand DNA is voice and audience here, not a brief. Dumping the whole record into
+  // the prompt is what used to hand the writer an offer to sell; `writingStyle` also
+  // arrives as a JSON blob in some workspaces, so it is only used when it is prose.
+  const brand = (state.brandDNA || {}) as Record<string, any>;
+  const rawStyle = typeof brand.writingStyle === "string" ? brand.writingStyle.trim() : "";
+  const strategyBrand = {
+    name: brand.name || brand.companyName || null,
+    industry: brand.industry || null,
+    tone: typeof brand.tone === "string" ? brand.tone : null,
+    writingStyle: rawStyle.startsWith("{") ? null : rawStyle || null,
+    targetAudience: typeof brand.targetAudience === "string" ? brand.targetAudience : null,
+    keywords: Array.isArray(brand.keywords) ? brand.keywords : null,
+  };
 
-BRAND DNA: ${JSON.stringify(state.brandDNA)}
+  const prompt = `You are a subject-matter writer with a social growth instinct. You are NOT an advertiser.
+Your job is to turn research into posts people learn from, argue with, and reply to.
+
+${contentDoctrine({ brand: strategyBrand, topic: null, seed: `worker:${(state.platforms || []).join(",")}` })}
+
 TRENDS: ${state.trendData}
-UNIQUE COMPETITOR ANGLE: ${state.competitorData}
+TOPICAL GAP TO AIM AT: ${state.competitorData}
 PLATFORMS REQUESTED: ${JSON.stringify(state.platforms)}
 FORMATS PER PLATFORM: ${JSON.stringify(state.contentTypes)}
 
@@ -22,12 +43,14 @@ Do NOT just "write a viral caption". You must deeply analyze and apply the follo
 4. Language & Tone: Use conversational language, vary your sentence lengths wildly (some very short. some longer to build rhythm), and include natural imperfections.
 5. STRICT BANS: NO generic AI phrases ("In today's fast-paced digital world", "Unlock the power of", "Dive into"). NO overuse of em-dashes. NO robotic headings or emojis on every line. NO unnecessary explanations.
 6. Generate 3-5 hook variations internally, but output only the FINAL selected hook and a 1-sentence reason why you chose it.
-7. End with a single, clear CTA appropriate to the platform.
+7. ${ENGAGEMENT_CLOSE_RULE}
+8. ${PROMOTION_BAN_RULE}
 
 VISUAL ASSETS (For Visualizer Agent):
 - For "imagePrompt": Write ONE short (max 15 words) vivid, text-free image description for AI generation (e.g., "cinematic lighting, minimalist desk setup, moody blue tones").
 - For "visualPrompts": Array of short prompts (max 15 words) for multi-slide formats (Carousel, Thread).
 - For "overlayText": Text for every slide.
+- ${VISUAL_PROMPT_RULE}
 
 Return ONLY raw JSON in this EXACT structure:
 {
@@ -53,7 +76,7 @@ Do NOT output any markdown blocks or text outside the JSON.`;
   // We use withStructuredOutput (which triggers generateJSON in our adapter)
   const res = await llm.withStructuredOutput(null).invoke([
     new SystemMessage(prompt),
-    new HumanMessage("Write the viral content. Return ONLY valid JSON with no extra text.")
+    new HumanMessage("Write the content. Informational, not promotional. Return ONLY valid JSON with no extra text.")
   ], {
     modelName: MODELS.CONTENT_CREATOR
   });

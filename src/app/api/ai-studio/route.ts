@@ -13,6 +13,17 @@ import { cacheGet, cacheSet } from "@/lib/redis";
 
 import { checkAIAccess } from "@/lib/billing/gate";
 import { parseBrandMetadata } from "@/lib/brand/profile";
+import {
+  contentDoctrine,
+  defaultTopicHint,
+  trendSearchQuery,
+  AUDIENCE_FIRST_AUDIT_CRITERIA,
+  ENGAGEMENT_CLOSE_RULE,
+  PROMOTION_BAN_RULE,
+  PROMO_FIX_HINT,
+  VISUAL_PROMPT_RULE,
+} from "@/lib/agents/contentStrategy";
+import { findSelfPromotion } from "@/lib/agents/qualityChecks";
 
 /** Hard character clamp at a word boundary — programmatic platform limit enforcement. */
 function clampText(text: string, limit: number): string {
@@ -94,7 +105,7 @@ export async function POST(req: Request) {
     if (step === "generate-platform-copy") {
       const { platform, format, topic, customPrompt, duration, slideCount, slideInstructions } = body;
       const capability = getPlatformCapability(platform, format);
-      const campaignTopic = topic || customPrompt || "Exciting new innovations and strategic insights";
+      const campaignTopic = topic || customPrompt || defaultTopicHint(brandDNA);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
       // Informational deck formats: the storyboard length the user picked in the Studio
       // decides how many slides get written (and therefore how many get designed).
@@ -111,10 +122,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, data: cachedCopy, fromCache: true });
       }
 
-      // 1. Trend Research with Google Search Grounding
-      let trendInsights = "Audience favors problem-first hooks and authentic value delivery.";
+      // 1. Trend Research with Google Search Grounding.
+      // The query asks what the AUDIENCE is arguing about, not what marketers are
+      // posting — that difference is what makes the post worth reading.
+      let trendInsights =
+        "Audience rewards a specific, teachable claim over encouragement, and replies when asked a real question.";
       try {
-        const trendQuery = `Latest viral trends, hooks, and discussions about ${brandDNA.industry} ${campaignTopic} 2026`;
+        const trendQuery = trendSearchQuery(brandDNA, campaignTopic, capability.platform);
         const groundingRes = await vertexProvider.generateWithGrounding(trendQuery, {
           modelName: MODELS.TREND_RESEARCHER,
           temperature: 0.3,
@@ -135,7 +149,7 @@ export async function POST(req: Request) {
       let competitorInsight = await cacheGet<string>(competitorCacheKey);
       if (!competitorInsight) {
         try {
-          const compQuery = `Top competitors, market leaders, and their best-performing social media hooks and engagement angles for ${brandDNA.industry} 2026`;
+          const compQuery = `In ${brandDNA.industry} ${new Date().getFullYear()}: which questions and topics are already covered to death by everyone publishing in this space, and which questions the audience keeps asking are still answered badly or not at all?`;
           const compRes = await vertexProvider.generateWithGrounding(compQuery, {
             modelName: MODELS.COMPETITOR_ANALYST,
             temperature: 0.3,
@@ -150,25 +164,25 @@ export async function POST(req: Request) {
         }
       }
       const dbCompetitors = (workspace as any).competitors || [];
+      // Differentiation is topical, not promotional: say the thing nobody has said
+      // well yet. (The old wording asked the model to "emphasize what only <brand>
+      // offers", which is how every post ended up as a pitch.)
       const competitorAngle = competitorInsight
-        ? `LIVE COMPETITOR RESEARCH (Google-grounded, cached 24h):\n"""\n${competitorInsight}\n"""\nUse this to differentiate ${brandDNA.name} from the real market players — sharper hooks, unique positioning, never copy their angles.`
+        ? `SATURATION MAP (Google-grounded, cached 24h):\n"""\n${competitorInsight}\n"""\nAvoid the saturated angles entirely. Aim the post at a question this list says is still answered badly — and never mirror a competitor's sales framing.`
         : dbCompetitors.length > 0
-        ? `Differentiate against these competitors the brand tracks: ${dbCompetitors.slice(0, 5).map((c: any) => c.name).join(", ")}. Emphasize what only ${brandDNA.name} offers.`
-        : `Focus on distinct value proposition, clarity, and actionable takeaways over generic hype.`;
+        ? `These publishers already cover this field: ${dbCompetitors.slice(0, 5).map((c: any) => c.name).join(", ")}. Say the thing they are all skipping, in more concrete detail than they use.`
+        : `Choose the angle with the highest information density: something specific the reader cannot get from a generic overview.`;
 
-      // 3. Content Creator Agent with 12 Viral Hook Archetypes & Format-Native Directives
-      const contentPrompt = `You are a world-class elite social media copywriter and creative director.
-Create platform-native content specifically for ${capability.platform.toUpperCase()} (${capability.format}).
+      // 3. Content Creator Agent — audience-first doctrine + format-native directives
+      const contentPrompt = `You are a subject-matter writer who happens to be excellent at social media. You are NOT an advertiser.
+Write one publish-ready ${capability.platform.toUpperCase()} ${capability.format} that a smart reader would stop for, learn from, and reply to.
 
-BRAND DNA:
-- Company: ${brandDNA.name}
-- Industry: ${brandDNA.industry}
-- Tone: ${brandDNA.tone}
-- Target Audience: ${brandDNA.targetAudience}
+${contentDoctrine({ brand: brandDNA, topic: campaignTopic, seed: `${capability.platform}:${capability.format}:${campaignTopic}` })}
 
-CAMPAIGN TOPIC: ${campaignTopic}
-LIVE TREND SIGNALS: ${trendInsights}
-COMPETITOR ANGLE: ${competitorAngle}
+WHAT THE AUDIENCE IS ACTUALLY DISCUSSING (grounded research — mine this for the specifics):
+${trendInsights}
+
+WHERE THE GAP IS: ${competitorAngle}
 
 PLATFORM REQUIREMENTS:
 - Platform: ${capability.platform}
@@ -180,10 +194,12 @@ PLATFORM REQUIREMENTS:
 STRICT PRO WRITER DIRECTIVES:
 1. CAPTION:
    - STRICT LENGTH LIMIT: The caption MUST NOT EXCEED ${capability.captionLimit || 2200} characters under any circumstances! Count your characters before returning!
-   - First sentence MUST be a high-converting pattern interrupt or curiosity hook (curiosity gap, problem/solution, contrarian, or surprising fact).
+   - First sentence MUST be a pattern interrupt built on substance: a specific number, a named mistake, a contrarian claim, or a question the reader cannot answer instantly.
+   - The body must deliver the thing the hook promised — the mechanism, the steps, the trade-off, or the numbers. One concrete, quotable specific minimum.
    - Vary sentence lengths for conversational, human rhythm.
    - STRICT BANS: NO "In today's fast-paced world", NO "Unleash/Unlock", NO "Dive deep", NO "Game changer", NO excessive em dashes, NO robotic emoji spam.
-   - Include a single, strong call to action (CTA) and relevant hashtags.
+   - NOTHING PROMOTIONAL: no offer, no service, no availability, no "partner with us", no "we build/we help/we provide", no "DM us", no "link in bio", no credential boasts, and never claim the business did any work or got any result.
+   - ${ENGAGEMENT_CLOSE_RULE}
 
 2. MEDIA GENERATION PROMPT (${isVideoFormat ? "CRITICAL: VIDEO PROMPT REQUIRED" : "IMAGE PROMPT"} - MAXIMUM RELEVANCE 100/100):
    ${
@@ -198,14 +214,15 @@ STRICT PRO WRITER DIRECTIVES:
    - Aspect ratio: ${capability.defaultAspectRatio}.
    - Zero generic fluff. Every detail in the prompt must directly reinforce the post's core message.`
    }
+   - ${VISUAL_PROMPT_RULE}
 
-3. If format is Pinterest: Craft an engaging Pin Title (under 100 chars), rich Pin Description, SEO Keywords/Tagged Topics, and Alt Text.
+3. If format is Pinterest: Craft a Pin Title (under 100 chars) that states what the reader will learn, a Pin Description that actually teaches the first step or the key number (searchable, never a pitch, never "partner with us"), SEO Keywords/Tagged Topics, and Alt Text.
 ${
   isDeckFormat
     ? `4. THIS IS AN INFORMATIONAL DECK FORMAT (${capability.format}) — MANDATORY:
    - Return EXACTLY ${targetSlides} entries in "slides". Not fewer, not more.
    - Every slide is rendered as a DESIGNED INFOGRAPHIC: its "title" and "body" are TYPESET ONTO the graphic by the design engine. Write them as finished on-slide copy, not as instructions.
-   - Storyboard arc across the ${targetSlides} slides: slide 1 = hook that earns the swipe, middle slides = the problem, the framework/steps, and the proof (metrics, benchmark, real example), final slide = the takeaway plus a call to action.
+   - Storyboard arc across the ${targetSlides} slides: slide 1 = hook that earns the swipe, middle slides = the problem, the framework/steps, and the proof (metrics, benchmark, real example), final slide = the single takeaway plus the question that pulls the reader into the comments. NEVER a sales CTA, a service pitch or contact details on any slide.
    - For each slide return:
      - "step": 1, 2, 3, ...
      - "title": the on-slide headline. Punchy and specific, UNDER 60 CHARACTERS so it typesets cleanly (e.g. "The 2026 Robotics Shift", "Why Physical AI Changes Scaling").
@@ -226,9 +243,9 @@ ${
 
 Return ONLY raw JSON with this EXACT structure:
 {
-  "title": "${capability.supportsTitle ? "Concise, clickable title under 100 chars" : ""}",
-  "caption": "Full platform-tailored copy with natural paragraphs. Starts with an irresistible hook.",
-  "description": "${capability.supportsDescription ? "Rich SEO-optimized description" : ""}",
+  "title": "${capability.supportsTitle ? "Concise, clickable title under 100 chars that promises what the reader learns" : ""}",
+  "caption": "Full platform-tailored copy with natural paragraphs. Opens on the hook, delivers the substance, ends on a question the reader can answer.",
+  "description": "${capability.supportsDescription ? "Rich, searchable description that teaches the key point — never a pitch" : ""}",
   "hook": "Opening hook line",
   "hookReason": "Why this hook wins",
   "hashtags": ["#Hashtag1", "#Hashtag2", "#Hashtag3"],
@@ -250,7 +267,9 @@ Return ONLY raw JSON with this EXACT structure:
 }`;
 
       const res = await llm.invoke([
-        new SystemMessage("You are an expert social media copywriter and creative director. Output valid JSON only."),
+        new SystemMessage(
+          "You are a subject-matter writer, not an advertiser. You publish content people learn from and reply to, never promotional copy. Output valid JSON only."
+        ),
         new HumanMessage(contentPrompt),
       ], { modelName: MODELS.CONTENT_CREATOR });
 
@@ -304,27 +323,53 @@ Return ONLY raw JSON with this EXACT structure:
       };
       normalizeStoryboard();
 
-      // 4. CEO Auditor Review (Auto-Audit)
-      const auditPrompt = `You are the CEO Auditor. Review this social copy and visual prompt for ${brandDNA.name} on ${capability.platform} (${capability.format}):
+      // 4. CEO Auditor Review — deterministic first, model second.
+      // Whether a post is an advert is not a matter of taste, so it is decided in
+      // code: the same phrase list the writer was warned about is scanned here, any
+      // hit rejects the copy outright, and the revision pass gets an exact target
+      // list instead of a vague complaint. When it fires we also skip the audit
+      // call entirely — the verdict is already known.
+      const auditBlob = () =>
+        [
+          parsed.title,
+          parsed.caption,
+          parsed.description,
+          parsed.hook,
+          ...(Array.isArray(parsed.slides) ? parsed.slides.flatMap((s: any) => [s?.title, s?.body]) : []),
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+      const promoHits = findSelfPromotion(auditBlob());
+
+      const auditPrompt = `You are the CEO Auditor. Review this ${capability.platform} (${capability.format}) post. It is published by ${brandDNA.name}, but it must read as content, not as an advert:
 Title: ${parsed.title || "N/A"}
 Caption: ${parsed.caption || parsed.description || "N/A"}
 Hook: ${parsed.hook || "N/A"}
 Media Prompt: ${parsed.videoPrompt || parsed.imagePrompt || parsed.mediaGenerationPrompt || "N/A"}
 
 Criteria:
-1. Is it human and conversational without AI clichés?
-2. Is the visual prompt appropriate for ${capability.mediaType.toUpperCase()} (${capability.defaultAspectRatio})?
+${AUDIENCE_FIRST_AUDIT_CRITERIA}
+- Is it human and conversational without AI clichés?
+- Is the visual prompt appropriate for ${capability.mediaType.toUpperCase()} (${capability.defaultAspectRatio}), and free of logos, slogans and contact details?
+Score below 70 if any criterion fails, and name the exact line that failed in the feedback.
 Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
 
       let ceoScore = 95;
       let ceoFeedback = "Approved by Creative Director";
       let ceoRevised = false;
-      try {
-        const auditRes = await llm.invoke([new HumanMessage(auditPrompt)], { modelName: MODELS.CEO_SUPERVISOR });
-        const auditParsed = JSON.parse((auditRes.content?.toString() || "{}").replace(/```json/g, "").replace(/```/g, "").trim());
-        ceoScore = auditParsed.score || 95;
-        ceoFeedback = auditParsed.feedback || ceoFeedback;
-      } catch {}
+      if (promoHits.length > 0) {
+        ceoScore = 45;
+        ceoFeedback = `This reads as an advert instead of content the reader gets something from. Promotional wording found: ${promoHits.join(", ")}. ${PROMO_FIX_HINT}`;
+        console.log(`[AI Studio] Promotional copy rejected for ${platform} ${format}: ${promoHits.join(", ")}`);
+      } else {
+        try {
+          const auditRes = await llm.invoke([new HumanMessage(auditPrompt)], { modelName: MODELS.CEO_SUPERVISOR });
+          const auditParsed = JSON.parse((auditRes.content?.toString() || "{}").replace(/```json/g, "").replace(/```/g, "").trim());
+          ceoScore = auditParsed.score || 95;
+          ceoFeedback = auditParsed.feedback || ceoFeedback;
+        } catch {}
+      }
 
       // CEO AUTO-REVISION (bounded to ONE pass, same pattern as the campaign graph's
       // ceo_auditor rewrite loop) — only fires when the CEO actually rejects the copy,
@@ -339,12 +384,14 @@ ${JSON.stringify({ caption: parsed.caption, title: parsed.title, description: pa
 CEO FEEDBACK (fix ALL of these):
 ${ceoFeedback}
 
-BRAND DNA: ${brandDNA.name} — tone: ${brandDNA.tone}, audience: ${brandDNA.targetAudience}
-TOPIC: ${campaignTopic}
+${contentDoctrine({ brand: brandDNA, topic: campaignTopic, seed: `${capability.platform}:${capability.format}:${campaignTopic}`, includeAngle: false })}
 
+Keep the subject and the format identical. Fix the failures, do not reword around them.
 Return the CORRECTED content as JSON with the SAME structure as the original. No commentary.`;
           const reviseRes = await llm.invoke([
-            new SystemMessage("You are an expert social media copywriter. Output valid JSON only."),
+            new SystemMessage(
+              "You are a subject-matter writer, not an advertiser. Output valid JSON only."
+            ),
             new HumanMessage(revisePrompt),
           ], { modelName: MODELS.CONTENT_CREATOR });
           let reviseText = (reviseRes.content?.toString() || "").replace(/```json/g, "").replace(/```/g, "").trim();
@@ -386,6 +433,14 @@ Return the CORRECTED content as JSON with the SAME structure as the original. No
       // ...and a revised storyboard can come back ragged — re-normalize it too.
       if (ceoRevised) normalizeStoryboard();
 
+      // Report the truth. If the rewrite kept the sales language, the badge must not
+      // say "revised" over copy that still pitches — the editor shows this score.
+      const promoHitsFinal = ceoRevised ? findSelfPromotion(auditBlob()) : promoHits;
+      if (promoHitsFinal.length > 0) {
+        ceoScore = Math.min(ceoScore, 55);
+        ceoFeedback = `${ceoFeedback} Still reads promotional: ${promoHitsFinal.join(", ")} — rewrite these lines before publishing.`;
+      }
+
       const resultPayload = {
         ...parsed,
         prompt: finalPrompt,
@@ -395,8 +450,12 @@ Return the CORRECTED content as JSON with the SAME structure as the original. No
         ceoAudit: { score: ceoScore, feedback: ceoFeedback, revised: ceoRevised },
       };
 
-      // Save to Redis Cache (24 hours TTL)
-      await cacheSet(copyCacheKey, resultPayload, 86400);
+      // Save to Redis Cache (24 hours TTL). Copy that is still promotional is NOT
+      // cached — otherwise a regenerate would hand the user the same advert back for
+      // a day, with no way to get a clean version.
+      if (promoHitsFinal.length === 0) {
+        await cacheSet(copyCacheKey, resultPayload, 86400);
+      }
 
       return NextResponse.json({
         success: true,
@@ -411,19 +470,19 @@ Return the CORRECTED content as JSON with the SAME structure as the original. No
     if (step === "generate-field") {
       const { platform, format, field, topic, context } = body;
       const capability = getPlatformCapability(platform, format);
-      const campaignTopic = topic || "Our latest offering and key value";
+      const campaignTopic = topic || defaultTopicHint(brandDNA);
 
       const fieldSpecs: Record<string, { instruction: string; limit: number | null }> = {
         title: {
-          instruction: `Write ONE concise, clickable ${capability.platform} title. No hashtags, no quotes, no explanation — the title text only.`,
+          instruction: `Write ONE concise ${capability.platform} title that tells the reader exactly what they will learn or reconsider. No pitch, no company name, no hashtags, no quotes, no explanation — the title text only.`,
           limit: capability.titleLimit || 100,
         },
         description: {
-          instruction: `Write ONE SEO-rich ${capability.platform} description. Plain text only — no title, no hashtags, no explanation.`,
+          instruction: `Write ONE searchable ${capability.platform} description that delivers the key point or first step itself. Informational, never a pitch — no offers, no services, no "contact us". Plain text only — no title, no hashtags, no explanation.`,
           limit: capability.descriptionLimit || 500,
         },
         caption: {
-          instruction: `Write ONE ${capability.platform} ${capability.format} post text (caption). Start with a strong hook, end with a single CTA. Plain text only.`,
+          instruction: `Write ONE ${capability.platform} ${capability.format} post text (caption). Open on a specific hook, deliver something the reader can use, and close with a question about their own experience — never a sales CTA. Plain text only.`,
           limit: capability.captionLimit,
         },
         hashtags: {
@@ -441,16 +500,11 @@ Return the CORRECTED content as JSON with the SAME structure as the original. No
         return NextResponse.json({ error: "Invalid field." }, { status: 400 });
       }
 
-      const fieldPrompt = `You are a world-class ${capability.platform} content specialist.
+      const fieldPrompt = `You are a ${capability.platform} content specialist who writes for the reader, not for the sales team.
 Generate ONLY this field: ${field.toUpperCase()} for a ${capability.platform} ${capability.format} post.
 
-BRAND DNA:
-- Company: ${brandDNA.name}
-- Industry: ${brandDNA.industry}
-- Tone: ${brandDNA.tone}
-- Target Audience: ${brandDNA.targetAudience}
+${contentDoctrine({ brand: brandDNA, topic: campaignTopic, seed: `${capability.platform}:${field}:${campaignTopic}`, includeAngle: false })}
 
-TOPIC: ${campaignTopic}
 ${context ? `EXISTING CONTENT CONTEXT (do not duplicate, stay consistent):\n${String(context).slice(0, 600)}` : ""}
 
 TASK: ${spec.instruction}
@@ -459,7 +513,9 @@ ${field === "hashtags" ? `Provide ${Math.min(capability.hashtagLimit || 10, 8)} 
 
       try {
         const res = await llm.invoke([
-          new SystemMessage("You are an expert social media copywriter. Follow output format instructions exactly."),
+          new SystemMessage(
+            "You write informational content people learn from, never promotional copy. Follow output format instructions exactly."
+          ),
           new HumanMessage(fieldPrompt),
         ], { modelName: MODELS.CONTENT_CREATOR });
 
@@ -494,23 +550,19 @@ ${field === "hashtags" ? `Provide ${Math.min(capability.hashtagLimit || 10, 8)} 
     if (step === "regenerate-slide") {
       const { platform, format, slideIndex, slideType, prompt, topic, currentSlide, commentary } = body;
       const capability = getPlatformCapability(platform, format);
-      const slideTopic = topic || commentary || "Strategic business innovation and leadership insights";
-      const customInstruction = prompt || "Make this slide punchier, authoritative, and actionable";
+      const slideTopic = topic || commentary || defaultTopicHint(brandDNA);
+      const customInstruction = prompt || "Make this slide teach one concrete thing more clearly — a number, a step, or a trade-off";
 
-      const slidePrompt = `You are a world-class presentation and slide deck copywriter for ${capability.platform.toUpperCase()} (${capability.format}).
+      const slidePrompt = `You are a slide deck writer for ${capability.platform.toUpperCase()} (${capability.format}). The deck teaches; it never sells.
 Rewrite and improve Slide #${(slideIndex ?? 0) + 1} (${slideType || "content"}).
 
-BRAND DNA:
-- Company: ${brandDNA.name}
-- Tone: ${brandDNA.tone}
-- Industry: ${brandDNA.industry}
+${contentDoctrine({ brand: brandDNA, topic: slideTopic, seed: `${capability.platform}:slide:${slideIndex ?? 0}`, includeAngle: false })}
 
-TOPIC / CONTEXT: ${slideTopic}
 USER CUSTOM INSTRUCTIONS: ${customInstruction}
 CURRENT SLIDE HEADING: ${currentSlide?.title || ""}
 CURRENT SLIDE POINTS/BODY: ${currentSlide?.body || (Array.isArray(currentSlide?.points) ? currentSlide.points.join("\n") : "")}
 
-Generate a clear, high-impact heading and 2 to 4 crisp bullet points (each under 100 characters).
+Generate a clear, high-impact heading and 2 to 4 crisp bullet points (each under 100 characters). Every point must carry real information — a figure, a step or a named trade-off. ${PROMOTION_BAN_RULE}
 Return ONLY raw JSON with this exact structure:
 {
   "title": "Concise, punchy heading",
@@ -575,7 +627,7 @@ ${caption.trim()}
 Platform: ${platform} (${format})
 Aspect Ratio: ${capability.defaultAspectRatio}
 Duration: ${duration || 5} seconds
-Brand: ${brandDNA.name} (${brandDNA.industry})
+Field: ${brandDNA.industry}
 
 Write a COMPLETE, production-ready AI VIDEO GENERATION PROMPT.
 Directives:
@@ -587,6 +639,7 @@ Directives:
   4. Lighting & Style: Photorealistic, cinematic lighting, crisp detail.
   5. Pacing: Engaging first 1-2 seconds visual hook.
 - NO text overlays or watermarks in prompt.
+- ${VISUAL_PROMPT_RULE}
 - Length: 45-80 words of vivid, high-density cinematic detail.
 
 Return ONLY the plain text prompt string with no quotes or extra text.`
@@ -597,9 +650,10 @@ ${caption || topic || "Modern business technology"}
 """
 Platform: ${platform} (${format})
 Aspect Ratio: ${capability.defaultAspectRatio}
-Brand: ${brandDNA.name}
+Field: ${brandDNA.industry}
 
 Write a complete, vivid AI image generation prompt describing composition, lighting, subject, and style.
+${VISUAL_PROMPT_RULE}
 Return ONLY the prompt string.`;
 
       const res = await llm.invoke([new HumanMessage(promptGenInstruction)], { modelName: MODELS.CONTENT_CREATOR });
@@ -725,7 +779,7 @@ Return ONLY the prompt string.`;
           mediaType: targetMediaType as any,
           prompt: effectivePrompt,
           aspectRatio: targetAspect,
-          topic: topic || brandDNA.name,
+          topic: topic || brandDNA.industry,
           videoTask,
           sourceImage,
           sourceVideo,
@@ -931,11 +985,7 @@ ${visualDescription}
 """`}
 ${keyElements ? `KEY ELEMENTS: ${keyElements}` : ""}
 
-BRAND DNA:
-- Company: ${brandDNA.name} (${brandDNA.industry})
-- Tone: ${brandDNA.tone}
-- Target Audience: ${brandDNA.targetAudience}
-${topic ? `CAMPAIGN CONTEXT: ${String(topic).slice(0, 300)}` : ""}
+${contentDoctrine({ brand: brandDNA, topic: topic ? String(topic).slice(0, 300) : null, seed: `${capability.platform}:media:${capability.format}`, includeAngle: false })}
 
 TARGET: ${capability.platform} ${capability.format} (${capability.mediaType})
 
@@ -943,13 +993,13 @@ CAPTION RULES (follow ALL):
 1. First line = scroll-stopping hook born from the ACTUAL content: ${hasSpeech ? "quote or riff on the strongest spoken line" : "the single most surprising visible detail or takeaway"}.
 2. Write like a real person talking: contractions, short punchy sentences, natural line breaks. Max 1-2 emojis${capability.platform === "linkedin" ? " and ZERO emojis on LinkedIn" : ""}.
 3. Absolutely NO AI-clichés: "In today's world", "unlock", "delve", "game-changer", "elevate", "leverage", hashtag-stuffed sentences.
-4. Deliver the core value in 2-4 tight lines, then ONE clear CTA.
+4. Explain what is actually happening in this media and why it matters, in 2-4 tight lines — then close with a question about the reader's own experience. NO sales CTA, no offer, no "DM us", and never claim who made this or who it was made for.
 5. STRICT limit: ${capability.captionLimit || 2200} characters.
-${capability.supportsTitle ? `6. TITLE: clickable curiosity title under ${capability.titleLimit || 100} characters.` : ""}
-${capability.supportsDescription ? `7. DESCRIPTION: SEO-rich, keyword-first description under ${capability.descriptionLimit || 500} characters.` : ""}
+${capability.supportsTitle ? `6. TITLE: curiosity title under ${capability.titleLimit || 100} characters that says what the reader will take away.` : ""}
+${capability.supportsDescription ? `7. DESCRIPTION: searchable, keyword-first description under ${capability.descriptionLimit || 500} characters that teaches rather than pitches.` : ""}
 ${hashtagCount > 0 ? `8. HASHTAGS: 3 to ${hashtagCount} real hashtags matching the visible content. Each starts with "#", PascalCase, no spaces.` : ""}
 ${capability.supportsAltText ? `9. ALT TEXT: literal accessibility description of the scene (subjects, setting, colors, action) under 500 characters.` : ""}
-10. IMAGE PROMPT: a vivid prompt that would recreate a similar scene.
+10. IMAGE PROMPT: a vivid prompt that would recreate a similar scene. ${VISUAL_PROMPT_RULE}
 
 Return ONLY raw JSON:
 {
@@ -1016,7 +1066,7 @@ Return ONLY raw JSON:
         return NextResponse.json({ success: true, trends: cachedTrends, fromCache: true });
       }
 
-      const searchQuery = `Trending ${platform} content ideas and viral angles for ${brandDNA.industry} 2026`;
+      const searchQuery = trendSearchQuery(brandDNA, null, platform);
       let sources: any[] = [];
       let rawTrends = "";
 
@@ -1031,24 +1081,30 @@ Return ONLY raw JSON:
         console.warn("[AI Studio] Trends grounding fallback:", e);
       }
 
-      const prompt = `You are a viral trend strategist.
-Based on the following live trend research for ${brandDNA.industry} on ${platform} (${format}):
+      const prompt = `You are a content strategist who finds the topics an audience genuinely wants answered.
+Live research for ${brandDNA.industry} on ${platform} (${format}):
 """
 ${rawTrends.slice(0, 1500)}
 """
 
-Recommend 3 high-impact, brand-aligned trending content ideas specifically suited for ${brandDNA.name} (${brandDNA.industry} targeting ${brandDNA.targetAudience}).
+Recommend 3 content ideas for an audience of ${brandDNA.targetAudience} working in ${brandDNA.industry}.
+
+RULES:
+- Every idea must be informational, educational, myth-correcting or question-led. Something the reader learns from or argues with.
+- NOT ONE promotional idea. No "showcase your services", no case studies, no offers, no behind-the-scenes brand stories, no hiring or availability posts. Never suggest an idea that requires claiming work the business may not have done.
+- Each idea must be specific enough to write today: a named shift, a real number, a concrete mistake or a live disagreement.
+- The hook must earn the second line, and the angle must end by inviting the reader's own view.
 
 Return ONLY JSON array of 3 objects:
 [
   {
     "id": "trend_1",
-    "topic": "Trending Angle Title",
-    "whyItFits": "Short 1-sentence reason why this matches your brand positioning",
+    "topic": "The specific question or claim this post tackles",
+    "whyItFits": "Short 1-sentence reason this audience cares right now",
     "suggestedHook": "Specific scroll-stopping hook line",
-    "contentAngle": "How to execute this in a ${format} format",
+    "contentAngle": "How to execute this in a ${format} format, ending on a question",
     "recommendedFormat": "${format}",
-    "source": "${sources[0]?.title || "Industry Trend Analysis 2026"}"
+    "source": "${sources[0]?.title || "Industry Trend Analysis"}"
   }
 ]`;
 
@@ -1140,18 +1196,18 @@ Return ONLY the enhanced prompt string without extra commentary or quotes.`;
 
       let refinementInstruction = "";
       if (action === "regenerate") {
-        refinementInstruction = "Write a COMPLETELY NEW caption about the same topic. Different angle, different hook, different structure. Must be viral-quality and feel hand-written by a human.";
+        refinementInstruction = "Write a COMPLETELY NEW caption about the same subject. Different angle, different hook, different structure. It must teach or challenge something concrete and read as if a human who knows the field wrote it.";
       } else if (action === "boost-hook") {
-        refinementInstruction = "Rewrite ONLY the opening 1-2 lines to be an irresistible scroll-stopping hook. Use proven viral patterns: controversial question, shocking statistic, bold claim, or pattern interrupt. Keep the rest intact.";
+        refinementInstruction = "Rewrite ONLY the opening 1-2 lines into a hook the reader cannot skip: a specific number, a named mistake, a bold claim they will want to argue with, or a question they cannot answer instantly. Keep the rest intact.";
       } else if (action === "executive-tone") {
-        refinementInstruction = "Rewrite this caption in a C-suite executive voice. Remove all emojis and casual slang. Use data-driven language and strategic thought-leadership positioning.";
+        refinementInstruction = "Rewrite this caption in a senior-practitioner voice. Remove all emojis and casual slang. Argue from evidence — figures, mechanisms, trade-offs — not from status or positioning.";
       } else if (action === "add-hashtags") {
         refinementInstruction = `Add 5-10 highly targeted, niche-specific hashtags that will maximize reach. Return the full caption with hashtags appended.`;
       } else {
-        refinementInstruction = "Refine the caption to make it more engaging.";
+        refinementInstruction = "Refine the caption so it delivers more of the thing the reader came for, in fewer words.";
       }
 
-      const prompt = `You are an elite social media ghostwriter for ${brandDNA.name} whose captions go viral because they read like a REAL human wrote them — never like AI output.
+      const prompt = `You are a ghostwriter who writes as a practitioner in ${brandDNA.industry}, not as an advertiser. Your captions read like a REAL human wrote them — never like AI output, never like a sales page.
 Current Caption:
 """
 ${caption}
@@ -1163,7 +1219,9 @@ Action: ${refinementInstruction}
 RULES:
 - Natural human voice: contractions, short punchy sentences, line breaks where a person would pause.
 - NO AI-clichés ("In today's world", "unlock", "delve", "game-changer", "elevate").
-- Keep the meaning intact (except for a full rewrite).
+- Keep the subject intact (except for a full rewrite).
+- ${PROMOTION_BAN_RULE} If the current caption sells, pitches, or claims work the business did, strip that out and put the reader's substance in its place.
+- ${ENGAGEMENT_CLOSE_RULE}
 - STRICT limit: ${captionLimit} characters.
 
 Return ONLY the refined caption text.`;

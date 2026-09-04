@@ -10,6 +10,7 @@ import MultiMediaEditor, { MultiMediaItem } from "./MultiMediaEditor";
 import VideoPostEditor from "./VideoPostEditor";
 import StandardSocialEditor from "./StandardSocialEditor";
 import { SlidesChangeMeta } from "./deckSlides";
+import { AIRenderOptions } from "./aiRenderOptions";
 
 export interface PlatformEditorRouterProps {
   platform: string;
@@ -46,18 +47,7 @@ export interface PlatformEditorRouterProps {
   uploadFileName?: string;
   uploadTransferredMB?: string;
   uploadTotalMB?: string;
-  onRenderAI: (options?: {
-    mediaType?: "image" | "video";
-    duration?: number;
-    prompt?: string;
-    aspectRatio?: string;
-    videoTask?: string;
-    sourceImage?: string | null;
-    sourceVideo?: string | null;
-    style?: string;
-    quality?: string;
-    imageModel?: string;
-  }) => void;
+  onRenderAI: (options?: AIRenderOptions) => void;
   isRenderingMedia: boolean;
 
   // Video State
@@ -91,14 +81,26 @@ export interface PlatformEditorRouterProps {
   isGeneratingPromptFromScript?: boolean;
 
   // AI Operations
-  onGenerateCopyAI: () => void;
-  isGeneratingCopy: boolean;
+  /**
+   * THE primary AI action of every editor: writes the copy AND renders the media the
+   * format publishes, in one press. Editors pass their own visual settings (the same bag
+   * their standalone render button uses); the prompt is supplied by the page from the copy
+   * it just wrote, because a prompt is an internal step of producing media, not a
+   * deliverable the user should have to press a second button for.
+   */
+  onGenerateCompletePostAI: (renderOptions?: AIRenderOptions) => void;
+  /** TRUE across BOTH phases of that action (copy, then media). */
+  isGeneratingCompletePost: boolean;
   onRegenerateSlideAI: (slideIdx: number, prompt?: string) => void;
   isRegeneratingSlide: boolean;
-  onGenerateFullCarouselAI: () => void;
+  /** Same action as `onGenerateCompletePostAI`, under the deck editors' prop name. */
+  onGenerateFullCarouselAI: (renderOptions?: AIRenderOptions) => void;
   isGeneratingFullCarousel: boolean;
-  /** TRUE when the one-press action also renders the format's graphics (deck formats). */
-  generatesMediaWithPost?: boolean;
+  /**
+   * How much media one press produces: 0 for text-only formats (an X thread publishes
+   * text), 1 for a single image/video post, N for a deck with a graphic per slide.
+   */
+  onePressMediaAssets?: number;
   onExportPDF?: () => void;
   isExportingPDF?: boolean;
   onUploadPDF?: (file: File) => void;
@@ -160,8 +162,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onOpenStock={props.onOpenStock}
         onRenderAI={props.onRenderAI}
         isRenderingMedia={props.isRenderingMedia}
-        onGenerateCopyAI={props.onGenerateCopyAI}
-        isGeneratingCopy={props.isGeneratingCopy}
+        onGenerateCompletePostAI={props.onGenerateCompletePostAI}
+        isGeneratingCompletePost={props.isGeneratingCompletePost}
         prompt={props.prompt}
         onPromptChange={props.onPromptChange}
         onEnhancePrompt={props.onEnhancePrompt}
@@ -397,11 +399,9 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onMediaItemsChange={props.onMediaItemsChange}
         activeMediaIndex={props.activeMediaIndex}
         onActiveMediaChange={props.onActiveMediaChange}
-        onGenerateCopyAI={props.onGenerateCopyAI}
-        isGeneratingCopy={props.isGeneratingCopy}
         onGenerateAllMediaAI={props.onGenerateFullCarouselAI}
         isGeneratingAllMedia={props.isGeneratingFullCarousel}
-        generatesMediaWithPost={props.generatesMediaWithPost}
+        onePressMediaAssets={props.onePressMediaAssets}
         onReorderCards={props.onReorderCards}
         onOpenUpload={props.onOpenUpload}
         onOpenStock={props.onOpenStock}
@@ -464,8 +464,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
         onGenerateField={props.onGenerateField}
         generatingField={props.generatingField}
         isRenderingVideo={props.isRenderingMedia}
-        onGenerateCopyAI={props.onGenerateCopyAI}
-        isGeneratingCopy={props.isGeneratingCopy}
+        onGenerateCompletePostAI={props.onGenerateCompletePostAI}
+        isGeneratingCompletePost={props.isGeneratingCompletePost}
         prompt={props.prompt}
         onPromptChange={props.onPromptChange}
         onEnhancePrompt={props.onEnhancePrompt}
@@ -512,8 +512,8 @@ export default function PlatformEditorRouter(props: PlatformEditorRouterProps) {
       uploadTotalMB={props.uploadTotalMB}
       onRenderAI={props.onRenderAI}
       isRenderingMedia={props.isRenderingMedia}
-      onGenerateCopyAI={props.onGenerateCopyAI}
-      isGeneratingCopy={props.isGeneratingCopy}
+      onGenerateCompletePostAI={props.onGenerateCompletePostAI}
+      isGeneratingCompletePost={props.isGeneratingCompletePost}
       prompt={props.prompt}
       onPromptChange={props.onPromptChange}
       onEnhancePrompt={props.onEnhancePrompt}
