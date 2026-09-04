@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/billing-maintenance",
-      "schedule": "17 * * * *"
+      "schedule": "17 3 * * *"
     }
   ]
 }
