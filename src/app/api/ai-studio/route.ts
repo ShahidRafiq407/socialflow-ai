@@ -103,9 +103,14 @@ export async function POST(req: Request) {
     // STEP: Generate Platform-Specific Copy & Media Prompt (Multi-Agent)
     // =========================================================================
     if (step === "generate-platform-copy") {
-      const { platform, format, topic, customPrompt, duration, slideCount, slideInstructions } = body;
+      const { platform, format, topic, customPrompt, duration, slideCount, slideInstructions, direction } = body;
       const capability = getPlatformCapability(platform, format);
       const campaignTopic = topic || customPrompt || defaultTopicHint(brandDNA);
+      // A trend the user hand-picked in the TRENDING NOW panel travels as DIRECTION,
+      // never folded into the topic: `campaignTopic` becomes the subject boundary and
+      // the slide-title fallback, so a whole hook sentence inside it muddies both.
+      // Kept separate, the picked hook and angle still reach the writer verbatim.
+      const pickedDirection = String(direction || "").trim().slice(0, 600);
       const isVideoFormat = capability.mediaType === "video" || ["Reel", "Shorts", "Video", "Short Video"].includes(format);
       // Informational deck formats: the storyboard length the user picked in the Studio
       // decides how many slides get written (and therefore how many get designed).
@@ -115,7 +120,7 @@ export async function POST(req: Request) {
         : 0;
 
       // Check Redis Cache
-      const copyCacheKey = `aistudio:copy:${platform}:${format}:${Buffer.from(campaignTopic).toString("base64").slice(0, 36)}:${duration || 5}:${targetSlides}:${Buffer.from(String(slideInstructions || "")).toString("base64").slice(0, 24)}`;
+      const copyCacheKey = `aistudio:copy:${platform}:${format}:${Buffer.from(campaignTopic).toString("base64").slice(0, 36)}:${duration || 5}:${targetSlides}:${Buffer.from(String(slideInstructions || "")).toString("base64").slice(0, 24)}:${Buffer.from(pickedDirection).toString("base64").slice(0, 24)}`;
       const cachedCopy = await cacheGet<any>(copyCacheKey);
       if (cachedCopy) {
         console.log(`[AI Studio] Returning Redis cached copy for ${platform} ${format}`);
@@ -181,7 +186,11 @@ ${contentDoctrine({ brand: brandDNA, topic: campaignTopic, seed: `${capability.p
 
 WHAT THE AUDIENCE IS ACTUALLY DISCUSSING (grounded research — mine this for the specifics):
 ${trendInsights}
-
+${
+  pickedDirection
+    ? `\nTHE TREND THE USER PICKED FOR THIS POST — this is the brief. Open on it, then teach past it:\n${pickedDirection}\n`
+    : ""
+}
 WHERE THE GAP IS: ${competitorAngle}
 
 PLATFORM REQUIREMENTS:
@@ -1114,8 +1123,37 @@ Return ONLY JSON array of 3 objects:
       const end = text.lastIndexOf("]");
       if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
 
-      const trends = JSON.parse(text);
-      // Cache trends in Redis (1 hour TTL)
+      // The panel needs an ARRAY of cards, each with a stable id — the Use-Trend button
+      // keys its in-flight state off `id`, so a missing one breaks the spinner and the
+      // guard. A ragged or non-JSON reply used to 500 the whole request (the panel then
+      // read as "no trends available") and a non-array could be cached for an hour.
+      let trends: any[] = [];
+      try {
+        const raw = JSON.parse(text);
+        trends = (Array.isArray(raw) ? raw : [])
+          .filter((t: any) => t && String(t.topic || "").trim())
+          .slice(0, 3)
+          .map((t: any, idx: number) => ({
+            id: String(t.id || `trend_${idx + 1}`),
+            topic: String(t.topic || "").trim(),
+            whyItFits: String(t.whyItFits || "").trim(),
+            suggestedHook: String(t.suggestedHook || "").trim(),
+            contentAngle: String(t.contentAngle || "").trim(),
+            recommendedFormat: String(t.recommendedFormat || format || "").trim(),
+            source: String(t.source || sources[0]?.title || "Industry Trend Analysis").trim(),
+          }));
+      } catch (parseErr) {
+        console.error("[AI Studio] Trend suggestions JSON parse failed:", text.slice(0, 400));
+      }
+
+      if (trends.length === 0) {
+        return NextResponse.json(
+          { success: false, error: "The trend researcher returned nothing usable. Try Refresh." },
+          { status: 502 }
+        );
+      }
+
+      // Cache trends in Redis (1 hour TTL) — only a usable set gets cached.
       await cacheSet(trendCacheKey, trends, 3600);
 
       return NextResponse.json({ success: true, trends, sources });

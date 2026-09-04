@@ -31,6 +31,7 @@ import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
+import { AIRenderOptions } from "./aiRenderOptions";
 import {
   MIN_DECK_SLIDES,
   SlidesChangeMeta,
@@ -66,7 +67,7 @@ interface PinterestIdeaPinEditorProps {
   onPagesChange: (pages: IdeaPinPage[], meta?: SlidesChangeMeta) => void;
   activePageIndex: number;
   onActivePageChange: (idx: number) => void;
-  onGenerateIdeaPinAI: () => void;
+  onGenerateIdeaPinAI: (renderOptions?: AIRenderOptions) => void;
   isGeneratingAI: boolean;
   onRegeneratePageAI: (pageIdx: number) => void;
   isRegeneratingPage: boolean;
@@ -200,13 +201,20 @@ export default function PinterestIdeaPinEditor({
   );
 
   const renderActivePageMedia = () => {
-    onRenderPageMedia?.({
-      aspectRatio: pageAspectRatio !== "auto" ? pageAspectRatio : (capability.defaultAspectRatio || "9:16"),
-      style: pageStyle,
-      quality: pageQuality,
-      imageModel: IMAGE_MODEL_ID,
-    });
+    onRenderPageMedia?.(deckRenderOptions());
   };
+
+  /**
+   * The design picks that must reach the image model — used by BOTH the single-page
+   * re-render and the whole Idea Pin button. The Idea Pin button used to send nothing,
+   * so the pages came back ignoring the style, quality and ratio chosen right above it.
+   */
+  const deckRenderOptions = () => ({
+    aspectRatio: pageAspectRatio !== "auto" ? pageAspectRatio : (capability.defaultAspectRatio || "9:16"),
+    style: pageStyle,
+    quality: pageQuality,
+    imageModel: IMAGE_MODEL_ID,
+  });
 
   const handleUpdateActivePage = (field: keyof IdeaPinPage, value: any) => {
     const updated = [...effectivePages];
@@ -642,7 +650,7 @@ export default function PinterestIdeaPinEditor({
                 e.preventDefault();
                 e.stopPropagation();
                 cancelAIAction("copy", formatKey);
-              } : onGenerateIdeaPinAI}
+              } : () => onGenerateIdeaPinAI(deckRenderOptions())}
               title={isGeneratingAI ? "Stop Idea Pin generation" : undefined}
               className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
                 isGeneratingAI

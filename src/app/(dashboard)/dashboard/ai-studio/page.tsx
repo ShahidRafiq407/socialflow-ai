@@ -744,6 +744,12 @@ export default function AIStudioPage() {
   // so pressing the one-press action again on a sibling that already received that asset
   // must not buy the same creative a second time.
   const familyRenderSignatureRef = useRef<Record<string, string>>({});
+  // Subject of the press currently in flight, when it did NOT come from the campaign
+  // topic field. Applying a trend sets that field and generates in the same tick, so
+  // `campaignTopic` is one render behind for the whole press — the render steps would
+  // otherwise brief the image model with the PREVIOUS topic. Cleared when the press
+  // ends, so the state value stays the source of truth every other time.
+  const pendingTopicRef = useRef<string>("");
 
   useEffect(() => {
     const handleCancelAIAction = (e: Event) => {
@@ -1466,12 +1472,24 @@ export default function AIStudioPage() {
   const handleGeneratePlatformCopyAI = async (opts?: {
     slideCount?: number;
     slideInstructions?: string;
+    /**
+     * Overrides the campaign topic for THIS call only. `campaignTopic` is React state,
+     * so a caller that sets it and immediately generates (applying a trend) would send
+     * the PREVIOUS topic — the topic has to travel with the call, not through state.
+     */
+    topic?: string;
+    /**
+     * Extra direction for the writer — the picked trend's hook and angle. Deliberately
+     * separate from the topic so the server's subject boundary and slide-title fallback
+     * stay short and clean.
+     */
+    direction?: string;
   }): Promise<boolean> => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
     const targetPrompt = customPromptDict[targetKey] || "";
-    const targetTopic = campaignTopic || targetPrompt || currentTitle || currentCaption || "Exciting new innovations and strategic insights";
+    const targetTopic = (opts?.topic || "").trim() || campaignTopic || targetPrompt || currentTitle || currentCaption || "Exciting new innovations and strategic insights";
     // Deck formats: how many designed slides the storyboard must cover.
     const deckSlides = isMultiFormat
       ? (typeof opts?.slideCount === "number" ? opts.slideCount : carouselSlideCount)
@@ -1500,6 +1518,7 @@ export default function AIStudioPage() {
           duration: videoDurationSec,
           slideCount: deckSlides,
           slideInstructions: deckInstructions || undefined,
+          direction: (opts?.direction || "").trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -2121,74 +2140,39 @@ export default function AIStudioPage() {
     }
   };
 
+  /**
+   * TRENDING NOW → a finished post, not just a caption.
+   *
+   * This used to run its own copy-only fetch: it wrote a caption into the format on
+   * screen and stopped, so the user still had to press the visual button afterwards and
+   * every sibling format in the family stayed empty. Applying a trend now drives the
+   * SAME one-press pipeline as each format's primary AI button — copy, then the deck
+   * render or the single image/video render — which is what gives the trend a designed
+   * carousel, a video or a still depending on the format, and fans the result across the
+   * family so one press still costs one copy call and one render.
+   */
   const handleApplyTrend = async (trend: TrendSuggestionItem) => {
     setCampaignTopic(trend.topic);
     setIsApplyingTrend(true);
     try {
-      const res = await fetch("/api/ai-studio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          step: "generate-platform-copy",
-          platform: activePlatformTab,
-          format: currentFormatName,
-          topic: `${trend.topic} (Hook: ${trend.suggestedHook})`,
-          duration: videoDurationSec,
-        }),
-      });
-      const data = await res.json();
-      if (isUpgradeSignal(data)) {
-        handleUpgradeRequired(data.message);
-        return;
-      }
-      if (data.success && data.data) {
-        const item = data.data;
-        if (item.caption) updateCaption(item.caption);
-        if (item.title) {
-          setTitleDict(prev => ({ ...prev, [currentFormatKey]: item.title }));
-        }
-        if (item.description) {
-          setDescriptionDict(prev => ({ ...prev, [currentFormatKey]: item.description }));
-        }
-        if (item.taggedTopics) {
-          setTaggedTopicsDict(prev => ({ ...prev, [currentFormatKey]: item.taggedTopics }));
-        }
-        if (item.altText) {
-          setAltTextDict(prev => ({ ...prev, [currentFormatKey]: item.altText }));
-        }
-        const generatedPrompt = item.videoPrompt || item.prompt || item.mediaGenerationPrompt || item.imagePrompt || "";
-        if (generatedPrompt) {
-          setCustomPrompt(generatedPrompt);
-        }
-        setGeneratedContents(prev => {
-          const currentFmt = prev[activePlatformTab]?.[currentFormatName] || {};
-          return {
-            ...prev,
-            [activePlatformTab]: {
-              ...prev[activePlatformTab],
-              [currentFormatName]: {
-                ...currentFmt,
-                hashtags: item.hashtags ? normalizeHashtags(item.hashtags) : currentFmt.hashtags,
-                caption: item.caption || currentCaption || currentFmt.caption,
-                imagePrompt: generatedPrompt || currentFmt.imagePrompt,
-                visualPrompts: item.slides && Array.isArray(item.slides)
-                  ? item.slides.map((s: any) => s.visualPrompt || "")
-                  : (item.visualPrompts || currentFmt.visualPrompts),
-                overlayText: item.slides && Array.isArray(item.slides)
-                  ? item.slides.map((s: any, idx: number) => ({
-                      step: s.step || idx + 1,
-                      title: s.title || `Slide ${idx + 1}`,
-                      body: s.body || "",
-                      theme: "gradient-purple",
-                    }))
-                  : currentFmt.overlayText,
-              }
-            }
-          };
-        });
-      }
+      // The picked card IS the brief: the hook to open on, how to execute it, and why
+      // this audience cares now. It rides alongside the topic instead of inside it so
+      // the server's subject boundary stays a subject.
+      const direction = [
+        trend.suggestedHook
+          ? `Open on this hook — rewrite it in the brand voice, keep its promise: ${trend.suggestedHook}`
+          : "",
+        trend.contentAngle ? `Execute it this way: ${trend.contentAngle}` : "",
+        trend.whyItFits ? `Why this audience cares right now: ${trend.whyItFits}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      await handleGenerateCompletePost(undefined, { topic: trend.topic, direction });
     } catch (e) {
-      console.error(e);
+      // Both phases report their own failures in the editor (render error banner, plan
+      // gate). Nothing to add here beyond not leaving the card spinning.
+      console.error("Apply trend failed:", e);
     } finally {
       setIsApplyingTrend(false);
     }
@@ -2292,6 +2276,23 @@ export default function AIStudioPage() {
   })();
 
   // clearedMediaKeys is now in the persisted session store
+
+  /**
+   * May the family fan-out write over this slot? One creative filling every selected
+   * sibling format is the whole credit saving — but a slot the user filled themselves
+   * (upload or stock import) is not ours to overwrite. Generating the Instagram post
+   * used to silently replace the photo they had uploaded on the Facebook tab.
+   *
+   * Same predicate as `isUserUploadedMedia`, applied to an arbitrary key instead of
+   * the format on screen.
+   */
+  const isSlotUserOwned = (mediaKey: string) => {
+    const m = customMediaDict[mediaKey];
+    if (!m?.url) return false;
+    if (m.source === "ai") return false;
+    if (m.source === "upload" || m.source === "stock") return true;
+    return !m.name;
+  };
 
   // Restore custom media from IndexedDB on refresh
   useEffect(() => {
@@ -2752,10 +2753,13 @@ export default function AIStudioPage() {
     // prompt is a single-image field, so preferring it here would give every slide of
     // the carousel the exact same backdrop.
     const deckSlidePrompt = isMultiFormat ? (displayPrompts[targetSlideIdx] || "") : "";
+    // A press that supplied its own subject (TRENDING NOW) wins over the campaign topic
+    // field, which React has not re-rendered with the new value yet.
+    const effectiveTopic = pendingTopicRef.current || campaignTopic;
     const targetPrompt = options?.prompt || deckSlidePrompt || (
       customPromptDict[targetFormatKey] !== undefined && customPromptDict[targetFormatKey] !== ""
         ? customPromptDict[targetFormatKey]
-        : (displayPrompts[targetSlideIdx] || singleImagePrompt || campaignTopic || `Professional ${targetPlatform} ${targetFormat} visual design`)
+        : (displayPrompts[targetSlideIdx] || singleImagePrompt || effectiveTopic || `Professional ${targetPlatform} ${targetFormat} visual design`)
     );
     const duration = options?.duration || videoDurationSec || 5;
     const targetAspect = options?.aspectRatio || currentAspectRatio;
@@ -2792,7 +2796,7 @@ export default function AIStudioPage() {
             prompt: targetPrompt,
             duration: duration,
             aspectRatio: targetAspect,
-            topic: campaignTopic,
+            topic: effectiveTopic,
             videoTask: options?.videoTask,
             sourceImage: options?.sourceImage,
             sourceVideo: options?.sourceVideo,
@@ -2842,6 +2846,10 @@ export default function AIStudioPage() {
             availableFormats.forEach((otherFmt) => {
               if (getFormatFamily(pId, otherFmt) === currentFamily) {
                 const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
+                // Never overwrite a video the user brought in themselves.
+                if (pId !== targetPlatform || otherFmt !== targetFormat) {
+                  if (isSlotUserOwned(otherKey)) return;
+                }
                 syncMediaUpdates[otherKey] = data.asset.url;
                 syncCustomUpdates[otherKey] = {
                   url: data.asset.url,
@@ -2931,7 +2939,7 @@ export default function AIStudioPage() {
           mediaType: "image",
           prompt: targetPrompt,
           aspectRatio: targetAspect,
-          topic: campaignTopic,
+          topic: effectiveTopic,
           style: options?.style,
           quality: options?.quality,
           imageModel: options?.imageModel,
@@ -2996,6 +3004,10 @@ export default function AIStudioPage() {
           availableFormats.forEach((otherFmt) => {
             if (getFormatFamily(pId, otherFmt) === currentFamily) {
               const otherKey = `${pId}-${otherFmt}-${targetSlideIdx}`;
+              // Never overwrite an image the user brought in themselves.
+              if (pId !== targetPlatform || otherFmt !== targetFormat) {
+                if (isSlotUserOwned(otherKey)) return;
+              }
               syncMediaUpdates[otherKey] = data.asset.url;
               syncCustomUpdates[otherKey] = {
                 url: data.asset.url,
@@ -3056,6 +3068,16 @@ export default function AIStudioPage() {
   const handleRenderAllSlides = async (opts?: {
     slides?: { title: string; body: string; visualPrompt: string }[];
     instructions?: string;
+    /**
+     * The deck editor's own design picks. Without these the batch rendered every slide
+     * at the format default with no style, quality or model — so the ratio, style and
+     * quality the user chose only took effect on the single-slide re-render button, and
+     * the deck came back looking unlike the slide they had just previewed.
+     */
+    aspectRatio?: string;
+    style?: string;
+    quality?: string;
+    imageModel?: string;
   }) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
@@ -3082,6 +3104,12 @@ export default function AIStudioPage() {
 
     const slideCount = isMultiFormat ? Math.max(deck.length, 1) : 1;
     const deckInstructions = opts?.instructions ?? carouselCustomPrompt;
+    // Same reason as in handleRenderMedia: a trend-driven press knows its subject before
+    // the campaign topic field has re-rendered with it.
+    const effectiveTopic = pendingTopicRef.current || campaignTopic;
+    // The deck editor's picks win over the format default. `currentAspectRatio` is derived
+    // from the format, which is right only until the user changes the ratio dropdown.
+    const deckAspectRatio = opts?.aspectRatio || currentAspectRatio;
     const newRendered: Record<string, string> = { ...renderedImageUrlsDict };
     let stoppedByUser = false;
 
@@ -3131,8 +3159,11 @@ export default function AIStudioPage() {
               format: targetFormat,
               mediaType: "image",
               prompt: p,
-              aspectRatio: currentAspectRatio,
-              topic: campaignTopic,
+              aspectRatio: deckAspectRatio,
+              style: opts?.style || undefined,
+              quality: opts?.quality || undefined,
+              imageModel: opts?.imageModel || undefined,
+              topic: effectiveTopic,
               // Bake this slide's informational copy into the graphic
               slideText: { step: i + 1, title: slide.title, body: slide.body },
               slideIndex: i,
@@ -3158,6 +3189,8 @@ export default function AIStudioPage() {
 
             siblingFormats.forEach(({ platform: pId, format: fmt }) => {
               const siblingKey = `${pId}-${fmt}-${i}`;
+              // A slide the user filled themselves stays theirs.
+              if (isSlotUserOwned(siblingKey)) return;
               newRendered[siblingKey] = slideUrl;
               syncCleared[siblingKey] = false;
               syncCustom[siblingKey] = {
@@ -3337,26 +3370,48 @@ export default function AIStudioPage() {
    * the same economics as `computeFormatFamilies` in the campaign pipeline. The family's
    * paid-for signature is recorded here so pressing this again on a sibling that already
    * received that asset costs nothing instead of buying the creative twice.
+   *
+   * `copyOpts` lets a caller drive the subject of this same pipeline instead of
+   * re-implementing it — that is how TRENDING NOW produces a finished post (see
+   * `handleApplyTrend`). It must be passed, not written to state first: the copy call
+   * reads `campaignTopic` synchronously and React state is one render behind.
    */
-  const handleGenerateCompletePost = async (renderOptions?: AIRenderOptions) => {
+  const handleGenerateCompletePost = async (
+    renderOptions?: AIRenderOptions,
+    copyOpts?: { topic?: string; direction?: string }
+  ) => {
     const targetPlatform = activePlatformTab;
     const targetFormat = currentFormatName;
     const targetKey = `${targetPlatform}-${targetFormat}`;
     const family = getFormatFamily(targetPlatform, targetFormat);
 
+    // The render phase reads the subject from here because `campaignTopic` state has not
+    // caught up yet when this press supplied its own topic (TRENDING NOW).
+    if (copyOpts?.topic) pendingTopicRef.current = copyOpts.topic;
+
     setCompletePostKeys((prev) => ({ ...prev, [targetKey]: true }));
     try {
-      const copyCompleted = await handleGeneratePlatformCopyAI(
-        isDeckFormat
+      const copyCompleted = await handleGeneratePlatformCopyAI({
+        ...(isDeckFormat
           ? { slideCount: carouselSlideCount, slideInstructions: carouselCustomPrompt }
-          : undefined
-      );
+          : {}),
+        ...copyOpts,
+      });
       // Stop pressed, or the plan gate answered, during the copy phase — never start a
       // paid render the user just cancelled.
       if (!copyCompleted || cancelAllSlidesRef.current[targetKey]) return;
 
       if (isDeckFormat) {
-        await handleRenderAllSlides({ instructions: carouselCustomPrompt });
+        // The deck editor's design picks ride along, exactly as they do for the
+        // single-media branch below — otherwise a one-press deck ignored the ratio,
+        // style and quality the user had chosen right above the button.
+        await handleRenderAllSlides({
+          instructions: carouselCustomPrompt,
+          aspectRatio: renderOptions?.aspectRatio,
+          style: renderOptions?.style,
+          quality: renderOptions?.quality,
+          imageModel: renderOptions?.imageModel,
+        });
         return;
       }
 
@@ -3383,6 +3438,7 @@ export default function AIStudioPage() {
       });
       familyRenderSignatureRef.current[family] = signature;
     } finally {
+      pendingTopicRef.current = "";
       setCompletePostKeys((prev) => {
         const next = { ...prev };
         delete next[targetKey];

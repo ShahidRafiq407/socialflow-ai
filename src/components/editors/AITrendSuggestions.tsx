@@ -1,18 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  TrendingUp,
-  Sparkles,
-  RefreshCw,
-  Loader2,
-  ExternalLink,
-  ArrowRight,
-  Zap,
-  Info,
-  X,
-  Layers
-} from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { TrendingUp, RefreshCw, Loader2, Zap, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -41,11 +30,16 @@ export default function AITrendSuggestions({
 }: AITrendSuggestionsProps) {
   const [trends, setTrends] = useState<TrendSuggestionItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedTrendId, setSelectedTrendId] = useState<string | null>(null);
   const [detailModalTrend, setDetailModalTrend] = useState<TrendSuggestionItem | null>(null);
+  /** Only the newest request may write state — see the guard in `fetchTrends`. */
+  const requestIdRef = useRef(0);
 
   const fetchTrends = async () => {
+    const requestId = ++requestIdRef.current;
     setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/ai-studio", {
         method: "POST",
@@ -57,13 +51,22 @@ export default function AITrendSuggestions({
         }),
       });
       const data = await res.json();
-      if (data.success && Array.isArray(data.trends)) {
+      // This panel re-queries on every platform/format switch. Without this guard a slow
+      // reply for the format the user has already left lands on top of the one on screen,
+      // and applying that card would generate a post for the wrong format.
+      if (requestId !== requestIdRef.current) return;
+      if (data.success && Array.isArray(data.trends) && data.trends.length > 0) {
         setTrends(data.trends);
+      } else {
+        setTrends([]);
+        setLoadError(data.error || `No live trends came back for ${platform} ${format}.`);
       }
     } catch (e) {
+      if (requestId !== requestIdRef.current) return;
       console.error("Failed to load trend suggestions:", e);
+      setLoadError("Could not reach the trend researcher. Try Refresh.");
     } finally {
-      setIsLoading(false);
+      if (requestId === requestIdRef.current) setIsLoading(false);
     }
   };
 
@@ -93,7 +96,7 @@ export default function AITrendSuggestions({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={isLoading}
+          disabled={isLoading || isApplyingTrend}
           onClick={fetchTrends}
           className="h-6 px-2 text-xs font-semibold gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
         >
@@ -102,6 +105,11 @@ export default function AITrendSuggestions({
         </Button>
       </div>
 
+      <p className="text-[11px] text-slate-500 dark:text-slate-400 -mt-1">
+        Picking one writes the copy <span className="font-semibold">and</span> renders this format's media in the
+        same press — every slide for a deck, the video for a Reel, the still for a post.
+      </p>
+
       {isLoading ? (
         <div className="py-6 flex flex-col items-center justify-center text-slate-400 text-xs gap-1.5">
           <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
@@ -109,10 +117,16 @@ export default function AITrendSuggestions({
         </div>
       ) : trends.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-0.5">
-          {trends.map((t, idx) => (
+          {trends.map((t, idx) => {
+            const isThisOneRunning = isApplyingTrend && selectedTrendId === t.id;
+            return (
             <div
               key={t.id || idx}
-              className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-500/50 transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group"
+              className={`p-3 rounded-xl border bg-white dark:bg-slate-900 transition-all flex flex-col justify-between space-y-2.5 shadow-2xs group ${
+                isThisOneRunning
+                  ? "border-indigo-500 ring-1 ring-indigo-500/30"
+                  : "border-slate-200 dark:border-slate-800 hover:border-indigo-500/50"
+              } ${isApplyingTrend && !isThisOneRunning ? "opacity-60" : ""}`}
             >
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-1">
@@ -143,19 +157,22 @@ export default function AITrendSuggestions({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={isApplyingTrend && selectedTrendId === t.id}
+                  /* EVERY card locks while one is being applied. Disabling only the card
+                     that was clicked let a second click start a parallel generation that
+                     overwrote the first one's copy and paid for a second render. */
+                  disabled={isApplyingTrend}
                   onClick={() => {
                     setSelectedTrendId(t.id);
                     onSelectTrend(t);
                   }}
-                  className="flex-1 h-7 text-xs font-bold gap-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs"
+                  className="flex-1 h-7 text-xs font-bold gap-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs disabled:opacity-100"
                 >
-                  {isApplyingTrend && selectedTrendId === t.id ? (
+                  {isThisOneRunning ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
                     <Zap className="h-3 w-3 text-amber-300" />
                   )}
-                  <span>Use Trend</span>
+                  <span>{isThisOneRunning ? "Generating..." : "Use Trend"}</span>
                 </Button>
 
                 <Button
@@ -169,11 +186,12 @@ export default function AITrendSuggestions({
                 </Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="py-4 text-center text-xs text-slate-400">
-          No live trend recommendations available. Click Refresh to query trends.
+          {loadError || "No live trend recommendations available. Click Refresh to query trends."}
         </div>
       )}
 
@@ -202,7 +220,7 @@ export default function AITrendSuggestions({
             <div className="space-y-3 text-xs">
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Suggested Viral Hook
+                  Suggested Hook
                 </span>
                 <p className="font-semibold text-slate-800 dark:text-slate-200 italic leading-relaxed">
                   "{detailModalTrend.suggestedHook}"
@@ -220,7 +238,7 @@ export default function AITrendSuggestions({
 
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Brand DNA Alignment
+                  Why This Audience Cares
                 </span>
                 <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
                   {detailModalTrend.whyItFits}
@@ -254,7 +272,11 @@ export default function AITrendSuggestions({
                 }}
                 className="h-8 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
               >
-                <Zap className="h-3.5 w-3.5 text-amber-300" />
+                {isApplyingTrend ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Zap className="h-3.5 w-3.5 text-amber-300" />
+                )}
                 <span>Use This Trend</span>
               </Button>
             </div>

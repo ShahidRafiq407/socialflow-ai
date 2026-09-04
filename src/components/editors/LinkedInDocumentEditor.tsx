@@ -32,6 +32,7 @@ import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
+import { AIRenderOptions } from "./aiRenderOptions";
 import {
   MIN_DECK_SLIDES,
   SlidesChangeMeta,
@@ -61,7 +62,7 @@ interface LinkedInDocumentEditorProps {
   onSlidesChange: (slides: DocumentSlide[], meta?: SlidesChangeMeta) => void;
   activeSlideIndex: number;
   onActiveSlideChange: (idx: number) => void;
-  onGenerateDocumentAI: () => void;
+  onGenerateDocumentAI: (renderOptions?: AIRenderOptions) => void;
   isGeneratingAI: boolean;
   onRegenerateSlideAI: (slideIdx: number, prompt?: string) => void;
   isRegeneratingSlide: boolean;
@@ -166,7 +167,14 @@ export default function LinkedInDocumentEditor({
     e.target.value = "";
   };
 
-  const activeSlide = slides[activeSlideIndex] || slides[0] || {
+  // The page in view, clamped to the deck that actually exists. `activeSlideIndex` is
+  // page-level state that outlives the deck: regenerating a 10-page document as a
+  // 5-page one leaves it pointing at page 8. Writing at that index produced a SPARSE
+  // slides array — the holes came back as `undefined` pages and crashed the mapper that
+  // reads `s.title`. The carousel and Idea Pin editors clamp the same way.
+  const currentIdx = Math.min(Math.max(activeSlideIndex, 0), Math.max(slides.length - 1, 0));
+
+  const activeSlide = slides[currentIdx] || slides[0] || {
     slideNumber: 1,
     type: "hook",
     title: "The Strategic Blueprint",
@@ -190,21 +198,28 @@ export default function LinkedInDocumentEditor({
   };
 
   const renderActivePageMedia = () => {
-    onRenderSlideMedia?.({
-      aspectRatio: resolveSlideAspectRatio(),
-      style: slideStyle,
-      quality: slideQuality,
-      imageModel: IMAGE_MODEL_ID,
-    });
+    onRenderSlideMedia?.(deckRenderOptions());
   };
+
+  /**
+   * The design picks that must reach the image model — used by BOTH the single-page
+   * re-render and the whole-document button. The document button used to send nothing,
+   * so a deck came back ignoring the style, quality and ratio chosen right above it.
+   */
+  const deckRenderOptions = () => ({
+    aspectRatio: resolveSlideAspectRatio(),
+    style: slideStyle,
+    quality: slideQuality,
+    imageModel: IMAGE_MODEL_ID,
+  });
 
   const handleUpdateActiveSlide = (field: keyof DocumentSlide, val: any) => {
     const updated = [...slides];
-    if (!updated[activeSlideIndex]) {
-      updated[activeSlideIndex] = { ...activeSlide };
+    if (!updated[currentIdx]) {
+      updated[currentIdx] = { ...activeSlide };
     }
-    updated[activeSlideIndex] = {
-      ...updated[activeSlideIndex],
+    updated[currentIdx] = {
+      ...updated[currentIdx],
       [field]: val,
     };
     onSlidesChange(updated);
@@ -283,13 +298,13 @@ export default function LinkedInDocumentEditor({
             </Button>
           </div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1">
-            Active: Page {activeSlideIndex + 1} of {slides.length}
+            Active: Page {currentIdx + 1} of {slides.length}
             {onReorderCards && slides.length > 1 && (
               <>
                 <button
                   type="button"
-                  disabled={activeSlideIndex === 0}
-                  onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex - 1)}
+                  disabled={currentIdx === 0}
+                  onClick={() => onReorderCards(currentIdx, currentIdx - 1)}
                   className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title="Move Page Left"
                 >
@@ -297,8 +312,8 @@ export default function LinkedInDocumentEditor({
                 </button>
                 <button
                   type="button"
-                  disabled={activeSlideIndex === slides.length - 1}
-                  onClick={() => onReorderCards(activeSlideIndex, activeSlideIndex + 1)}
+                  disabled={currentIdx === slides.length - 1}
+                  onClick={() => onReorderCards(currentIdx, currentIdx + 1)}
                   className="p-1 rounded-md text-slate-400 hover:text-secondary hover:bg-secondary/10 disabled:opacity-30 transition-colors"
                   title="Move Page Right"
                 >
@@ -312,8 +327,8 @@ export default function LinkedInDocumentEditor({
         <div className="flex items-center gap-2 overflow-x-auto py-1">
           <button
             type="button"
-            disabled={activeSlideIndex === 0}
-            onClick={() => onActiveSlideChange(Math.max(0, activeSlideIndex - 1))}
+            disabled={currentIdx === 0}
+            onClick={() => onActiveSlideChange(Math.max(0, currentIdx - 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
             title="Previous Page"
           >
@@ -326,7 +341,7 @@ export default function LinkedInDocumentEditor({
               type="button"
               onClick={() => onActiveSlideChange(idx)}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-                activeSlideIndex === idx
+                currentIdx === idx
                   ? "bg-primary text-primary-foreground shadow-xs ring-2 ring-primary/25"
                   : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-primary hover:border-primary/40"
               }`}
@@ -335,7 +350,7 @@ export default function LinkedInDocumentEditor({
               <span className="text-[9px] opacity-70 uppercase font-mono">({s.type})</span>
               {s.imageUrl && (
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${activeSlideIndex === idx ? "bg-primary-foreground/70" : "bg-primary"}`}
+                  className={`h-1.5 w-1.5 rounded-full ${currentIdx === idx ? "bg-primary-foreground/70" : "bg-primary"}`}
                 />
               )}
             </button>
@@ -343,8 +358,8 @@ export default function LinkedInDocumentEditor({
 
           <button
             type="button"
-            disabled={activeSlideIndex >= slides.length - 1}
-            onClick={() => onActiveSlideChange(Math.min(slides.length - 1, activeSlideIndex + 1))}
+            disabled={currentIdx >= slides.length - 1}
+            onClick={() => onActiveSlideChange(Math.min(slides.length - 1, currentIdx + 1))}
             className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary hover:border-primary/40 disabled:opacity-30 disabled:hover:text-slate-600 shrink-0 transition-colors"
             title="Next Page"
           >
@@ -366,16 +381,16 @@ export default function LinkedInDocumentEditor({
           <button
             type="button"
             disabled={!canRemoveDeckSlide(slides.length)}
-            onClick={() => handleRemoveSlide(activeSlideIndex)}
+            onClick={() => handleRemoveSlide(currentIdx)}
             className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20 disabled:opacity-40 disabled:hover:bg-destructive/10 disabled:cursor-not-allowed flex items-center gap-1 ml-auto shrink-0 transition-colors"
             title={
               canRemoveDeckSlide(slides.length)
-                ? `Delete Page ${activeSlideIndex + 1}`
+                ? `Delete Page ${currentIdx + 1}`
                 : `A document needs at least ${MIN_DECK_SLIDES} pages`
             }
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span>Delete Page {activeSlideIndex + 1}</span>
+            <span>Delete Page {currentIdx + 1}</span>
           </button>
         </div>
       </div>
@@ -392,7 +407,7 @@ export default function LinkedInDocumentEditor({
               <GenerationProgressIndicator
                 progress={generationProgress || 0}
                 stage={generationStage}
-                title={`Page ${activeSlideIndex + 1} Visual`}
+                title={`Page ${currentIdx + 1} Visual`}
                 accentColor="blue"
                 mediaType="carousel"
               />
@@ -408,11 +423,11 @@ export default function LinkedInDocumentEditor({
                   isVertical={false}
                   showRemoveButton={false}
                   showDownloadButton={false}
-                  alt={`Document page ${activeSlideIndex + 1}`}
+                  alt={`Document page ${currentIdx + 1}`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-3 pointer-events-none z-10">
                   <span className="bg-slate-900/90 text-white text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded w-max mb-1">
-                    Page {activeSlideIndex + 1} of {slides.length} · {activeSlide.type}
+                    Page {currentIdx + 1} of {slides.length} · {activeSlide.type}
                   </span>
                   <p className="text-white text-xs font-bold line-clamp-1">{activeSlide.title}</p>
                 </div>
@@ -425,7 +440,7 @@ export default function LinkedInDocumentEditor({
                     {documentTitle || "Executive Presentation"}
                   </span>
                   <span className="text-[10px] font-mono text-white/50">
-                    {activeSlideIndex + 1} / {slides.length}
+                    {currentIdx + 1} / {slides.length}
                   </span>
                 </div>
 
@@ -492,7 +507,7 @@ export default function LinkedInDocumentEditor({
                 const imgUrl = activeSlide.imageUrl;
                 if (!imgUrl) return;
                 try {
-                  const filename = `document_page_${activeSlideIndex + 1}_${Date.now()}.png`;
+                  const filename = `document_page_${currentIdx + 1}_${Date.now()}.png`;
                   if (imgUrl.startsWith("data:")) {
                     const a = document.createElement("a");
                     a.href = imgUrl;
@@ -518,7 +533,7 @@ export default function LinkedInDocumentEditor({
               }}
               className="w-full text-xs font-bold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center justify-center gap-1.5 h-8.5 rounded-xl shadow-2xs transition-all"
             >
-              <Download className="h-4 w-4" /> Save Page {activeSlideIndex + 1} Image (.png)
+              <Download className="h-4 w-4" /> Save Page {currentIdx + 1} Image (.png)
             </Button>
           )}
         </div>
@@ -633,7 +648,7 @@ export default function LinkedInDocumentEditor({
                   cancelAIAction("copy", formatKey);
                   return;
                 }
-                onGenerateDocumentAI();
+                onGenerateDocumentAI(deckRenderOptions());
               }}
               title={isGeneratingAI ? "Stop document generation" : undefined}
               className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
@@ -699,7 +714,7 @@ export default function LinkedInDocumentEditor({
 
             <div className="space-y-1.5 pt-0.5">
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                <Wand2 className="h-3 w-3 text-secondary" /> Rewrite Page {activeSlideIndex + 1} Instructions
+                <Wand2 className="h-3 w-3 text-secondary" /> Rewrite Page {currentIdx + 1} Instructions
               </label>
               <Input
                 value={slideCustomPrompt}
@@ -714,10 +729,10 @@ export default function LinkedInDocumentEditor({
                 disabled={!isRegeneratingSlide && !slideCustomPrompt.trim()}
                 onClick={() => {
                   if (isRegeneratingSlide) {
-                    cancelAIAction("slide", `${formatKey}:${activeSlideIndex}`);
+                    cancelAIAction("slide", `${formatKey}:${currentIdx}`);
                     return;
                   }
-                  onRegenerateSlideAI(activeSlideIndex, slideCustomPrompt);
+                  onRegenerateSlideAI(currentIdx, slideCustomPrompt);
                   setSlideCustomPrompt("");
                 }}
                 className={`w-full h-8 text-xs font-bold gap-1.5 transition-colors ${
@@ -725,10 +740,10 @@ export default function LinkedInDocumentEditor({
                     ? "border-destructive/30 text-destructive hover:bg-destructive/10"
                     : "border-secondary/30 text-secondary hover:bg-secondary/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 }`}
-                title={isRegeneratingSlide ? "Stop regenerating this page" : !slideCustomPrompt.trim() ? "Type instructions above to enable page regeneration" : `Regenerate Page ${activeSlideIndex + 1}`}
+                title={isRegeneratingSlide ? "Stop regenerating this page" : !slideCustomPrompt.trim() ? "Type instructions above to enable page regeneration" : `Regenerate Page ${currentIdx + 1}`}
               >
                 {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                <span>{isRegeneratingSlide ? `Stop Regenerating Page ${activeSlideIndex + 1}` : `Regenerate Page ${activeSlideIndex + 1} with AI`}</span>
+                <span>{isRegeneratingSlide ? `Stop Regenerating Page ${currentIdx + 1}` : `Regenerate Page ${currentIdx + 1} with AI`}</span>
               </Button>
             </div>
           </div>
@@ -797,7 +812,7 @@ export default function LinkedInDocumentEditor({
         <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 space-y-2.5">
           <div className="flex items-center justify-between flex-wrap gap-1.5">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              Page {activeSlideIndex + 1} Visual Prompt
+              Page {currentIdx + 1} Visual Prompt
             </label>
             <div className="flex items-center gap-3">
               {onCaptionToPrompt && (
@@ -893,7 +908,7 @@ export default function LinkedInDocumentEditor({
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5" />
-                  <span>{`Generate Page ${activeSlideIndex + 1} Visual`}</span>
+                  <span>{`Generate Page ${currentIdx + 1} Visual`}</span>
                 </>
               )}
             </Button>

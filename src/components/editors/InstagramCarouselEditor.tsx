@@ -30,6 +30,7 @@ import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
+import { AIRenderOptions } from "./aiRenderOptions";
 import {
   MIN_DECK_SLIDES,
   SlidesChangeMeta,
@@ -62,7 +63,7 @@ interface InstagramCarouselEditorProps {
   onSlidesChange: (slides: CarouselSlideItem[], meta?: SlidesChangeMeta) => void;
   activeSlideIndex: number;
   onActiveSlideChange: (idx: number) => void;
-  onGenerateCarouselAI: () => void;
+  onGenerateCarouselAI: (renderOptions?: AIRenderOptions) => void;
   isGeneratingAI: boolean;
   onRegenerateSlideAI: (slideIdx: number) => void;
   isRegeneratingSlide: boolean;
@@ -174,13 +175,20 @@ export default function InstagramCarouselEditor({
   };
 
   const renderActiveSlideMedia = () => {
-    onRenderSlideMedia({
-      aspectRatio: resolveSlideAspectRatio(),
-      style: slideStyle,
-      quality: slideQuality,
-      imageModel: IMAGE_MODEL_ID,
-    });
+    onRenderSlideMedia(deckRenderOptions());
   };
+
+  /**
+   * The design picks that must reach the image model — used by BOTH the single-slide
+   * re-render and the whole-deck button. The deck button used to send nothing, so a
+   * carousel came back ignoring the style, quality and ratio chosen right above it.
+   */
+  const deckRenderOptions = () => ({
+    aspectRatio: resolveSlideAspectRatio(),
+    style: slideStyle,
+    quality: slideQuality,
+    imageModel: IMAGE_MODEL_ID,
+  });
 
   const handleUpdateActiveSlide = (field: keyof CarouselSlideItem, value: any) => {
     const updated = [...effectiveSlides];
@@ -542,7 +550,7 @@ export default function InstagramCarouselEditor({
                   cancelAIAction("copy", formatKey);
                   return;
                 }
-                onGenerateCarouselAI();
+                onGenerateCarouselAI(deckRenderOptions());
               }}
               title={isGeneratingAI ? "Stop carousel generation" : undefined}
               className={`w-full h-auto min-h-9 px-3 py-2 text-xs font-bold gap-1.5 shadow-xs rounded-lg whitespace-normal transition-colors ${
