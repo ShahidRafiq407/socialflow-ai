@@ -30,11 +30,10 @@ import {
   CircleAlert,
   CircleCheck,
   ExternalLink,
-  Inbox,
   Info,
   Loader2,
-  Megaphone,
   RefreshCw,
+  ShieldCheck,
   TriangleAlert,
   Undo2,
   type LucideIcon,
@@ -55,7 +54,6 @@ import {
   markUserNotificationsRead,
   type UserNotificationItem,
 } from "@/actions/userNotifications";
-import { SystemNoticeComposer } from "@/components/dashboard/SystemNoticeComposer";
 
 const TONE_ICONS: Record<NotificationTone, LucideIcon> = {
   error: CircleAlert,
@@ -141,11 +139,10 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
   const [loaded, setLoaded] = useState(false);
   const [seenAt, setSeenAt] = useState<string | null>(null);
   const [systemSeenAt, setSystemSeenAt] = useState<string | null>(null);
-  const [tab, setTab] = useState<"alerts" | "updates" | "inbox" | "system">("alerts");
+  const [tab, setTab] = useState<"alerts" | "updates" | "admin">("alerts");
 
   // All feeds in one round trip. The workspace feed is scoped by the cookie the
-  // server already resolved; the inbox is per account; the system feed is not
-  // scoped at all, which is the whole point of it.
+  // server already resolved; the admin/official feed is per account plus global notices.
   const load = useCallback(async () => {
     setLoading(true);
     const [feed, system, mine] = await Promise.all([
@@ -192,20 +189,25 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
   // never inflates the count.
   const workspaceUnread = useMemo(() => countUnread(items, seenAt), [items, seenAt]);
   const systemUnread = useMemo(() => countUnread(notices, systemSeenAt), [notices, systemSeenAt]);
-  const inboxUnread = useMemo(() => inbox.filter((item) => !item.read).length, [inbox]);
-  const unread = workspaceUnread + systemUnread + inboxUnread;
+  const adminUnread = useMemo(() => inbox.filter((item) => !item.read).length + systemUnread, [inbox, systemUnread]);
+  const unread = workspaceUnread + adminUnread;
 
-  // Opening the inbox is reading it: the server keeps the read column so the
-  // sender can see it landed, and the local list flips at once so the dot goes.
-  function markInboxRead() {
-    if (inboxUnread === 0) return;
-    setInbox((current) => current.map((item) => ({ ...item, read: true })));
-    void markUserNotificationsRead().catch(() => undefined);
+  // Opening the admin tab marks official notifications as read
+  function markAdminRead() {
+    if (inbox.some((item) => !item.read)) {
+      setInbox((current) => current.map((item) => ({ ...item, read: true })));
+      void markUserNotificationsRead().catch(() => undefined);
+    }
+    if (systemUnread > 0) {
+      const stamp = newestAt(notices) || new Date().toISOString();
+      setSystemSeenAt(stamp);
+      writeStamp(SYSTEM_SEEN_KEY, stamp);
+    }
   }
 
-  function selectTab(next: "alerts" | "updates" | "inbox" | "system") {
+  function selectTab(next: "alerts" | "updates" | "admin") {
     setTab(next);
-    if (next === "inbox") markInboxRead();
+    if (next === "admin") markAdminRead();
   }
 
   /**
@@ -221,13 +223,7 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
       writeStamp(seenKey(activeWorkspaceId), stamp);
     }
 
-    if (systemUnread > 0) {
-      const stamp = newestAt(notices) || now;
-      setSystemSeenAt(stamp);
-      writeStamp(SYSTEM_SEEN_KEY, stamp);
-    }
-
-    markInboxRead();
+    markAdminRead();
   }
 
   async function retract(id: string) {
@@ -356,10 +352,9 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
   }
 
   /**
-   * An inbox item reads like a system notice — text with a link inside — but
-   * its "new" mark is the server's read column rather than a local stamp.
+   * An official admin notice sent to the user's account.
    */
-  function renderInboxItem(item: UserNotificationItem) {
+  function renderAdminItem(item: UserNotificationItem) {
     const Icon = TONE_ICONS[item.tone];
     const external = /^https?:\/\//i.test(item.href);
     const label = item.linkLabel || (external ? "Open link" : "Open");
@@ -373,6 +368,10 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-1.5">
             <span className="min-w-0 flex-1 text-xs font-medium text-slate-800 dark:text-slate-100">{item.title}</span>
+            <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.2 text-[9px] font-medium text-primary dark:bg-primary/20">
+              <ShieldCheck className="h-2.5 w-2.5" />
+              Admin
+            </span>
             {!item.read && <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
           </div>
           {item.body && (
@@ -453,29 +452,28 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         </div>
 
         <div className="flex items-center gap-1 border-b border-slate-100 dark:border-slate-800 px-2 py-1.5">
-          {(["alerts", "updates", "inbox", "system"] as const).map((key) => {
+          {(["alerts", "updates", "admin"] as const).map((key) => {
             const count =
               key === "alerts"
                 ? alerts.length
                 : key === "updates"
                   ? updates.length
-                  : key === "inbox"
-                    ? inbox.length
-                    : notices.length;
+                  : inbox.length + notices.length;
             const isActive = tab === key;
-            const hasUnread = key === "system" ? systemUnread > 0 : key === "inbox" ? inboxUnread > 0 : false;
+            const hasUnread = key === "admin" ? adminUnread > 0 : false;
+            const label = key === "admin" ? "Admin" : key;
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => selectTab(key)}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] capitalize transition-colors ${
+                className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] capitalize transition-colors ${
                   isActive
                     ? "bg-slate-100 dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-100"
                     : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                 }`}
               >
-                {key}
+                {label}
                 <span className="text-slate-400">{count}</span>
                 {hasUnread && !isActive && (
                   <span className="h-1.5 w-1.5 rounded-full bg-primary" />
@@ -489,31 +487,19 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
           {!loaded && loading && (
             <p className="flex items-center gap-2 px-2 py-6 text-xs text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {tab === "system" ? "Checking for announcements…" : tab === "inbox" ? "Checking your inbox…" : "Checking this workspace…"}
+              {tab === "admin" ? "Checking admin notices…" : "Checking this workspace…"}
             </p>
           )}
 
-          {tab === "inbox" ? (
+          {tab === "admin" ? (
             <>
-              {loaded && inbox.length === 0 && (
+              {loaded && inbox.length === 0 && notices.length === 0 && (
                 <p className="flex flex-col items-center gap-1.5 px-2 py-6 text-center text-xs text-slate-400">
-                  <Inbox className="h-4 w-4 text-slate-300" />
-                  Nothing addressed to you yet.
+                  <ShieldCheck className="h-4 w-4 text-slate-300" />
+                  No messages from the Admin team yet.
                 </p>
               )}
-              {inbox.map(renderInboxItem)}
-            </>
-          ) : tab === "system" ? (
-            <>
-              {canPublish && <SystemNoticeComposer onPublished={() => void load()} />}
-
-              {loaded && notices.length === 0 && (
-                <p className="flex flex-col items-center gap-1.5 px-2 py-6 text-center text-xs text-slate-400">
-                  <Megaphone className="h-4 w-4 text-slate-300" />
-                  No announcements right now.
-                </p>
-              )}
-
+              {inbox.map(renderAdminItem)}
               {notices.map(renderSystemNotice)}
             </>
           ) : (
@@ -532,11 +518,9 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
         </div>
 
         <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5 text-[10px] text-slate-400">
-          {tab === "system"
-            ? "System messages come from PostLoom and reach every workspace."
-            : tab === "inbox"
-              ? "Inbox messages are addressed to your account and follow you across workspaces."
-              : "Alerts are per workspace — switch workspaces to see another brand's."}
+          {tab === "admin"
+            ? "Official messages and announcements sent by the Admin team."
+            : "Alerts are per workspace — switch workspaces to see another brand's."}
         </div>
 
       </PopoverContent>
