@@ -546,14 +546,20 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "1,500 credits a month",
       "2 workspaces, 6 accounts each",
       "Everything in Free",
-      "Content Studio AI: copy, images and video",
+      "Content Studio AI: copy, images, carousels and video",
       "CEO chat in Automate Task, with your plugins",
       "Article Writer — Quick mode, up to 4 a month",
       "Up to 3 AI videos a month",
       "Unlimited brand scans, plus competitor tracking",
+      "WordPress direct publishing",
       "5 GB media storage, 12 months of analytics",
+      "Top-up packs available when needed",
     ],
-    notIncluded: ["The Lead Goal tab", "Deep research articles"],
+    notIncluded: [
+      "The Lead Goal tab & autopilot",
+      "Deep research articles",
+      "The premium image model",
+    ],
   },
 
   PRO: {
@@ -574,10 +580,16 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "Lead Goal tab with autopilot — up to 3 active goals",
       "Article Writer — Quick mode, up to 15 a month",
       "Up to 12 AI videos a month",
+      "CEO chat with up to 8 tool loops",
       "Performance optimisation runs",
       "25 GB media storage, 24 months of analytics",
+      "Top-up packs available when needed",
     ],
-    notIncluded: ["Deep research articles", "Unlimited workspaces"],
+    notIncluded: [
+      "Deep research articles",
+      "The premium image model",
+      "Unlimited workspaces",
+    ],
   },
 
   AGENCY: {
@@ -597,8 +609,10 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "The premium image model",
       "Unlimited goals and autopilot cycles",
       "Unlimited quick articles and videos",
+      "CEO chat with up to 12 tool loops",
       "ZIP export and bulk upload",
       "100 GB media storage, unlimited analytics history",
+      "Top-up packs available when needed",
     ],
   },
 };

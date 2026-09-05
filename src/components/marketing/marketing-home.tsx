@@ -92,10 +92,15 @@ const FALLBACK_YEARLY_SAVING = yearlySavingPercent("PRO");
  * `FREE` is the exception and gets no query: it is the plan every account is already
  * on, so there is nothing to buy and the dashboard is the honest destination.
  */
-function planCtaHref(isLoggedIn: boolean, tier: PlanTier | "TRIAL"): string {
+function planCtaHref(
+  isLoggedIn: boolean,
+  tier: PlanTier | "TRIAL",
+  cycle: "monthly" | "yearly" = "monthly"
+): string {
   if (tier === "FREE") return isLoggedIn ? "/dashboard" : "/sign-up";
+  const cycleParam = cycle === "yearly" ? "&cycle=yearly" : "&cycle=monthly";
   const target =
-    tier === "TRIAL" ? "/dashboard/billing?intent=trial" : `/dashboard/billing?plan=${tier}`;
+    tier === "TRIAL" ? "/dashboard/billing?intent=trial" : `/dashboard/billing?plan=${tier}${cycleParam}`;
   return isLoggedIn ? target : `/sign-up?redirect_url=${encodeURIComponent(target)}`;
 }
 
@@ -263,6 +268,7 @@ export function MarketingHome({
   const ONGOING_PLANS = plans?.length ? plans : FALLBACK_ONGOING_PLANS;
   const TRIAL_PLAN = trialPlan ?? FALLBACK_TRIAL_PLAN;
   const YEARLY_SAVING = yearlySaving ?? FALLBACK_YEARLY_SAVING;
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
 
   return (
     <div className="relative mkt-bg mkt-text overflow-x-clip">
@@ -462,6 +468,37 @@ export function MarketingHome({
             sub={`Every account starts on Free and stays there until you choose otherwise. Paid plans run on credits you can see being spent, and yearly billing is two months on us — ${YEARLY_SAVING}% off.`}
           />
 
+          {/* Monthly / Yearly Billing Toggle */}
+          <div className="flex items-center justify-center mt-8 mb-10">
+            <div className="inline-flex items-center p-1.5 rounded-2xl mkt-glass border mkt-border shadow-inner">
+              <button
+                type="button"
+                onClick={() => setBillingCycle("monthly")}
+                className={`relative px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  billingCycle === "monthly"
+                    ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
+                    : "mkt-muted hover:text-white"
+                }`}
+              >
+                Monthly billing
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingCycle("yearly")}
+                className={`relative flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                  billingCycle === "yearly"
+                    ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
+                    : "mkt-muted hover:text-white"
+                }`}
+              >
+                <span>Yearly billing</span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-[#3DB36B]/20 text-[#3DB36B] border border-[#3DB36B]/30">
+                  Save {YEARLY_SAVING}%
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* The trial, on its own. A dollar for three days is the honest way to find
               out whether the AI is any good, so it sits above the grid where a buyer
               reads it before choosing a monthly commitment. The dollar is stated as
@@ -506,63 +543,76 @@ export function MarketingHome({
           </motion.div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
-            {ONGOING_PLANS.map((p, i) => (
-              <motion.div
-                key={p.id}
-                variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
-                whileHover={{ y: -12 }}
-                className={`relative rounded-3xl p-8 flex flex-col mkt-glass transition-colors ${
-                  p.highlight
-                    ? "!bg-[#48357B]/10 border-[#48357B]/50 shadow-[0_0_60px_-15px_rgba(72,53,123,0.6)] lg:scale-[1.05] z-10"
-                    : "hover:border-[#18713C]/40"
-                }`}
-              >
-                {p.badge && (
-                  <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg whitespace-nowrap">
-                    {p.badge}
-                  </span>
-                )}
-                <h3 className="text-lg font-bold mkt-muted">{p.name}</h3>
-                <div className="mt-4 mb-1">
-                  <span className="text-5xl font-black">${p.priceMonthly}</span>
-                  <span className="mkt-muted ml-1">{p.priceMonthly === 0 ? "forever" : "/month"}</span>
-                </div>
-                <p className="text-sm mkt-faint mb-2">{p.tagline}</p>
-                <p className="text-xs mkt-faint mb-8 h-4">
-                  {p.priceYearly > 0 && `or $${p.priceYearly} a year — ${YEARLY_SAVING}% off`}
-                </p>
-                <ul className="space-y-3.5 mb-6 flex-1">
-                  {p.features.map((f) => (
-                    <li key={f} className="flex items-start gap-3 text-sm mkt-muted">
-                      <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                {/* Where the plan stops, not only where it starts. A buyer who finds
-                    this out after paying asks for their money back. */}
-                {p.notIncluded && p.notIncluded.length > 0 && (
-                  <ul className="space-y-2 mb-8 pt-5 border-t mkt-border">
-                    {p.notIncluded.map((f) => (
-                      <li key={f} className="flex items-start gap-3 text-sm mkt-faint">
-                        <Minus className="w-4 h-4 mt-0.5 shrink-0 opacity-60" />
+            {ONGOING_PLANS.map((p, i) => {
+              const isFree = p.priceMonthly === 0;
+              const effectiveMonthly = isFree
+                ? 0
+                : billingCycle === "yearly"
+                ? Math.round(p.priceYearly / 12)
+                : p.priceMonthly;
+
+              return (
+                <motion.div
+                  key={p.id}
+                  variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
+                  whileHover={{ y: -12 }}
+                  className={`relative rounded-3xl p-8 flex flex-col mkt-glass transition-colors ${
+                    p.highlight
+                      ? "!bg-[#48357B]/10 border-[#48357B]/50 shadow-[0_0_60px_-15px_rgba(72,53,123,0.6)] lg:scale-[1.05] z-10"
+                      : "hover:border-[#18713C]/40"
+                  }`}
+                >
+                  {p.badge && (
+                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg whitespace-nowrap">
+                      {p.badge}
+                    </span>
+                  )}
+                  <h3 className="text-lg font-bold mkt-muted">{p.name}</h3>
+                  <div className="mt-4 mb-1">
+                    <span className="text-5xl font-black">${effectiveMonthly}</span>
+                    <span className="mkt-muted ml-1">{isFree ? "forever" : "/month"}</span>
+                  </div>
+                  <p className="text-sm mkt-faint mb-2">{p.tagline}</p>
+                  <p className="text-xs mkt-faint mb-8 h-4">
+                    {!isFree && (
+                      billingCycle === "yearly"
+                        ? `Billed $${p.priceYearly}/year · 2 months free`
+                        : `or $${p.priceYearly} a year — ${YEARLY_SAVING}% off`
+                    )}
+                  </p>
+                  <ul className="space-y-3.5 mb-6 flex-1">
+                    {p.features.map((f) => (
+                      <li key={f} className="flex items-start gap-3 text-sm mkt-muted">
+                        <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
                         {f}
                       </li>
                     ))}
                   </ul>
-                )}
-                <Link
-                  href={planCtaHref(isLoggedIn, p.id)}
-                  className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
-                    p.highlight
-                      ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
-                      : "border mkt-border mkt-surface hover:mkt-surface2"
-                  }`}
-                >
-                  {p.ctaLabel}
-                </Link>
-              </motion.div>
-            ))}
+                  {/* Where the plan stops, not only where it starts. A buyer who finds
+                      this out after paying asks for their money back. */}
+                  {p.notIncluded && p.notIncluded.length > 0 && (
+                    <ul className="space-y-2 mb-8 pt-5 border-t mkt-border">
+                      {p.notIncluded.map((f) => (
+                        <li key={f} className="flex items-start gap-3 text-sm mkt-faint">
+                          <Minus className="w-4 h-4 mt-0.5 shrink-0 opacity-60" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <Link
+                    href={planCtaHref(isLoggedIn, p.id, billingCycle)}
+                    className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
+                      p.highlight
+                        ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
+                        : "border mkt-border mkt-surface hover:mkt-surface2"
+                    }`}
+                  >
+                    {p.ctaLabel}
+                  </Link>
+                </motion.div>
+              );
+            })}
           </div>
           <p className="text-center text-sm mkt-faint mt-10 flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
