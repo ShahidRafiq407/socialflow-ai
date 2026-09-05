@@ -93,6 +93,9 @@
 export const PLAN_TIERS = ["FREE", "TRIAL", "GO", "PRO", "AGENCY"] as const;
 export type PlanTier = (typeof PLAN_TIERS)[number];
 
+export const ONGOING_PLAN_TIERS = ["FREE", "GO", "PRO", "AGENCY"] as const;
+export type OngoingPlanTier = (typeof ONGOING_PLAN_TIERS)[number];
+
 /** What one credit is worth in list model spend. The whole system's unit. */
 export const CREDIT_USD = 0.01;
 /** Same figure in micro-dollars, for integer maths against `UsageEvent`. */

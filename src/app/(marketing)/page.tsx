@@ -1,15 +1,20 @@
 import { auth } from "@clerk/nextjs/server";
-import { MarketingHome, ONGOING_PLAN_TIERS } from "@/components/marketing/marketing-home";
+import { MarketingHome } from "@/components/marketing/marketing-home";
 import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
-import { PLAN_CATALOG, yearlySavingPercent } from "@/lib/billing/plans";
+import { PLAN_CATALOG, ONGOING_PLAN_TIERS, yearlySavingPercent } from "@/lib/billing/plans";
 
 export default async function MarketingHomePage() {
-  // The pricing grid is a promise, so it has to show the prices this instance
-  // would actually charge. `PLAN_CATALOG` is patched in place with the admin's
-  // overrides only after the settings are read, and the page component is a
-  // client component with its own copy of the table in the browser bundle — so
-  // the values are resolved here and handed down as props.
-  const [{ userId }] = await Promise.all([auth(), ensureRuntimeConfig()]);
+  const { userId } = await auth();
+
+  // Gracefully ensure runtime config with a fast fallback so DB latency never blocks the landing page
+  try {
+    await Promise.race([
+      ensureRuntimeConfig(),
+      new Promise((resolve) => setTimeout(resolve, 2500)),
+    ]);
+  } catch (err) {
+    console.warn("[MarketingHomePage] runtime config load failed:", err);
+  }
 
   return (
     <MarketingHome
@@ -20,3 +25,5 @@ export default async function MarketingHomePage() {
     />
   );
 }
+
+

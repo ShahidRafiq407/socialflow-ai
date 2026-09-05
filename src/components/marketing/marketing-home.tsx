@@ -12,6 +12,7 @@ import { Robot3D } from "./robot-3d";
 import { PostloomLogo } from "./logo";
 import {
   PLAN_CATALOG,
+  ONGOING_PLAN_TIERS,
   yearlySavingPercent,
   type PlanConfig,
   type PlanTier,
@@ -72,7 +73,7 @@ function GradientText({ children }: { children: React.ReactNode }) {
  * column invites a buyer to compare $1 against $19 a month — which reads as a
  * ninety-five percent discount rather than as three days.
  */
-export const ONGOING_PLAN_TIERS = ["FREE", "GO", "PRO", "AGENCY"] as const;
+export { ONGOING_PLAN_TIERS };
 
 const FALLBACK_ONGOING_PLANS: PlanConfig[] = ONGOING_PLAN_TIERS.map((tier) => PLAN_CATALOG[tier]);
 const FALLBACK_TRIAL_PLAN: PlanConfig = PLAN_CATALOG.TRIAL;
