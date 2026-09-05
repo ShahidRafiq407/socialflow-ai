@@ -463,73 +463,23 @@ export function StatTile({
 // ============================================================================
 
 /**
- * The little "i" next to a label. Every number, toggle and button on this screen
- * carries one, because the fastest way to make an automation trustworthy is to
- * let the user ask "what is this?" without leaving the page.
- *
- * Click to open (not hover) so it works on a phone, closes on Escape or an
- * outside click.
+ * The "i" button in the Goal tab has been removed per design request.
+ * Explanations are surfaced via clean cursor hover tooltips on titles and labels.
  */
 export function InfoDot({
-  text,
-  align = "left",
-  className = "",
+  text: _text,
+  align: _align = "left",
+  className: _className = "",
 }: {
   text: string;
   /** Which edge of the popover lines up with the button. */
   align?: "left" | "right";
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <span ref={ref} className={`relative inline-flex align-middle ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label="What is this?"
-        title={text}
-        className={`inline-flex items-center justify-center w-4 h-4 shrink-0 rounded-full border text-[9px] font-bold leading-none transition-colors ${
-          open
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-border text-muted-foreground hover:border-primary/50 hover:text-primary"
-        }`}
-      >
-        i
-      </button>
-      {open && (
-        <span
-          role="tooltip"
-          className={`absolute top-6 z-30 w-64 rounded-xl border border-border bg-card p-3 text-[11px] font-normal normal-case tracking-normal leading-relaxed text-foreground shadow-lg ${
-            align === "left" ? "left-0" : "right-0"
-          }`}
-        >
-          {text}
-        </span>
-      )}
-    </span>
-  );
+  return null;
 }
 
-/** A form label with its own explanation attached. */
+/** A form label with its own explanation attached via native hover title. */
 export function FieldLabel({
   children,
   info,
@@ -542,10 +492,14 @@ export function FieldLabel({
   className?: string;
 }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold text-foreground ${className}`}>
+    <span
+      title={info}
+      className={`inline-flex items-center gap-1.5 text-xs font-semibold text-foreground ${
+        info ? "cursor-help" : ""
+      } ${className}`}
+    >
       {icon}
       {children}
-      {info && <InfoDot text={info} />}
     </span>
   );
 }

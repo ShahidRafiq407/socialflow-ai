@@ -52,7 +52,10 @@ export function DashboardTrendingNiche({ industry }: DashboardTrendingNicheProps
           </span>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold tracking-tight text-foreground">
+              <h3
+                className="text-sm font-semibold tracking-tight text-foreground cursor-help"
+                title="Real-time breaking industry news and trending talking points tailored to your niche"
+              >
                 Trending Topics
               </h3>
               <span className="relative flex h-2 w-2">

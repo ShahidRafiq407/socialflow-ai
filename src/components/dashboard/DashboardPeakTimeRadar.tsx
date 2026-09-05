@@ -53,7 +53,10 @@ export function DashboardPeakTimeRadar({
             <Compass className="h-4 w-4" />
           </span>
           <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+            <h3
+              className="text-sm font-semibold tracking-tight text-foreground cursor-help"
+              title="AI-calculated peak audience activity hours based on channel algorithms and historical engagement"
+            >
               Optimal Posting Times
             </h3>
           </div>

@@ -34,7 +34,10 @@ export function DashboardTopPerformer({ post }: DashboardTopPerformerProps) {
             <Trophy className="h-4 w-4" />
           </span>
           <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+            <h3
+              className="text-sm font-semibold tracking-tight text-foreground cursor-help"
+              title="Your highest-converting published post based on tracked clicks and confirmed leads"
+            >
               Top Performing Post
             </h3>
           </div>

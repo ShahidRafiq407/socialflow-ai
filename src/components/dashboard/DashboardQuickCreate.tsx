@@ -43,9 +43,12 @@ export function DashboardQuickCreate({ workspaceIndustry }: DashboardQuickCreate
                 handleLaunchCampaign();
               }
             }}
-            placeholder={`What do you want to publish? e.g. Special announcement for ${
-              workspaceIndustry || "our audience"
-            }...`}
+            placeholder={
+              workspaceIndustry
+                ? `Ask AI to draft a post for ${workspaceIndustry}...`
+                : "Ask AI to draft a post, campaign, or update..."
+            }
+            title="Type a topic or campaign idea, then press Enter to generate with AI"
             className="h-10 bg-muted/40 text-sm pl-3 pr-8 focus:bg-background"
           />
           {topic && (
@@ -53,6 +56,7 @@ export function DashboardQuickCreate({ workspaceIndustry }: DashboardQuickCreate
               type="button"
               onClick={() => setTopic("")}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+              aria-label="Clear topic"
             >
               ✕
             </button>
@@ -63,6 +67,7 @@ export function DashboardQuickCreate({ workspaceIndustry }: DashboardQuickCreate
           onClick={handleLaunchCampaign}
           disabled={!topic.trim() || isSubmitting}
           size="sm"
+          title="Open AI Studio with this topic"
           className="h-10 gap-1.5 px-4 font-medium shrink-0"
         >
           <Sparkles className="h-3.5 w-3.5" />

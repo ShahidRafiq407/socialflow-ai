@@ -164,7 +164,10 @@ export function DashboardTrendChart({ series }: DashboardTrendChartProps) {
             <metricConfig.icon className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+            <h3
+              className="text-sm font-semibold tracking-tight text-foreground cursor-help"
+              title="Rolling velocity of clicks, leads, and published posts over 7, 14, or 30 days"
+            >
               Performance Trends
             </h3>
           </div>

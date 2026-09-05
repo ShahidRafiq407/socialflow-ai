@@ -38,14 +38,20 @@ export function DashboardWeeklyRunway({ days }: DashboardWeeklyRunwayProps) {
             <Calendar className="h-4 w-4" />
           </span>
           <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+            <h3
+              className="text-sm font-semibold tracking-tight text-foreground cursor-help"
+              title="7-day rolling content schedule of upcoming drafts and scheduled publications"
+            >
               Weekly Runway
             </h3>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground border">
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground border cursor-help"
+            title="Total posts scheduled to go live over the next 7 days"
+          >
             <Clock className="h-3 w-3 text-muted-foreground" />
             <span className="font-semibold tabular-nums">{totalScheduled}</span> posts queued
           </span>
@@ -58,14 +64,14 @@ export function DashboardWeeklyRunway({ days }: DashboardWeeklyRunwayProps) {
         </div>
       </div>
 
-      {/* 7-Day Matrix Columns */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-7">
+      {/* 7-Day Matrix Columns (Smooth swipeable on mobile, 7-col grid on desktop) */}
+      <div className="flex sm:grid sm:grid-cols-7 gap-2 overflow-x-auto pb-1 sm:pb-0">
         {days.map((day) => {
           const hasPosts = day.posts.length > 0;
           return (
             <div
               key={day.date}
-              className={`flex flex-col rounded-lg border p-2.5 transition-colors ${
+              className={`flex flex-col min-w-[120px] sm:min-w-0 flex-1 rounded-lg border p-2.5 transition-colors ${
                 day.isToday
                   ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30"
                   : "bg-muted/30 hover:bg-muted/50"

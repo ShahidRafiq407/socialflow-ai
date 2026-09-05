@@ -82,6 +82,7 @@ function StatCard({
   sparklineData,
   sparklineColor = "#3b82f6",
   progress,
+  tooltip,
 }: {
   label: string;
   value: string;
@@ -90,9 +91,14 @@ function StatCard({
   sparklineData?: number[];
   sparklineColor?: string;
   progress?: number;
+  tooltip?: string;
 }) {
   return (
-    <Card size="sm" className="gap-0 border bg-card transition-all hover:shadow-xs">
+    <Card
+      size="sm"
+      className="gap-0 border bg-card transition-all hover:shadow-xs cursor-help"
+      title={tooltip}
+    >
       <CardContent className="flex flex-col gap-1.5 p-3.5 sm:p-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -123,6 +129,21 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // Auto-launch quick guide walkthrough on initial login if not already seen
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const seen = localStorage.getItem("postloom_guide_completed");
+        if (!seen) {
+          const timer = setTimeout(() => {
+            setGuideOpen(true);
+          }, 700);
+          return () => clearTimeout(timer);
+        }
+      } catch {}
+    }
+  }, []);
 
   // Lazy insights refresh
   useEffect(() => {
@@ -223,21 +244,21 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
             variant="outline"
             size="icon-sm"
             onClick={() => setGuideOpen(true)}
-            title="Quick guide"
+            title="Open 5-step Quick Guide walkthrough"
             aria-label="Quick guide"
           >
             <HelpCircle className="h-4 w-4" />
           </Button>
 
           <Link href="/dashboard/content">
-            <Button variant="outline" size="sm" className="gap-1.5">
+            <Button variant="outline" size="sm" className="gap-1.5" title="View scheduled, draft, and published content">
               <Calendar className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Content Library</span>
             </Button>
           </Link>
 
           <Link href="/dashboard/ai-studio">
-            <Button size="sm" className="gap-1.5 shadow-xs">
+            <Button size="sm" className="gap-1.5 shadow-xs" title="Generate new posts and campaigns with AI">
               <Sparkles className="h-3.5 w-3.5" />
               Create Post
             </Button>
@@ -297,6 +318,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
           icon={MousePointerClick}
           sparklineData={clicksSparkline}
           sparklineColor="#2563eb"
+          tooltip="Total tracked link clicks recorded across published posts in the last 7 days"
           sub={
             <span
               className={`inline-flex items-center gap-0.5 tabular-nums ${
@@ -316,6 +338,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
           icon={Target}
           sparklineData={leadsSparkline}
           sparklineColor="#059669"
+          tooltip="Verified leads captured via campaign tags and form submissions in the last 30 days"
           sub={
             <span
               className={`inline-flex items-center gap-0.5 tabular-nums ${
@@ -335,6 +358,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
           icon={Send}
           sparklineData={postsSparkline}
           sparklineColor="#7c3aed"
+          tooltip="Total posts successfully published across your connected channels in the last 30 days"
           sub={
             kpis.published.failures30d > 0 ? (
               <span className="font-medium text-red-600 dark:text-red-400">
@@ -351,6 +375,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
             value={`${kpis.goal.percentComplete}%`}
             icon={Target}
             progress={kpis.goal.percentComplete}
+            tooltip="Current progress and completion forecast toward your active lead target"
             sub={
               <span className="tabular-nums">
                 {formatNum(kpis.goal.achieved)} / {formatNum(kpis.goal.target)} · {kpis.goal.estDate}
@@ -362,6 +387,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
             label="Goal"
             value="—"
             icon={Target}
+            tooltip="Set a target number of leads to unlock AI-assisted pacing and runway forecasts"
             sub={
               <Link href="/dashboard/goals" className="text-primary hover:underline">
                 Set a lead goal
@@ -386,7 +412,12 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         {/* Content Queue */}
         <Card id="queue" className="gap-0 scroll-mt-20">
           <CardHeader className="border-b [.border-b]:pb-3">
-            <CardTitle className="text-sm font-medium">Content Queue</CardTitle>
+            <CardTitle
+              className="text-sm font-medium cursor-help"
+              title="Upcoming posts scheduled to go live and drafts waiting for manual review"
+            >
+              Content Queue
+            </CardTitle>
             <CardAction>
               <Link
                 href="/dashboard/content"
@@ -536,7 +567,12 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         {/* Platform results */}
         <Card className="gap-0">
           <CardHeader className="border-b [.border-b]:pb-3">
-            <CardTitle className="text-sm font-medium">Platform Results</CardTitle>
+            <CardTitle
+              className="text-sm font-medium cursor-help"
+              title="30-day performance breakdown and audience reach across connected channels"
+            >
+              Platform Results
+            </CardTitle>
             <CardAction>
               <Link
                 href="/dashboard/integrations"
