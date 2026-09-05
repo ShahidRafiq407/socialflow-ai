@@ -41,6 +41,7 @@ import {
   estimateTokens,
   type UsageMeasurement,
 } from "./modelPricing";
+import { recordErrorAsync } from "@/lib/admin/errors";
 
 /** The shapes of call the provider can make, as recorded on `UsageEvent.callKind`. */
 export type CallKind =
@@ -330,6 +331,17 @@ export async function meteredCall<T>(
       latencyMs: Date.now() - startedAt,
       ok: false,
       errorKind: classifyError(err),
+    });
+    // The same failure, on the admin's Errors tab, grouped by model and kind.
+    const ctx = store.getStore();
+    recordErrorAsync({
+      source: "model",
+      message: `${options.model}: ${err instanceof Error ? err.message : String(err)}`,
+      stack: err instanceof Error ? err.stack : null,
+      kind: classifyError(err),
+      userId: ctx?.userId ?? null,
+      workspaceId: ctx?.workspaceId ?? null,
+      context: { model: options.model, callKind: options.callKind, feature: ctx?.feature, action: ctx?.action },
     });
     throw err;
   }

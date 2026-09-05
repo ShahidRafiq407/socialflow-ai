@@ -11,10 +11,10 @@
 //   publishSystemNotice — an administrator broadcasting a message
 //   retractSystemNotice — unpublishing one, which is how it is taken back
 //
-// Who counts as an administrator is an env allowlist, not a database column: the
-// answer belongs to whoever controls the deployment, not to a row that anybody
-// with write access could add themselves to. With the allowlist unset, nobody
-// can publish and the tab is simply always empty — inert, not open.
+// Who counts as an administrator is whoever may open the back office (see
+// lib/admin/auth.ts): the ADMIN_USERS / SYSTEM_NOTICE_ADMINS env allowlists, or
+// an ADMIN role granted from the dashboard by an existing admin. With none of
+// those, nobody can publish and the tab is simply always empty — inert, not open.
 //
 // Reads are guarded the same way the workspace notification feed is. A notice is
 // the least important thing on the screen, so a database it cannot reach costs
@@ -23,9 +23,10 @@
 
 "use server";
 
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import prisma from "@/lib/db";
+import { isAdminUser } from "@/lib/admin/auth";
 import type { NotificationTone } from "@/actions/notifications";
 
 export interface SystemNoticeItem {
@@ -57,33 +58,8 @@ function toTone(raw: string | null | undefined): NotificationTone {
   return TONES.includes(value) ? value : "info";
 }
 
-/**
- * Who may broadcast, from the environment:
- *
- *   SYSTEM_NOTICE_ADMINS="user_2abc…,ops@example.com"
- *
- * Clerk user ids and email addresses both work, so an operator can be added
- * without looking up an id first.
- */
-function allowlist(): string[] {
-  return (process.env.SYSTEM_NOTICE_ADMINS || "")
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-}
-
 async function isBroadcastAdmin(userId: string): Promise<boolean> {
-  const allowed = allowlist();
-  if (allowed.length === 0) return false;
-  if (allowed.includes(userId.toLowerCase())) return true;
-
-  // Only reached when the allowlist holds emails rather than ids, so the Clerk
-  // round trip is not on the path of a normal user's bell.
-  const user = await currentUser().catch(() => null);
-  return (user?.emailAddresses || []).some((entry) => {
-    const email = (entry?.emailAddress || "").toLowerCase();
-    return Boolean(email) && allowed.includes(email);
-  });
+  return isAdminUser(userId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

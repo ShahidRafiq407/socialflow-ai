@@ -9,6 +9,10 @@
 // first payment. The flat floor is what the affiliate was promised on the
 // screen ("you earn at least $10"); the percentage is what makes a $180 agency
 // plan worth referring instead of a $12 one.
+//
+// The four money terms can be changed from the back office. `AFFILIATE` below
+// is the code default; `liveAffiliateTerms()` (server only) returns the values
+// in force, and the affiliate page passes them to the client as data.
 // ============================================================================
 
 export const AFFILIATE = {
@@ -43,14 +47,34 @@ export const AFFILIATE = {
   flagScore: 30,
 } as const;
 
+/** The terms the admin may edit. Serialisable, so the page can hand them to the client. */
+export interface AffiliateTermsView {
+  commissionPercent: number;
+  flatCommissionCents: number;
+  minPayoutCents: number;
+  minCreditConversionCents: number;
+  lockDays: number;
+}
+
+export const DEFAULT_TERMS_VIEW: AffiliateTermsView = {
+  commissionPercent: AFFILIATE.commissionPercent,
+  flatCommissionCents: AFFILIATE.flatCommissionCents,
+  minPayoutCents: AFFILIATE.minPayoutCents,
+  minCreditConversionCents: AFFILIATE.minCreditConversionCents,
+  lockDays: AFFILIATE.lockDays,
+};
+
 /** Credits per USD — the billing system's own unit: 1 credit = $0.01. */
 export const CREDITS_PER_DOLLAR = 100;
 
-/** What a first payment earns the affiliate, in USD cents. */
-export function commissionFor(firstPaymentCents: number): number {
+/** What a first payment earns the affiliate, in USD cents, under the given terms. */
+export function commissionFor(
+  firstPaymentCents: number,
+  terms: Pick<AffiliateTermsView, "commissionPercent" | "flatCommissionCents"> = DEFAULT_TERMS_VIEW
+): number {
   const safe = Number.isFinite(firstPaymentCents) && firstPaymentCents > 0 ? firstPaymentCents : 0;
-  const share = Math.ceil((safe * AFFILIATE.commissionPercent) / 100);
-  return Math.max(AFFILIATE.flatCommissionCents, share);
+  const share = Math.ceil((safe * terms.commissionPercent) / 100);
+  return Math.max(terms.flatCommissionCents, share);
 }
 
 /** USD cents → platform credits. 1 cent is exactly 1 credit, by design. */

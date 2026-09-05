@@ -23,13 +23,14 @@ import {
 } from "lucide-react";
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from "@/lib/agents/controller/settingsShape";
-import { chatModelLabel } from "@/lib/agents/controller/models";
+import { chatModelLabel, setChatModelCatalog, type ChatModelInfo } from "@/lib/agents/controller/models";
 import type { ConnectedPlugin } from "@/lib/plugins/connected";
+import { submitChatFeedback, getSessionFeedback } from "@/actions/chatFeedback";
 import { useChatStream, type PendingFile } from "./useChatStream";
-import { MessageThread } from "./MessageThread";
+import { MessageThread, type FeedbackVotes } from "./MessageThread";
 import { Composer } from "./Composer";
 import { SessionRail } from "./SessionRail";
-import { SettingsPanel } from "./SettingsPanel";
+import { SettingsPanel, type ModelAvailability } from "./SettingsPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { RequestsPanel } from "./RequestsPanel";
 import { EmptyState } from "./EmptyState";
@@ -71,6 +72,37 @@ export function ChatWorkbench({
   const [draft, setDraft] = useState("");
   const [localNotice, setLocalNotice] = useState<string | null>(null);
   const [openedArtifacts, setOpenedArtifacts] = useState<Set<string>>(new Set());
+  const [feedbackOn, setFeedbackOn] = useState(true);
+  const [pickerOn, setPickerOn] = useState(true);
+  const [availability, setAvailability] = useState<Record<string, ModelAvailability>>({});
+  const [catalogueVersion, setCatalogueVersion] = useState(0);
+
+  // The live configuration the admin controls: which models the picker may show
+  // (with this plan's locks) and whether feedback is on. The browser's catalogue
+  // is whatever the server last said, so a model added in the back office is in
+  // the list on the next load without a deploy.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/chat/settings?workspaceId=${encodeURIComponent(workspaceId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.success) return;
+        if (Array.isArray(data.models)) {
+          const models = data.models as Array<ChatModelInfo & { locked?: boolean }>;
+          setChatModelCatalog(models, models.find((m) => m.recommended)?.id ?? null);
+          setAvailability(
+            Object.fromEntries(models.map((m) => [m.id, { chatCredits: m.chatCredits, locked: m.locked, minPlan: m.minPlan ?? null }]))
+          );
+          setCatalogueVersion((v) => v + 1);
+        }
+        if (data.flags && typeof data.flags.feedback === "boolean") setFeedbackOn(data.flags.feedback);
+        if (data.flags && typeof data.flags.modelPicker === "boolean") setPickerOn(data.flags.modelPicker);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
 
   const refreshSessions = useCallback(
     async (archived = showArchived) => {
@@ -219,7 +251,53 @@ export function ChatWorkbench({
     ? { level: "warn" as const, message: localNotice }
     : chat.notice;
 
-  const modelLabel = chatModelLabel(chat.activeModel || settings.model);
+  // Re-read after the catalogue arrives, because the label lives in a module-level table.
+  const modelLabel = useMemo(
+    () => chatModelLabel(chat.activeModel || settings.model),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chat.activeModel, settings.model, catalogueVersion]
+  );
+
+  // Votes already cast on this session, so the thumbs stay lit after a reload.
+  // Keyed by session so switching chats never shows another chat's votes.
+  const [voteState, setVoteState] = useState<{ sessionId: string | null; votes: FeedbackVotes }>({ sessionId: null, votes: {} });
+  const votes = voteState.sessionId === chat.sessionId ? voteState.votes : {};
+  useEffect(() => {
+    if (!chat.sessionId || !feedbackOn) return;
+    const sessionId = chat.sessionId;
+    let cancelled = false;
+    getSessionFeedback(sessionId)
+      .then((loaded) => {
+        if (!cancelled) setVoteState({ sessionId, votes: loaded });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [chat.sessionId, feedbackOn]);
+
+  const vote = useCallback(
+    (message: ChatMessage, rating: 1 | -1, comment?: string) => {
+      const sessionId = chat.sessionId;
+      if (!sessionId) return;
+      setVoteState((prev) => ({
+        sessionId,
+        votes: { ...(prev.sessionId === sessionId ? prev.votes : {}), [message.id]: rating },
+      }));
+      void submitChatFeedback({
+        messageId: message.id,
+        sessionId,
+        workspaceId,
+        rating,
+        comment,
+        model: message.model,
+        messageExcerpt: message.content.slice(0, 600),
+      }).then((result) => {
+        if (!result.success) setLocalNotice(result.error);
+      });
+    },
+    [chat.sessionId, workspaceId]
+  );
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -347,6 +425,7 @@ export function ChatWorkbench({
             streaming={chat.streaming}
             onSuggestion={(text) => send(text, [])}
             onRetry={retry}
+            feedback={feedbackOn ? { votes, onVote: vote } : undefined}
           />
         )}
 
@@ -394,6 +473,8 @@ export function ChatWorkbench({
           saving={savingSettings}
           onChange={updateSettings}
           onClose={() => setPanel("none")}
+          availability={availability}
+          pickerEnabled={pickerOn}
         />
       );
     }

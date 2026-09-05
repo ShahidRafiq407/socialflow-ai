@@ -11,6 +11,8 @@
 import prisma from "@/lib/db";
 import { getAppBaseUrl } from "@/lib/media/urls";
 import { getOrCreateReferralCode, unlockMaturedCommissions } from "@/lib/affiliate/referral";
+import { liveAffiliateTerms } from "@/lib/affiliate/terms";
+import type { AffiliateTermsView } from "@/lib/affiliate/config";
 
 /** Enough of an identity to recognise, not enough to contact. */
 function maskName(name: string | null, email: string): string {
@@ -70,9 +72,12 @@ export interface AffiliateOverview {
   payouts: PayoutRow[];
   /** A withdrawal already in flight; the form waits until it settles. */
   hasOpenPayout: boolean;
+  /** The commission and payout terms in force, as set in the back office. */
+  terms: AffiliateTermsView;
 }
 
 export async function getAffiliateOverview(userId: string): Promise<AffiliateOverview> {
+  const terms = await liveAffiliateTerms();
   const code = await getOrCreateReferralCode(userId);
   await unlockMaturedCommissions(userId);
 
@@ -204,5 +209,6 @@ export async function getAffiliateOverview(userId: string): Promise<AffiliateOve
       paidAt: p.paidAt?.toISOString() ?? null,
     })),
     hasOpenPayout,
+    terms,
   };
 }

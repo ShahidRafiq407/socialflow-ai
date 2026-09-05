@@ -7,11 +7,9 @@
 // Ownership is verified on every call: a workspace id from the client is only
 // accepted when it belongs to the caller.
 //
-// NOTE ON DELETES: the Prisma schema has no onDelete: Cascade on workspace
-// relations (only Message→ChatSession and LinkClick→TrackedLink), so a plain
-// `workspace.delete` would fail with a foreign-key error. Deletes therefore
-// remove the children in FK-safe order inside one transaction — no schema
-// migration is involved.
+// NOTE ON DELETES: the FK-safe ordering lives in `@/lib/account/purge` and is
+// shared with the admin's delete-account action, so the two cannot disagree
+// about what "everything" means.
 // ============================================================================
 
 "use server";
@@ -19,10 +17,13 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import prisma from "@/lib/db";
 import { clearActiveWorkspaceCookie } from "@/lib/workspace/active";
-import { removeFromScheduleQueue } from "@/lib/redis";
+import {
+  PURGE_TRANSACTION_OPTIONS,
+  clearScheduleQueueFor,
+  purgeWorkspaceRows,
+} from "@/lib/account/purge";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Update workspace profile fields (Settings → Workspace)
@@ -97,63 +98,6 @@ export async function updateWorkspaceSettings(
 // ─────────────────────────────────────────────────────────────────────────────
 // Delete a single workspace (Settings → Danger Zone)
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Deletes every row that belongs to a workspace, in FK-safe order, then the
- * workspace itself. Kept separate from the caller so account closure reuses
- * the exact same ordering.
- */
-async function purgeWorkspaceRows(tx: Prisma.TransactionClient, workspaceIds: string[]) {
-  if (workspaceIds.length === 0) return;
-  const where = { workspaceId: { in: workspaceIds } };
-
-  await tx.contentPost.deleteMany({ where });
-  await tx.automationRule.deleteMany({ where });
-  await tx.post.deleteMany({ where });
-  await tx.socialAccount.deleteMany({ where });
-  await tx.competitor.deleteMany({ where });
-  await tx.brandDNA.deleteMany({ where });
-  await tx.chatSettings.deleteMany({ where });
-  await tx.growthGoal.deleteMany({ where });
-  await tx.memory.deleteMany({ where });
-  await tx.mediaAsset.deleteMany({ where });
-  await tx.hashtagGroup.deleteMany({ where });
-  await tx.wordPressSite.deleteMany({ where });
-  await tx.userConnection.deleteMany({ where });
-  await tx.mcpServerConnection.deleteMany({ where });
-  await tx.leadEvent.deleteMany({ where });
-  await tx.publishLog.deleteMany({ where });
-  // LinkClick + Message first so the delete never depends on DB-level cascades.
-  await tx.linkClick.deleteMany({ where });
-  await tx.message.deleteMany({ where: { chatSession: { workspaceId: { in: workspaceIds } } } });
-  await tx.chatSession.deleteMany({ where });
-  await tx.trackedLink.deleteMany({ where });
-  // Article pipeline: the run holds a required workspace FK (no cascade), while
-  // its stages, sources and claims cascade on runId.
-  await tx.articleRun.deleteMany({ where });
-  await tx.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
-}
-
-/**
- * Interactive transactions default to a 5s timeout — far too little for ~23
- * sequential deletes over a remote database on a populated account. The purge
- * is all-or-nothing, so a generous ceiling beats a mid-way abort that rolls
- * everything back and makes the user retry.
- */
-const PURGE_TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
-
-/** Best-effort: drop this workspace's scheduled posts from the Redis queue. */
-async function clearScheduleQueueFor(workspaceId: string) {
-  try {
-    const scheduled = await prisma.post.findMany({
-      where: { workspaceId, status: "SCHEDULED" },
-      select: { id: true },
-    });
-    await Promise.all(scheduled.map((p) => removeFromScheduleQueue(p.id)));
-  } catch {
-    // Queue entries for missing posts are already skipped by the publish cron.
-  }
-}
 
 export async function deleteWorkspace(workspaceId: string): Promise<{ success: true; redirect: string } | { success: false; error: string }> {
   const { userId } = await auth();

@@ -32,6 +32,7 @@ import {
   type PlanTier,
 } from "@/lib/billing/plans";
 import { getPlanContext } from "@/lib/billing/entitlements";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import {
   changePlan,
   createCheckout,
@@ -92,6 +93,7 @@ export async function POST(req: Request) {
     const { userId } = await auth();
     if (!userId) return fail(401, "UNAUTHORIZED", "Please sign in first.");
 
+    await ensureRuntimeConfig();
     if (!lemonConfigured()) {
       return fail(
         503,

@@ -1,18 +1,30 @@
 import { VertexAIProvider } from "../providers/VertexAIProvider";
 import { CONTROLLER_MODEL_ID } from "./controller/models";
 import { IMAGE_MODEL_ID, VIDEO_MODEL_ID } from "./mediaModels";
+import { modelForRole } from "@/lib/admin/runtimeConfig";
 
 // Centralized ELITE-tier Google Vertex AI model mapping
 // Removed all flash, lite, and low-scale constraints to guarantee production depth
-export const MODELS = {
-  BRAND_ANALYST: "none", // Database processing
+//
+// Three layers decide each id, highest priority first:
+//
+//   1. The admin's pick in the back office (AppSetting "ai.model.<ROLE>"), read
+//      through `modelForRole`. Live within the runtime-config cache window, on
+//      every instance, without a deploy.
+//   2. The environment variable named on each row.
+//   3. The default written here.
+//
+// `MODELS` is a live object: every property is a getter, so the ~70 call sites
+// that read `MODELS.CONTENT_CREATOR` at request time see the current pick.
+const MODEL_DEFAULTS = {
+  BRAND_ANALYST: () => "none", // Database processing
 
   // Premium frontier intelligence text infrastructure from your exact GCP project models list
-  TREND_RESEARCHER: process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
-  COMPETITOR_ANALYST: process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
-  CONTENT_CREATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
-  CEO_SUPERVISOR: process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro-preview", // Exact model string from your Google Usage Dashboard
-  ARTICLE_GENERATOR: process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
+  TREND_RESEARCHER: () => process.env.MODEL_TREND_RESEARCHER || "gemini-3.6-flash",
+  COMPETITOR_ANALYST: () => process.env.MODEL_COMPETITOR_ANALYST || "gemini-3.5-flash-lite",
+  CONTENT_CREATOR: () => process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
+  CEO_SUPERVISOR: () => process.env.MODEL_CEO_AUDITOR || "gemini-3.1-pro-preview", // Exact model string from your Google Usage Dashboard
+  ARTICLE_GENERATOR: () => process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // Master Grade Multimedia Pipelines (Maximum structural clarity)
   //
@@ -21,32 +33,54 @@ export const MODELS = {
   // MODEL_IMAGE_GENERATOR / MODEL_VIDEO_GENERATOR still win if they are set, for
   // a deployment that wants the backend on a different render model than the one
   // the pickers advertise.
-  VISUALIZER: process.env.MODEL_IMAGE_GENERATOR || IMAGE_MODEL_ID,
+  VISUALIZER: () => process.env.MODEL_IMAGE_GENERATOR || IMAGE_MODEL_ID,
   // The video model generates short-form video from text/image prompts.
-  VIDEO: process.env.MODEL_VIDEO_GENERATOR || VIDEO_MODEL_ID,
+  VIDEO: () => process.env.MODEL_VIDEO_GENERATOR || VIDEO_MODEL_ID,
 
   // Regenerating a single slide's copy is a content-creator job, so it follows the
   // content-creator override rather than the (unrelated) competitor-analyst one.
-  SLIDE_REGENERATOR:
+  SLIDE_REGENERATOR: () =>
     process.env.MODEL_SLIDE_REGENERATOR || process.env.MODEL_CONTENT_CREATOR || "gemini-3.1-pro-preview",
 
   // The "Marketing Brain" orchestrator / planner / synthesizer model
-  ORCHESTRATOR: process.env.MODEL_ORCHESTRATOR || "gemini-3.1-pro-preview",
-  EMBEDDING: process.env.MODEL_EMBEDDING || "text-embedding-004",
+  ORCHESTRATOR: () => process.env.MODEL_ORCHESTRATOR || "gemini-3.1-pro-preview",
+  EMBEDDING: () => process.env.MODEL_EMBEDDING || "text-embedding-004",
 
   // The Automate Task controller. CHAT_CONTROLLER is the same id the chat picker
   // shows (see src/lib/agents/controller/models.ts) so the label can never drift
   // from the model that actually runs. CHAT_UTILITY is the small fast model for
   // the controller's background chores — naming a session, follow-up chips,
   // memory extraction, rolling summaries — none of which need the frontier model.
-  CHAT_CONTROLLER: CONTROLLER_MODEL_ID,
-  CHAT_UTILITY: process.env.MODEL_CHAT_UTILITY || "gemini-3.6-flash",
-};
+  CHAT_CONTROLLER: () => CONTROLLER_MODEL_ID,
+  CHAT_UTILITY: () => process.env.MODEL_CHAT_UTILITY || "gemini-3.6-flash",
+} as const;
 
-let currentWorkingModel = MODELS.CONTENT_CREATOR;
+export type ModelRole = keyof typeof MODEL_DEFAULTS;
+
+/** The id a role runs on right now, admin pick first. */
+export function resolveRoleModel(role: ModelRole): string {
+  return modelForRole(role) || MODEL_DEFAULTS[role]();
+}
+
+/** The code/env default for a role, so the admin screen can show what "reset" returns to. */
+export function defaultRoleModel(role: ModelRole): string {
+  return MODEL_DEFAULTS[role]();
+}
+
+export const MODELS: Record<ModelRole, string> = Object.defineProperties(
+  {} as Record<ModelRole, string>,
+  Object.fromEntries(
+    (Object.keys(MODEL_DEFAULTS) as ModelRole[]).map((role) => [
+      role,
+      { enumerable: true, get: () => resolveRoleModel(role) },
+    ])
+  )
+);
+
+let currentWorkingModel: string | null = null;
 
 export function getWorkingModelName() {
-  return currentWorkingModel;
+  return currentWorkingModel ?? MODELS.CONTENT_CREATOR;
 }
 
 export function setWorkingModelName(name: string) {

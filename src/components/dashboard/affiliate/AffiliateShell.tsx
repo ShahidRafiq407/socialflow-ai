@@ -35,7 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { requestPayoutAction, convertToCreditsAction } from "@/actions/affiliate";
-import { AFFILIATE, formatUsd } from "@/lib/affiliate/config";
+import { AFFILIATE, DEFAULT_TERMS_VIEW, formatUsd } from "@/lib/affiliate/config";
 import type { AffiliateOverview, PayoutRow, ReferralRow } from "@/lib/affiliate/overview";
 
 type PayoutMethodValue = "JAZZCASH" | "EASYPAISA" | "PAYPAL";
@@ -94,6 +94,7 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
   // No local copy of the data: after every action the server re-renders this
   // component with fresh props, and a second copy would only be a stale one.
   const data = initial;
+  const terms = data.terms ?? DEFAULT_TERMS_VIEW;
   const [copied, setCopied] = useState<string | null>(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -166,8 +167,8 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
   };
 
   const s = data.stats;
-  const canPayout = s.availableCents >= AFFILIATE.minPayoutCents && !data.hasOpenPayout;
-  const canConvert = s.availableCents >= AFFILIATE.minCreditConversionCents;
+  const canPayout = s.availableCents >= terms.minPayoutCents && !data.hasOpenPayout;
+  const canConvert = s.availableCents >= terms.minCreditConversionCents;
 
   return (
     <div className="space-y-6">
@@ -176,9 +177,9 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
         <h1 className="text-2xl font-bold tracking-tight">Affiliate program</h1>
         <p className="text-sm text-muted-foreground">
           Share your link. When someone you brought in buys their first plan, you earn{" "}
-          <strong>{formatUsd(AFFILIATE.flatCommissionCents)}</strong> or{" "}
-          <strong>{AFFILIATE.commissionPercent}% of their first payment</strong> — whichever is more. Take it as
-          platform credits or cash ({formatUsd(AFFILIATE.minPayoutCents)} minimum).
+          <strong>{formatUsd(terms.flatCommissionCents)}</strong> or{" "}
+          <strong>{terms.commissionPercent}% of their first payment</strong> — whichever is more. Take it as
+          platform credits or cash ({formatUsd(terms.minPayoutCents)} minimum).
         </p>
       </div>
 
@@ -256,7 +257,7 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
             <Wallet className="h-4 w-4" /> Earnings
           </CardTitle>
           <CardDescription>
-            Every commission waits {AFFILIATE.lockDays} days after the purchase — long enough for a refund to cancel
+            Every commission waits {terms.lockDays} days after the purchase — long enough for a refund to cancel
             it. After that it is yours to spend or withdraw.
           </CardDescription>
         </CardHeader>
@@ -297,7 +298,7 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
               <span className="self-center text-xs text-muted-foreground">
                 {data.hasOpenPayout
                   ? "A payout is already being processed."
-                  : `Minimum payout is ${formatUsd(AFFILIATE.minPayoutCents)}.`}
+                  : `Minimum payout is ${formatUsd(terms.minPayoutCents)}.`}
               </span>
             )}
           </div>
@@ -433,8 +434,8 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
         <CardContent>
           <ul className="list-inside list-disc space-y-1.5 text-sm text-muted-foreground">
             <li>
-              Commission: the higher of {formatUsd(AFFILIATE.flatCommissionCents)} flat or{" "}
-              {AFFILIATE.commissionPercent}% of the referred user&apos;s first plan payment. One commission per
+              Commission: the higher of {formatUsd(terms.flatCommissionCents)} flat or{" "}
+              {terms.commissionPercent}% of the referred user&apos;s first plan payment. One commission per
               referred person — renewals and top-ups do not earn.
             </li>
             <li>
@@ -442,11 +443,11 @@ export function AffiliateShell({ initial }: { initial: AffiliateOverview }) {
               not count.
             </li>
             <li>
-              Each commission waits {AFFILIATE.lockDays} days (the refund window). A refunded purchase cancels its
+              Each commission waits {terms.lockDays} days (the refund window). A refunded purchase cancels its
               commission.
             </li>
             <li>
-              Cash payouts: minimum {formatUsd(AFFILIATE.minPayoutCents)}, paid manually via JazzCash, Easypaisa or
+              Cash payouts: minimum {formatUsd(terms.minPayoutCents)}, paid manually via JazzCash, Easypaisa or
               PayPal to the account details you provide.
             </li>
             <li>

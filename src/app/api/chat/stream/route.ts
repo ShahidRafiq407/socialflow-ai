@@ -21,10 +21,11 @@
 // asset. This endpoint charges for thinking, never for pixels.
 // ============================================================================
 
-import { getEntitlements } from "@/lib/billing/plans";
+import { getEntitlements, planRank } from "@/lib/billing/plans";
 import {
   completeAction,
   failAction,
+  getPlanContext,
   isEntitlementError,
   requireAction,
   type ActionTicket,
@@ -49,7 +50,8 @@ import {
   type ControllerEvent,
 } from "@/lib/agents/controller/types";
 import { parseAllUploadedFiles } from "@/lib/agents/chat/documentParser";
-import { isKnownChatModel } from "@/lib/agents/controller/models";
+import { getChatModel, isKnownChatModel, planMayUseModel } from "@/lib/agents/controller/models";
+import { getFlags } from "@/lib/admin/runtimeConfig";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -153,6 +155,20 @@ export async function POST(req: Request) {
   }
   const { userId, workspaceId } = identity.identity;
 
+  // Which brain, and what it costs. The plan context is loaded once here and
+  // handed to the ticket so the gate does not read it twice. The requested model
+  // has to be one the admin enabled AND one this plan may use; otherwise the turn
+  // falls back to the default brain rather than refusing outright, because a
+  // stale picker value must not stop somebody asking a question.
+  const planContext = await getPlanContext(userId);
+  const settingsForModel = modelOverride ? null : await getChatSettings(workspaceId).catch(() => null);
+  const pickerOn = getFlags().chatModelPickerEnabled;
+  const candidate = pickerOn ? modelOverride || settingsForModel?.model || null : null;
+  const chosen = getChatModel(candidate && isKnownChatModel(candidate) ? candidate : null);
+  const modelAllowed = planMayUseModel(chosen, planContext.plan, planRank);
+  const effectiveModel = modelAllowed ? chosen : getChatModel(null);
+  const turnCredits = effectiveModel.chatCredits ?? actionCredits("chat.message");
+
   // Gate and charge before anything is written down. A refused turn must not leave
   // a user message in history with no answer under it — that reads as a bug rather
   // than as a plan boundary.
@@ -167,6 +183,8 @@ export async function POST(req: Request) {
       action: "chat.message",
       workspaceId,
       referenceId: requestedSessionId,
+      context: planContext,
+      unitCredits: turnCredits,
     });
   } catch (err) {
     if (!isEntitlementError(err)) throw err;
@@ -247,7 +265,7 @@ export async function POST(req: Request) {
         workspaceId,
         sessionId: requestedSessionId,
         firstMessage: message,
-        model: modelOverride || settings.model,
+        model: effectiveModel.id,
       }),
     ]);
     attachments = prepared.attachments;
@@ -381,7 +399,7 @@ export async function POST(req: Request) {
               attachments,
               history: session.history,
               sessionSummary: session.summary,
-              modelOverride,
+              modelOverride: effectiveModel.id,
               settings,
               planTier: ticket.plan,
               maxToolLoops: roundsAllowed,
@@ -491,7 +509,7 @@ export async function POST(req: Request) {
           messageId: "unsaved",
           finishReason: "error",
           durationMs: 0,
-          model: modelOverride || settings.model,
+          model: effectiveModel.id,
           toolCount: 0,
         });
       } finally {

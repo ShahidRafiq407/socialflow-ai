@@ -65,7 +65,8 @@ export interface TopicIdeasResult {
   warnings: string[];
 }
 
-const TOPIC_MODEL = MODELS.ARTICLE_GENERATOR;
+/** Read per call so an admin's model change applies without a deploy. */
+const TOPIC_MODEL = () => MODELS.ARTICLE_GENERATOR;
 const PILLARS = ["Experience", "Expertise", "Authoritativeness", "Trustworthiness"];
 
 function brandBlock(ctx: TopicBrandContext): string {
@@ -95,7 +96,7 @@ async function callJson(system: string, user: string, temperature: number): Prom
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    { modelName: TOPIC_MODEL, temperature }
+    { modelName: TOPIC_MODEL(), temperature }
   );
 }
 

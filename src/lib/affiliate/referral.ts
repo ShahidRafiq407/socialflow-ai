@@ -32,6 +32,8 @@ import {
   signalHash,
 } from "@/lib/billing/trial-guard";
 import { AFFILIATE, commissionFor } from "@/lib/affiliate/config";
+import { liveAffiliateTerms } from "@/lib/affiliate/terms";
+import { ensureRuntimeConfig, getFlags } from "@/lib/admin/runtimeConfig";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The referral code
@@ -133,6 +135,11 @@ async function readUaHash(): Promise<string | null> {
  * again — a code changed mid-session cannot re-attribute a person.
  */
 export async function attributeReferral(userId: string): Promise<void> {
+  // The admin can switch the program off; a signup while it is off is simply
+  // not attributed, the same as arriving without a code.
+  await ensureRuntimeConfig();
+  if (!getFlags().affiliateEnabled) return;
+
   // One attribution per person, decided once, at signup.
   const existing = await prisma.referral.findUnique({
     where: { referredId: userId },
@@ -275,7 +282,8 @@ export async function markReferralConverted(
   if (!referral || referral.status !== "PENDING") return;
 
   const basis = info.amountCents && info.amountCents > 0 ? info.amountCents : 0;
-  const amountCents = commissionFor(basis);
+  const terms = await liveAffiliateTerms();
+  const amountCents = commissionFor(basis, terms);
 
   await prisma.$transaction(async (tx) => {
     const converted = await tx.referral.updateMany({
@@ -296,7 +304,7 @@ export async function markReferralConverted(
         amountCents,
         basisCents: basis,
         status: "LOCKED",
-        unlocksAt: new Date(Date.now() + AFFILIATE.lockDays * 24 * 60 * 60 * 1000),
+        unlocksAt: new Date(Date.now() + terms.lockDays * 24 * 60 * 60 * 1000),
       },
     });
   }).catch((err) => {

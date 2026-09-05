@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import prisma from "@/lib/db";
 import { getPlanConfig, type PlanTier } from "@/lib/billing/plans";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import {
   cancelSubscription,
   getPortalUrls,
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
   try {
     const { userId } = await auth();
     if (!userId) return fail(401, "UNAUTHORIZED", "Please sign in first.");
+    await ensureRuntimeConfig();
     if (!lemonConfigured()) {
       return fail(503, "PAYMENT_NOT_CONFIGURED", "Billing is not switched on yet.");
     }

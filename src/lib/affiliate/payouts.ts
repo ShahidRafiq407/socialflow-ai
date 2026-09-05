@@ -22,6 +22,7 @@ import prisma from "@/lib/db";
 import { encryptSecret } from "@/lib/crypto";
 import { addTopUpCredits } from "@/lib/billing/wallet";
 import { AFFILIATE, centsToCredits } from "@/lib/affiliate/config";
+import { liveAffiliateTerms } from "@/lib/affiliate/terms";
 
 export type PayoutMethodValue = "JAZZCASH" | "EASYPAISA" | "PAYPAL";
 
@@ -95,6 +96,8 @@ export async function requestPayout(args: {
     };
   }
 
+  const terms = await liveAffiliateTerms();
+
   try {
     return await prisma.$transaction(async (tx) => {
       const open = await tx.payout.findFirst({
@@ -113,10 +116,10 @@ export async function requestPayout(args: {
       });
 
       const availableCents = available.reduce((sum, c) => sum + c.amountCents, 0);
-      if (availableCents < AFFILIATE.minPayoutCents) {
+      if (availableCents < terms.minPayoutCents) {
         return {
           ok: false,
-          error: `You need at least $${(AFFILIATE.minPayoutCents / 100).toFixed(0)} available to request a payout.`,
+          error: `You need at least ${(terms.minPayoutCents / 100).toFixed(0)} available to request a payout.`,
         };
       }
 

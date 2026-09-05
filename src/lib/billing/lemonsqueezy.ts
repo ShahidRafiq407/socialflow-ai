@@ -33,6 +33,12 @@ import type { PlanTier } from "./plans";
 import { PLAN_CATALOG, TOPUP_PACKS, isPlanTier } from "./plans";
 // Type-only, so this file still pulls in nothing at runtime but `node:crypto`.
 import type { SubscriptionStatusValue } from "./entitlements";
+import { getFlags, managedKey } from "@/lib/admin/runtimeConfig";
+
+/** Every Lemon Squeezy value can be set from the back office; the env is the fallback. */
+function lemonEnv(name: string): string {
+  return managedKey(name);
+}
 
 export const LEMON_API_BASE = "https://api.lemonsqueezy.com/v1";
 
@@ -99,15 +105,15 @@ export interface LemonConfig {
 
 /** Test mode follows the API key: `test_` keys can only create test checkouts. */
 export function lemonTestMode(): boolean {
-  const key = process.env.LEMONSQUEEZY_API_KEY ?? "";
+  const key = lemonEnv("LEMONSQUEEZY_API_KEY");
   if (key.startsWith("test_")) return true;
-  return process.env.LEMONSQUEEZY_TEST_MODE === "true";
+  return lemonEnv("LEMONSQUEEZY_TEST_MODE") === "true";
 }
 
 export function readLemonConfig(): LemonConfig | null {
-  const apiKey = process.env.LEMONSQUEEZY_API_KEY?.trim();
-  const storeId = process.env.LEMONSQUEEZY_STORE_ID?.trim();
-  const webhookSecret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.trim() ?? "";
+  const apiKey = lemonEnv("LEMONSQUEEZY_API_KEY");
+  const storeId = lemonEnv("LEMONSQUEEZY_STORE_ID");
+  const webhookSecret = lemonEnv("LEMONSQUEEZY_WEBHOOK_SECRET");
   if (!apiKey || !storeId) return null;
   return { apiKey, storeId, webhookSecret, testMode: lemonTestMode() };
 }
@@ -119,7 +125,7 @@ export function lemonConfigured(): boolean {
 
 /** True when an incoming webhook can be verified. Checked before every handler. */
 export function lemonWebhookConfigured(): boolean {
-  return (process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.trim() ?? "").length > 0;
+  return lemonEnv("LEMONSQUEEZY_WEBHOOK_SECRET").length > 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,7 +170,7 @@ const TRIAL_ENV_VAR = "LEMONSQUEEZY_VARIANT_TRIAL";
 export function variantCatalog(): VariantRef[] {
   const refs: VariantRef[] = [];
 
-  const trialId = process.env[TRIAL_ENV_VAR]?.trim();
+  const trialId = lemonEnv(TRIAL_ENV_VAR);
   refs.push({
     variantId: trialId ?? "",
     kind: "trial",
@@ -176,7 +182,7 @@ export function variantCatalog(): VariantRef[] {
     for (const cycle of ["monthly", "yearly"] as BillingCycleValue[]) {
       const envVar = envVarForPlan(plan, cycle);
       refs.push({
-        variantId: process.env[envVar]?.trim() ?? "",
+        variantId: lemonEnv(envVar),
         kind: "subscription",
         plan,
         cycle,
@@ -188,7 +194,7 @@ export function variantCatalog(): VariantRef[] {
   for (const pack of TOPUP_PACKS) {
     const envVar = envVarForPack(pack.id);
     refs.push({
-      variantId: process.env[envVar]?.trim() ?? "",
+      variantId: lemonEnv(envVar),
       kind: "topup",
       packId: pack.id,
       envVar,
@@ -202,16 +208,16 @@ export function variantCatalog(): VariantRef[] {
 export function variantForPlan(plan: PlanTier, cycle: BillingCycleValue): string | null {
   if (plan === "FREE") return null;
   if (plan === "TRIAL") return variantForTrial();
-  return process.env[envVarForPlan(plan, cycle)]?.trim() || null;
+  return lemonEnv(envVarForPlan(plan, cycle)) || null;
 }
 
 export function variantForTrial(): string | null {
-  return process.env[TRIAL_ENV_VAR]?.trim() || null;
+  return lemonEnv(TRIAL_ENV_VAR) || null;
 }
 
 export function variantForTopUp(packId: string): string | null {
   if (!TOPUP_PACKS.some((pack) => pack.id === packId)) return null;
-  return process.env[envVarForPack(packId)]?.trim() || null;
+  return lemonEnv(envVarForPack(packId)) || null;
 }
 
 /**
@@ -242,11 +248,11 @@ export function paidPlansPurchasable(): boolean {
 }
 
 export function trialPurchasable(): boolean {
-  return lemonConfigured() && variantForTrial() !== null;
+  return getFlags().trialEnabled && lemonConfigured() && variantForTrial() !== null;
 }
 
 export function topUpsPurchasable(): boolean {
-  return lemonConfigured() && TOPUP_PACKS.every((pack) => variantForTopUp(pack.id) !== null);
+  return getFlags().topUpsEnabled && lemonConfigured() && TOPUP_PACKS.every((pack) => variantForTopUp(pack.id) !== null);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -724,7 +730,7 @@ export async function changePlan(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function verifyWebhookSignature(rawBody: string, signature: string | null | undefined): boolean {
-  const secret = process.env.LEMONSQUEEZY_WEBHOOK_SECRET?.trim();
+  const secret = lemonEnv("LEMONSQUEEZY_WEBHOOK_SECRET");
   if (!secret) {
     console.error("[lemonsqueezy] LEMONSQUEEZY_WEBHOOK_SECRET is not set — refusing the event");
     return false;

@@ -2,6 +2,7 @@
 
 import React, { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { Ban, Wrench } from "lucide-react";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { Header } from "@/components/dashboard/Header";
 import { ActiveWorkspaceProvider } from "@/components/dashboard/ActiveWorkspaceProvider";
@@ -12,11 +13,20 @@ export function DashboardShell({
   workspaces = [],
   activeWorkspaceId = null,
   userDetails = null,
+  isAdmin = false,
+  accountBlock = null,
+  maintenanceMessage = null,
 }: {
   children: React.ReactNode;
   workspaces?: { id: string; name: string }[];
   activeWorkspaceId?: string | null;
   userDetails?: { name: string; email: string } | null;
+  /** Shows the Admin entry in the sidebar; the pages check again server-side. */
+  isAdmin?: boolean;
+  /** Set while the account is suspended: a banner replaces silent refusals. */
+  accountBlock?: { blockedAt: string; reason: string } | null;
+  /** The admin's maintenance banner, when the flag is on. */
+  maintenanceMessage?: string | null;
 }) {
   const pathname = usePathname();
   const isOnboarding = pathname === "/onboarding";
@@ -50,13 +60,28 @@ export function DashboardShell({
   return (
     <ActiveWorkspaceProvider activeWorkspaceId={activeWorkspaceId}>
       <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
-        <Sidebar />
+        <Sidebar isAdmin={isAdmin} />
         <div className="flex-1 flex flex-col md:pl-[250px] min-w-0">
           <Header
             workspaces={workspaces}
             activeWorkspaceId={activeWorkspaceId}
             userDetails={userDetails}
+            isAdmin={isAdmin}
           />
+          {accountBlock && (
+            <div className="flex items-start gap-2 border-b border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-800 dark:text-rose-200 md:px-6">
+              <Ban className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <span className="font-semibold">Your account is suspended.</span> {accountBlock.reason}
+              </div>
+            </div>
+          )}
+          {maintenanceMessage && !accountBlock && (
+            <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-900 dark:text-amber-200 md:px-6">
+              <Wrench className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>{maintenanceMessage}</div>
+            </div>
+          )}
           {/*
             The key is the fix for "the tabs below still show the old
             workspace". Page bodies are client components that seed state with

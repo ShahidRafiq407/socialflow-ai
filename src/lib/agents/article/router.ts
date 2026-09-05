@@ -32,24 +32,24 @@ export type ModelCapability = "fast" | "reasoning" | "writing" | "research" | "v
 interface CapabilitySpec {
   /** Deployment override. Set this to move a capability without touching code. */
   env: string;
-  /** The shared default for this kind of work. */
-  fallback: string;
+  /** The shared default for this kind of work, read per call so an admin's pick applies live. */
+  fallback: () => string;
   /** Where this kind of work sits between literal and loose. */
   temperature: number;
 }
 
 const CAPABILITIES: Record<ModelCapability, CapabilitySpec> = {
-  fast: { env: "MODEL_ARTICLE_FAST", fallback: MODELS.CHAT_UTILITY, temperature: 0.2 },
-  reasoning: { env: "MODEL_ARTICLE_REASONING", fallback: MODELS.ORCHESTRATOR, temperature: 0.3 },
-  writing: { env: "MODEL_ARTICLE_WRITING", fallback: MODELS.CONTENT_CREATOR, temperature: 0.6 },
-  research: { env: "MODEL_ARTICLE_RESEARCH", fallback: MODELS.TREND_RESEARCHER, temperature: 0.3 },
-  vision: { env: "MODEL_ARTICLE_VISION", fallback: MODELS.VISUALIZER, temperature: 0.4 },
+  fast: { env: "MODEL_ARTICLE_FAST", fallback: () => MODELS.CHAT_UTILITY, temperature: 0.2 },
+  reasoning: { env: "MODEL_ARTICLE_REASONING", fallback: () => MODELS.ORCHESTRATOR, temperature: 0.3 },
+  writing: { env: "MODEL_ARTICLE_WRITING", fallback: () => MODELS.CONTENT_CREATOR, temperature: 0.6 },
+  research: { env: "MODEL_ARTICLE_RESEARCH", fallback: () => MODELS.TREND_RESEARCHER, temperature: 0.3 },
+  vision: { env: "MODEL_ARTICLE_VISION", fallback: () => MODELS.VISUALIZER, temperature: 0.4 },
 };
 /** The model id this capability resolves to right now. */
 export function resolveModel(capability: ModelCapability): string {
   const spec = CAPABILITIES[capability];
   const override = process.env[spec.env];
-  return (typeof override === "string" && override.trim()) || spec.fallback;
+  return (typeof override === "string" && override.trim()) || spec.fallback();
 }
 
 /**

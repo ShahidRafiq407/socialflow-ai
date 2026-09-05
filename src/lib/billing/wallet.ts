@@ -920,6 +920,85 @@ export async function addTopUpCredits(args: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Operator adjustments
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * An admin adds or removes credits by hand. Always an ADJUSTMENT row with a note,
+ * never a GRANT or DEBIT, so a customer's statement and the pricing post-mortems
+ * can tell a manual correction from a plan grant or a real spend.
+ *
+ * Positive amounts land on the top-up balance, which never expires — a goodwill
+ * credit that vanished at the next renewal would be a broken promise. Negative
+ * amounts come off the top-up balance first, then the grant, and stop at zero.
+ */
+export async function adjustCredits(args: {
+  userId: string;
+  credits: number;
+  note: string;
+  idempotencyKey?: string;
+  plan?: PlanTier;
+}): Promise<DebitResult & { applied?: number }> {
+  const { userId } = args;
+  const credits = Math.round(args.credits);
+  if (!Number.isFinite(credits) || credits === 0) return { ok: true, applied: 0 };
+
+  await ensureWallet(userId, args.plan ?? "FREE");
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const wallet = await lockWallet(tx, userId);
+      if (!wallet) return { ok: false, reason: "NO_WALLET" as const };
+
+      let applied = credits;
+      let topUpDelta = 0;
+      let grantDelta = 0;
+
+      if (credits > 0) {
+        topUpDelta = credits;
+      } else {
+        const remove = Math.min(-credits, wallet.topUpBalance + wallet.grantBalance);
+        const fromTopUp = Math.min(remove, wallet.topUpBalance);
+        topUpDelta = -fromTopUp;
+        grantDelta = -(remove - fromTopUp);
+        applied = -remove;
+      }
+
+      await tx.creditWallet.update({
+        where: { id: wallet.id },
+        data: {
+          topUpBalance: { increment: topUpDelta },
+          grantBalance: { increment: grantDelta },
+          ...(applied > 0 ? { lifetimeGranted: { increment: applied } } : {}),
+        },
+      });
+
+      const balanceAfter = wallet.grantBalance + wallet.topUpBalance + applied;
+      const ledgerId = await writeLedger(tx, {
+        walletId: wallet.id,
+        userId,
+        kind: "ADJUSTMENT",
+        credits: applied,
+        balanceAfter,
+        idempotencyKey: args.idempotencyKey ?? null,
+        note: args.note,
+      });
+
+      return { ok: true, ledgerId, balance: balanceAfter, applied };
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      const existing = await prisma.creditLedger.findFirst({
+        where: { idempotencyKey: args.idempotencyKey },
+        select: { id: true, balanceAfter: true },
+      });
+      return { ok: true, ledgerId: existing?.id, balance: existing?.balanceAfter, applied: 0 };
+    }
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Housekeeping and reads
 // ─────────────────────────────────────────────────────────────────────────────
 

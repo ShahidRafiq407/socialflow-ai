@@ -35,6 +35,7 @@
 
 import { createHash } from "node:crypto";
 import prisma from "@/lib/db";
+import { managedKey } from "@/lib/admin/runtimeConfig";
 
 export type TrialDecisionValue = "ALLOWED" | "BLOCKED" | "FLAGGED";
 
@@ -388,10 +389,10 @@ async function viaIpApiIs(ip: string, key: string | null): Promise<IpIntel | nul
 export async function lookupIpIntel(ip: string | null): Promise<IpIntel> {
   if (!ip || isPrivateIp(ip)) return { ...UNKNOWN_INTEL, source: ip ? "private" : null };
 
-  const vpnApiKey = process.env.VPNAPI_IO_KEY?.trim();
-  const ipqsKey = process.env.IPQUALITYSCORE_KEY?.trim();
-  const proxyCheckKey = process.env.PROXYCHECK_IO_KEY?.trim();
-  const ipApiIsKey = process.env.IPAPI_IS_KEY?.trim() ?? null;
+  const vpnApiKey = managedKey("VPNAPI_IO_KEY") || undefined;
+  const ipqsKey = managedKey("IPQUALITYSCORE_KEY") || undefined;
+  const proxyCheckKey = managedKey("PROXYCHECK_IO_KEY") || undefined;
+  const ipApiIsKey = managedKey("IPAPI_IS_KEY") || null;
 
   const attempts: Array<() => Promise<IpIntel | null>> = [];
   if (ipqsKey) attempts.push(() => viaIpQualityScore(ip, ipqsKey));

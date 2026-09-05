@@ -18,6 +18,8 @@ import {
   ImageIcon,
   Music,
   RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
   Video,
 } from "lucide-react";
 import type { AttachmentRef, ChatMessage } from "@/lib/agents/controller/types";
@@ -26,6 +28,14 @@ import { Markdown } from "./Markdown";
 import { ThinkingStream } from "./ThinkingStream";
 import { ToolTimeline } from "./ToolTimeline";
 import { ArtifactCards } from "./ArtifactCards";
+
+/** A vote already cast on a message, keyed by message id. */
+export type FeedbackVotes = Record<string, 1 | -1>;
+
+export interface FeedbackHandlers {
+  votes: FeedbackVotes;
+  onVote: (message: ChatMessage, rating: 1 | -1, comment?: string) => void;
+}
 
 const ATTACHMENT_ICON: Record<string, typeof FileText> = {
   image: ImageIcon,
@@ -96,16 +106,85 @@ function CopyAnswer({ text }: { text: string }) {
   );
 }
 
+/**
+ * Thumbs under an answer. A down-vote opens a one-line "what went wrong" box;
+ * the vote itself is sent at once so the box can be ignored. Only messages the
+ * server has saved (a real id, not the client's placeholder) can be voted on.
+ */
+function FeedbackButtons({
+  message,
+  vote,
+  onVote,
+}: {
+  message: ChatMessage;
+  vote: 1 | -1 | undefined;
+  onVote: (rating: 1 | -1, comment?: string) => void;
+}) {
+  const [askWhy, setAskWhy] = useState(false);
+  const [why, setWhy] = useState("");
+  const saved = !message.id.startsWith("a-");
+  if (!saved) return null;
+
+  const cls = (active: boolean) =>
+    `flex items-center rounded-md px-1.5 py-0.5 text-[11px] transition-colors ${
+      active ? "mkt-accent-text" : "mkt-faint hover:mkt-muted"
+    }`;
+
+  return (
+    <>
+      <button type="button" title="Helpful" className={cls(vote === 1)} onClick={() => { setAskWhy(false); onVote(1); }}>
+        <ThumbsUp className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        title="Not helpful"
+        className={cls(vote === -1)}
+        onClick={() => {
+          onVote(-1);
+          setAskWhy(true);
+        }}
+      >
+        <ThumbsDown className="h-3 w-3" />
+      </button>
+      {askWhy && (
+        <form
+          className="flex items-center gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onVote(-1, why.trim() || undefined);
+            setAskWhy(false);
+            setWhy("");
+          }}
+        >
+          <input
+            autoFocus
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            placeholder="What went wrong? (optional)"
+            maxLength={2000}
+            className="h-6 w-56 rounded-md border mkt-border bg-transparent px-2 text-[11px] mkt-text outline-none"
+          />
+          <button type="submit" className="rounded-md px-1.5 py-0.5 text-[11px] mkt-accent-text">
+            Send
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
 function AssistantMessage({
   message,
   settings,
   onSuggestion,
   onRetry,
+  feedback,
 }: {
   message: ChatMessage;
   settings: ChatSettings;
   onSuggestion: (text: string) => void;
   onRetry?: () => void;
+  feedback?: FeedbackHandlers;
 }) {
   const empty =
     !message.streaming &&
@@ -149,7 +228,7 @@ function AssistantMessage({
       )}
 
       {!message.streaming && (
-        <div className="mt-2 flex items-center gap-2.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="mt-2 flex flex-wrap items-center gap-2.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <CopyAnswer text={message.content} />
           {onRetry && (
             <button
@@ -160,6 +239,13 @@ function AssistantMessage({
               <RotateCcw className="h-3 w-3" />
               Retry
             </button>
+          )}
+          {feedback && message.content.trim() && (
+            <FeedbackButtons
+              message={message}
+              vote={feedback.votes[message.id]}
+              onVote={(rating, comment) => feedback.onVote(message, rating, comment)}
+            />
           )}
           {message.model && <span className="text-[11px] mkt-faint">{message.model}</span>}
           {typeof message.durationMs === "number" && message.durationMs > 0 && (
@@ -195,6 +281,8 @@ interface MessageThreadProps {
   streaming: boolean;
   onSuggestion: (text: string) => void;
   onRetry: (message: ChatMessage) => void;
+  /** Present when the admin has chat feedback switched on. */
+  feedback?: FeedbackHandlers;
 }
 
 export function MessageThread({
@@ -203,6 +291,7 @@ export function MessageThread({
   streaming,
   onSuggestion,
   onRetry,
+  feedback,
 }: MessageThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -235,6 +324,7 @@ export function MessageThread({
               message={message}
               settings={settings}
               onSuggestion={onSuggestion}
+              feedback={feedback}
               onRetry={
                 !message.streaming && index === messages.length - 1
                   ? () => onRetry(messages[index - 1])
