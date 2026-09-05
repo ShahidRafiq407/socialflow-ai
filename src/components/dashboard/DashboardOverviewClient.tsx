@@ -267,10 +267,12 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
       </div>
 
       {/* 2. Plan, Quota & Billing Status Hub */}
-      <DashboardPlanStatus
-        credits={credits}
-        connectedCount={connectedCount}
-      />
+      <div id="plan-status" className="scroll-mt-20">
+        <DashboardPlanStatus
+          credits={credits}
+          connectedCount={connectedCount}
+        />
+      </div>
 
       {/* 3. Action Feedback Notification */}
       {actionMessage && (
@@ -306,12 +308,14 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
       )}
 
       {/* 6. Quick Create Hub */}
-      <DashboardQuickCreate
-        workspaceIndustry={workspace.industry}
-      />
+      <div id="quick-create" className="scroll-mt-20">
+        <DashboardQuickCreate
+          workspaceIndustry={workspace.industry}
+        />
+      </div>
 
       {/* 7. Real Measured KPI Cards with Sparklines */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div id="kpi-cards" className="grid grid-cols-2 gap-3 lg:grid-cols-4 scroll-mt-20">
         <StatCard
           label="Link Clicks (7d)"
           value={formatNum(kpis.clicks.this7d)}
@@ -404,7 +408,9 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
 
       {/* 9. Weekly Content Runway (7-Day Rolling Calendar) */}
       {data.weeklyCalendar && data.weeklyCalendar.length > 0 && (
-        <DashboardWeeklyRunway days={data.weeklyCalendar} />
+        <div id="weekly-runway" className="scroll-mt-20">
+          <DashboardWeeklyRunway days={data.weeklyCalendar} />
+        </div>
       )}
 
       {/* 10. Queue & Audience Peak Time Radar */}
@@ -560,7 +566,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
       )}
 
       {/* 12. Live Niche Trends & Platform Results */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div id="radar-trends" className="grid grid-cols-1 gap-5 lg:grid-cols-2 scroll-mt-20">
         {/* Live Niche Trends */}
         <DashboardTrendingNiche industry={workspace.industry} />
 

@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { listPublishTargets } from "@/actions/cmsTargets";
 import { ToastStack, useToasts } from "@/components/dashboard/goals/shared";
+import { SectionExplainer } from "@/components/dashboard/SectionExplainer";
 import { describeBrandFacts } from "@/lib/brand/profile";
 import {
   BRIEF_CONTROLS,
@@ -932,12 +933,16 @@ export function ArticleWriterHQ({
       <header className="rounded-2xl border border-border bg-card p-4 md:p-5">
         <div className="flex flex-wrap items-start gap-4">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-              Article writer
+            <SectionExplainer
+              title="Article Writer"
+              explanation="Create search-ranked, long-form SEO articles with keyword research, real competitor analysis, auto-generated visuals, and one-click publishing to WordPress, Shopify, or custom CMS."
+              tip="Use 'Deep' mode for comprehensive multi-stage research or 'Quick' mode for rapid, high-quality drafts."
+              badge="SEO Engine"
+              headingClassName="text-lg font-black text-foreground md:text-xl"
+            />
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Writing for <strong className="text-foreground">{workspaceName}</strong>
             </p>
-            <h1 className="text-lg font-black text-foreground md:text-xl">
-              Write for {workspaceName}
-            </h1>
             {brandFacts.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {brandFacts.map((fact) => (

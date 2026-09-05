@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { goalLeadNoun, type GoalStatus, type GrowthStrategy } from "@/lib/types/growth";
 import { Chip, InfoDot, StatTile, ToastStack, useToasts } from "./shared";
+import { SectionExplainer } from "@/components/dashboard/SectionExplainer";
 import type { ChannelSection, GoalHQData, GoalTabKey } from "./types";
 import { GoalWizardTab } from "./GoalWizardTab";
 import { ChannelTab } from "./ChannelTab";
@@ -275,16 +276,19 @@ export function GoalHQShell({ data }: { data: GoalHQData }) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground sm:text-2xl">Lead goal</h1>
+              <SectionExplainer
+                title="Lead Goal"
+                explanation="Set your target lead numbers and timeframe. Postloom calculates the daily posting pace required, produces the creative, and measures verified clicks and confirmed leads."
+                tip="Turn on Autopilot to automatically generate and publish posts adhering to your goal velocity."
+                badge="Strategy HQ"
+                headingClassName="text-xl font-bold text-foreground sm:text-2xl"
+              />
               {goal && (
                 <Chip tone={autopilotOn ? "primary" : "muted"}>
                   {autopilotOn ? "Autopilot on" : "Manual"}
                 </Chip>
               )}
               {goal && <Chip tone={status.tone}>{status.text}</Chip>}
-              <InfoDot
-                text="You say how many leads you want and by when. This page works out how many posts a day that takes, writes them, publishes them, and then counts only what it can actually measure — real clicks on your links and leads you or your website tag confirmed."
-              />
             </div>
 
             {goal ? (

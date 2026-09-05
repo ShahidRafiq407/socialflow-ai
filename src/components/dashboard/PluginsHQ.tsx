@@ -39,6 +39,7 @@ import { PluginSection, type PluginRowStatus } from "./plugins/PluginDirectory";
 import PublishTargetsPanel from "./article-writer/PublishTargetsPanel";
 import type { PublishTargetsView } from "./article-writer/PublishTargetsPanel";
 import CustomSiteGuide from "./plugins/CustomSiteGuide";
+import { SectionExplainer } from "@/components/dashboard/SectionExplainer";
 
 /** How many rows a category shows before the rest fold into an overflow row. */
 const VISIBLE_PER_SECTION = 4;
@@ -313,11 +314,13 @@ export default function PluginsHQ({
     <div className="space-y-8 pb-12">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl">Plugins</h1>
-          <p className="mt-2 flex items-center gap-2 text-base text-slate-500 dark:text-slate-400">
-            Work with AI CEO across your favorite tools.
-            <button type="button" title="Overview: connect a plugin once, then ask AI CEO to use it from chat." aria-label="Plugin user guide overview" className="rounded-full border border-slate-300 px-1.5 text-[10px] font-bold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 dark:border-slate-600">?</button>
-          </p>
+          <SectionExplainer
+            title="Plugins & Integrations"
+            explanation="Connect third-party marketing tools, CMS publishing destinations, custom MCP servers, and website tracking tags to expand AI capabilities across your stack."
+            tip="Connect a tool once here, and the AI agent can read data or publish to it automatically."
+            badge="Integrations"
+            headingClassName="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-950 dark:text-white"
+          />
         </div>
         <label className="relative block w-full sm:w-80">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />

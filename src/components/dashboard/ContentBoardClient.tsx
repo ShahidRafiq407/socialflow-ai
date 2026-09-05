@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { SectionExplainer } from "@/components/dashboard/SectionExplainer";
+
 interface ContentBoardClientProps {
   initialPosts: PostProps[];
   workspaceName: string;
@@ -227,15 +229,18 @@ export function ContentBoardClient({
               <Library className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
-                Content Library
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Everything for{" "}
+              <SectionExplainer
+                title="Content Library"
+                explanation="Manage all content for this workspace in one place: review AI drafts, approve the publishing queue, customize scheduled slots, and view live post history."
+                tip="Approve drafts in 'Needs Review' to automatically schedule them for your audience's peak engagement hours."
+                badge="Content HQ"
+                headingClassName="text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight"
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Workspace:{" "}
                 <strong className="text-slate-800 dark:text-slate-200 font-bold">
                   {workspaceName}
-                </strong>{" "}
-                — drafts, reviews, schedule &amp; publish history.
+                </strong>
               </p>
             </div>
           </div>
