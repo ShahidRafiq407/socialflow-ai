@@ -79,8 +79,8 @@ export async function blockUserAction(input: { userId: string; reason: string })
     });
 
     await recordAudit(admin, { action: "user.block", targetType: "user", targetId: data.userId, details: { reason: data.reason } });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
-    revalidatePath("/dashboard/admin/users");
+    revalidatePath(`/adminshahid/users/${data.userId}`);
+    revalidatePath("/adminshahid/users");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -106,8 +106,8 @@ export async function unblockUserAction(input: { userId: string }): Promise<Resu
       },
     });
     await recordAudit(admin, { action: "user.unblock", targetType: "user", targetId: data.userId });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
-    revalidatePath("/dashboard/admin/users");
+    revalidatePath(`/adminshahid/users/${data.userId}`);
+    revalidatePath("/adminshahid/users");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -128,8 +128,8 @@ export async function setUserRoleAction(input: { userId: string; role: "USER" | 
     }
     await prisma.user.update({ where: { id: data.userId }, data: { role: data.role } });
     await recordAudit(admin, { action: "user.role", targetType: "user", targetId: data.userId, details: { role: data.role } });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
-    revalidatePath("/dashboard/admin/users");
+    revalidatePath(`/adminshahid/users/${data.userId}`);
+    revalidatePath("/adminshahid/users");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -142,7 +142,7 @@ export async function saveAdminNotesAction(input: { userId: string; notes: strin
     const data = z.object({ userId: userIdSchema, notes: z.string().max(5000) }).parse(input);
     await prisma.user.update({ where: { id: data.userId }, data: { adminNotes: data.notes.trim() || null } });
     await recordAudit(admin, { action: "user.notes", targetType: "user", targetId: data.userId });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
+    revalidatePath(`/adminshahid/users/${data.userId}`);
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -198,7 +198,7 @@ export async function adjustCreditsAction(input: {
       targetId: data.userId,
       details: { credits: data.credits, applied: result.applied, note: data.note, balanceAfter: result.balance },
     });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
+    revalidatePath(`/adminshahid/users/${data.userId}`);
     return { success: true, balance: result.balance ?? 0 };
   } catch (err) {
     return fail(err);
@@ -308,8 +308,8 @@ export async function setUserPlanAction(input: {
       targetId: data.userId,
       details: { plan: data.plan, days, grantCredits: data.grantCredits !== false, note: data.note },
     });
-    revalidatePath(`/dashboard/admin/users/${data.userId}`);
-    revalidatePath("/dashboard/admin/users");
+    revalidatePath(`/adminshahid/users/${data.userId}`);
+    revalidatePath("/adminshahid/users");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -347,7 +347,7 @@ export async function deleteUserAction(input: { userId: string; confirmEmail: st
       }
     }
 
-    revalidatePath("/dashboard/admin/users");
+    revalidatePath("/adminshahid/users");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -395,7 +395,7 @@ export async function sendUserNotificationAction(input: {
       targetId: data.userIds.length === 1 ? data.userIds[0] : undefined,
       details: { recipients: data.userIds.length, title: data.title, tone: data.tone },
     });
-    for (const id of data.userIds.slice(0, 20)) revalidatePath(`/dashboard/admin/users/${id}`);
+    for (const id of data.userIds.slice(0, 20)) revalidatePath(`/adminshahid/users/${id}`);
     return { success: true, sent: created.count };
   } catch (err) {
     return fail(err);
@@ -503,7 +503,7 @@ export async function upsertModelAction(input: AdminModelInput): Promise<Result>
     }
     await refreshRuntimeConfig();
     await recordAudit(admin, { action: "model.upsert", targetType: "model", targetId: data.id, details: { ...data } });
-    revalidatePath("/dashboard/admin/models");
+    revalidatePath("/adminshahid/models");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -523,7 +523,7 @@ export async function archiveModelAction(input: { id: string }): Promise<Result>
     }
     await refreshRuntimeConfig();
     await recordAudit(admin, { action: "model.archive", targetType: "model", targetId: data.id });
-    revalidatePath("/dashboard/admin/models");
+    revalidatePath("/adminshahid/models");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -542,7 +542,7 @@ export async function setRoleModelAction(input: { role: string; modelId: string 
       await deleteSetting(`ai.model.${data.role}`);
     }
     await recordAudit(admin, { action: "model.role", targetType: "setting", targetId: `ai.model.${data.role}`, details: { modelId: data.modelId } });
-    revalidatePath("/dashboard/admin/models");
+    revalidatePath("/adminshahid/models");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -572,7 +572,7 @@ export async function setManagedKeyAction(input: { name: string; value: string }
       targetId: spec.name,
       details: { preview: value ? (spec.secret ? maskValue(value) : value) : null },
     });
-    revalidatePath("/dashboard/admin/keys");
+    revalidatePath("/adminshahid/keys");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -619,7 +619,7 @@ export async function savePlanOverrideAction(input: { plan: PlanTier; override: 
     }
     await setSetting("billing.plans", current as never, { updatedBy: admin.userId });
     await recordAudit(admin, { action: "plan.override", targetType: "plan", targetId: input.plan, details: { override } });
-    revalidatePath("/dashboard/admin/plans");
+    revalidatePath("/adminshahid/plans");
     revalidatePath("/dashboard/billing");
     return { success: true };
   } catch (err) {
@@ -643,7 +643,7 @@ export async function saveFlagsAction(input: FeatureFlags): Promise<Result> {
     const data = flagsSchema.parse({ ...getFlags(), ...input });
     await setSetting("flags", data, { updatedBy: admin.userId });
     await recordAudit(admin, { action: "flags.update", targetType: "setting", targetId: "flags", details: data });
-    revalidatePath("/dashboard/admin/settings");
+    revalidatePath("/adminshahid/settings");
     revalidatePath("/dashboard", "layout");
     return { success: true };
   } catch (err) {
@@ -664,7 +664,7 @@ export async function saveAffiliateTermsAction(input: AffiliateTerms): Promise<R
     const data = affiliateTermsSchema.parse(input);
     await setSetting("affiliate.terms", data, { updatedBy: admin.userId });
     await recordAudit(admin, { action: "affiliate.terms", targetType: "setting", targetId: "affiliate.terms", details: data });
-    revalidatePath("/dashboard/admin/affiliate");
+    revalidatePath("/adminshahid/affiliate");
     revalidatePath("/dashboard/affiliate");
     return { success: true };
   } catch (err) {
@@ -685,7 +685,7 @@ export async function resolveErrorAction(input: { id: string; resolved: boolean 
       data: data.resolved ? { resolvedAt: new Date(), resolvedBy: admin.userId } : { resolvedAt: null, resolvedBy: null },
     });
     await recordAudit(admin, { action: data.resolved ? "error.resolve" : "error.reopen", targetType: "error", targetId: data.id });
-    revalidatePath("/dashboard/admin/errors");
+    revalidatePath("/adminshahid/errors");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -700,7 +700,7 @@ export async function resolveAllErrorsAction(): Promise<Result<{ count: number }
       data: { resolvedAt: new Date(), resolvedBy: admin.userId },
     });
     await recordAudit(admin, { action: "error.resolveAll", details: { count: result.count } });
-    revalidatePath("/dashboard/admin/errors");
+    revalidatePath("/adminshahid/errors");
     return { success: true, count: result.count };
   } catch (err) {
     return fail(err);
@@ -731,7 +731,7 @@ export async function triageFeedbackAction(input: {
       },
     });
     await recordAudit(admin, { action: "feedback.triage", targetType: "feedback", targetId: data.id, details: { status: data.status } });
-    revalidatePath("/dashboard/admin/feedback");
+    revalidatePath("/adminshahid/feedback");
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -743,7 +743,7 @@ export async function refreshConfigAction(): Promise<Result> {
   try {
     await requireAdmin();
     await refreshRuntimeConfig();
-    revalidatePath("/dashboard/admin", "layout");
+    revalidatePath("/adminshahid", "layout");
     return { success: true };
   } catch (err) {
     return fail(err);

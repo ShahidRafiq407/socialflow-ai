@@ -37,12 +37,9 @@ export const sidebarLinks = [
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
-/** Shown only to admins; the pages behind it check again on the server. */
-export const adminLink = { name: "Admin", href: "/dashboard/admin", icon: ShieldCheck };
-
 export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
-  const links = isAdmin ? [...sidebarLinks, adminLink] : sidebarLinks;
+  const links = sidebarLinks;
   // Pending navigation is derived from (href, clickedFrom) so it clears
   // automatically when the route changes — no effect needed.
   const [pendingNav, setPendingNav] = useState<{ href: string; from: string } | null>(

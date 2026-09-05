@@ -1,15 +1,11 @@
 // ============================================================================
-// /dashboard/admin/models — MODELS
-//
-// Which model each agent role runs on, the models the admin has added, what
-// the chat picker shows as a result, and the rate card. Every change here is
-// live on the next request — no deploy.
+// /adminshahid/models — AI MODELS
 // ============================================================================
 
 import { getModelsView } from "@/lib/admin/models";
 import { ModelsManager } from "@/components/dashboard/admin/ModelsManager";
 
-export const metadata = { title: "Models — admin" };
+export const metadata = { title: "AI Models — Admin Control Plane" };
 
 export default async function AdminModelsPage() {
   const view = await getModelsView();

@@ -48,12 +48,12 @@ export function UsersTable({ result, query }: { result: UserListResult; query: Q
     if (merged.sort !== "newest") params.set("sort", merged.sort);
     if (merged.page > 1) params.set("page", String(merged.page));
     const qs = params.toString();
-    return `/dashboard/admin/users${qs ? `?${qs}` : ""}`;
+    return `/adminshahid/users${qs ? `?${qs}` : ""}`;
   };
 
   return (
     <div className="space-y-3">
-      <form method="get" action="/dashboard/admin/users" className="flex flex-wrap items-center gap-2">
+      <form method="get" action="/adminshahid/users" className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1">
           <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
           <Input name="q" defaultValue={query.q} placeholder="Email, name, user id or referral code" className="h-8 pl-8 text-xs" />
@@ -111,12 +111,12 @@ export function UsersTable({ result, query }: { result: UserListResult; query: Q
                 <tr
                   key={row.id}
                   className="cursor-pointer bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                  onClick={() => router.push(`/dashboard/admin/users/${row.id}`)}
+                  onClick={() => router.push(`/adminshahid/users/${row.id}`)}
                 >
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="min-w-0">
-                        <Link href={`/dashboard/admin/users/${row.id}`} className="block truncate font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
+                        <Link href={`/adminshahid/users/${row.id}`} className="block truncate font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
                           {row.email}
                         </Link>
                         <div className="truncate text-[11px] text-muted-foreground">{row.name || row.id}</div>

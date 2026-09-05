@@ -30,7 +30,7 @@ export async function approvePayoutAction(payoutId: string): Promise<{ ok: boole
   if (!userId || !(await isAffiliateAdmin())) return { ok: false };
 
   const ok = await approvePayout(payoutId, userId);
-  if (ok) revalidatePath("/dashboard/admin/affiliate");
+  if (ok) revalidatePath("/adminshahid/affiliate");
   return { ok };
 }
 
@@ -43,7 +43,7 @@ export async function markPayoutPaidAction(
 
   const ok = await markPayoutPaid(payoutId, userId, reference);
   if (ok) {
-    revalidatePath("/dashboard/admin/affiliate");
+    revalidatePath("/adminshahid/affiliate");
     revalidatePath("/dashboard/affiliate");
   }
   return { ok };
@@ -58,7 +58,7 @@ export async function rejectPayoutAction(
 
   const ok = await rejectPayout(payoutId, userId, note);
   if (ok) {
-    revalidatePath("/dashboard/admin/affiliate");
+    revalidatePath("/adminshahid/affiliate");
     revalidatePath("/dashboard/affiliate");
   }
   return { ok };

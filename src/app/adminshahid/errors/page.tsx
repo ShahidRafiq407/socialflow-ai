@@ -1,14 +1,11 @@
 // ============================================================================
-// /dashboard/admin/errors — SYSTEM ERRORS
-//
-// Server errors, grouped by fingerprint (source + message + path), with a
-// count and first/last seen. Resolving hides the group until it recurs.
+// /adminshahid/errors — SYSTEM ERRORS
 // ============================================================================
 
 import { listErrors } from "@/lib/admin/errors";
 import { ErrorsView } from "@/components/dashboard/admin/ErrorsView";
 
-export const metadata = { title: "Errors — admin" };
+export const metadata = { title: "Error Center — Admin Control Plane" };
 
 export default async function AdminErrorsPage({ searchParams }: { searchParams?: Promise<{ all?: string }> }) {
   const params = (await searchParams) || {};

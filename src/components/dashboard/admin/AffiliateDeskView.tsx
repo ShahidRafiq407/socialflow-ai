@@ -75,7 +75,7 @@ export function AffiliateDeskView({ payouts, desk, terms }: { payouts: AdminPayo
                     {desk.affiliates.map((a) => (
                       <tr key={a.userId}>
                         <td className="py-1.5 pr-2">
-                          <Link href={`/dashboard/admin/users/${a.userId}`} className="font-medium hover:underline">{a.email}</Link>
+                          <Link href={`/adminshahid/users/${a.userId}`} className="font-medium hover:underline">{a.email}</Link>
                           {a.blocked && <Ban className="ml-1 inline h-3 w-3 text-rose-500" />}
                           {a.payoutsOpen > 0 && <Badge variant="secondary" className="ml-1 bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-400">payout open</Badge>}
                           <div className="text-[10px] text-muted-foreground">{a.name || a.userId}</div>
@@ -121,8 +121,8 @@ export function AffiliateDeskView({ payouts, desk, terms }: { payouts: AdminPayo
                     {desk.referrals.map((r) => (
                       <tr key={r.id}>
                         <td className="whitespace-nowrap py-1.5 pr-2 text-muted-foreground">{fmtDate(r.createdAt)}</td>
-                        <td className="py-1.5 pr-2"><Link href={`/dashboard/admin/users/${r.referrerId}`} className="hover:underline">{r.referrerEmail}</Link></td>
-                        <td className="py-1.5 pr-2"><Link href={`/dashboard/admin/users/${r.referredId}`} className="hover:underline">{r.referredEmail}</Link></td>
+                        <td className="py-1.5 pr-2"><Link href={`/adminshahid/users/${r.referrerId}`} className="hover:underline">{r.referrerEmail}</Link></td>
+                        <td className="py-1.5 pr-2"><Link href={`/adminshahid/users/${r.referredId}`} className="hover:underline">{r.referredEmail}</Link></td>
                         <td className="py-1.5 pr-2">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${REFERRAL_STATUS[r.status] ?? ""}`}>{r.status}</span>
                           {r.rejectReason && <div className="max-w-[220px] text-[10px] text-muted-foreground">{r.rejectReason}</div>}

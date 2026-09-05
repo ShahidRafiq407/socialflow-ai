@@ -75,12 +75,12 @@ export function Stat({
         ? "text-rose-600 dark:text-rose-400"
         : tone === "warn"
           ? "text-amber-600 dark:text-amber-400"
-          : "text-foreground";
+          : "text-slate-900 dark:text-slate-100";
   return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-xl font-bold tabular-nums ${valueClass}`}>{value}</div>
-      {hint ? <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div> : null}
+    <div className="rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900/90 p-4 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</div>
+      <div className={`mt-1.5 text-2xl font-bold tracking-tight tabular-nums ${valueClass}`}>{value}</div>
+      {hint ? <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">{hint}</div> : null}
     </div>
   );
 }
@@ -99,14 +99,16 @@ export function Section({
   className?: string;
 }) {
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
-        {description ? <CardDescription className="text-xs">{description}</CardDescription> : null}
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+    <div className={`rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800/80 px-5 py-3.5">
+        <div>
+          <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">{title}</h3>
+          {description ? <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{description}</p> : null}
+        </div>
+        {action ? <div>{action}</div> : null}
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
   );
 }
 

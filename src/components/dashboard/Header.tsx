@@ -17,7 +17,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { CreditCard, LifeBuoy, Menu, Settings, User } from "lucide-react";
+import { CreditCard, LifeBuoy, Menu, Settings, ShieldCheck, User } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -28,7 +28,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/marketing/theme-toggle";
-import { adminLink, sidebarLinks } from "@/components/dashboard/Sidebar";
+import { sidebarLinks } from "@/components/dashboard/Sidebar";
 import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
 import { GlobalSearch } from "@/components/dashboard/GlobalSearch";
 import { NotificationsBell } from "@/components/dashboard/NotificationsBell";
@@ -67,7 +67,7 @@ export function Header({
             <Menu className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64 max-h-[80vh] overflow-y-auto">
-            {(isAdmin ? [...sidebarLinks, adminLink] : sidebarLinks).map((item) => (
+            {sidebarLinks.map((item) => (
               <DropdownMenuItem key={item.href} className="p-0">
                 <Link
                   href={item.href}
@@ -135,6 +135,20 @@ export function Header({
                   Help &amp; support
                 </Link>
               </DropdownMenuItem>
+              {isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-xs p-0">
+                    <Link
+                      href="/adminshahid"
+                      className="w-full flex items-center px-1.5 py-2 text-emerald-600 dark:text-emerald-400 font-medium hover:text-emerald-700 dark:hover:text-emerald-300"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5 mr-2 text-emerald-600 dark:text-emerald-400" />
+                      Admin Console
+                    </Link>
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <div className="px-2 py-1 flex items-center justify-between">
                 <span className="text-xs text-slate-500 font-medium">Account</span>

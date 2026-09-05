@@ -46,7 +46,7 @@ function Row({ row }: { row: ErrorRow }) {
           <div className="mt-0.5 break-words font-mono text-xs">{row.message}</div>
           <div className="mt-0.5 flex flex-wrap gap-x-3 text-[10px] text-muted-foreground">
             {row.path && <span>{row.method ? `${row.method} ` : ""}{row.path}</span>}
-            {row.userEmail && <Link href={`/dashboard/admin/users/${row.userId}`} className="hover:underline">{row.userEmail}</Link>}
+            {row.userEmail && <Link href={`/adminshahid/users/${row.userId}`} className="hover:underline">{row.userEmail}</Link>}
             <span>first {fmtDate(row.firstSeen)}</span>
             {row.resolvedAt && <span>resolved {fmtAgo(row.resolvedAt)}{row.resolvedBy ? ` by ${row.resolvedBy}` : ""}</span>}
           </div>
@@ -79,7 +79,7 @@ export function ErrorsView({ errors, includeResolved }: { errors: ErrorRow[]; in
       description="Caught by Next's server error hook and by explicit reports; grouped by source, message and path. Personal data is redacted before storage."
       action={
         <div className="flex items-center gap-2">
-          <Link href={includeResolved ? "/dashboard/admin/errors" : "/dashboard/admin/errors?all=1"} className="text-xs text-primary hover:underline">
+          <Link href={includeResolved ? "/adminshahid/errors" : "/adminshahid/errors?all=1"} className="text-xs text-primary hover:underline">
             {includeResolved ? "Open only" : "Include resolved"}
           </Link>
           {open.length > 0 && (

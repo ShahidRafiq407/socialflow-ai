@@ -1,10 +1,5 @@
 // ============================================================================
-// /dashboard/admin/affiliate — AFFILIATE DESK
-//
-// Three tabs: the payout queue (money by hand), the affiliates table (who has
-// earned what and where it stands), and the referral ledger with its fraud
-// signals. The payout desk is the same component the old /admin/payouts page
-// rendered; that URL now redirects here.
+// /adminshahid/affiliate — AFFILIATE DESK
 // ============================================================================
 
 import { listPayoutsForAdmin } from "@/lib/affiliate/payouts";
@@ -12,7 +7,7 @@ import { getAffiliateDesk } from "@/lib/admin/affiliate";
 import { ensureRuntimeConfig, getAffiliateTerms } from "@/lib/admin/runtimeConfig";
 import { AffiliateDeskView } from "@/components/dashboard/admin/AffiliateDeskView";
 
-export const metadata = { title: "Affiliate — admin" };
+export const metadata = { title: "Affiliate Desk — Admin Control Plane" };
 
 export default async function AdminAffiliatePage() {
   await ensureRuntimeConfig();

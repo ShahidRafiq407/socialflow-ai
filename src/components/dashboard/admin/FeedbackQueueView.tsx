@@ -38,7 +38,7 @@ function Row({ row }: { row: FeedbackRow }) {
     <li className="py-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {row.rating > 0 ? <ThumbsUp className="h-4 w-4 text-emerald-500" /> : <ThumbsDown className="h-4 w-4 text-rose-500" />}
-        <Link href={`/dashboard/admin/users/${row.userId}`} className="font-medium hover:underline">{row.userEmail}</Link>
+        <Link href={`/adminshahid/users/${row.userId}`} className="font-medium hover:underline">{row.userEmail}</Link>
         <span className="font-mono text-[10px] text-muted-foreground">{row.model || "model unknown"}</span>
         {row.status ? <Badge variant="outline" className="text-[10px]">{row.status}</Badge> : <Badge variant="secondary" className="bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-400">new</Badge>}
         <span className="ml-auto text-muted-foreground">{fmtDate(row.createdAt)}</span>
@@ -106,7 +106,7 @@ export function FeedbackQueueView({ queue, filter }: { queue: FeedbackQueue; fil
         action={
           <div className="flex gap-1">
             {(Object.keys(FILTER_LABEL) as Array<keyof typeof FILTER_LABEL>).map((f) => (
-              <Link key={f} href={`/dashboard/admin/feedback?filter=${f}`} className={`rounded-md px-2 py-1 text-xs ${f === filter ? "bg-primary text-primary-foreground" : "border border-slate-200 dark:border-slate-800 hover:bg-muted"}`}>
+              <Link key={f} href={`/adminshahid/feedback?filter=${f}`} className={`rounded-md px-2 py-1 text-xs ${f === filter ? "bg-primary text-primary-foreground" : "border border-slate-200 dark:border-slate-800 hover:bg-muted"}`}>
                 {FILTER_LABEL[f]}
               </Link>
             ))}

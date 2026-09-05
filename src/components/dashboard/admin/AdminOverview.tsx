@@ -25,11 +25,11 @@ const RANGE_LABEL: Record<StatsRange, string> = {
 export function AdminOverview({ data, ranges }: { data: Overview; ranges: StatsRange[] }) {
   const health = data.health;
   const issues: Array<{ label: string; count: number; href: string; severe?: boolean }> = [
-    { label: "open errors", count: health.openErrors, href: "/dashboard/admin/errors", severe: true },
-    { label: "webhooks not processed", count: health.unprocessedWebhooks, href: "/dashboard/admin/users", severe: true },
-    { label: "payouts waiting", count: health.pendingPayouts, href: "/dashboard/admin/affiliate" },
-    { label: "thumbs-down this week", count: health.feedbackDown7d, href: "/dashboard/admin/feedback" },
-    { label: "unattributed model calls (30d)", count: health.unattributedCalls, href: "/dashboard/admin/models" },
+    { label: "open errors", count: health.openErrors, href: "/adminshahid/errors", severe: true },
+    { label: "webhooks not processed", count: health.unprocessedWebhooks, href: "/adminshahid/users", severe: true },
+    { label: "payouts waiting", count: health.pendingPayouts, href: "/adminshahid/affiliate" },
+    { label: "thumbs-down this week", count: health.feedbackDown7d, href: "/adminshahid/feedback" },
+    { label: "unattributed model calls (30d)", count: health.unattributedCalls, href: "/adminshahid/models" },
   ].filter((i) => i.count > 0);
 
   const aiCents = Math.round(data.costs.aiMicros / 10_000);
@@ -46,7 +46,7 @@ export function AdminOverview({ data, ranges }: { data: Overview; ranges: StatsR
           {ranges.map((r) => (
             <Link
               key={r}
-              href={`/dashboard/admin?range=${r}`}
+              href={`/adminshahid?range=${r}`}
               className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                 r === data.range
                   ? "bg-primary text-primary-foreground"
@@ -121,7 +121,7 @@ export function AdminOverview({ data, ranges }: { data: Overview; ranges: StatsR
           <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
             <span>{fmtInt(data.users.blocked)} blocked</span>
             <span>{fmtInt(data.users.admins)} admins</span>
-            <Link href="/dashboard/admin/users" className="ml-auto flex items-center gap-1 text-primary hover:underline">
+            <Link href="/adminshahid/users" className="ml-auto flex items-center gap-1 text-primary hover:underline">
               All users <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
@@ -230,7 +230,7 @@ export function AdminOverview({ data, ranges }: { data: Overview; ranges: StatsR
           title="Affiliate program"
           description="Referrals in range; commission totals are all-time."
           action={
-            <Link href="/dashboard/admin/affiliate" className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <Link href="/adminshahid/affiliate" className="flex items-center gap-1 text-xs text-primary hover:underline">
               Desk <ArrowRight className="h-3 w-3" />
             </Link>
           }

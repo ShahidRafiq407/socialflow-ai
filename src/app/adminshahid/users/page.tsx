@@ -1,15 +1,12 @@
 // ============================================================================
-// /dashboard/admin/users — USER LIST
-//
-// Search, filter, sort, page. The filters are URL state so a view can be
-// shared or bookmarked ("everyone blocked", "Pro accounts by spend").
+// /adminshahid/users — USER DIRECTORY
 // ============================================================================
 
 import { listUsers, type UserSort } from "@/lib/admin/users";
 import { PLAN_TIERS, type PlanTier } from "@/lib/billing/plans";
 import { UsersTable } from "@/components/dashboard/admin/UsersTable";
 
-export const metadata = { title: "Users — admin" };
+export const metadata = { title: "Users — Admin Control Plane" };
 
 const SORTS: UserSort[] = ["newest", "oldest", "lastSeen", "spend", "balance"];
 const STATUSES = ["ALL", "ACTIVE", "BLOCKED", "ADMIN"] as const;

@@ -1,14 +1,11 @@
 // ============================================================================
-// /dashboard/admin/feedback — CHAT FEEDBACK
-//
-// The thumbs users left under assistant answers. New votes are the queue; the
-// by-model split says whether a model change helped.
+// /adminshahid/feedback — USER & CHAT FEEDBACK
 // ============================================================================
 
 import { getFeedbackQueue } from "@/lib/admin/feedback";
 import { FeedbackQueueView } from "@/components/dashboard/admin/FeedbackQueueView";
 
-export const metadata = { title: "Feedback — admin" };
+export const metadata = { title: "Feedback Queue — Admin Control Plane" };
 
 const FILTERS = ["new", "down", "all"] as const;
 

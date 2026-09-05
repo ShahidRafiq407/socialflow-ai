@@ -155,7 +155,7 @@ export function NotificationComposer({ sent }: { sent: SentNotificationGroup[] }
                 {g.body && <p className="mt-0.5 text-xs text-muted-foreground">{g.body}</p>}
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {g.sample.map((s) => (
-                    <Link key={s.userId} href={`/dashboard/admin/users/${s.userId}`} className={`rounded-full border px-2 py-0.5 text-[10px] hover:bg-muted ${s.read ? "border-emerald-500/40" : "border-slate-200 dark:border-slate-800"}`}>
+                    <Link key={s.userId} href={`/adminshahid/users/${s.userId}`} className={`rounded-full border px-2 py-0.5 text-[10px] hover:bg-muted ${s.read ? "border-emerald-500/40" : "border-slate-200 dark:border-slate-800"}`}>
                       {s.email}
                       {s.read ? " ✓" : ""}
                     </Link>

@@ -29,7 +29,7 @@ export function AuditLogView({ rows }: { rows: AuditRow[] }) {
                   <td className="py-1.5 pr-2 font-mono font-medium">{r.action}</td>
                   <td className="py-1.5 pr-2">
                     {r.targetType === "user" && r.targetId ? (
-                      <Link href={`/dashboard/admin/users/${r.targetId}`} className="font-mono text-[10px] text-primary hover:underline">
+                      <Link href={`/adminshahid/users/${r.targetId}`} className="font-mono text-[10px] text-primary hover:underline">
                         {r.targetId}
                       </Link>
                     ) : (

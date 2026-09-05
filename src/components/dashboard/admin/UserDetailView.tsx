@@ -117,7 +117,7 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/dashboard/admin/users" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/adminshahid/users" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> All users
         </Link>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -163,7 +163,7 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
               <KV label="Referral code">{user.referralCode || "—"}</KV>
               <KV label="Referred by">
                 {user.affiliate.referredBy ? (
-                  <Link href={`/dashboard/admin/users/${user.affiliate.referredBy.id}`} className="text-primary hover:underline">
+                  <Link href={`/adminshahid/users/${user.affiliate.referredBy.id}`} className="text-primary hover:underline">
                     {user.affiliate.referredBy.email}
                   </Link>
                 ) : (
@@ -597,7 +597,7 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
               onClick={() =>
                 act.run("delete", () => deleteUserAction({ userId: user.id, confirmEmail }), () => {
                   setDeleteOpen(false);
-                  router.push("/dashboard/admin/users");
+                  router.push("/adminshahid/users");
                 })
               }
             >

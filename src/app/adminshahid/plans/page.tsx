@@ -1,9 +1,5 @@
 // ============================================================================
-// /dashboard/admin/plans — PLAN ENTITLEMENTS
-//
-// Every number the plans are sold with, editable per tier. The code defaults
-// are shown beside the live values so a change is always a diff, and "reset"
-// clears the override rather than typing the old number back in.
+// /adminshahid/plans — PLANS & ENTITLEMENTS
 // ============================================================================
 
 import { ensureRuntimeConfig, getPlanOverrides } from "@/lib/admin/runtimeConfig";
@@ -18,7 +14,7 @@ import {
 } from "@/lib/billing/plans";
 import { PlansEditor, type PlanSnapshot } from "@/components/dashboard/admin/PlansEditor";
 
-export const metadata = { title: "Plans — admin" };
+export const metadata = { title: "Plans — Admin Control Plane" };
 
 export default async function AdminPlansPage() {
   await ensureRuntimeConfig();

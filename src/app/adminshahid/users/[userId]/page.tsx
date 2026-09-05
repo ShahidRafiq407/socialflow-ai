@@ -1,9 +1,5 @@
 // ============================================================================
-// /dashboard/admin/users/[userId] — ACCOUNT DOSSIER
-//
-// Everything known about one account and every lever an operator has on it:
-// block, role, plan, credits, notes, a direct message, and — last, behind a
-// typed confirmation — deletion.
+// /adminshahid/users/[userId] — ACCOUNT DOSSIER
 // ============================================================================
 
 import { notFound } from "next/navigation";
@@ -11,7 +7,7 @@ import { getUserDetail } from "@/lib/admin/users";
 import { getAdminIdentity } from "@/lib/admin/auth";
 import { UserDetailView } from "@/components/dashboard/admin/UserDetailView";
 
-export const metadata = { title: "Account — admin" };
+export const metadata = { title: "User Account — Admin Control Plane" };
 
 export default async function AdminUserPage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;

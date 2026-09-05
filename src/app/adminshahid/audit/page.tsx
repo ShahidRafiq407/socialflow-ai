@@ -1,14 +1,11 @@
 // ============================================================================
-// /dashboard/admin/audit — AUDIT LOG
-//
-// Every write the back office made, newest first: who, what, to which record,
-// with the details the action recorded.
+// /adminshahid/audit — AUDIT LOG
 // ============================================================================
 
 import { listAudit } from "@/lib/admin/audit";
 import { AuditLogView } from "@/components/dashboard/admin/AuditLogView";
 
-export const metadata = { title: "Audit log — admin" };
+export const metadata = { title: "Audit Log — Admin Control Plane" };
 
 export default async function AdminAuditPage() {
   const rows = await listAudit(300);
