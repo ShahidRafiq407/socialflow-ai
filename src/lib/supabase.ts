@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { reportUserFailure } from '@/lib/admin/report';
 
 /**
  * Normalizes the SUPABASE_URL env value. Common copy-paste mistakes put a
@@ -565,6 +566,17 @@ export async function uploadBase64ToStorage(
     // a giant data: URL after it was told to stop, so the abort propagates.
     if (signal?.aborted) throw err;
     console.warn('[Storage] Failed to save generated asset:', err);
+    // Null here means every caller carries on without the file: a draft saves with
+    // no image, a logo upload appears to work and shows nothing. Every backend has
+    // already been tried by this point, so this is the storage layer giving up.
+    reportUserFailure({
+      feature: 'storage',
+      message: 'Media upload failed — the item was saved without its file',
+      error: err,
+      degraded: true,
+      workspaceId: workspaceId ?? null,
+      context: { filename, contentType },
+    });
     return null;
   }
 }

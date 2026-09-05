@@ -36,9 +36,10 @@ import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import {
   changePlan,
   createCheckout,
+  cyclesPurchasable,
+  ensureVariantResolution,
   lemonConfigured,
   missingVariantEnv,
-  paidPlansPurchasable,
   topUpsPurchasable,
   trialPurchasable,
   variantForPlan,
@@ -101,6 +102,9 @@ export async function POST(req: Request) {
         "Payments are not switched on yet. Set the Lemon Squeezy store keys to enable them."
       );
     }
+    // The variant settings may hold buy links rather than numeric ids. One cached
+    // lookup per deploy turns them into the ids the checkout API wants.
+    await ensureVariantResolution();
 
     const body = (await req.json().catch(() => ({}))) as CheckoutBody;
     const intent: Intent =
@@ -174,7 +178,8 @@ export async function POST(req: Request) {
         redirectUrl: redirectFor("trial", "TRIAL"),
         embed: body.embed,
         darkMode: body.darkMode,
-        receiptNote: "Your 3-day trial is active. Cancel any time from the billing page.",
+        receiptNote:
+          "Your 3-day trial is active. It is a one-off payment — nothing renews, so there is nothing to cancel.",
       });
 
       if (!session.ok) {
@@ -258,10 +263,19 @@ export async function POST(req: Request) {
     const plan: PlanTier = requested;
     const cycle: BillingCycleValue = body.cycle === "yearly" ? "yearly" : "monthly";
 
-    if (!paidPlansPurchasable()) {
-      return fail(503, "PLANS_UNAVAILABLE", "Paid plans are not available right now.", {
-        missing: missingVariantEnv(),
-      });
+    // Per cycle, because the two are set up independently. A store that sells
+    // monthly and not yearly must still be able to sell monthly.
+    const cycles = cyclesPurchasable();
+    if (!cycles[cycle]) {
+      const other: BillingCycleValue = cycle === "yearly" ? "monthly" : "yearly";
+      return fail(
+        503,
+        "PLANS_UNAVAILABLE",
+        cycles[other]
+          ? `${cycle === "yearly" ? "Yearly" : "Monthly"} billing is not set up yet. ${other === "yearly" ? "Yearly" : "Monthly"} is available.`
+          : "Paid plans are not available right now.",
+        { missing: missingVariantEnv(), cycles }
+      );
     }
 
     // ── Changing an existing subscription ───────────────────────────────────

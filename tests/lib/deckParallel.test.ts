@@ -38,6 +38,10 @@ vi.mock("@/lib/agents/llm", () => ({
     },
   },
   MODELS: { VISUALIZER: "gemini-image-test", VIDEO: "veo-test", CONTENT_CREATOR: "gemini-test" },
+  // The generator asks whether the admin pinned a model to the role before it
+  // falls back to the caller's request. Nothing is pinned in these tests, so this
+  // answers null and the deck keeps using the model the test passed in.
+  pinnedRoleModel: () => null,
 }));
 
 vi.mock("@/lib/supabase", () => ({

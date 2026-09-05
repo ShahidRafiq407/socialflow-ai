@@ -437,8 +437,14 @@ export interface PlanConfig {
   priceYearly: number;
   /** Trial plans are billed once, not per period. */
   oneTimePrice?: number;
-  /** Days the trial runs before it becomes the plan named in `convertsTo`. */
+  /** Days a one-off trial runs for before the account falls back to Free. */
   trialDays?: number;
+  /**
+   * The plan we point a trialist at when their three days are up.
+   *
+   * A suggestion, not a subscription: the trial is a single payment, so nothing
+   * converts on its own and nobody is charged for this plan unless they choose it.
+   */
   convertsTo?: PlanTier;
   /** Short ribbon on the card. */
   badge?: string;
@@ -509,7 +515,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
     name: "3-Day Trial",
     tagline: "The whole product for $1, for three days.",
     blurb:
-      "One dollar, charged today, and everything is unlocked for three days: generate a full campaign for every account you have connected, render a carousel and a video, put the CEO chat to work, and write an article. Cancel inside the three days and the dollar is all you ever pay.",
+      "One dollar, charged once, and everything is unlocked for three days: generate a full campaign for every account you have connected, render a carousel and a video, put the CEO chat to work, and write an article. It does not renew — after three days the account simply goes back to Free unless you pick a plan, so the dollar really is all you pay.",
     priceMonthly: 0,
     priceYearly: 0,
     oneTimePrice: 1,
@@ -518,7 +524,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
     badge: "Try everything for $1",
     ctaLabel: "Start the 3-day trial — $1",
     features: [
-      "$1 today, then $19 a month only if you stay",
+      "One payment of $1 — nothing recurs, nothing to cancel",
       "620 credits, valid for 3 days",
       "1 workspace, up to 6 connected accounts",
       "Content Studio: a full campaign across every connected account",
@@ -527,8 +533,8 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "Up to 3 CEO chat messages, tools included",
       "1 quick article",
       "1 goal with autopilot, and 1 optimisation run",
-      "Cancel any time in the 3 days, in one click",
-      "Remove your card whenever you like",
+      "No subscription is started, so no card is left on file",
+      "Choose a plan whenever you are ready — or don't",
     ],
     notIncluded: ["Deep research articles", "The premium image model"],
   },

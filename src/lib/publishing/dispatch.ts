@@ -1,4 +1,5 @@
 import prisma from "@/lib/db";
+import { reportUserFailure } from "@/lib/admin/report";
 import { publishToPlatformProvider, normalizePlatformToEnum } from "@/lib/publishers";
 import { removeFromScheduleQueue } from "@/lib/redis";
 
@@ -127,6 +128,31 @@ export interface PublishDueResult {
 }
 
 /**
+ * A post the user scheduled and never saw go out.
+ *
+ * They get a FAILED row in History and the reason on the post, and that was the
+ * end of it: an access token that had expired for every account on one platform
+ * looked, from the back office, like nothing at all. Reported from both the
+ * polite refusal and the thrown-error path, because to the person waiting for
+ * the post they are the same event — it did not publish. The reason is part of
+ * the message so one expired token groups separately from one bad image.
+ */
+function reportPublishFailure(
+  post: { id: string; workspaceId: string; platform: string; format?: string | null },
+  reason: string,
+  error?: unknown
+): void {
+  reportUserFailure({
+    feature: "publish",
+    message: `Publish to ${post.platform} failed — ${reason}`,
+    error,
+    workspaceId: post.workspaceId,
+    referenceId: post.id,
+    context: { platform: post.platform, format: post.format ?? null },
+  });
+}
+
+/**
  * Publishes every post whose `scheduledFor` is in the past.
  *
  * A post missed while the app was closed is still published on the next run —
@@ -225,6 +251,7 @@ export async function publishDuePosts(options?: {
           data: { status: "FAILED", publishError: errMsg },
         });
         await recordPublishLog({ ...logBase, status: "FAILED", error: errMsg });
+        reportPublishFailure(post, errMsg);
         out.failed++;
         out.results.push({ id: post.id, platform: post.platform, status: "FAILED", error: errMsg });
       }
@@ -235,6 +262,7 @@ export async function publishDuePosts(options?: {
         .update({ where: { id: post.id }, data: { status: "FAILED", publishError: errMsg } })
         .catch(() => {});
       await recordPublishLog({ ...logBase, status: "FAILED", error: errMsg });
+      reportPublishFailure(post, errMsg, err);
       out.failed++;
       out.results.push({ id: post.id, platform: post.platform, status: "FAILED", error: errMsg });
     } finally {

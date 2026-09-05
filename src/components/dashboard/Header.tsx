@@ -14,11 +14,11 @@
 // `hidden md:flex`, so a phone had a header with no search and no alerts at all.
 // ============================================================================
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { CreditCard, LifeBuoy, Menu, Settings, ShieldCheck, User } from "lucide-react";
+import { CreditCard, LifeBuoy, Megaphone, Menu, Settings, ShieldCheck, User } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -33,6 +33,7 @@ import { visibleSidebarLinks } from "@/components/dashboard/Sidebar";
 import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
 import { GlobalSearch } from "@/components/dashboard/GlobalSearch";
 import { NotificationsBell } from "@/components/dashboard/NotificationsBell";
+import { FeedbackDialog } from "@/components/dashboard/FeedbackDialog";
 import type { WorkspaceSummary } from "@/actions/workspaces";
 
 interface HeaderProps {
@@ -53,6 +54,10 @@ export function Header({
 }: HeaderProps) {
   const pathname = usePathname();
   const navLinks = useMemo(() => visibleSidebarLinks(affiliateEnabled), [affiliateEnabled]);
+  // Two ways in, one dialog: the toolbar button and the profile menu. The state
+  // sits here because the header is mounted once, outside the part of the shell
+  // that is re-keyed on a workspace switch — so a half-written message survives.
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   function isCurrent(href: string): boolean {
     return href === "/dashboard"
@@ -101,6 +106,15 @@ export function Header({
       <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
         <GlobalSearch activeWorkspaceId={activeWorkspaceId} affiliateEnabled={affiliateEnabled} />
         <NotificationsBell activeWorkspaceId={activeWorkspaceId} />
+        <button
+          type="button"
+          onClick={() => setFeedbackOpen(true)}
+          aria-label="Send feedback"
+          title="Send feedback"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors focus:outline-none"
+        >
+          <Megaphone className="h-4 w-4" />
+        </button>
         <ThemeToggle />
 
         <DropdownMenu>
@@ -140,6 +154,12 @@ export function Header({
                   Help &amp; support
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem className="text-xs p-0" onClick={() => setFeedbackOpen(true)}>
+                <span className="w-full flex items-center px-1.5 py-2 cursor-pointer">
+                  <Megaphone className="h-3.5 w-3.5 mr-2 text-slate-400" />
+                  Send feedback
+                </span>
+              </DropdownMenuItem>
               {isAdmin && (
                 <>
                   <DropdownMenuSeparator />
@@ -163,6 +183,8 @@ export function Header({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </header>
   );
 }

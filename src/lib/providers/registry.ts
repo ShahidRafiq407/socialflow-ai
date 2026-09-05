@@ -13,9 +13,10 @@
 //              Kimi is a row in this file rather than a new client.
 //   baseUrl  — the default endpoint, overridable per model row (Azure, a proxy,
 //              a self-hosted vLLM).
-//   keyName  — which managed key holds the credential. The admin sets it once on
-//              the Keys screen and every model of that provider uses it; a single
-//              row may still point at a different key with `apiKeyRef`.
+//   keyName  — which managed key holds the credential. The admin sets it on the
+//              Models screen, inside the provider's own connection panel, and
+//              every model of that provider uses it; a single row may still point
+//              at a different key with `apiKeyRef`.
 //
 // This file is client-safe: no prisma, no env reads, no secrets. The admin form
 // imports it for its dropdown and its placeholder text.
@@ -41,28 +42,36 @@ export interface ProviderSpec {
   requiresBaseUrl?: boolean;
   /** Grouping for the picker. */
   group: "Google" | "Frontier" | "China" | "Aggregator" | "Self-hosted";
+  /** What this vendor calls the credential, for the connection panel's label. */
+  keyLabel?: string;
+  /** Where an admin goes to mint that credential. */
+  docsUrl?: string;
+  /** Shown in the base URL box when the admin has to type one. */
+  baseUrlPlaceholder?: string;
 }
 
 export const PROVIDERS: ProviderSpec[] = [
   {
     id: "vertex",
-    label: "Google Vertex AI (built-in)",
+    label: "Google (Gemini / Vertex AI)",
     wire: "vertex",
     baseUrl: "",
     keyName: "",
-    hint: "Uses the deployment's Google service account. No API key needed here.",
+    hint: "Uses the deployment's Google service account. Nothing to connect here.",
     examples: ["gemini-3.1-pro-preview", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-pro"],
     group: "Google",
   },
   {
     id: "openai",
-    label: "OpenAI",
+    label: "OpenAI (ChatGPT)",
     wire: "openai",
     baseUrl: "https://api.openai.com/v1",
     keyName: "OPENAI_API_KEY",
     hint: "Any OpenAI chat model. Reasoning models stream their summary as thinking.",
     examples: ["gpt-5.2", "gpt-5.2-mini", "gpt-5.1", "o4", "gpt-4.1", "gpt-4o"],
     group: "Frontier",
+    keyLabel: "OpenAI API key",
+    docsUrl: "https://platform.openai.com/api-keys",
   },
   {
     id: "anthropic",
@@ -78,6 +87,8 @@ export const PROVIDERS: ProviderSpec[] = [
       "claude-sonnet-4-5-20250929",
     ],
     group: "Frontier",
+    keyLabel: "Anthropic API key",
+    docsUrl: "https://console.anthropic.com/settings/keys",
   },
   {
     id: "azure-openai",
@@ -85,10 +96,13 @@ export const PROVIDERS: ProviderSpec[] = [
     wire: "openai",
     baseUrl: "",
     keyName: "AZURE_OPENAI_API_KEY",
-    hint: "Base URL is your deployment: https://<resource>.openai.azure.com/openai/v1",
+    hint: "Base URL is your own deployment, so it has to be typed in.",
     examples: ["gpt-5.2", "gpt-4.1"],
     requiresBaseUrl: true,
     group: "Frontier",
+    keyLabel: "Azure OpenAI key",
+    baseUrlPlaceholder: "https://<resource>.openai.azure.com/openai/v1",
+    docsUrl: "https://portal.azure.com",
   },
   {
     id: "xai",
@@ -99,6 +113,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible.",
     examples: ["grok-4", "grok-4-fast", "grok-3"],
     group: "Frontier",
+    keyLabel: "xAI API key",
+    docsUrl: "https://console.x.ai",
   },
   {
     id: "mistral",
@@ -109,6 +125,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible.",
     examples: ["mistral-large-latest", "mistral-medium-latest", "magistral-medium-latest"],
     group: "Frontier",
+    keyLabel: "Mistral API key",
+    docsUrl: "https://console.mistral.ai/api-keys",
   },
   {
     id: "deepseek",
@@ -119,6 +137,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible. deepseek-reasoner streams its chain as thinking.",
     examples: ["deepseek-chat", "deepseek-reasoner"],
     group: "China",
+    keyLabel: "DeepSeek API key",
+    docsUrl: "https://platform.deepseek.com/api_keys",
   },
   {
     id: "qwen",
@@ -129,6 +149,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "DashScope's OpenAI-compatible mode. Use the mainland host if your key is CN-region.",
     examples: ["qwen3-max", "qwen-plus", "qwen-turbo", "qwen3-coder-plus"],
     group: "China",
+    keyLabel: "DashScope API key",
+    docsUrl: "https://bailian.console.alibabacloud.com",
   },
   {
     id: "moonshot",
@@ -139,6 +161,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible. Very large context.",
     examples: ["kimi-k2-turbo-preview", "kimi-k2-0905-preview", "moonshot-v1-128k"],
     group: "China",
+    keyLabel: "Moonshot API key",
+    docsUrl: "https://platform.moonshot.ai/console/api-keys",
   },
   {
     id: "zhipu",
@@ -149,6 +173,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible. Use https://api.z.ai/api/paas/v4 for the international host.",
     examples: ["glm-4.6", "glm-4.5", "glm-4.5-air"],
     group: "China",
+    keyLabel: "Zhipu API key",
+    docsUrl: "https://open.bigmodel.cn/usercenter/apikeys",
   },
   {
     id: "minimax",
@@ -159,6 +185,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible.",
     examples: ["MiniMax-M2", "MiniMax-Text-01"],
     group: "China",
+    keyLabel: "MiniMax API key",
+    docsUrl: "https://www.minimax.io/platform/user-center/basic-information",
   },
   {
     id: "baidu",
@@ -169,6 +197,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "Qianfan v2 speaks the OpenAI shape.",
     examples: ["ernie-5.0", "ernie-4.5-turbo-128k"],
     group: "China",
+    keyLabel: "Qianfan API key",
+    docsUrl: "https://console.bce.baidu.com/qianfan",
   },
   {
     id: "openrouter",
@@ -179,6 +209,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "One key, hundreds of models. Ids look like vendor/model.",
     examples: ["anthropic/claude-opus-5", "openai/gpt-5.2", "deepseek/deepseek-chat", "qwen/qwen3-max"],
     group: "Aggregator",
+    keyLabel: "OpenRouter API key",
+    docsUrl: "https://openrouter.ai/keys",
   },
   {
     id: "groq",
@@ -189,6 +221,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "Very fast inference for open-weight models.",
     examples: ["llama-4-maverick-17b-128e-instruct", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b"],
     group: "Aggregator",
+    keyLabel: "Groq API key",
+    docsUrl: "https://console.groq.com/keys",
   },
   {
     id: "together",
@@ -199,6 +233,8 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible.",
     examples: ["deepseek-ai/DeepSeek-V3", "Qwen/Qwen3-235B-A22B-fp8-tput"],
     group: "Aggregator",
+    keyLabel: "Together API key",
+    docsUrl: "https://api.together.xyz/settings/api-keys",
   },
   {
     id: "fireworks",
@@ -209,10 +245,12 @@ export const PROVIDERS: ProviderSpec[] = [
     hint: "OpenAI-compatible. Ids look like accounts/fireworks/models/<name>.",
     examples: ["accounts/fireworks/models/deepseek-v3", "accounts/fireworks/models/qwen3-235b-a22b"],
     group: "Aggregator",
+    keyLabel: "Fireworks API key",
+    docsUrl: "https://fireworks.ai/account/api-keys",
   },
   {
     id: "custom-openai",
-    label: "Other OpenAI-compatible endpoint",
+    label: "OpenAI-compatible (any other endpoint)",
     wire: "openai",
     baseUrl: "",
     keyName: "CUSTOM_LLM_API_KEY",
@@ -220,6 +258,8 @@ export const PROVIDERS: ProviderSpec[] = [
     examples: [],
     requiresBaseUrl: true,
     group: "Self-hosted",
+    keyLabel: "API key for this endpoint",
+    baseUrlPlaceholder: "https://your-host/v1",
   },
 ];
 
@@ -255,4 +295,34 @@ export function providersByGroup(): Array<{ group: ProviderSpec["group"]; items:
   return groups
     .map((group) => ({ group, items: PROVIDERS.filter((p) => p.group === group) }))
     .filter((g) => g.items.length > 0);
+}
+
+/** Headings the admin reads in the company dropdown, per registry group. */
+export const PROVIDER_GROUP_LABEL: Record<ProviderSpec["group"], string> = {
+  Google: "Built in",
+  Frontier: "Big AI companies",
+  China: "Chinese AI companies",
+  Aggregator: "One key, many models",
+  "Self-hosted": "OpenAI-compatible / your own",
+};
+
+/**
+ * What has to be filled in before a model of this provider can answer a request.
+ * The connection panel reveals exactly these fields and nothing else, which is
+ * the whole point of choosing the company first.
+ */
+export interface ProviderNeeds {
+  /** False only for the built-in Google path. */
+  apiKey: boolean;
+  /** True when the vendor has no fixed host, so the admin must type one. */
+  baseUrl: boolean;
+  /** True when a default host exists but may be overridden (region, proxy). */
+  baseUrlOptional: boolean;
+}
+
+export function providerNeeds(id: string | null | undefined): ProviderNeeds {
+  const spec = providerSpec(id);
+  if (spec.wire === "vertex") return { apiKey: false, baseUrl: false, baseUrlOptional: false };
+  const mustType = spec.requiresBaseUrl === true || spec.baseUrl === "";
+  return { apiKey: true, baseUrl: mustType, baseUrlOptional: !mustType };
 }

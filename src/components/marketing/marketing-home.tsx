@@ -258,17 +258,34 @@ export function MarketingHome({
   plans,
   trialPlan,
   yearlySaving,
+  cycles,
+  trialAvailable,
 }: {
   isLoggedIn: boolean;
   /** FREE/GO/PRO/AGENCY as the server sees them, admin overrides included. */
   plans?: PlanConfig[];
   trialPlan?: PlanConfig;
   yearlySaving?: number;
+  /**
+   * Which billing cycles the store can actually sell. Optional so the component
+   * still renders standalone, and defaulted to available: a pricing page that hides
+   * its own prices because a prop was missing is the worse failure.
+   */
+  cycles?: { monthly: boolean; yearly: boolean };
+  /** Whether the $1 trial can be bought right now. */
+  trialAvailable?: boolean;
 }) {
   const ONGOING_PLANS = plans?.length ? plans : FALLBACK_ONGOING_PLANS;
   const TRIAL_PLAN = trialPlan ?? FALLBACK_TRIAL_PLAN;
   const YEARLY_SAVING = yearlySaving ?? FALLBACK_YEARLY_SAVING;
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const CYCLES = cycles ?? { monthly: true, yearly: true };
+  const TRIAL_OPEN = trialAvailable ?? true;
+
+  // Opens on whichever cycle can be bought. Landing on a monthly-only store with the
+  // yearly column selected would price the whole page at something nobody can buy.
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">(
+    CYCLES.monthly || !CYCLES.yearly ? "monthly" : "yearly"
+  );
 
   return (
     <div className="relative mkt-bg mkt-text overflow-x-clip">
@@ -469,12 +486,13 @@ export function MarketingHome({
           />
 
           {/* Monthly / Yearly Billing Toggle */}
-          <div className="flex items-center justify-center mt-8 mb-10">
+          <div className="flex flex-col items-center justify-center mt-8 mb-10 gap-3">
             <div className="inline-flex items-center p-1.5 rounded-2xl mkt-glass border mkt-border shadow-inner">
               <button
                 type="button"
                 onClick={() => setBillingCycle("monthly")}
-                className={`relative px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                disabled={!CYCLES.monthly}
+                className={`relative px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
                   billingCycle === "monthly"
                     ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
                     : "mkt-muted hover:text-white"
@@ -485,7 +503,8 @@ export function MarketingHome({
               <button
                 type="button"
                 onClick={() => setBillingCycle("yearly")}
-                className={`relative flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${
+                disabled={!CYCLES.yearly}
+                className={`relative flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
                   billingCycle === "yearly"
                     ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
                     : "mkt-muted hover:text-white"
@@ -497,6 +516,18 @@ export function MarketingHome({
                 </span>
               </button>
             </div>
+
+            {/* Only ever shown when a cycle genuinely cannot be bought. Better to say
+                so on the page than to let someone click through to a checkout that
+                does not exist yet. */}
+            {!CYCLES[billingCycle] && (
+              <p className="text-xs mkt-faint">
+                {billingCycle === "yearly" ? "Yearly" : "Monthly"} billing is not open yet
+                {CYCLES[billingCycle === "yearly" ? "monthly" : "yearly"]
+                  ? ` — ${billingCycle === "yearly" ? "monthly" : "yearly"} is available today.`
+                  : "."}
+              </p>
+            )}
           </div>
 
           {/* The trial, on its own. A dollar for three days is the honest way to find
@@ -531,14 +562,25 @@ export function MarketingHome({
                 <span className="mkt-muted ml-1">once</span>
               </div>
               <p className="text-sm mkt-faint mb-6">
-                Charged today · {TRIAL_PLAN.trialDays} days · cancel any time · one per person
+                Charged today · {TRIAL_PLAN.trialDays} days · nothing renews · one per person
               </p>
-              <Link
-                href={planCtaHref(isLoggedIn, "TRIAL")}
-                className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03]"
-              >
-                {TRIAL_PLAN.ctaLabel}
-              </Link>
+              {TRIAL_OPEN ? (
+                <Link
+                  href={planCtaHref(isLoggedIn, "TRIAL")}
+                  className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03]"
+                >
+                  {TRIAL_PLAN.ctaLabel}
+                </Link>
+              ) : (
+                // Not a link, because there is nowhere for it to go yet. Kept visible
+                // so the offer still reads as real — it is; the till is not open.
+                <span
+                  aria-disabled="true"
+                  className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed"
+                >
+                  Opening soon
+                </span>
+              )}
             </div>
           </motion.div>
 
@@ -616,8 +658,8 @@ export function MarketingHome({
           </div>
           <p className="text-center text-sm mkt-faint mt-10 flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            Cancel any time · Remove your card any time · No hidden fees · Refundable while your
-            credits are unspent
+            Cancel a plan any time · The $1 trial starts no subscription at all · No hidden fees ·
+            Refundable while your credits are unspent
           </p>
         </div>
       </section>

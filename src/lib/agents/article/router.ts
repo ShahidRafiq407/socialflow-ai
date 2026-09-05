@@ -16,7 +16,7 @@
  * Server-only: it reaches the Vertex provider.
  */
 
-import { MODELS, vertexProvider } from "@/lib/agents/llm";
+import { MODELS, pinnedRoleModel, vertexProvider, type ModelRole } from "@/lib/agents/llm";
 
 /**
  * What a stage asks for.
@@ -32,6 +32,13 @@ export type ModelCapability = "fast" | "reasoning" | "writing" | "research" | "v
 interface CapabilitySpec {
   /** Deployment override. Set this to move a capability without touching code. */
   env: string;
+  /**
+   * The product job this kind of thinking belongs to. Named so an admin's pick on
+   * the Models screen can be honoured ahead of the env var below — otherwise a
+   * deployment that once set MODEL_ARTICLE_WRITING made the Article Writer the one
+   * section where choosing a model on the Models screen did nothing.
+   */
+  role: ModelRole;
   /** The shared default for this kind of work, read per call so an admin's pick applies live. */
   fallback: () => string;
   /** Where this kind of work sits between literal and loose. */
@@ -39,15 +46,19 @@ interface CapabilitySpec {
 }
 
 const CAPABILITIES: Record<ModelCapability, CapabilitySpec> = {
-  fast: { env: "MODEL_ARTICLE_FAST", fallback: () => MODELS.CHAT_UTILITY, temperature: 0.2 },
-  reasoning: { env: "MODEL_ARTICLE_REASONING", fallback: () => MODELS.ORCHESTRATOR, temperature: 0.3 },
-  writing: { env: "MODEL_ARTICLE_WRITING", fallback: () => MODELS.CONTENT_CREATOR, temperature: 0.6 },
-  research: { env: "MODEL_ARTICLE_RESEARCH", fallback: () => MODELS.TREND_RESEARCHER, temperature: 0.3 },
-  vision: { env: "MODEL_ARTICLE_VISION", fallback: () => MODELS.VISUALIZER, temperature: 0.4 },
+  fast: { env: "MODEL_ARTICLE_FAST", role: "CHAT_UTILITY", fallback: () => MODELS.CHAT_UTILITY, temperature: 0.2 },
+  reasoning: { env: "MODEL_ARTICLE_REASONING", role: "ORCHESTRATOR", fallback: () => MODELS.ORCHESTRATOR, temperature: 0.3 },
+  writing: { env: "MODEL_ARTICLE_WRITING", role: "CONTENT_CREATOR", fallback: () => MODELS.CONTENT_CREATOR, temperature: 0.6 },
+  research: { env: "MODEL_ARTICLE_RESEARCH", role: "TREND_RESEARCHER", fallback: () => MODELS.TREND_RESEARCHER, temperature: 0.3 },
+  vision: { env: "MODEL_ARTICLE_VISION", role: "VISUALIZER", fallback: () => MODELS.VISUALIZER, temperature: 0.4 },
 };
 /** The model id this capability resolves to right now. */
 export function resolveModel(capability: ModelCapability): string {
   const spec = CAPABILITIES[capability];
+  // The admin's pick is a deliberate, live choice; the env var is a deployment
+  // default from months ago. Pick beats var, var beats code.
+  const pinned = pinnedRoleModel(spec.role);
+  if (pinned) return pinned;
   const override = process.env[spec.env];
   return (typeof override === "string" && override.trim()) || spec.fallback();
 }

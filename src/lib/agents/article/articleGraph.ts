@@ -21,6 +21,7 @@
  * Server-only: Prisma through the run store, models through the capability router.
  */
 
+import { reportUserFailure } from "@/lib/admin/report";
 import { readBriefRow } from "@/lib/article/brief";
 import {
   blockRun,
@@ -325,6 +326,19 @@ export async function advanceArticleRun(input: AdvanceInput): Promise<AdvanceOut
       ? "You stopped the run before this stage finished, so nothing was saved for it. Continue runs this stage again from the start."
       : (error as Error)?.message ||
         "The stage threw an error with no message. Continue runs it again.";
+    // One report for all twenty-three stages. A stage failure is shown to the user
+    // as a stalled run they can continue, and the run row records it — but the admin
+    // had no way to see that the same stage was failing for everybody. A run the
+    // user cancelled is not a fault, so it is not reported.
+    if (!stopped) {
+      reportUserFailure({
+        feature: "article",
+        message: `Article stage "${stage}" failed`,
+        error,
+        referenceId: runId,
+        context: { stage, mode },
+      });
+    }
     return {
       view: await failStage({ runId, stage, error: message }),
       stage,

@@ -191,6 +191,21 @@ export function BillingShell() {
 
         const changed =
           !before || next.plan.id !== before.plan.id || next.plan.status !== before.plan.status;
+
+        // The trial is a single payment, so it never produces a subscription row —
+        // waiting for one meant a customer who had just paid was told to refresh.
+        // `isTrial` is the same thing the rest of the tab reads.
+        if (intent === "trial") {
+          if (next.plan.isTrial) {
+            pushToast(
+              "success",
+              `Your ${next.plan.name} is running. Every AI feature is open — nothing renews, so there is nothing to cancel.`
+            );
+            return;
+          }
+          continue;
+        }
+
         if (next.plan.hasSubscription && !next.plan.stale && changed) {
           pushToast("success", `${next.plan.name} is active. Your credits are ready to use.`);
           return;
@@ -381,7 +396,10 @@ export function BillingShell() {
         isPlanTier(wantedPlan) &&
         wantedPlan !== "FREE" &&
         wantedPlan !== first.plan.id &&
-        first.store.plansPurchasable
+        // The cycle that was actually asked for, because monthly and yearly are
+        // separate products: a yearly deep link on a monthly-only store would have
+        // opened a checkout that cannot exist.
+        (first.store.cycles?.[wantedCycle] ?? first.store.plansPurchasable)
       ) {
         await checkout(wantedPlan, {
           intent: "subscribe",

@@ -37,7 +37,7 @@ function priceLine(plan: BillingCatalogPlan, cycle: BillingCycle): string {
 }
 
 function priceNote(plan: BillingCatalogPlan, cycle: BillingCycle): string {
-  if (plan.oneTimePrice !== undefined) return `once · ${plan.trialDays ?? 3} days`;
+  if (plan.oneTimePrice !== undefined) return `one payment · ${plan.trialDays ?? 3} days`;
   if (plan.priceMonthly === 0) return "free forever";
   return cycle === "yearly" ? `per month · $${plan.priceYearly} billed yearly` : "per month";
 }
@@ -74,6 +74,15 @@ export function PlanGrid({
     ? null
     : "Checkout for the trial is not connected on this deployment yet, so it cannot be started right now.";
 
+  // Monthly and yearly are separate products, so one can be live while the other is
+  // not. Offering a cycle with nothing behind it means a click that fails, which is
+  // worse than a toggle that says why it is off.
+  const cycles = store.cycles ?? { monthly: true, yearly: true };
+  const cycleOff = (target: BillingCycle): string | null =>
+    cycles[target]
+      ? null
+      : `${target === "yearly" ? "Yearly" : "Monthly"} billing is not connected on this deployment yet.`;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -88,7 +97,9 @@ export function PlanGrid({
           <button
             type="button"
             onClick={() => onCycleChange("monthly")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            disabled={cycleOff("monthly") !== null}
+            title={cycleOff("monthly") ?? undefined}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               cycle === "monthly"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -99,7 +110,9 @@ export function PlanGrid({
           <button
             type="button"
             onClick={() => onCycleChange("yearly")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            disabled={cycleOff("yearly") !== null}
+            title={cycleOff("yearly") ?? undefined}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               cycle === "yearly"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -115,6 +128,16 @@ export function PlanGrid({
         </div>
       </div>
 
+      {/* Said out loud too, because a disabled toggle with a tooltip tells a phone
+          nothing at all. */}
+      {cycleOff(cycle) && (
+        <p className="text-[11px] text-muted-foreground">
+          {cycleOff(cycle)}{" "}
+          {cycles[cycle === "yearly" ? "monthly" : "yearly"] &&
+            `${cycle === "yearly" ? "Monthly" : "Yearly"} billing is available.`}
+        </p>
+      )}
+
       {planState.isTrial && (
         <div className="rounded-2xl border border-secondary/40 bg-secondary/5 px-5 py-4">
           <p className="text-sm font-semibold text-foreground">
@@ -123,7 +146,8 @@ export function PlanGrid({
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Pick a plan below and it starts straight away, replacing the trial. Do nothing and the
-            trial simply ends — cancel first and you are never charged again.
+            trial simply ends and the account goes back to Free — there is no subscription behind it,
+            so there is nothing to cancel and nothing further to pay.
           </p>
         </div>
       )}
@@ -140,7 +164,7 @@ export function PlanGrid({
               ${trial.oneTimePrice ?? 1}
             </span>
             <span className="pb-1 text-xs text-muted-foreground">
-              once · cancel any time in {trial.trialDays ?? 3} days
+              one payment · {trial.trialDays ?? 3} days · nothing renews
             </span>
           </div>
 
@@ -187,7 +211,9 @@ export function PlanGrid({
           // Leaving a paid plan is a cancellation, not a purchase. Saying "choose
           // Free" for it would hide what the click actually does.
           const leaveToFree = isFree && !isCurrent && planState.hasSubscription;
-          const blocked = plan.purchasable && !store.plansPurchasable;
+          // Blocked by the cycle on screen, not by the store as a whole: with only
+          // monthly connected, the monthly buttons must still work.
+          const blocked = plan.purchasable && !cycles[cycle];
 
           return (
             <div
@@ -248,7 +274,7 @@ export function PlanGrid({
                 disabled={isCurrent || blocked || busy !== null || (isFree && !leaveToFree)}
                 title={
                   blocked
-                    ? "Payments are not fully configured on this deployment yet."
+                    ? `${cycle === "yearly" ? "Yearly" : "Monthly"} checkout is not connected on this deployment yet.`
                     : undefined
                 }
               >

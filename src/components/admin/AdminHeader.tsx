@@ -17,7 +17,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/adminshahid/settings": "Platform Flags & Maintenance",
   "/adminshahid/notifications": "System Broadcasts",
   "/adminshahid/affiliate": "Affiliate Desk & Payouts",
-  "/adminshahid/feedback": "Assistant Feedback Queue",
+  "/adminshahid/feedback": "Feedback Queue",
   "/adminshahid/errors": "Error Center & Logs",
   "/adminshahid/audit": "Admin Audit Trail",
 };

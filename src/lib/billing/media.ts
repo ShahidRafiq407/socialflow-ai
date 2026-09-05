@@ -38,6 +38,7 @@ import {
   EntitlementError,
 } from "./entitlements";
 import { childMeterContext, getMeterContext, withMeterContext } from "./meter";
+import { reportUserFailure } from "@/lib/admin/report";
 
 /**
  * What a render is expected to weigh, for the storage check only.
@@ -194,11 +195,41 @@ export async function withMediaCharge<T>(
 
   try {
     const result = await withMeterContext(scope, fn);
-    await handle.settle(produced(result));
+    const made = produced(result);
+    await handle.settle(made);
+    // A deck that came back short is a half-failure the user sees and nobody else
+    // does: the charge is correct, the post is missing slides, and the render
+    // reported success. Worth a line on the admin's Errors tab.
+    if (made < request.count) {
+      reportUserFailure({
+        feature: "media",
+        message:
+          made === 0
+            ? `${request.mediaType} render produced nothing`
+            : `${request.mediaType} render produced ${made} of ${request.count} assets`,
+        degraded: made > 0,
+        userId: handle.owner.userId,
+        workspaceId: handle.owner.workspaceId,
+        referenceId: handle.owner.referenceId,
+        context: { mediaType: request.mediaType, asked: request.count, produced: made, action: handle.action },
+      });
+    }
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await handle.refund(`Refunded: ${message.slice(0, 160)}`);
+    // Every image, video and carousel in the product passes through here, and most
+    // callers catch this again upstream and answer politely — so this is the one
+    // place a failed render is certain to be written down.
+    reportUserFailure({
+      feature: "media",
+      message: `${request.mediaType} render failed`,
+      error: err,
+      userId: handle.owner.userId,
+      workspaceId: handle.owner.workspaceId,
+      referenceId: handle.owner.referenceId,
+      context: { mediaType: request.mediaType, asked: request.count, action: handle.action },
+    });
     throw err;
   }
 }

@@ -27,6 +27,7 @@ import {
 import { OpenAICompatibleProvider, type RemoteProviderConfig } from "./OpenAICompatibleProvider";
 import { AnthropicProvider } from "./AnthropicProvider";
 import { providerSpec, type ProviderWire } from "./registry";
+import { reportUserFailure } from "@/lib/admin/report";
 
 /**
  * The one Google client for the process. It lives here rather than in
@@ -93,6 +94,19 @@ export class ProviderConfigError extends Error {
   }
 }
 
+/**
+ * A half-configured model row, on the admin's Errors tab as well as in the throw.
+ *
+ * This is the failure an admin is most likely to cause and least likely to see:
+ * the row lists in the chat picker, a user picks it, and every turn dies on a
+ * missing key. The message is the same one the user's turn fails with, so the two
+ * are recognisably the same incident.
+ */
+function configFault(message: string, context: Record<string, unknown>): ProviderConfigError {
+  reportUserFailure({ feature: "provider-config", message, context });
+  return new ProviderConfigError(message);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The routing table
 //
@@ -151,16 +165,18 @@ export function resolveConfig(routing: ModelRouting): RemoteProviderConfig {
   const spec = providerSpec(routing.provider);
   const baseUrl = (routing.baseUrl || spec.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
-    throw new ProviderConfigError(
+    throw configFault(
       `${spec.label} needs a base URL. Set it on the model row in the back office.`,
+      { provider: routing.provider, model: routing.modelId, missing: "baseUrl" }
     );
   }
 
   const keyName = (routing.apiKeyRef || spec.keyName || "").trim();
   const apiKey = keyName ? RESOLVE_KEY(keyName) : "";
   if (!apiKey) {
-    throw new ProviderConfigError(
-      `No API key for ${spec.label}. Add ${keyName || "its key"} on the back office Keys screen.`,
+    throw configFault(
+      `No API key for ${spec.label}. Add its credential in the company panel on the back office Models screen.`,
+      { provider: routing.provider, model: routing.modelId, missing: "apiKey" }
     );
   }
 

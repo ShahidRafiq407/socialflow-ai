@@ -13,6 +13,7 @@ import { cacheGet, cacheSet } from "@/lib/redis";
 
 import { billedRoute, unbilled, entitlementResponse } from "@/lib/billing/route";
 import { withMeterContext } from "@/lib/billing/meter";
+import { reportUserFailure } from "@/lib/admin/report";
 import type { ActionKey } from "@/lib/billing/actions";
 import { parseBrandMetadata } from "@/lib/brand/profile";
 import {
@@ -425,7 +426,21 @@ Respond with JSON: {"approved": true, "score": 95, "feedback": "Approved"}`;
           const auditParsed = JSON.parse((auditRes.content?.toString() || "{}").replace(/```json/g, "").replace(/```/g, "").trim());
           ceoScore = auditParsed.score || 95;
           ceoFeedback = auditParsed.feedback || ceoFeedback;
-        } catch {}
+        } catch (err) {
+          // The 95 and "Approved by Creative Director" above are the starting values,
+          // not a verdict: when the auditor never answers, the user is shown a
+          // near-perfect score for copy nothing reviewed. The post still ships — that
+          // is the deliberate trade — but the back office gets to see it happening.
+          reportUserFailure({
+            feature: "ai-studio",
+            message: "Quality audit did not run — the post was scored as approved without a review",
+            error: err,
+            degraded: true,
+            userId,
+            workspaceId: workspace?.id ?? null,
+            context: { step, platform: platform ?? null, format: format ?? null, reportedScore: ceoScore },
+          });
+        }
       }
 
       // CEO AUTO-REVISION (bounded to ONE pass, same pattern as the campaign graph's
@@ -631,7 +646,7 @@ Return ONLY raw JSON with this exact structure:
         const res = await llm.invoke([
           new SystemMessage("You are an expert presentation designer and copywriter. Output valid JSON only."),
           new HumanMessage(slidePrompt),
-        ], { modelName: MODELS.CONTENT_CREATOR });
+        ], { modelName: MODELS.SLIDE_REGENERATOR });
 
         let raw = (res.content?.toString() || "").trim().replace(/^```json/g, "").replace(/^```/g, "").replace(/```$/g, "").trim();
         const start = raw.indexOf("{");
@@ -642,6 +657,19 @@ Return ONLY raw JSON with this exact structure:
         return NextResponse.json({ success: true, slide: parsed });
       } catch (err: any) {
         console.error(`[AI Studio] regenerate-slide failed:`, err?.message);
+        // This answers `success: true` with three sentences nobody wrote, so the
+        // user sees a slide that reads like filler and has no reason to think the
+        // model never ran. Reported as degraded: the request was answered, the
+        // answer is not the product.
+        reportUserFailure({
+          feature: "ai-studio",
+          message: "Carousel slide rewrite fell back to canned bullets",
+          error: err,
+          degraded: true,
+          userId,
+          workspaceId: workspace?.id ?? null,
+          context: { step: "regenerate-slide", slideIndex: slideIndex ?? 0, platform: platform ?? null },
+        });
         return NextResponse.json({
           success: true,
           slide: {
@@ -1273,6 +1301,18 @@ Return ONLY the enhanced prompt string without extra commentary or quotes.`;
         enhanced = isVideoFormat
           ? `Cinematic high-definition ${capability.defaultAspectRatio} video of ${base}, smooth dynamic camera movement, 8k resolution, photorealistic studio lighting, deep depth of field, high-end commercial color grading.`
           : `Hyper-realistic studio photograph of ${base}, 8k resolution, elegant volumetric lighting, ultra-sharp focus, professional commercial aesthetics, authentic textures.`;
+        // The template below is then cached for a day, so one bad minute can serve a
+        // canned prompt to everyone who asks the same thing until tomorrow. Worth
+        // knowing about from the back office, not just from a warn line in a log.
+        reportUserFailure({
+          feature: "ai-studio",
+          message: "Prompt enhancement fell back to a fixed template",
+          error: err,
+          degraded: true,
+          userId,
+          workspaceId: workspace?.id ?? null,
+          context: { step: "enhance-prompt", platform: platform ?? null, cachedForHours: 24 },
+        });
       }
 
       if (enhanced) {

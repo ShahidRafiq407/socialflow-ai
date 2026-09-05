@@ -15,10 +15,14 @@ import { actionCredits } from "@/lib/billing/actions";
 import {
   MODEL_ROLE_KEYS,
   MODEL_ROLE_LABELS,
+  describeManagedKeys,
   ensureRuntimeConfig,
   modelForRole,
+  type ManagedKeyStatus,
   type ModelRoleKey,
 } from "./runtimeConfig";
+import { isEncryptionConfigured } from "@/lib/crypto";
+import { providerKeyNames } from "@/lib/providers/registry";
 import { ensureAdminSchema } from "./schema";
 
 export interface AdminModelRow {
@@ -53,6 +57,12 @@ export interface AdminModelRow {
   /** Calls and cost in the last 30 days, from the meter. */
   calls30d: number;
   costMicros30d: number;
+  /**
+   * Jobs currently pointed at this row, derived by inverting the `ai.model.<ROLE>`
+   * pointers. Not a column: the pointer is the only store the product reads at
+   * request time, and a second copy here could disagree with it.
+   */
+  serves: ModelRoleKey[];
 }
 
 export interface RoleAssignment {
@@ -94,6 +104,14 @@ export interface ModelsView {
   chatPicker: Array<{ id: string; label: string; chatCredits: number; minPlan: string | null; recommended: boolean; custom: boolean; provider: string }>;
   builtInChatModelId: string;
   flatChatCredits: number;
+  /**
+   * Connection status for the AI companies only, so the credential can be typed in
+   * beside the model that needs it instead of on a separate screen. Carries a mask,
+   * never a value — the same shape the keys screen already sends to the browser.
+   */
+  providerKeys: ManagedKeyStatus[];
+  /** False when `APP_ENCRYPTION_KEY` is missing, so no key can be stored at all. */
+  encryptionReady: boolean;
 }
 
 export async function getModelsView(): Promise<ModelsView> {
@@ -124,6 +142,19 @@ export async function getModelsView(): Promise<ModelsView> {
   // of the same id on top. Read once, so every row on the screen is from one snapshot.
   const liveRates = allModelRates();
 
+  // Invert the role pointers once: model id → the jobs it holds. Safe to read
+  // synchronously here because `ensureRuntimeConfig()` above has already loaded them.
+  const servesById = new Map<string, ModelRoleKey[]>();
+  for (const role of MODEL_ROLE_KEYS) {
+    const pinned = modelForRole(role);
+    if (!pinned) continue;
+    const list = servesById.get(pinned);
+    if (list) list.push(role);
+    else servesById.set(pinned, [role]);
+  }
+
+  const providerKeyNameSet = new Set(providerKeyNames());
+
   return {
     custom: rows.map((r) => ({
       id: r.id,
@@ -153,6 +184,7 @@ export async function getModelsView(): Promise<ModelsView> {
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       ...usageFor(r.id),
+      serves: servesById.get(r.id) ?? [],
     })),
     roles: MODEL_ROLE_KEYS.map((role) => {
       const fallback = defaultRoleModel(role as ModelRole);
@@ -201,5 +233,7 @@ export async function getModelsView(): Promise<ModelsView> {
     })),
     builtInChatModelId: BUILT_IN_CHAT_MODEL.id,
     flatChatCredits: flat,
+    providerKeys: describeManagedKeys().filter((k) => providerKeyNameSet.has(k.name)),
+    encryptionReady: isEncryptionConfigured(),
   };
 }

@@ -7,6 +7,7 @@
 
 import prisma from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
+import { reportUserFailure } from '@/lib/admin/report';
 import { activeWorkspaceQuery } from '@/lib/workspace/active';
 import { publishToPlatformProvider, normalizePlatformToEnum } from '@/lib/publishers';
 import { scheduleEnqueue } from '@/lib/redis';
@@ -297,6 +298,16 @@ export async function publishToPlatform(post: any, account: any) {
         topic: post.campaignTopic || null,
         error: errMsg,
       });
+      // The user is told, on their own screen, that the post did not go out. This
+      // is the same event on the back office, so one expired token stops looking
+      // like silence and starts looking like the incident it is.
+      reportUserFailure({
+        feature: 'publish',
+        message: `Publish to ${post.platform} failed — ${errMsg}`,
+        workspaceId: post.workspaceId,
+        referenceId: post.id,
+        context: { platform: post.platform, format: post.format ?? null, trigger: 'publish-now' },
+      });
       return {
         success: false,
         post: {
@@ -318,6 +329,14 @@ export async function publishToPlatform(post: any, account: any) {
         publishError: errorMsg,
       },
     }).catch(() => {});
+    reportUserFailure({
+      feature: 'publish',
+      message: `Publish to ${post.platform} failed — ${errorMsg}`,
+      error,
+      workspaceId: post.workspaceId,
+      referenceId: post.id,
+      context: { platform: post.platform, format: post.format ?? null, trigger: 'publish-now' },
+    });
     return {
       success: false,
       post: {

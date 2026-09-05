@@ -118,7 +118,14 @@ export interface BillingCatalog {
 export interface BillingStore {
   configured: boolean;
   testMode: boolean;
+  /** True when at least one cycle can be bought. Use `cycles` to pick which. */
   plansPurchasable: boolean;
+  /**
+   * Per cycle, because monthly and yearly are separate products in the store. The
+   * billing toggle reads this so it can never offer a cycle that has nothing behind
+   * it — a launch usually has monthly set up days before yearly.
+   */
+  cycles: { monthly: boolean; yearly: boolean };
   trialPurchasable: boolean;
   trialUsed: boolean;
   topUpsPurchasable: boolean;

@@ -35,6 +35,7 @@
 
 import { createHash } from "node:crypto";
 import prisma from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { managedKey } from "@/lib/admin/runtimeConfig";
 
 export type TrialDecisionValue = "ALLOWED" | "BLOCKED" | "FLAGGED";
@@ -574,31 +575,48 @@ async function readHistory(args: {
   anonymisedNetwork: boolean;
 }): Promise<History> {
   const since = new Date(Date.now() - VELOCITY_WINDOW_MS);
+
+  // "The trial was actually taken", not merely "we said yes to it".
+  //
+  // A claim row is written when the checkout is created, which is before the buyer
+  // has paid — and most people who open a checkout close it again. Counting those
+  // as consumed meant one abandoned checkout burned the trial for good, and the
+  // person then wrote in to support to have it cleared by hand.
+  //
+  // The webhook is what fills the LS ids in, and it only runs on real money, so
+  // their presence is the honest test. Only the "already consumed" lookups use it;
+  // the velocity counters below deliberately still count every attempt, because
+  // twenty abandoned checkouts from one address in an hour is exactly the pattern
+  // they exist to catch.
   const granted = { in: [...GRANTED] };
+  const consumed = {
+    decision: granted,
+    OR: [{ lsCustomerId: { not: null } }, { lsSubscriptionId: { not: null } }],
+  } satisfies Prisma.TrialClaimWhereInput;
 
   const [byEmail, byAccount, byIp, ipCount, byFingerprint, byAsn, ipAttempts, fingerprintAttempts] =
     await Promise.all([
       prisma.trialClaim.findFirst({
-        where: { emailHash: args.emailHash, decision: granted },
+        where: { emailHash: args.emailHash, ...consumed },
         orderBy: { createdAt: "asc" },
         select: { id: true },
       }),
       args.userId
         ? prisma.trialClaim.findFirst({
-            where: { userId: args.userId, decision: granted },
+            where: { userId: args.userId, ...consumed },
             orderBy: { createdAt: "asc" },
             select: { id: true },
           })
         : Promise.resolve(null),
       prisma.trialClaim.findFirst({
-        where: { ipHash: args.ipHash, decision: granted },
+        where: { ipHash: args.ipHash, ...consumed },
         orderBy: { createdAt: "asc" },
         select: { id: true },
       }),
-      prisma.trialClaim.count({ where: { ipHash: args.ipHash, decision: granted } }),
+      prisma.trialClaim.count({ where: { ipHash: args.ipHash, ...consumed } }),
       args.fingerprintHash
         ? prisma.trialClaim.findFirst({
-            where: { fingerprintHash: args.fingerprintHash, decision: granted },
+            where: { fingerprintHash: args.fingerprintHash, ...consumed },
             orderBy: { createdAt: "asc" },
             select: { id: true },
           })
@@ -607,7 +625,7 @@ async function readHistory(args: {
       // ISP this would read "one trial per broadband provider".
       args.asn && args.anonymisedNetwork
         ? prisma.trialClaim.findFirst({
-            where: { asn: args.asn, decision: granted },
+            where: { asn: args.asn, ...consumed },
             orderBy: { createdAt: "asc" },
             select: { id: true },
           })
@@ -850,13 +868,29 @@ export async function attachTrialCheckout(
  * at all. It is not a substitute for `evaluateTrial` at the point of purchase —
  * this only knows about the account, which is the one signal the person can change
  * for free.
+ *
+ * "Had" means paid for: the LS ids are written by the webhook, so a checkout that
+ * was opened and closed again leaves the button where it was.
  */
 export async function hasUsedTrial(userId: string): Promise<boolean> {
   const existing = await prisma.trialClaim.findFirst({
-    where: { userId, decision: { in: [...GRANTED] } },
+    where: {
+      userId,
+      decision: { in: [...GRANTED] },
+      OR: [{ lsCustomerId: { not: null } }, { lsSubscriptionId: { not: null } }],
+    },
     select: { id: true },
   });
-  return existing !== null;
+  if (existing !== null) return true;
+
+  // The account's own subscription row is the second witness, and the one that
+  // survives a claim row being cleared by hand: a trial that ran is still a trial
+  // that was had, whether or not it is still live.
+  const trialled = await prisma.subscription.findFirst({
+    where: { userId, plan: "TRIAL", trialEndsAt: { not: null } },
+    select: { id: true },
+  });
+  return trialled !== null;
 }
 
 /** Read the client's trial signals off a request. */

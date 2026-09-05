@@ -33,6 +33,7 @@ import {
   recordUsageAsync,
   type CallKind,
 } from "@/lib/billing/meter";
+import { reportUserFailure } from "@/lib/admin/report";
 import type { AgentFunctionCall, AgentTurnResult, ThinkingEffort } from "./VertexAIProvider";
 
 export interface RemoteProviderConfig {
@@ -728,6 +729,17 @@ export class OpenAICompatibleProvider {
       ok: !args.error,
       errorKind: args.error ? classifyError(args.error) : null,
     });
+    // Same reason as the Anthropic client: nothing wraps these calls, so a failed
+    // turn against OpenAI, Grok, DeepSeek or a self-hosted endpoint would otherwise
+    // exist only in the usage table's `ok: false` column.
+    if (args.error !== undefined) {
+      reportUserFailure({
+        feature: "model",
+        message: `${args.model} call failed`,
+        error: args.error,
+        context: { model: args.model, callKind: args.callKind, provider: this.id },
+      });
+    }
   }
 }
 

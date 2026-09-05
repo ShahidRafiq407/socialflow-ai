@@ -18,7 +18,7 @@ let bootstrapPromise: Promise<void> | null = null;
  * the whole list applied, so a cold instance can skip 25 sequential DDL round
  * trips and answer with one SELECT.
  */
-const SCHEMA_VERSION = "2026-09-05.roleSource";
+const SCHEMA_VERSION = "2026-09-05.productFeedback";
 
 const STATEMENTS: string[] = [
   `DO $$ BEGIN
@@ -140,6 +140,35 @@ const STATEMENTS: string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "ChatFeedback_messageId_userId_key" ON "ChatFeedback" ("messageId", "userId")`,
   `CREATE INDEX IF NOT EXISTS "ChatFeedback_rating_createdAt_idx" ON "ChatFeedback" ("rating", "createdAt")`,
   `CREATE INDEX IF NOT EXISTS "ChatFeedback_status_createdAt_idx" ON "ChatFeedback" ("status", "createdAt")`,
+
+  // --- ProductFeedback ---
+  // Free-form feedback from anywhere in the user dashboard. Deliberately a
+  // separate table from "ChatFeedback": a chat vote provably has a message, a
+  // session, a workspace and a ±1, and relaxing those four columns would make
+  // the up/down satisfaction number untrustworthy. Product feedback has none of
+  // them guaranteed — the shell legitimately runs with no active workspace — and
+  // is repeatable, so it carries no unique constraint.
+  `CREATE TABLE IF NOT EXISTS "ProductFeedback" (
+      "id"          TEXT NOT NULL,
+      "userId"      TEXT NOT NULL,
+      "workspaceId" TEXT,
+      "category"    TEXT NOT NULL DEFAULT 'other',
+      "sentiment"   INTEGER,
+      "message"     TEXT NOT NULL,
+      "path"        VARCHAR(512),
+      "userAgent"   VARCHAR(400),
+      "status"      TEXT,
+      "adminNote"   TEXT,
+      "reviewedBy"  TEXT,
+      "reviewedAt"  TIMESTAMP(3),
+      "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "ProductFeedback_pkey" PRIMARY KEY ("id"),
+      CONSTRAINT "ProductFeedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+   )`,
+  `CREATE INDEX IF NOT EXISTS "ProductFeedback_status_createdAt_idx" ON "ProductFeedback" ("status", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "ProductFeedback_createdAt_idx" ON "ProductFeedback" ("createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "ProductFeedback_userId_createdAt_idx" ON "ProductFeedback" ("userId", "createdAt")`,
 
   // --- ErrorEvent ---
   `CREATE TABLE IF NOT EXISTS "ErrorEvent" (

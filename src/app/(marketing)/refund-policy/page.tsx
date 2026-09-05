@@ -52,7 +52,7 @@ export default async function RefundPolicyPage() {
           heading: "1. Try It Before You Commit",
           paragraphs: [
             `The Free plan does not expire and never asks for a card, so you can connect your accounts and publish before spending anything. To try the AI features, the ${TRIAL.name} is $${TRIAL.oneTimePrice} once and opens the whole product for ${TRIAL.trialDays} days — AI posts, images, a video, the CEO chat and an article.`,
-            `Cancel inside those ${TRIAL.trialDays} days and nothing further is charged. If you do not cancel, the trial becomes a ${CONVERTS_TO.name} subscription at $${CONVERTS_TO.priceMonthly} a month, and we email you before that happens.`,
+            `The trial does not renew and there is nothing to cancel: it is a single payment, no subscription is created, and no card is kept for a later charge. When the ${TRIAL.trialDays} days are up the account returns to the Free plan on its own. If you want to keep the AI features you choose a plan yourself — ${CONVERTS_TO.name} starts at $${CONVERTS_TO.priceMonthly} a month — and until you do, the $${TRIAL.oneTimePrice} is the only money that changes hands.`,
             `The trial is one per person. It is priced to cover the AI it gives you rather than to make money, which is why it cannot be taken twice.`,
           ],
         },

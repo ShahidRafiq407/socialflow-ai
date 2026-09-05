@@ -9,6 +9,7 @@ import {
   recordUsageAsync,
   type CallKind,
 } from "@/lib/billing/meter";
+import { reportUserFailure } from "@/lib/admin/report";
 
 /**
  * The width of every vector this application stores.
@@ -469,6 +470,18 @@ export class VertexAIProvider {
       ok: !failed,
       errorKind: failed ? classifyError(args.error) : null,
     });
+
+    // A streamed call is the one shape `meteredCall` does not wrap, so a stream that
+    // died mid-answer was counted in the usage table and reported to nobody. The
+    // user watched the reply stop; the admin's Errors tab stayed empty.
+    if (failed) {
+      reportUserFailure({
+        feature: "model",
+        message: `${args.model} stream failed`,
+        error: args.error,
+        context: { model: args.model, callKind: args.callKind },
+      });
+    }
   }
 
   /**
@@ -1123,6 +1136,12 @@ export class VertexAIProvider {
           console.warn(
             `[Vertex AI Embed] ${modelName} returned ${vector.length} dimensions, expected ${dimensions} — vector dropped.`
           );
+          reportUserFailure({
+            feature: "memory",
+            message: `${modelName} returned ${vector.length}-dimension vectors, expected ${dimensions} — the memory was not stored`,
+            degraded: true,
+            context: { model: modelName, got: vector.length, expected: dimensions },
+          });
           out.push([]);
         } else out.push(vector);
       } catch (err: any) {
@@ -1135,6 +1154,16 @@ export class VertexAIProvider {
           errorKind: classifyError(err),
         });
         console.warn(`[Vertex AI Embed] ❌ ${modelName} failed:`, err?.message || err);
+        // An empty vector is not an error to the caller: the chat answers, the
+        // document saves, and nothing is remembered. Days of that look like an
+        // assistant with no memory and no failure anywhere to explain it.
+        reportUserFailure({
+          feature: "memory",
+          message: `${modelName} embedding failed — nothing was remembered from this text`,
+          error: err,
+          degraded: true,
+          context: { model: modelName, callKind: "embed" },
+        });
         out.push([]);
       }
     }

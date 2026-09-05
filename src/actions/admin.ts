@@ -28,7 +28,9 @@ import {
   setSetting,
   type FeatureFlags,
   type AffiliateTerms,
+  type ModelRoleKey,
 } from "@/lib/admin/runtimeConfig";
+import { jobAcceptsKind, modelJob } from "@/lib/admin/modelSections";
 import { purgeUserData } from "@/lib/account/purge";
 import { forgetConfigRevision, forgetAccountRevision } from "@/lib/admin/revision";
 import { providerSpec } from "@/lib/providers/registry";
@@ -599,6 +601,54 @@ const modelSchema = z.object({
   minPlan: z.enum(PLAN_TIERS).nullable().optional(),
   isDefaultChat: z.boolean().default(false),
   sortOrder: z.number().int().min(0).max(10_000).default(100),
+  /**
+   * The jobs this model should take over, written to `ai.model.<ROLE>` after the row
+   * is saved. Absent (not `[]`) means "leave every pointer alone", which is what an
+   * older client that does not send the field must keep doing.
+   */
+  serves: z.array(z.enum(MODEL_ROLE_KEYS)).optional(),
+  /** Set by the admin after being told which model currently holds a job. */
+  reassign: z.boolean().default(false),
+}).superRefine((data, ctx) => {
+  // A job has a fixed set of legal kinds — the image job cannot run on a text model.
+  // Enforced here as well as in `setRoleModelAction` so neither entry point is the
+  // decorative one: pinning VISUALIZER to a text row used to be accepted and then
+  // failed at generation time, with nothing on screen to explain it.
+  for (const role of data.serves ?? []) {
+    if (!jobAcceptsKind(role, data.kind)) {
+      const job = modelJob(role);
+      ctx.addIssue({
+        code: "custom",
+        path: ["serves"],
+        message: `"${job?.label ?? role}" needs a ${job?.accepts.join(" or ") ?? "different"} model, and this row is ${data.kind}.`,
+      });
+    }
+  }
+  // The chat brain is only ever chosen from the picker, so a row that is not in the
+  // picker cannot hold it however the admin got here.
+  if ((data.serves ?? []).includes("CHAT_CONTROLLER") && !data.enabledForChat) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["serves"],
+      message: 'The assistant\'s brain has to be available in chat. Tick "available in chat" as well.',
+    });
+  }
+  // An image or video row with no unit price meters at zero, exactly like the chat
+  // rows the guard below already covers.
+  if (data.kind === "image" && (data.serves ?? []).includes("VISUALIZER") && !(data.perImage && data.perImage > 0)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["perImage"],
+      message: "Set a price per image, or every picture this model draws is billed as free.",
+    });
+  }
+  if (data.kind === "video" && (data.serves ?? []).includes("VIDEO") && !(data.perVideoSecond && data.perVideoSecond > 0)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["perVideoSecond"],
+      message: "Set a price per video second, or every clip this model makes is billed as free.",
+    });
+  }
 });
 
 export type AdminModelInput = z.input<typeof modelSchema>;
@@ -610,8 +660,11 @@ export type AdminModelInput = z.input<typeof modelSchema>;
  */
 function modelRowData(data: z.output<typeof modelSchema>) {
   const spec = providerSpec(data.provider);
+  // `serves` and `reassign` are instructions for the pointer writes below, not
+  // columns. Spreading them into the row would make Prisma reject the whole save.
+  const { serves: _serves, reassign: _reassign, ...columns } = data;
   return {
-    ...data,
+    ...columns,
     blurb: data.blurb || null,
     // The built-in Google path has no endpoint and no key of its own.
     baseUrl: spec.wire === "vertex" ? null : data.baseUrl?.trim().replace(/\/+$/, "") || null,
@@ -623,7 +676,7 @@ function modelRowData(data: z.output<typeof modelSchema>) {
 
 export async function upsertModelAction(
   input: AdminModelInput & { originalId?: string | null }
-): Promise<Result> {
+): Promise<Result | { success: false; error: string; needsReassign: true }> {
   try {
     const admin = await requireAdmin();
     const data = modelSchema.parse(input);
@@ -655,7 +708,40 @@ export async function upsertModelAction(
       if (collision) throw new Error(`A model with the id "${data.id}" already exists.`);
     }
 
-    const row = modelRowData(data);
+    // One control, one outcome. When the form sends the job list, "the assistant's
+    // brain" inside that list is the only thing that decides the chat default and the
+    // column follows it; an older client that sends no list keeps its standalone flag.
+    const wantsChatBrain = data.serves ? data.serves.includes("CHAT_CONTROLLER") : data.isDefaultChat;
+
+    // Each job is stored in exactly one setting, so it can only ever name one model.
+    // Taking a job off another row is a real change to what users get, so it is
+    // checked here — before anything is written — and refused until the admin has
+    // seen who holds it and saved again.
+    const takeovers: Array<{ role: ModelRoleKey; from: string }> = [];
+    if (data.serves) {
+      const held = new Set<string>([data.id, ...(renamingFrom ? [renamingFrom] : [])]);
+      for (const role of data.serves) {
+        const key = `ai.model.${role}`;
+        // Read the row rather than `modelForRole`: on a cold instance the cache has
+        // not loaded yet and would report every pointer as unset.
+        const pointer = await prisma.appSetting.findUnique({ where: { key } }).catch(() => null);
+        const incumbent = typeof pointer?.value === "string" ? pointer.value.trim() : "";
+        if (!incumbent || held.has(incumbent)) continue;
+        if (!data.reassign) {
+          const job = modelJob(role);
+          // Not a throw: the screen needs to tell them apart from a validation error
+          // so it can offer the confirming save instead of just going red.
+          return {
+            success: false,
+            needsReassign: true,
+            error: `"${job?.label ?? role}" is running on "${incumbent}" right now. Saving again moves it to this model — "${incumbent}" stops doing that job.`,
+          };
+        }
+        takeovers.push({ role, from: incumbent });
+      }
+    }
+
+    const row = { ...modelRowData(data), isDefaultChat: wantsChatBrain };
     await prisma.$transaction(async (tx) => {
       if (renamingFrom) {
         // Carry the created-by and the archive state across, then drop the old id.
@@ -671,7 +757,7 @@ export async function upsertModelAction(
           update: { ...row, archived: false },
         });
       }
-      if (data.isDefaultChat) {
+      if (wantsChatBrain) {
         await tx.aiModel.updateMany({
           where: { isDefaultChat: true, NOT: { id: data.id } },
           data: { isDefaultChat: false },
@@ -694,7 +780,7 @@ export async function upsertModelAction(
     // when the box is ticked left a stale pointer behind when it was unticked, and
     // the picker would then default to a model it no longer offers.
     const chatDefaultKey = "ai.model.CHAT_CONTROLLER";
-    if (data.isDefaultChat && data.enabledForChat && data.kind === "text") {
+    if (wantsChatBrain && data.enabledForChat && data.kind === "text") {
       await setSetting(chatDefaultKey, data.id, { updatedBy: admin.userId });
     } else {
       const pointer = await prisma.appSetting.findUnique({ where: { key: chatDefaultKey } });
@@ -703,10 +789,28 @@ export async function upsertModelAction(
       }
     }
     // A row that is no longer the default must not keep the column set either.
-    if (!data.isDefaultChat) {
+    if (!wantsChatBrain) {
       await prisma.aiModel
         .updateMany({ where: { id: data.id, isDefaultChat: true }, data: { isDefaultChat: false } })
         .catch(() => undefined);
+    }
+
+    // Now point the other chosen jobs at this row, and release the ones it no longer
+    // holds — unticking a box has to actually give the job up, or the model keeps
+    // serving a section the admin can no longer see it in.
+    if (data.serves) {
+      const wanted = new Set<ModelRoleKey>(data.serves);
+      for (const role of MODEL_ROLE_KEYS) {
+        if (role === "CHAT_CONTROLLER") continue; // settled above, with its extra rules
+        const key = `ai.model.${role}`;
+        const pointer = await prisma.appSetting.findUnique({ where: { key } }).catch(() => null);
+        const incumbent = typeof pointer?.value === "string" ? pointer.value.trim() : "";
+        if (wanted.has(role)) {
+          if (incumbent !== data.id) await setSetting(key, data.id, { updatedBy: admin.userId });
+        } else if (incumbent === data.id || (renamingFrom && incumbent === renamingFrom)) {
+          await deleteSetting(key);
+        }
+      }
     }
 
     await refreshRuntimeConfig();
@@ -714,7 +818,12 @@ export async function upsertModelAction(
       action: renamingFrom ? "model.rename" : "model.upsert",
       targetType: "model",
       targetId: data.id,
-      details: { ...row, ...(renamingFrom ? { renamedFrom: renamingFrom } : {}) },
+      details: {
+        ...row,
+        ...(renamingFrom ? { renamedFrom: renamingFrom } : {}),
+        // Who lost a job to this save, so a surprise is traceable afterwards.
+        ...(takeovers.length ? { tookOver: takeovers } : {}),
+      },
     });
     revalidatePath("/adminshahid/models");
     // The chat surface reads the catalogue, so it has to be told as well.
@@ -791,15 +900,19 @@ export async function setRoleModelAction(input: { role: string; modelId: string 
       if (row?.archived) {
         throw new Error(`"${data.modelId}" is archived. Restore it before assigning it to a role.`);
       }
+      // A job has a fixed set of legal kinds. Only the chat brain used to be
+      // checked here, so an image job could be pinned to a text model and the
+      // failure only showed up at generation time.
+      if (row && !jobAcceptsKind(data.role, row.kind)) {
+        const job = modelJob(data.role);
+        throw new Error(
+          `"${data.modelId}" is a ${row.kind} model, and "${job?.label ?? data.role}" needs ${job?.accepts.join(" or ") ?? "another kind"}.`
+        );
+      }
       // The chat picker only ever offers text models it is allowed to show, so a
       // controller pinned to an image row or a chat-disabled row is unusable.
-      if (data.role === "CHAT_CONTROLLER" && row) {
-        if (row.kind !== "text") {
-          throw new Error(`"${data.modelId}" is a ${row.kind} model. The chat controller has to be a text model.`);
-        }
-        if (!row.enabledForChat) {
-          throw new Error(`"${data.modelId}" is not enabled for chat. Tick "available in chat" on it first.`);
-        }
+      if (data.role === "CHAT_CONTROLLER" && row && !row.enabledForChat) {
+        throw new Error(`"${data.modelId}" is not enabled for chat. Tick "available in chat" on it first.`);
       }
       await setSetting(`ai.model.${data.role}`, data.modelId, { updatedBy: admin.userId });
     } else {
@@ -843,6 +956,9 @@ export async function setManagedKeyAction(input: { name: string; value: string }
       details: { preview: value ? (spec.secret ? maskValue(value) : value) : null },
     });
     revalidatePath("/adminshahid/keys");
+    // Provider credentials are entered beside the models that use them now, so that
+    // screen has to be rebuilt too or the "connected" badge stays stale.
+    revalidatePath("/adminshahid/models");
     forgetConfigRevision();
     return { success: true };
   } catch (err) {
@@ -1021,8 +1137,14 @@ export async function resolveAllErrorsAction(): Promise<Result<{ count: number }
   }
 }
 
+/**
+ * The queue merges two tables, so a row's kind decides which one is written. The
+ * ids are independent sequences — without the kind, triaging a written message
+ * would look for a chat vote with that id and quietly fail.
+ */
 export async function triageFeedbackAction(input: {
   id: string;
+  kind?: "chat" | "general";
   status: "reviewed" | "actioned" | "dismissed" | null;
   adminNote?: string;
 }): Promise<Result> {
@@ -1031,22 +1153,26 @@ export async function triageFeedbackAction(input: {
     const data = z
       .object({
         id: z.string().trim().min(1),
+        kind: z.enum(["chat", "general"]).default("chat"),
         status: z.enum(["reviewed", "actioned", "dismissed"]).nullable(),
         adminNote: z.string().trim().max(1000).optional(),
       })
       .parse(input);
-    await prisma.chatFeedback.update({
-      where: { id: data.id },
-      data: {
-        status: data.status,
-        // An empty box means "clear the note", which is a null column rather than
-        // an empty string — every reader tests the column for null.
-        adminNote: data.adminNote === undefined ? undefined : data.adminNote || null,
-        reviewedBy: data.status ? admin.userId : null,
-        reviewedAt: data.status ? new Date() : null,
-      },
-    });
-    await recordAudit(admin, { action: "feedback.triage", targetType: "feedback", targetId: data.id, details: { status: data.status } });
+    // Both tables carry the same four triage columns, so only the target differs.
+    const patch = {
+      status: data.status,
+      // An empty box means "clear the note", which is a null column rather than
+      // an empty string — every reader tests the column for null.
+      adminNote: data.adminNote === undefined ? undefined : data.adminNote || null,
+      reviewedBy: data.status ? admin.userId : null,
+      reviewedAt: data.status ? new Date() : null,
+    };
+    if (data.kind === "general") {
+      await prisma.productFeedback.update({ where: { id: data.id }, data: patch });
+    } else {
+      await prisma.chatFeedback.update({ where: { id: data.id }, data: patch });
+    }
+    await recordAudit(admin, { action: "feedback.triage", targetType: "feedback", targetId: data.id, details: { status: data.status, kind: data.kind } });
     revalidatePath("/adminshahid/feedback");
     return { success: true };
   } catch (err) {

@@ -24,6 +24,7 @@ import {
   recordUsageAsync,
   type CallKind,
 } from "@/lib/billing/meter";
+import { reportUserFailure } from "@/lib/admin/report";
 import type { AgentFunctionCall, AgentTurnResult, ThinkingEffort } from "./VertexAIProvider";
 import {
   extractJson,
@@ -626,5 +627,15 @@ export class AnthropicProvider {
       ok: !args.error,
       errorKind: args.error ? classifyError(args.error) : null,
     });
+    // Third-party calls do not pass through `meteredCall`, so this is the only
+    // place a Claude turn that failed can be written down for the admin.
+    if (args.error !== undefined) {
+      reportUserFailure({
+        feature: "model",
+        message: `${args.model} call failed`,
+        error: args.error,
+        context: { model: args.model, callKind: args.callKind, provider: this.config.providerId },
+      });
+    }
   }
 }

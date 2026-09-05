@@ -33,6 +33,7 @@ import {
   LEMON_FEE_NOTE,
   LEMON_PAYMENT_METHODS,
   PORTAL_URL_TTL_MS,
+  cyclesPurchasable,
   getPortalUrls,
   lemonConfigured,
   lemonTestMode,
@@ -238,6 +239,10 @@ export async function GET() {
         configured: lemonConfigured(),
         testMode: lemonTestMode(),
         plansPurchasable: paidPlansPurchasable(),
+        // Per cycle, because the two are configured independently in the store. A
+        // deployment that sells monthly and not yearly must show the yearly toggle
+        // as unavailable rather than let someone click through to a dead end.
+        cycles: cyclesPurchasable(),
         trialPurchasable: trialPurchasable() && !trialUsed,
         trialUsed,
         topUpsPurchasable: topUpsPurchasable(),

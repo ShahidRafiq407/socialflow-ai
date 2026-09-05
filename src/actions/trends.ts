@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cacheGet, cacheSet } from "@/lib/redis";
+import { reportUserFailure } from "@/lib/admin/report";
 
 export interface TrendItem {
   id: string;
@@ -100,6 +101,16 @@ export async function fetchLiveTrendingNews(
     };
   } catch (error: any) {
     console.error("Error fetching live trending news:", error);
+    // Answered as a success with a fixed list, so "trending now" can quietly show
+    // the same evergreen items for weeks with nothing anywhere saying the live feed
+    // stopped responding.
+    reportUserFailure({
+      feature: "trends",
+      message: "Live trend feed unreachable — a fixed list was shown instead",
+      error,
+      degraded: true,
+      context: { query: (query || "").slice(0, 120) },
+    });
     return {
       success: true, // Graceful fallback to verified high-signal industry trends
       trends: getFallbackTrends(query),

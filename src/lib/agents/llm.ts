@@ -67,6 +67,21 @@ export function defaultRoleModel(role: ModelRole): string {
   return MODEL_DEFAULTS[role]();
 }
 
+/**
+ * The admin's explicit pick for a role, or null when they have not made one.
+ *
+ * `resolveRoleModel` folds the pick, the env var and the code default into one id,
+ * which is right for "what runs now" but useless where something else also proposes
+ * a model — the browser sending `imageModel` from a build-time constant, or a
+ * MODEL_ARTICLE_WRITING env var. Those used to win over the back office, so ticking
+ * a job on the Models screen changed nothing the user could see. Callers that have a
+ * competing candidate ask this first and only fall back when it is null.
+ */
+export function pinnedRoleModel(role: ModelRole): string | null {
+  const pinned = modelForRole(role);
+  return pinned && pinned.trim() ? pinned.trim() : null;
+}
+
 export const MODELS: Record<ModelRole, string> = Object.defineProperties(
   {} as Record<ModelRole, string>,
   Object.fromEntries(

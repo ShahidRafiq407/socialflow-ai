@@ -12,6 +12,7 @@ import Link from "next/link";
 import { ShieldAlert, ArrowLeft } from "lucide-react";
 import { isAdminUser } from "@/lib/admin/auth";
 import { countOpenErrors } from "@/lib/admin/errors";
+import { countNewFeedback } from "@/lib/admin/feedback";
 import { ensureAdminSchema } from "@/lib/admin/schema";
 import prisma from "@/lib/db";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -54,7 +55,9 @@ export default async function AdminShahidLayout({ children }: { children: ReactN
   const [user, openErrors, newFeedback, openPayouts] = await Promise.all([
     currentUser().catch(() => null),
     countOpenErrors().catch(() => 0),
-    prisma.chatFeedback.count({ where: { status: null } }).catch(() => 0),
+    // Both kinds, so a written message raises the badge too — otherwise the only
+    // hint that somebody had written in was opening the page on the off chance.
+    countNewFeedback().catch(() => 0),
     prisma.payout.count({ where: { status: { in: ["REQUESTED", "APPROVED"] } } }).catch(() => 0),
   ]);
 

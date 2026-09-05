@@ -55,7 +55,7 @@ import {
 } from "./plans";
 import { getActionCostMicros, withMeterContext } from "./meter";
 import { costMicrosToCredits } from "./modelPricing";
-import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
+import { ensureRuntimeConfig, managedKey } from "@/lib/admin/runtimeConfig";
 import { getAccountBlock, type AccountBlock } from "@/lib/admin/block";
 import {
   attachLedgerCost,
@@ -78,6 +78,23 @@ import {
  * paid for instead of being dropped to Free by our own plumbing.
  */
 export const STALE_PERIOD_GRACE_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Whether a TEST-MODE purchase is allowed to grant anything on a live deployment.
+ *
+ * Off unless the operator turns it on, and it has to stay that way: a test store's
+ * checkout accepts fake card numbers, so anyone who found the link could mint an
+ * Agency account for nothing. The switch exists for the one legitimate case — running
+ * the real payment flow against the real deployment before the store goes live — and
+ * without it the only way to do that is with live cards.
+ *
+ * Read from the settings rather than imported from the Lemon Squeezy module on
+ * purpose: this file is the authority on what a subscription row is worth, and that
+ * answer should not depend on the payment provider's code being loadable.
+ */
+export function testEntitlementsAllowed(): boolean {
+  return managedKey("LEMONSQUEEZY_ALLOW_TEST_ENTITLEMENTS").trim().toLowerCase() === "true";
+}
 
 /** Mirrors the Prisma `SubscriptionStatus` enum without importing the client type. */
 export type SubscriptionStatusValue =
@@ -115,8 +132,12 @@ export interface SubscriptionFacts {
  */
 export function effectivePlanFor(sub: SubscriptionFacts | null | undefined, now = new Date()): PlanTier {
   if (!sub) return "FREE";
-  // A test store's checkout is free to anyone who finds the link.
-  if (sub.testMode === true && process.env.NODE_ENV === "production") return "FREE";
+  // A test store's checkout is free to anyone who finds the link, so on the live
+  // site a test-mode purchase is worth nothing — unless the operator has explicitly
+  // turned the switch on, which is how the store is tested before it goes live.
+  if (sub.testMode === true && process.env.NODE_ENV === "production" && !testEntitlementsAllowed()) {
+    return "FREE";
+  }
 
   const storedPlan = (isPlanTier(sub.plan) ? sub.plan : "FREE") as PlanTier;
   const at = now.getTime();
@@ -284,7 +305,7 @@ export async function getPlanContext(userId: string, now = new Date()): Promise<
     testMode,
   };
 
-  if (testMode && process.env.NODE_ENV === "production") {
+  if (testMode && process.env.NODE_ENV === "production" && !testEntitlementsAllowed()) {
     return freeContext(userId, now, base);
   }
 

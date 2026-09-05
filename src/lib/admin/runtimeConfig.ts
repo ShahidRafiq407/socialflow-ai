@@ -128,6 +128,18 @@ export const MANAGED_KEYS = [
   { name: "LEMONSQUEEZY_STORE_ID", label: "Lemon Squeezy store id", group: "Billing", secret: false },
   { name: "LEMONSQUEEZY_WEBHOOK_SECRET", label: "Lemon Squeezy webhook secret", group: "Billing", secret: true },
   { name: "LEMONSQUEEZY_TEST_MODE", label: "Lemon Squeezy test mode (true/false)", group: "Billing", secret: false },
+  {
+    name: "LEMONSQUEEZY_STORE_DOMAIN",
+    label: "Lemon Squeezy store domain (e.g. smb.lemonsqueezy.com) — only needed if the API cannot be reached",
+    group: "Billing",
+    secret: false,
+  },
+  {
+    name: "LEMONSQUEEZY_ALLOW_TEST_ENTITLEMENTS",
+    label: "Honour TEST-MODE purchases on the live site (true/false) — leave off unless you are testing",
+    group: "Billing",
+    secret: false,
+  },
   { name: "LEMONSQUEEZY_VARIANT_TRIAL", label: "Variant: Trial", group: "Billing variants", secret: false },
   { name: "LEMONSQUEEZY_VARIANT_GO_MONTHLY", label: "Variant: Go monthly", group: "Billing variants", secret: false },
   { name: "LEMONSQUEEZY_VARIANT_GO_YEARLY", label: "Variant: Go yearly", group: "Billing variants", secret: false },

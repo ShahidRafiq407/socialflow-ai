@@ -1,4 +1,4 @@
-import { vertexProvider, MODELS } from "@/lib/agents/llm";
+import { vertexProvider, MODELS, pinnedRoleModel } from "@/lib/agents/llm";
 import { uploadBase64ToStorage, isSupabaseConfigured } from "@/lib/supabase";
 import { getPlatformFormatSpec } from "@/lib/agents/platformMapping";
 import { envInt, sleep, createLimiter } from "@/lib/agents/concurrency";
@@ -586,6 +586,23 @@ export function resolveVisualRequirements(
 }
 
 /**
+ * Which image model actually renders, and gets billed.
+ *
+ * Every editor in the dashboard sends `imageModel` from a build-time constant baked
+ * into the browser bundle, so it used to beat whatever the admin had chosen on the
+ * Models screen — the pick applied to nothing a user could see, and a redeploy was
+ * the only way to change the render model. The admin's explicit pick now wins; the
+ * client's value stays the fallback, so an editor that offers a choice still works
+ * when no pick has been made.
+ *
+ * Used for the charge as well as the render: the premium image price is read off the
+ * model id, and billing for a model that did not run is a bill for the wrong thing.
+ */
+function effectiveImageModel(requested?: string | null): string | null {
+  return pinnedRoleModel("VISUALIZER") || requested || null;
+}
+
+/**
  * Renders media, and charges for it.
  *
  * Every path that produces an image or a video in this product comes through
@@ -619,7 +636,7 @@ export async function generateMediaAsset(input: GenerateMediaInput): Promise<Med
     {
       mediaType: input.mediaType,
       count: plannedCount,
-      imageModel: input.imageModel ?? null,
+      imageModel: effectiveImageModel(input.imageModel),
       owner: input.billing ? { userId: input.billing.userId, workspaceId: input.billing.workspaceId ?? null } : null,
       referenceId: input.billing?.referenceId ?? null,
     },
@@ -695,7 +712,7 @@ async function renderMediaAsset(input: GenerateMediaInput): Promise<MediaAssetOu
   // -------------------------------------------------------------
   // REAL IMAGE GENERATION (Vertex AI image model, MODELS.VISUALIZER)
   // -------------------------------------------------------------
-  const targetImageModel = input.imageModel || MODELS.VISUALIZER;
+  const targetImageModel = effectiveImageModel(input.imageModel) || MODELS.VISUALIZER;
 
   // ── TEXT-RICH (INFOGRAPHIC) MODE ──────────────────────────────────────────────
   // Carousels, Idea Pins, Multi-Image posts and LinkedIn Documents are informational

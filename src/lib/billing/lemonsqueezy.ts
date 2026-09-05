@@ -145,8 +145,50 @@ export function lemonWebhookConfigured(): boolean {
 
 export type PurchaseKind = "subscription" | "trial" | "topup";
 
+/**
+ * A configured variant value, in whichever of the three accepted forms it was given.
+ *
+ * There are two different ids for the same variant in Lemon Squeezy and the
+ * dashboard hands out the wrong one for our purposes. What you can copy off a
+ * product page is the "buy link" — `https://store.lemonsqueezy.com/buy/<uuid>` —
+ * and that uuid is the variant's `slug`, not its id. The id is numeric, it is what
+ * `POST /v1/checkouts` wants, and it is the only thing a webhook ever tells us.
+ *
+ * Rather than make whoever sets this up go hunting for the numeric id, all three
+ * forms are accepted here and reconciled at runtime: paste the number, paste the
+ * uuid, or paste the whole buy link with its query string still attached.
+ */
+export interface VariantIdentity {
+  /** Exactly as configured, for error messages and the admin screen. */
+  raw: string;
+  /** The numeric id, when the configured value is one. */
+  numeric: string | null;
+  /** The buy-link uuid — the variant's `slug` — when the value is or contains one. */
+  uuid: string | null;
+}
+
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+export function parseVariantId(value: string | null | undefined): VariantIdentity {
+  const raw = (value ?? "").trim();
+  if (!raw) return { raw: "", numeric: null, uuid: null };
+
+  if (/^\d+$/.test(raw)) return { raw, numeric: raw, uuid: null };
+
+  // A pasted buy link, with or without `?embed=1&media=0`, and either path shape
+  // Lemon Squeezy serves: `/buy/<uuid>` and `/checkout/buy/<uuid>`.
+  const found = UUID_PATTERN.exec(raw);
+  if (found) return { raw, numeric: null, uuid: found[0].toLowerCase() };
+
+  return { raw, numeric: null, uuid: null };
+}
+
 export interface VariantRef {
+  /** The configured value, untouched. */
   variantId: string;
+  /** The numeric id, either configured directly or resolved from the uuid. */
+  numeric: string | null;
+  uuid: string | null;
   kind: PurchaseKind;
   /** The plan the purchase grants. Top-ups carry no plan. */
   plan?: PlanTier;
@@ -155,6 +197,17 @@ export interface VariantRef {
   packId?: string;
   envVar: string;
 }
+
+/**
+ * uuid → numeric id, learned from the API and remembered for the life of the
+ * process.
+ *
+ * A serverless instance handles many requests, so one lookup covers all of them,
+ * and the mapping cannot change: a variant's slug and id are both fixed for its
+ * lifetime. Cleared only by a deploy, which is also when the configuration could
+ * have changed.
+ */
+const numericByUuid = new Map<string, string>();
 
 function envVarForPlan(plan: PlanTier, cycle: BillingCycleValue): string {
   return `LEMONSQUEEZY_VARIANT_${plan}_${cycle.toUpperCase()}`;
@@ -167,60 +220,62 @@ function envVarForPack(packId: string): string {
 /**
  * The variant behind the 3-day trial.
  *
- * HOW THIS VARIANT MUST BE SET UP IN THE DASHBOARD. The trial is sold as "$1 today,
- * then $19 a month if you stay", and that shape is a store setting, not something
- * this codebase can express at checkout. In Lemon Squeezy the variant needs:
+ * HOW THIS VARIANT MUST BE SET UP IN THE DASHBOARD. The trial is a SINGLE PAYMENT
+ * product priced at $1 that buys three days of full access — not a subscription
+ * with a trial period. That is deliberate, and it is what makes "cancel any time,
+ * remove your card any time" true without qualification: there is nothing to
+ * cancel, because nothing recurs. Three days after the payment the account drops
+ * to Free on its own and the buyer chooses a plan, or does not.
  *
- *   - a SUBSCRIPTION product, monthly, priced at the Go rate ($19) — the trial
- *     converts into Go, so the recurring price on this variant is Go's price;
- *   - a free trial of 3 days, with "charge a setup fee" enabled at $1. The setup
- *     fee is the only field that takes money on day zero while a trial is running.
- *     A 3-day trial with no fee is a free trial, which is the thing this product
- *     deliberately does not sell;
+ * So in Lemon Squeezy the variant needs:
+ *
+ *   - a SINGLE PAYMENT product at $1.00 — no recurring interval, no trial period,
+ *     no setup fee;
  *   - the same store as every other variant, so one webhook signing secret covers
  *     all of them.
  *
- * Getting that wrong fails in a way worth knowing about in advance. If the setup fee
- * is missing, `subscription_created` still arrives and the trial still starts — the
- * webhook has no `total` on subscription events, so it cannot tell a paid trial from
- * a free one. Nothing here will catch it; the only evidence is the store's own
- * revenue report. Check the first live trial by hand.
+ * Getting the shape wrong is caught rather than silently mispriced. The webhook
+ * grants the trial from `order_created`, and only when the order's own total is
+ * within a cent or two of $1 — so a variant accidentally priced at $19, or a
+ * tampered checkout claiming to be the trial, grants nothing and is logged.
  */
 const TRIAL_ENV_VAR = "LEMONSQUEEZY_VARIANT_TRIAL";
+
+/** The price the trial must actually charge, in USD cents. */
+export const TRIAL_PRICE_CENTS = 100;
 
 /** Every variant this product sells, whether or not its id is configured yet. */
 export function variantCatalog(): VariantRef[] {
   const refs: VariantRef[] = [];
 
-  const trialId = lemonEnv(TRIAL_ENV_VAR);
-  refs.push({
-    variantId: trialId ?? "",
-    kind: "trial",
-    plan: "TRIAL",
-    envVar: TRIAL_ENV_VAR,
-  });
+  const push = (
+    configured: string,
+    rest: Omit<VariantRef, "variantId" | "numeric" | "uuid">
+  ): void => {
+    const identity = parseVariantId(configured);
+    refs.push({
+      variantId: identity.raw,
+      // A uuid resolved earlier in this process counts as configured numerically
+      // from here on, which is what lets the webhook name the plan behind a
+      // payment when all we were ever given was a buy link.
+      numeric: identity.numeric ?? (identity.uuid ? numericByUuid.get(identity.uuid) ?? null : null),
+      uuid: identity.uuid,
+      ...rest,
+    });
+  };
+
+  push(lemonEnv(TRIAL_ENV_VAR), { kind: "trial", plan: "TRIAL", envVar: TRIAL_ENV_VAR });
 
   for (const plan of ["GO", "PRO", "AGENCY"] as PlanTier[]) {
     for (const cycle of ["monthly", "yearly"] as BillingCycleValue[]) {
       const envVar = envVarForPlan(plan, cycle);
-      refs.push({
-        variantId: lemonEnv(envVar),
-        kind: "subscription",
-        plan,
-        cycle,
-        envVar,
-      });
+      push(lemonEnv(envVar), { kind: "subscription", plan, cycle, envVar });
     }
   }
 
   for (const pack of TOPUP_PACKS) {
     const envVar = envVarForPack(pack.id);
-    refs.push({
-      variantId: lemonEnv(envVar),
-      kind: "topup",
-      packId: pack.id,
-      envVar,
-    });
+    push(lemonEnv(envVar), { kind: "topup", packId: pack.id, envVar });
   }
 
   return refs;
@@ -246,12 +301,24 @@ export function variantForTopUp(packId: string): string | null {
  * What a variant id means. Used by the webhook to name the plan a payment bought.
  * Returns null for an id we do not sell — a store selling something else alongside
  * this product must not silently upgrade an account.
+ *
+ * Matches on the numeric id, on the uuid, and on the raw configured string, so it
+ * works whichever of the three forms was pasted into the setting. When the config
+ * holds only uuids the numeric match depends on `ensureVariantResolution()` having
+ * run first; the webhook route awaits it before reading any event.
  */
 export function resolveVariant(variantId: string | number | null | undefined): VariantRef | null {
   if (variantId === null || variantId === undefined) return null;
-  const wanted = String(variantId).trim();
+  const wanted = String(variantId).trim().toLowerCase();
   if (!wanted) return null;
-  return variantCatalog().find((ref) => ref.variantId && ref.variantId === wanted) ?? null;
+  return (
+    variantCatalog().find(
+      (ref) =>
+        (ref.numeric !== null && ref.numeric === wanted) ||
+        (ref.uuid !== null && ref.uuid === wanted) ||
+        (ref.variantId !== "" && ref.variantId.toLowerCase() === wanted)
+    ) ?? null
+  );
 }
 
 /** Which variant ids are still unset. Surfaced on the billing page in dev. */
@@ -261,12 +328,33 @@ export function missingVariantEnv(): string[] {
     .map((ref) => ref.envVar);
 }
 
-/** True when at least the three paid plans are buyable on both cycles. */
-export function paidPlansPurchasable(): boolean {
-  if (!lemonConfigured()) return false;
-  return (["GO", "PRO", "AGENCY"] as PlanTier[]).every(
-    (plan) => variantForPlan(plan, "monthly") && variantForPlan(plan, "yearly")
-  );
+/**
+ * Which billing cycles can actually be bought right now.
+ *
+ * Split per cycle because the two are configured independently and a store may
+ * genuinely only sell one of them. This used to be a single "are all six variants
+ * set?" boolean, which meant that a store selling three monthly plans and no
+ * yearly ones could sell nothing at all: every checkout 503'd and every button
+ * rendered disabled. A cycle nobody has set up is now simply not offered, and the
+ * one that is set up works.
+ */
+export function cyclesPurchasable(): Record<BillingCycleValue, boolean> {
+  if (!lemonConfigured()) return { monthly: false, yearly: false };
+  const paid = ["GO", "PRO", "AGENCY"] as PlanTier[];
+  return {
+    monthly: paid.every((plan) => variantForPlan(plan, "monthly")),
+    yearly: paid.every((plan) => variantForPlan(plan, "yearly")),
+  };
+}
+
+/**
+ * True when the three paid plans are buyable — on the given cycle, or on either
+ * one when no cycle is named.
+ */
+export function paidPlansPurchasable(cycle?: BillingCycleValue): boolean {
+  const cycles = cyclesPurchasable();
+  if (cycle) return cycles[cycle];
+  return cycles.monthly || cycles.yearly;
 }
 
 export function trialPurchasable(): boolean {
@@ -275,6 +363,25 @@ export function trialPurchasable(): boolean {
 
 export function topUpsPurchasable(): boolean {
   return getFlags().topUpsEnabled && lemonConfigured() && TOPUP_PACKS.every((pack) => variantForTopUp(pack.id) !== null);
+}
+
+/**
+ * Whether a TEST-MODE purchase is allowed to grant anything on a production
+ * deployment.
+ *
+ * Off by default and it must stay that way: a test store's checkout takes fake
+ * card numbers, so anyone who found the link could mint an Agency account. The
+ * switch exists because there is one legitimate reason to want it — running the
+ * real payment flow end to end against the real deployment before the store goes
+ * live — and the alternative is people testing with live cards.
+ *
+ * Read here for the billing UI's own use. The decision it feeds is made in
+ * `entitlements.ts`, which keeps its own copy of this read rather than importing
+ * one — that file is the authority on what a row is worth, and it must not depend
+ * on the payment provider's module to answer.
+ */
+export function testEntitlementsAllowed(): boolean {
+  return lemonEnv("LEMONSQUEEZY_ALLOW_TEST_ENTITLEMENTS").toLowerCase() === "true";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -372,6 +479,120 @@ interface JsonApiResource<A> {
   data: { type: string; id: string; attributes: A };
 }
 
+/** A JSON:API collection, with the pagination block their list endpoints return. */
+interface JsonApiCollection<A> {
+  data?: Array<{ type: string; id: string; attributes: A }>;
+  meta?: { page?: { currentPage?: number; lastPage?: number; perPage?: number; total?: number } };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resolving a buy link to a variant id
+//
+// The setting may hold a buy-link uuid instead of a numeric id (see
+// `VariantIdentity`). Everything downstream — creating a checkout, and naming the
+// plan behind an incoming webhook — needs the number. One listing call gets every
+// variant in the account with its `slug`, which IS that uuid, so a single request
+// reconciles the whole catalogue at once and is then cached for the process.
+//
+// It is best-effort on purpose. If the call fails, checkout falls back to the
+// hosted buy link, which needs no numeric id at all; only the webhook's reverse
+// lookup degrades, and there the amount charged is checked independently.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface VariantAttributes {
+  slug?: string;
+  name?: string;
+  product_id?: number;
+  status?: string;
+}
+
+let variantResolution: Promise<void> | null = null;
+
+async function loadVariantSlugs(): Promise<void> {
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await lemonFetch<JsonApiCollection<VariantAttributes>>(
+      `/variants?page[size]=100&page[number]=${page}`
+    );
+    if (!result.ok) {
+      console.error("[lemonsqueezy] could not list variants to resolve buy links:", result.error);
+      return;
+    }
+    for (const row of result.data?.data ?? []) {
+      const slug = row.attributes?.slug;
+      if (typeof slug === "string" && slug && row.id) numericByUuid.set(slug.toLowerCase(), String(row.id));
+    }
+    const meta = result.data?.meta?.page;
+    if (!meta?.lastPage || page >= meta.lastPage) return;
+  }
+}
+
+/**
+ * Make sure every configured buy-link uuid has its numeric id in hand.
+ *
+ * Awaited at the top of the checkout and webhook routes, the same way
+ * `ensureRuntimeConfig()` is. A no-op when nothing needs resolving, which is the
+ * case whenever the settings hold numeric ids.
+ */
+export async function ensureVariantResolution(): Promise<void> {
+  const pending = variantCatalog().some((ref) => ref.uuid !== null && ref.numeric === null);
+  if (!pending) return;
+  if (!lemonConfigured()) return;
+  // One in-flight load, shared: several plan buttons pressed at once must not each
+  // page through the account's variants.
+  if (!variantResolution) {
+    variantResolution = loadVariantSlugs().finally(() => {
+      variantResolution = null;
+    });
+  }
+  await variantResolution;
+}
+
+/**
+ * The numeric id for a configured value in any of the three accepted forms, or
+ * null when it is a buy link the API would not name.
+ */
+export async function resolveNumericVariant(value: string | null | undefined): Promise<string | null> {
+  const identity = parseVariantId(value);
+  if (identity.numeric) return identity.numeric;
+  if (!identity.uuid) return null;
+  const known = numericByUuid.get(identity.uuid);
+  if (known) return known;
+  await ensureVariantResolution();
+  return numericByUuid.get(identity.uuid) ?? null;
+}
+
+/**
+ * The store's own checkout host, e.g. `smb.lemonsqueezy.com`.
+ *
+ * Needed only to build a hosted buy link when the numeric id could not be
+ * resolved. Read from the API rather than hardcoded, with a setting to override it
+ * for the case where the API is unreachable but checkout should still work.
+ */
+let storeDomainCache: string | null = null;
+
+export async function storeCheckoutDomain(): Promise<string | null> {
+  const override = lemonEnv("LEMONSQUEEZY_STORE_DOMAIN").trim();
+  if (override) return override.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (storeDomainCache) return storeDomainCache;
+
+  const config = readLemonConfig();
+  if (!config) return null;
+
+  const result = await lemonFetch<JsonApiResource<{ domain?: string; url?: string }>>(
+    `/stores/${encodeURIComponent(config.storeId)}`
+  );
+  if (!result.ok) return null;
+
+  const attributes = result.data?.data?.attributes ?? {};
+  const domain =
+    (typeof attributes.domain === "string" && attributes.domain) ||
+    (typeof attributes.url === "string" ? attributes.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : "");
+  if (!domain) return null;
+
+  storeDomainCache = domain;
+  return domain;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkout
 //
@@ -435,6 +656,13 @@ export interface CheckoutSession {
   url: string;
   expiresAt: string | null;
   testMode: boolean;
+  /**
+   * True when this is the store's own permanent buy link rather than a checkout we
+   * created. Only happens when the numeric variant id could not be resolved; the
+   * difference that matters is that a hosted link redirects wherever the dashboard
+   * says after payment, not wherever we asked.
+   */
+  hosted: boolean;
 }
 
 interface CheckoutAttributes {
@@ -456,18 +684,77 @@ function serialiseCustom(custom: CheckoutCustomData): Record<string, string> {
   return out;
 }
 
+/**
+ * The store's permanent buy link, carrying our custom data.
+ *
+ * The fallback for a variant we only know by uuid. Everything the checkout API
+ * lets us set per-session — the expiry, the pinned variant list, the redirect and
+ * receipt copy — is a product setting on this path instead, so set the product's
+ * "redirect after purchase" in the dashboard to the dashboard URL. What does carry
+ * over is the part that cannot be lost: `checkout[custom][user_id]`, which is how
+ * the payment finds its account.
+ */
+function hostedBuyUrl(domain: string, uuid: string, input: CreateCheckoutInput): string {
+  const url = new URL(`https://${domain}/checkout/buy/${uuid}`);
+  for (const [key, value] of Object.entries(serialiseCustom(input.custom))) {
+    url.searchParams.set(`checkout[custom][${key}]`, value);
+  }
+  if (input.email) url.searchParams.set("checkout[email]", input.email);
+  if (input.name) url.searchParams.set("checkout[name]", input.name);
+  if (input.discountCode) {
+    url.searchParams.set("checkout[discount_code]", input.discountCode);
+    url.searchParams.set("discount", "0");
+  }
+  if (input.embed) url.searchParams.set("embed", "1");
+  if (input.darkMode) url.searchParams.set("dark", "1");
+  return url.toString();
+}
+
 export async function createCheckout(input: CreateCheckoutInput): Promise<LemonResult<CheckoutSession>> {
   const config = readLemonConfig();
   if (!config) {
     return { ok: false, status: 503, error: "NOT_CONFIGURED", detail: "Lemon Squeezy credentials are not set." };
   }
 
-  const variantNumber = Number(input.variantId);
-  if (!Number.isFinite(variantNumber) || variantNumber <= 0) {
-    return { ok: false, status: 400, error: "BAD_VARIANT", detail: `Not a Lemon Squeezy variant id: ${input.variantId}` };
+  // A buy-link uuid is turned into the numeric id the checkout API needs. Cached,
+  // so this costs one request per deploy rather than one per purchase.
+  const identity = parseVariantId(input.variantId);
+  const numeric = await resolveNumericVariant(input.variantId);
+
+  if (numeric === null) {
+    // No number, but a uuid: the store's own buy link sells the same thing.
+    if (identity.uuid) {
+      const domain = await storeCheckoutDomain();
+      if (domain) {
+        return {
+          ok: true,
+          data: {
+            checkoutId: identity.uuid,
+            url: hostedBuyUrl(domain, identity.uuid, input),
+            expiresAt: null,
+            testMode: config.testMode,
+            hosted: true,
+          },
+        };
+      }
+      return {
+        ok: false,
+        status: 502,
+        error: "STORE_UNREACHABLE",
+        detail: "Could not reach Lemon Squeezy to work out the store's checkout address.",
+      };
+    }
+    return {
+      ok: false,
+      status: 400,
+      error: "BAD_VARIANT",
+      detail: `Not a Lemon Squeezy variant id or buy link: ${input.variantId}`,
+    };
   }
 
+  const variantNumber = Number(numeric);
   const hours = input.expiresInHours ?? 24;
+
   const expiresAt = hours > 0 ? new Date(Date.now() + hours * 3_600_000).toISOString() : undefined;
 
   const attributes: Record<string, unknown> = {
@@ -534,6 +821,7 @@ export async function createCheckout(input: CreateCheckoutInput): Promise<LemonR
       url,
       expiresAt: result.data.data.attributes.expires_at ?? null,
       testMode: result.data.data.attributes.test_mode ?? config.testMode,
+      hosted: false,
     },
   };
 }
@@ -663,7 +951,20 @@ export async function updateSubscription(
 ): Promise<LemonResult<LemonSubscription>> {
   const attributes: Record<string, unknown> = {};
 
-  if (patch.variantId !== undefined) attributes.variant_id = Number(patch.variantId);
+  if (patch.variantId !== undefined) {
+    // Accepts a buy-link uuid here too, so the same setting works for a checkout
+    // and for an in-place plan change.
+    const numeric = await resolveNumericVariant(String(patch.variantId));
+    if (!numeric) {
+      return {
+        ok: false,
+        status: 400,
+        error: "BAD_VARIANT",
+        detail: `Could not work out the Lemon Squeezy variant id behind ${patch.variantId}.`,
+      };
+    }
+    attributes.variant_id = Number(numeric);
+  }
   if (patch.cancelled !== undefined) attributes.cancelled = patch.cancelled;
   if (patch.pause !== undefined) {
     attributes.pause =
