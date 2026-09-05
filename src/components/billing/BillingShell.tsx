@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { isPlanTier, type PlanTier } from "@/lib/billing/plans";
+import { CONFIG_REVISION_EVENT } from "@/components/dashboard/ConfigSync";
 import type { BillingCycle, BillingStatus, BillingToast } from "./types";
 import { CreditPanel } from "./CreditPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -390,6 +391,25 @@ export function BillingShell() {
       }
     })();
   }, [checkout, load, pushToast, settle, startTrial]);
+
+  /**
+   * Re-read status when the back office changes something.
+   *
+   * Deliberately its own effect rather than a branch inside the bootstrap above: that
+   * one is latched on `bootstrapped` because it also consumes the checkout deep link,
+   * and it has to stay a once-only.
+   *
+   * This is the tab where an admin edit is most visible — plan prices, the credit
+   * allowance, what a top-up costs — and it was the one dashboard shell holding
+   * admin-derived state with no subscriber, so its figures sat at whatever they were
+   * when the tab opened until the customer navigated away and back or pressed Refresh.
+   * `load` is a `useCallback` with no dependencies, so this binds once.
+   */
+  useEffect(() => {
+    const onConfigChange = () => void load();
+    window.addEventListener(CONFIG_REVISION_EVENT, onConfigChange);
+    return () => window.removeEventListener(CONFIG_REVISION_EVENT, onConfigChange);
+  }, [load]);
 
   if (loading) {
     return (

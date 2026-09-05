@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,8 +123,40 @@ function StatCard({
   );
 }
 
+/**
+ * The three lists this page edits in place. Everything else it renders is read
+ * straight from the server prop.
+ */
+type LocalEdits = Pick<
+  DashboardOverviewData,
+  "platformPerformance" | "pendingPosts" | "upcomingPosts"
+>;
+
 export function DashboardOverviewClient({ initialData }: DashboardOverviewClientProps) {
-  const [data, setData] = useState<DashboardOverviewData>(initialData);
+  /**
+   * Only what this component mutates is parked in state.
+   *
+   * `useState(initialData)` ignores every later value of the prop, and a
+   * `router.refresh()` — which is how `ConfigSync` delivers a back-office change and
+   * how a server action's `revalidatePath` delivers a credit adjustment — re-renders
+   * with new props while preserving client state. So the plan name, the credit
+   * figures and the KPI numbers on this page used to sit at whatever they were when
+   * the tab opened, and only a full reload moved them.
+   *
+   * Narrowing the state to the three lists below fixes that without an effect that
+   * copies the prop back in: such an effect would also overwrite the platform
+   * insights fetched just below and the optimistic approval in `handleApprove`, both
+   * of which are newer than anything the server sent.
+   */
+  const [local, setLocal] = useState<LocalEdits>(() => ({
+    platformPerformance: initialData.platformPerformance,
+    pendingPosts: initialData.pendingPosts,
+    upcomingPosts: initialData.upcomingPosts,
+  }));
+  const data = useMemo<DashboardOverviewData>(
+    () => ({ ...initialData, ...local }),
+    [initialData, local]
+  );
   const [guideOpen, setGuideOpen] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
@@ -151,7 +183,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
     syncWorkspaceInsights()
       .then((views) => {
         if (cancelled || !views || views.length === 0) return;
-        setData((prev) => ({
+        setLocal((prev) => ({
           ...prev,
           platformPerformance: prev.platformPerformance.map((p) => {
             const v = views.find((x) => x.platform === p.platform);
@@ -191,7 +223,7 @@ export function DashboardOverviewClient({ initialData }: DashboardOverviewClient
         const res = await approveDashboardPost(postId);
         if (res.success) {
           setActionMessage("Post approved and scheduled.");
-          setData((prev) => {
+          setLocal((prev) => {
             const approved = prev.pendingPosts.find((p) => p.id === postId);
             if (!approved) return prev;
             return {
