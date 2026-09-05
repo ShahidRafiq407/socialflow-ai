@@ -64,12 +64,13 @@ export function LockTip({ reason, side = "top" }: { reason: string; side?: "top"
   return (
     <span
       role="tooltip"
-      className={`pointer-events-none absolute z-50 w-60 rounded-lg border border-border bg-popover px-2.5 py-2 text-[11px] font-medium leading-snug text-popover-foreground opacity-0 shadow-lg transition-opacity duration-150 group-hover/lock:opacity-100 group-focus-within/lock:opacity-100 ${place}`}
+      className={`pointer-events-none absolute z-50 w-52 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover px-2.5 py-2 text-[11px] font-medium leading-snug text-popover-foreground invisible opacity-0 shadow-lg transition-all duration-150 group-hover/lock:visible group-hover/lock:opacity-100 group-focus-within/lock:visible group-focus-within/lock:opacity-100 ${place}`}
     >
       {reason}
     </span>
   );
 }
+
 
 export interface FeatureGateProps {
   /** One key, or several when a control needs all of them. */
@@ -156,7 +157,7 @@ export function FeatureGate({
  */
 export function LockBadge({
   feature,
-  side = "right",
+  side = "top",
   className = "",
 }: {
   feature: FeatureKey | FeatureKey[];
@@ -169,15 +170,19 @@ export function LockBadge({
   const reason = access.reason ?? `${access.label} is not available on your plan.`;
   return (
     <>
-      <Lock
-        aria-hidden
-        className={`h-3 w-3 shrink-0 text-muted-foreground ${className}`}
-      />
+      <span title={reason} className="inline-flex shrink-0">
+        <Lock
+          aria-hidden
+          className={`h-3 w-3 shrink-0 text-muted-foreground ${className}`}
+        />
+      </span>
       <span className="sr-only">Locked. {reason}</span>
       <LockTip reason={reason} side={side} />
     </>
   );
+
 }
+
 
 /**
  * The reason as a sentence in the page, with the fix next to it.

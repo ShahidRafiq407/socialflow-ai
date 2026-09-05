@@ -69,7 +69,7 @@ export function Sidebar({
   );
 
   return (
-    <aside className="w-[250px] fixed inset-y-0 left-0 z-50 hidden md:flex flex-col border-r bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 select-none">
+    <aside className="w-[250px] fixed inset-y-0 left-0 z-50 hidden md:flex flex-col border-r bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 select-none overflow-x-hidden">
       <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 dark:border-slate-800 px-6">
         <PostloomLogo size={34} />
         <span className="font-bold text-lg tracking-tight text-slate-900 dark:text-slate-100">
@@ -77,7 +77,7 @@ export function Sidebar({
         </span>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
+      <nav className="flex-1 space-y-1 px-3 py-4 sidebar-scroll">
         {links.map((item) => {
           const isActive =
             pendingNav?.href === item.href ||
@@ -129,7 +129,7 @@ export function Sidebar({
               {/* Renders nothing when the plan includes the feature. The row stays
                   navigable either way — the page behind it shows what the tab does
                   and what it costs, which a dead nav item cannot. */}
-              {gated && !isPending && <LockBadge feature={gated} side="right" />}
+              {gated && !isPending && <LockBadge feature={gated} side="top" />}
             </Link>
           );
         })}
