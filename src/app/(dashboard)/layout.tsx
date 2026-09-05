@@ -13,6 +13,8 @@ import {
   type FeatureFlags,
 } from "@/lib/admin/runtimeConfig";
 import { touchLastSeen } from "@/lib/admin/presence";
+import { accessSnapshot } from "@/lib/billing/access.server";
+import type { AccessSnapshot } from "@/lib/billing/access";
 import prisma from "@/lib/db";
 
 /** Resolves to `value` after `ms`, so one slow read cannot hold up the shell. */
@@ -33,12 +35,13 @@ export default async function DashboardLayout({
   let block: { blockedAt: string; reason: string } | null = null;
   let maintenance: string | null = null;
   let flags: FeatureFlags = DEFAULT_FLAGS;
+  let access: AccessSnapshot | null = null;
 
   if (userId) {
     try {
       // The workspace list and the active id come from the same read, so the
       // header can never highlight a workspace the pages are not loading.
-      const [user, context, admin, accountBlock, configReady] = await Promise.all([
+      const [user, context, admin, accountBlock, configReady, snapshot] = await Promise.all([
         Promise.race([currentUser(), fallbackAfter(2500, null)]),
         Promise.race([
           getWorkspaceContext(userId),
@@ -56,6 +59,12 @@ export default async function DashboardLayout({
         Promise.race([ensureRuntimeConfig().then(() => true), fallbackAfter(2500, false)]).catch(
           () => false
         ),
+        // What this plan may press, for every lock in the product. Raced like the
+        // rest, and a timeout resolves to `null`, which the provider reads as "not
+        // known" and allows — the server gate behind each button still refuses, so
+        // a slow read costs a late refusal rather than a dashboard of dead controls.
+        // Request-cached, so the gated pages below share this one read.
+        Promise.race([accessSnapshot(userId), fallbackAfter(2500, null)]).catch(() => null),
       ]);
 
       const primaryEmail = user?.emailAddresses?.[0]?.emailAddress || "";
@@ -92,6 +101,7 @@ export default async function DashboardLayout({
       activeWorkspaceId = context?.activeWorkspaceId ?? null;
       isAdmin = admin;
       block = accountBlock;
+      access = snapshot;
       // Only read the flags when the settings really loaded. On a cold instance
       // whose read timed out, `getFlags()` answers with the code defaults, which
       // would quietly drop the maintenance banner the admin switched on.
@@ -117,6 +127,7 @@ export default async function DashboardLayout({
       accountBlock={block}
       maintenanceMessage={maintenance}
       affiliateEnabled={flags.affiliateEnabled}
+      access={access}
     >
       {/* Watches for admin changes so an open tab never serves a stale catalogue. */}
       {userId && <ConfigSync />}

@@ -9,8 +9,8 @@
 
 import prisma from "@/lib/db";
 import { defaultRoleModel, resolveRoleModel, type ModelRole } from "@/lib/agents/llm";
-import { MODEL_RATES } from "@/lib/billing/modelPricing";
-import { BUILT_IN_CHAT_MODEL, listChatModels } from "@/lib/agents/controller/models";
+import { MODEL_RATES, allModelRates, hasRateOverride } from "@/lib/billing/modelPricing";
+import { BUILT_IN_CHAT_MODEL, getDefaultChatModelId, listChatModels } from "@/lib/agents/controller/models";
 import { actionCredits } from "@/lib/billing/actions";
 import {
   MODEL_ROLE_KEYS,
@@ -62,6 +62,15 @@ export interface RoleAssignment {
   current: string;
   /** What runs with no admin override (env var or code default). */
   fallback: string;
+  /**
+   * The explicit `ai.model.<ROLE>` pointer, or null when none is set. Separate from
+   * `overridden` because the two can disagree: the chat brain honours a pointer only
+   * if the row behind it is an enabled text model, so a pointer can exist and be
+   * ignored — and "reset to default" must only be offered where there is a pointer
+   * to clear.
+   */
+  pinnedTo: string | null;
+  /** True when something other than the deployment default is running. */
   overridden: boolean;
 }
 
@@ -72,6 +81,8 @@ export interface BuiltInRateRow {
   outputPerMTok: number;
   perImage?: number;
   perVideoSecond?: number;
+  /** A catalogue row carrying this same id has replaced the shipped rate. */
+  overridden: boolean;
   calls30d: number;
   costMicros30d: number;
 }
@@ -109,6 +120,9 @@ export async function getModelsView(): Promise<ModelsView> {
   };
 
   const flat = actionCredits("chat.message");
+  // The rates the meter will really charge: the shipped card with any catalogue row
+  // of the same id on top. Read once, so every row on the screen is from one snapshot.
+  const liveRates = allModelRates();
 
   return {
     custom: rows.map((r) => ({
@@ -140,22 +154,42 @@ export async function getModelsView(): Promise<ModelsView> {
       updatedAt: r.updatedAt.toISOString(),
       ...usageFor(r.id),
     })),
-    roles: MODEL_ROLE_KEYS.map((role) => ({
-      role,
-      label: MODEL_ROLE_LABELS[role],
-      current: resolveRoleModel(role as ModelRole),
-      fallback: defaultRoleModel(role as ModelRole),
-      overridden: modelForRole(role) !== undefined,
-    })),
-    builtIn: Object.entries(MODEL_RATES).map(([id, rate]) => ({
-      id,
-      role: rate.role ?? "",
-      inputPerMTok: rate.inputPerMTok,
-      outputPerMTok: rate.outputPerMTok,
-      perImage: rate.perImage,
-      perVideoSecond: rate.perVideoSecond,
-      ...usageFor(id),
-    })),
+    roles: MODEL_ROLE_KEYS.map((role) => {
+      const fallback = defaultRoleModel(role as ModelRole);
+      const pinnedTo = modelForRole(role) ?? null;
+      // The chat's default brain is not simply the admin's pointer, so this column
+      // cannot be one for CHAT_CONTROLLER. `setChatModelCatalog` refuses a pointer
+      // whose row is disabled for chat or is an image model, and a catalogue row
+      // flagged "default chat brain" moves the default with no pointer at all — so
+      // asking `resolveRoleModel` answered with the request rather than the outcome,
+      // and the screen named a brain no new chat was going to use.
+      const current =
+        role === "CHAT_CONTROLLER" ? getDefaultChatModelId() : resolveRoleModel(role as ModelRole);
+      return {
+        role,
+        label: MODEL_ROLE_LABELS[role],
+        current,
+        fallback,
+        pinnedTo,
+        // Read off the outcome, not the pointer: a pointer set to the deployment
+        // default changes nothing, and one the chat catalogue rejected changes nothing
+        // either. Both used to show as "overridden".
+        overridden: current !== fallback,
+      };
+    }),
+    builtIn: Object.keys(MODEL_RATES).map((id) => {
+      const rate = liveRates[id] ?? MODEL_RATES[id];
+      return {
+        id,
+        role: rate.role ?? "",
+        inputPerMTok: rate.inputPerMTok,
+        outputPerMTok: rate.outputPerMTok,
+        perImage: rate.perImage,
+        perVideoSecond: rate.perVideoSecond,
+        overridden: hasRateOverride(id),
+        ...usageFor(id),
+      };
+    }),
     chatPicker: listChatModels().map((m) => ({
       id: m.id,
       label: m.label,

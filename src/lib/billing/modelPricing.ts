@@ -164,6 +164,18 @@ export function allModelRates(): Record<string, ModelRate> {
 }
 
 /**
+ * True when a catalogue row has replaced this id's shipped rate.
+ *
+ * The admin rate card needs this to say so out loud: an admin who adds a row using a
+ * built-in model id is silently repricing every call the product already makes on it,
+ * and a screen that shows the code figure while the meter charges another is worse
+ * than no screen at all.
+ */
+export function hasRateOverride(model: string): boolean {
+  return Object.prototype.hasOwnProperty.call(rateOverrides, model);
+}
+
+/**
  * True when this exact id is on the rate card. Used by the admin cost view to show
  * which rows are priced from a real rate and which fell back to the ceiling.
  */

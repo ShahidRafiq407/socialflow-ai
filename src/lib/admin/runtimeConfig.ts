@@ -107,7 +107,7 @@ export const MODEL_ROLE_LABELS: Record<ModelRoleKey, string> = {
   CHAT_UTILITY: "Chat chores (titles, summaries, suggestions)",
   VISUALIZER: "Image generation",
   VIDEO: "Video generation",
-  EMBEDDING: "Embeddings (memory)",
+  EMBEDDING: "Embeddings (memory) — changing this leaves existing memories in the old vector space",
   SLIDE_REGENERATOR: "Carousel slide rewrite",
 };
 

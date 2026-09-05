@@ -198,10 +198,22 @@ function emptyPayload(windowDays: number): WorkspaceAnalyticsData {
   };
 }
 
+/**
+ * @param maxWindowDays How far back the caller is entitled to read. Clamped to the
+ *   90-day ceiling. Passed by the page, which knows the plan — a plan without
+ *   `analytics.advanced` gets the shorter span, so the long history is absent from
+ *   the payload rather than merely hidden by the client.
+ */
 export async function getWorkspaceAnalytics(
-  workspaceId: string
+  workspaceId: string,
+  maxWindowDays: number = ANALYTICS_WINDOW_DAYS
 ): Promise<WorkspaceAnalyticsData> {
-  if (!workspaceId) return emptyPayload(ANALYTICS_WINDOW_DAYS);
+  const windowDays = Math.max(
+    1,
+    Math.min(ANALYTICS_WINDOW_DAYS, Math.floor(maxWindowDays) || ANALYTICS_WINDOW_DAYS)
+  );
+
+  if (!workspaceId) return emptyPayload(windowDays);
 
   const p = prisma as any;
 
@@ -209,7 +221,7 @@ export async function getWorkspaceAnalytics(
     const now = new Date();
     const windowStart = new Date(now);
     windowStart.setUTCHours(0, 0, 0, 0);
-    windowStart.setUTCDate(windowStart.getUTCDate() - (ANALYTICS_WINDOW_DAYS - 1));
+    windowStart.setUTCDate(windowStart.getUTCDate() - (windowDays - 1));
 
     const [
       workspace,
@@ -320,9 +332,9 @@ export async function getWorkspaceAnalytics(
       };
     }
 
-    // ── Daily series (90 UTC day buckets, gaps included) ─────────────────────
+    // ── Daily series (one UTC day bucket per entitled day, gaps included) ─────
     const buckets = new Map<string, Omit<AnalyticsSeriesPoint, "date" | "label">>();
-    for (let i = 0; i < ANALYTICS_WINDOW_DAYS; i++) {
+    for (let i = 0; i < windowDays; i++) {
       const d = new Date(windowStart);
       d.setUTCDate(windowStart.getUTCDate() + i);
       buckets.set(dayKeyUTC(d), {
@@ -494,7 +506,7 @@ export async function getWorkspaceAnalytics(
       workspaceName: String(workspace?.name || "").trim(),
       industry: String(workspace?.industry || "").trim(),
       generatedAt: new Date().toISOString(),
-      windowDays: ANALYTICS_WINDOW_DAYS,
+      windowDays,
       goal: goalView,
       totals,
       series,
@@ -505,6 +517,6 @@ export async function getWorkspaceAnalytics(
     };
   } catch (error) {
     console.warn("[getWorkspaceAnalytics] database unreachable, returning empty analytics:", error);
-    return emptyPayload(ANALYTICS_WINDOW_DAYS);
+    return emptyPayload(windowDays);
   }
 }

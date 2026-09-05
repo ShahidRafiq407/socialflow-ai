@@ -41,6 +41,7 @@
 
 import prisma from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import { getEntitlements, isUnlimited, type PlanTier } from "./plans";
 
 /** How long a hold lives when the caller does not say. */
@@ -106,6 +107,22 @@ export function grantForPlan(plan: PlanTier): number {
   return isUnlimited(credits) ? UNLIMITED_GRANT : Math.max(0, credits);
 }
 
+/**
+ * `grantForPlan` reads `PLAN_ENTITLEMENTS`, which the back office patches in place
+ * once the settings cache has loaded — so on an instance that has not loaded it
+ * yet, the same call returns the number that shipped with the build instead of the
+ * number the admin set. A wrong answer here is not cosmetic: it is written into
+ * `monthlyGrant` and into a ledger row keyed for idempotency, so the replay that
+ * would have corrected it is a no-op and the customer keeps the wrong allowance
+ * for the period.
+ *
+ * Every function below that grants awaits this first. It never throws and it is a
+ * no-op once warm, so the cost on the hot path is a resolved promise.
+ */
+async function warmPlanConfig(): Promise<void> {
+  await ensureRuntimeConfig();
+}
+
 /** A month from `from`, which is the period length when no subscription says otherwise. */
 function oneMonthAfter(from: Date): Date {
   const to = new Date(from);
@@ -141,6 +158,7 @@ export async function ensureWallet(
   periodStart?: Date,
   periodEnd?: Date
 ): Promise<string> {
+  await warmPlanConfig();
   const start = periodStart ?? new Date();
   const end = periodEnd ?? oneMonthAfter(start);
 
@@ -345,6 +363,7 @@ export async function syncPeriodGrant(args: {
   note?: string;
 }): Promise<GrantResult> {
   const { userId, plan, periodStart, periodEnd } = args;
+  await warmPlanConfig();
   await ensureWallet(userId, plan, periodStart, periodEnd);
 
   const credits = grantForPlan(plan);
@@ -484,6 +503,7 @@ export async function applyPlanChangeGrant(args: {
   periodStart: Date;
 }): Promise<GrantResult> {
   const { userId, toPlan, periodStart } = args;
+  await warmPlanConfig();
   await ensureWallet(userId, toPlan, periodStart);
 
   const target = grantForPlan(toPlan);

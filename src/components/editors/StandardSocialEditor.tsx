@@ -24,6 +24,8 @@ import UploadProgressIndicator from "@/components/ui/UploadProgressIndicator";
 import ContentMediaRenderer, { isMediaVideo } from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
+import type { FeatureKey } from "@/lib/billing/plans";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { AIRenderOptions } from "./aiRenderOptions";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
@@ -271,6 +273,14 @@ export default function StandardSocialEditor({
     : isSquare
     ? "Square Image"
     : "Image";
+
+  /**
+   * Which render this press is charged for. Video and images are separate
+   * entitlements with separate counts, so the lock has to name the one the button
+   * would actually spend — a video button that reads "AI image generation is not part
+   * of your plan" sends the customer to the wrong line on the pricing page.
+   */
+  const mediaFeature: FeatureKey = selectedMediaType === "video" ? "media.video" : "media.image";
 
   return (
     <div className="space-y-4 text-left">
@@ -696,6 +706,7 @@ export default function StandardSocialEditor({
               </label>
               <div className="flex items-center gap-3">
                 {onCaptionToPrompt && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
                   <button
                     type="button"
                     disabled={!isGeneratingPromptFromScript && !hasCaption}
@@ -723,7 +734,9 @@ export default function StandardSocialEditor({
                     "Auto-Prompt from Caption"
                   )}
                   </button>
+                  </FeatureGate>
                 )}
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                 type="button"
                 disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
@@ -751,6 +764,7 @@ export default function StandardSocialEditor({
                   <span>Enhance Prompt ✨</span>
                 )}
                 </button>
+                </FeatureGate>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
                   <button
                     type="button"
@@ -778,6 +792,8 @@ export default function StandardSocialEditor({
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
 
+            {/* The render itself, gated on the media kind it would charge for. */}
+            <FeatureGate feature={mediaFeature} display="block">
             <Button
               type="button"
               size="sm"
@@ -785,13 +801,13 @@ export default function StandardSocialEditor({
               onClick={isRenderingMedia ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
-                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                window.dispatchEvent(new CustomEvent("cancel-render-media", {
+                  detail: { formatKey: `${capability.platform}-${capability.format}` }
                 }));
               } : handleTriggerGenerate}
               className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
-                isRenderingMedia 
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                isRenderingMedia
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
                 : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
               }`}
             >
@@ -811,6 +827,7 @@ export default function StandardSocialEditor({
                 </>
               )}
             </Button>
+            </FeatureGate>
           </div>
         </div>
 
@@ -858,7 +875,7 @@ export default function StandardSocialEditor({
                   <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
                     Hashtags
                   </label>
-                  {onGenerateField && (<button type="button" onClick={() => {
+                  {onGenerateField && (<FeatureGate feature="aistudio.generate"><button type="button" onClick={() => {
                     if (generatingField === "hashtags") {
                       cancelAIAction("field", `${formatKey}:hashtags`);
                     } else {
@@ -870,7 +887,7 @@ export default function StandardSocialEditor({
                       : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
                   } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
-                  </button>)}
+                  </button></FeatureGate>)}
                 </div>
                 <Input
                   value={hashtags.join(" ")}
@@ -903,6 +920,7 @@ export default function StandardSocialEditor({
                   Accessibility Alt Text
                 </label>
                 {onGenerateField && (
+                  <FeatureGate feature="aistudio.generate">
                   <button type="button" onClick={() => {
                     if (generatingField === "altText") {
                       cancelAIAction("field", `${formatKey}:altText`);
@@ -916,6 +934,7 @@ export default function StandardSocialEditor({
                   } ${generatingField !== null && generatingField !== "altText" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "altText" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "altText" ? "Stop" : "AI"}
                   </button>
+                  </FeatureGate>
                 )}
               </div>
               <Input
@@ -947,6 +966,15 @@ export default function StandardSocialEditor({
 
           {/* ONE PRESS → THE WHOLE POST: COPY *AND* THE RENDERED VISUAL */}
           <div className="pt-1">
+            {/* Both halves of the press are charged, so both are checked: the copy
+                against the studio's generation feature and the visual against the
+                render it would spend. Whichever is refused first is the reason shown —
+                a press that can only do half of what its label promises is worse than
+                one that says which half the plan is missing. */}
+            <FeatureGate
+              feature={supportsAIMedia ? ["aistudio.generate", mediaFeature] : "aistudio.generate"}
+              display="block"
+            >
             <Button
               type="button"
               size="sm"
@@ -974,6 +1002,7 @@ export default function StandardSocialEditor({
               {isGeneratingCompletePost ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isGeneratingCompletePost ? "Stop Generating" : `Generate Complete ${capability.label} with AI`}</span>
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
               {supportsAnyTextField
                 ? supportsAIMedia

@@ -235,6 +235,8 @@ function buildInitialContents(params: {
   message: string;
   history: ControllerHistoryMessage[];
   attachments: ControllerAttachment[];
+  /** False for a text-only model, whose API rejects or ignores inline media. */
+  supportsVision: boolean;
 }): Content[] {
   const contents: Content[] = [];
 
@@ -248,11 +250,19 @@ function buildInitialContents(params: {
 
   // Media goes inline so the model can genuinely see/hear it; text-bearing files
   // are already parsed and reachable through read_uploaded_files.
-  for (const att of params.attachments) {
-    if (att.kind === "image" || att.kind === "video" || att.kind === "audio") {
-      const match = /^data:([^;]+);base64,([\s\S]*)$/.exec(att.content || "");
-      if (match) {
-        parts.push({ inlineData: { mimeType: match[1] || att.type, data: match[2] } });
+  //
+  // Only for a model that can actually take it. The picker now carries third-party
+  // models an admin added, and a text-only one served an inline image part back as a
+  // 400 for the whole turn — the user got a failed chat rather than an answer that
+  // said it could not see the picture. Skipping the part leaves the message text and
+  // the file tools intact, so the turn still does as much as the model allows.
+  if (params.supportsVision) {
+    for (const att of params.attachments) {
+      if (att.kind === "image" || att.kind === "video" || att.kind === "audio") {
+        const match = /^data:([^;]+);base64,([\s\S]*)$/.exec(att.content || "");
+        if (match) {
+          parts.push({ inlineData: { mimeType: match[1] || att.type, data: match[2] } });
+        }
       }
     }
   }
@@ -368,6 +378,15 @@ export async function runController(params: RunControllerParams): Promise<RunCon
 
   const { declarations, nameMap } = toFunctionDeclarations(registry.tools);
 
+  // A model that cannot do native function calling is sent no declarations at all.
+  // The picker carries admin-added third-party models now, and handing `tools` to an
+  // endpoint that does not implement them fails the whole turn on some providers and
+  // is silently dropped on others — either way the loop below then waited for tool
+  // calls that could never arrive. With none sent, the turn is a straight answer,
+  // which is what such a model is actually good for.
+  const toolsUsable = modelInfo.supportsTools !== false && declarations.length > 0;
+  const activeDeclarations = toolsUsable ? declarations : [];
+
   // The live boundary, computed from the same snapshot the prompt already shows,
   // plus the settings toggles and (only when billing is enforced) the plan tier.
   const limits: CapabilityLimit[] = computeLimits({
@@ -378,6 +397,13 @@ export async function runController(params: RunControllerParams): Promise<RunCon
       hasWordPress: snapshot.hasWordPress,
     },
     planTier,
+    // Sent so the boundary reflects the model actually serving the turn, not just the
+    // workspace: what the prompt lists as available has to match what was put on the wire.
+    model: {
+      label: modelInfo.label,
+      supportsTools: modelInfo.supportsTools !== false,
+      supportsVision: modelInfo.supportsVision !== false,
+    },
   });
 
   const systemInstruction = buildSystemPrompt({
@@ -411,7 +437,12 @@ export async function runController(params: RunControllerParams): Promise<RunCon
     sessionId: params.sessionId,
   };
 
-  const contents = buildInitialContents({ message: params.message, history, attachments });
+  const contents = buildInitialContents({
+    message: params.message,
+    history,
+    attachments,
+    supportsVision: modelInfo.supportsVision !== false,
+  });
 
   // ---- agent loop ---------------------------------------------------------
 
@@ -434,7 +465,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
         {
           contents,
           systemInstruction,
-          functionDeclarations: declarations,
+          functionDeclarations: activeDeclarations,
           modelName: requestedModel,
           temperature: settings.temperature,
           thinkingEffort: modelInfo.supportsThinking ? THINKING_EFFORT[settings.thinkingLevel] : "off",

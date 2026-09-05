@@ -114,6 +114,8 @@ const STATEMENTS: string[] = [
       CONSTRAINT "UserNotification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
    )`,
   `CREATE INDEX IF NOT EXISTS "UserNotification_userId_readAt_createdAt_idx" ON "UserNotification" ("userId", "readAt", "createdAt")`,
+  // The bell reads by user; the admin send history reads by time across all users.
+  `CREATE INDEX IF NOT EXISTS "UserNotification_createdAt_idx" ON "UserNotification" ("createdAt")`,
 
   // --- ChatFeedback ---
   `CREATE TABLE IF NOT EXISTS "ChatFeedback" (

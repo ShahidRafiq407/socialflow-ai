@@ -17,6 +17,17 @@ export type ToolVisibilitySetting = "all" | "compact" | "failures";
 
 export interface ChatSettings {
   model: string;
+  /**
+   * True only when the user picked the model themselves.
+   *
+   * `model` is a plain column with a literal default, and every save of any
+   * setting writes the whole row, so a stored id is not evidence of a choice —
+   * changing the reply language once was enough to freeze a workspace onto the id
+   * that shipped with that build. This flag is what lets `getChatSettings` tell
+   * "the user wants this brain" apart from "nobody has said", and only the second
+   * follows the back office's current pick.
+   */
+  modelPinned: boolean;
   temperature: number;
   maxToolLoops: number;
   thinkingLevel: ThinkingLevelSetting;
@@ -40,6 +51,7 @@ export interface ChatSettings {
 
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   model: DEFAULT_CHAT_MODEL,
+  modelPinned: false,
   temperature: 0.4,
   maxToolLoops: 8,
   thinkingLevel: "balanced",
@@ -91,8 +103,26 @@ export function normalizeChatSettings(raw: unknown, base: ChatSettings = DEFAULT
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const has = (k: string) => Object.prototype.hasOwnProperty.call(r, k) && r[k] !== undefined && r[k] !== null;
 
+  const picksModel = has("model") && isKnownChatModel(String(r.model));
+
   return {
-    model: has("model") && isKnownChatModel(String(r.model)) ? String(r.model) : base.model,
+    model: picksModel ? String(r.model) : base.model,
+    /*
+     * One normalizer serves two callers, and they mean different things by a
+     * `model` key.
+     *
+     * A database row always has one, so its own `modelPinned` column decides —
+     * that is the recorded answer and it wins. A patch from the browser does not
+     * carry the flag at all, and a patch that names a model is somebody choosing
+     * one, so it pins. A patch may also say `modelPinned: false` explicitly, which
+     * is how a user hands the choice back to the back office.
+     *
+     * When the column is missing (the ADD COLUMN was skipped, or the row predates
+     * it) a stored model reads as pinned. That is the safe direction: it behaves
+     * exactly as it did before this flag existed, rather than overriding a real
+     * preference because a migration did not land.
+     */
+    modelPinned: has("modelPinned") ? pickBool(r.modelPinned, base.modelPinned) : picksModel || base.modelPinned,
     temperature: has("temperature") ? clampNumber(r.temperature, 0, 1.5, base.temperature) : base.temperature,
     maxToolLoops: has("maxToolLoops")
       ? Math.round(clampNumber(r.maxToolLoops, 1, 24, base.maxToolLoops))

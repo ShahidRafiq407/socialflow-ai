@@ -28,8 +28,21 @@ import { Empty, PlanPill, Section, fmtInt, fmtMicros } from "./primitives";
 
 const select = "h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs dark:bg-input/30";
 
-function blankModel(): AdminModelInput {
+/**
+ * The form's working copy, carrying the id the row had when it was opened.
+ *
+ * `upsertModelAction` treats a changed id as a rename — it moves the row, the role
+ * pointers and the chat-default pointer onto the new id — but only if it is told what
+ * the old one was. The form used to post the draft alone, so that whole path was
+ * unreachable from the screen: editing a row's id created a second row and left the
+ * original enabled in the picker under the old id. Keeping `originalId` inside the
+ * draft rather than beside it means the two cannot drift apart.
+ */
+type ModelDraft = AdminModelInput & { originalId: string | null };
+
+function blankModel(): ModelDraft {
   return {
+    originalId: null,
     id: "",
     label: "",
     blurb: "",
@@ -56,8 +69,9 @@ function blankModel(): AdminModelInput {
   };
 }
 
-function fromRow(row: AdminModelRow): AdminModelInput {
+function fromRow(row: AdminModelRow): ModelDraft {
   return {
+    originalId: row.id,
     id: row.id,
     label: row.label,
     blurb: row.blurb ?? "",
@@ -95,9 +109,9 @@ export function ModelsManager({ view }: { view: ModelsView }) {
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<AdminModelInput | null>(null);
+  const [editing, setEditing] = useState<ModelDraft | null>(null);
   const [rolePicks, setRolePicks] = useState<Record<string, string>>(
-    Object.fromEntries(view.roles.map((r) => [r.role, r.overridden ? r.current : ""]))
+    Object.fromEntries(view.roles.map((r) => [r.role, r.pinnedTo ?? ""]))
   );
 
   const refresh = () => startTransition(() => router.refresh());
@@ -170,12 +184,15 @@ export function ModelsManager({ view }: { view: ModelsView }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy !== null || (rolePicks[r.role] ?? "") === (r.overridden ? r.current : "")}
+                  disabled={busy !== null || (rolePicks[r.role] ?? "") === (r.pinnedTo ?? "")}
                   onClick={() => run(`role-${r.role}`, () => setRoleModelAction({ role: r.role, modelId: (rolePicks[r.role] ?? "").trim() || null }))}
                 >
                   {busy === `role-${r.role}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                 </Button>
-                {r.overridden && (
+                {/* Only where there is a pointer to clear. Keyed off "overridden" this
+                    button also appeared for a chat brain chosen by a catalogue flag,
+                    where pressing it deleted nothing and changed nothing. */}
+                {r.pinnedTo !== null && (
                   <Button size="sm" variant="ghost" title="Reset to default" disabled={busy !== null} onClick={() => run(`reset-${r.role}`, () => setRoleModelAction({ role: r.role, modelId: null }), () => setRolePicks((p) => ({ ...p, [r.role]: "" })))}>
                     <RotateCcw className="h-3.5 w-3.5" />
                   </Button>
@@ -185,6 +202,12 @@ export function ModelsManager({ view }: { view: ModelsView }) {
                 Running: <span className="font-mono">{r.current}</span>
                 {r.overridden && <> · default <span className="font-mono">{r.fallback}</span></>}
               </div>
+              {r.pinnedTo !== null && r.pinnedTo !== r.current && (
+                <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-500">
+                  Pinned to <span className="font-mono">{r.pinnedTo}</span>, but that is not an enabled text
+                  model, so chat runs <span className="font-mono">{r.current}</span> instead.
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -264,7 +287,7 @@ export function ModelsManager({ view }: { view: ModelsView }) {
       </Section>
 
       {/* Rate card */}
-      <Section title="Built-in rate card" description="List prices the meter uses for the shipped models, with the last 30 days of measured spend.">
+      <Section title="Built-in rate card" description="The prices the meter charges for the shipped models, with the last 30 days of measured spend. A row marked repriced is being charged at a rate from your catalogue, not the shipped one.">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] text-left text-xs">
             <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -281,7 +304,11 @@ export function ModelsManager({ view }: { view: ModelsView }) {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {view.builtIn.map((r) => (
                 <tr key={r.id}>
-                  <td className="py-1.5 pr-2 font-mono">{r.id}{r.id === view.builtInChatModelId && <span className="ml-1 text-[10px] text-primary">chat</span>}</td>
+                  <td className="py-1.5 pr-2 font-mono">
+                    {r.id}
+                    {r.id === view.builtInChatModelId && <span className="ml-1 text-[10px] text-primary">chat</span>}
+                    {r.overridden && <Badge variant="outline" className="ml-1.5 text-[10px] font-sans">repriced</Badge>}
+                  </td>
                   <td className="py-1.5 pr-2 text-muted-foreground">{r.role}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{r.inputPerMTok}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{r.outputPerMTok}</td>
@@ -305,8 +332,8 @@ function ModelForm({
   onSave,
   onCancel,
 }: {
-  value: AdminModelInput;
-  onChange: (v: AdminModelInput) => void;
+  value: ModelDraft;
+  onChange: (v: ModelDraft) => void;
   busy: boolean;
   onSave: () => void;
   onCancel: () => void;
@@ -320,7 +347,10 @@ function ModelForm({
   const needsBaseUrl = remote && (spec.requiresBaseUrl === true || spec.baseUrl === "");
   const baseUrlMissing = needsBaseUrl && !(value.baseUrl ?? "").trim();
 
-  const set = <K extends keyof AdminModelInput>(key: K, v: AdminModelInput[K]) => onChange({ ...value, [key]: v });
+  const set = <K extends keyof ModelDraft>(key: K, v: ModelDraft[K]) => onChange({ ...value, [key]: v });
+
+  /** An edit that changes the id is a rename. Say so before it is saved, not after. */
+  const renaming = !!value.originalId && value.originalId !== value.id.trim();
 
   /**
    * Switching provider invalidates the endpoint and the key that belonged to the
@@ -383,7 +413,7 @@ function ModelForm({
               ))}
             </datalist>
           </>
-        ), "The exact id the provider accepts.")}
+        ), renaming ? `Renames ${value.originalId} — the row, its role assignments and the chat default all move with it.` : "The exact id the provider accepts.")}
         {field("Label", <Input value={value.label} onChange={(e) => set("label", e.target.value)} placeholder="Claude Opus 5" className="h-8 text-xs" />, "What users see in the picker.")}
 
         {remote && (

@@ -28,6 +28,7 @@ import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndic
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { AIRenderOptions } from "./aiRenderOptions";
@@ -492,7 +493,9 @@ export default function InstagramCarouselEditor({
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
                   <Hash className="h-3.5 w-3.5 text-secondary" /> Hashtags
                 </label>
-                {onGenerateField && (<button type="button" onClick={() => {
+                {onGenerateField && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
+                  <button type="button" onClick={() => {
                   if (generatingField === "hashtags") {
                     cancelAIAction("field", `${formatKey}:hashtags`);
                   } else {
@@ -504,7 +507,9 @@ export default function InstagramCarouselEditor({
                     : "bg-secondary/10 text-secondary hover:bg-secondary/20"
                 } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
-                  </button>)}
+                  </button>
+                  </FeatureGate>
+                )}
               </div>
               <Input
                 value={hashtags.join(" ")}
@@ -542,6 +547,10 @@ export default function InstagramCarouselEditor({
             then designs every slide graphic, so the carousel comes out publish-ready.
           */}
           <div className="pt-1 space-y-1.5">
+            {/* The deck's most expensive press: one caption plus a paid render for every
+                slide. All three entitlements are checked so the refusal names the half the
+                plan is missing — and on a paid plan the image count surfaces here too. */}
+            <FeatureGate feature={["aistudio.generate", "media.carousel", "media.image"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -562,6 +571,7 @@ export default function InstagramCarouselEditor({
               {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Carousel (${generationProgress}%)...` : "Generating Full Carousel...") : "Generate Complete Carousel Post with AI"}</span>
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
               Writes the caption and hashtags, then designs all {effectiveSlides.length} slide graphics.
               Every selected platform that shares this format gets the same post.
@@ -600,6 +610,9 @@ export default function InstagramCarouselEditor({
               />
             </div>
 
+            {/* One slide re-rendered is still a paid image, so the deck feature and the
+                image count are both checked — the count is the one that runs out first. */}
+            <FeatureGate feature={["aistudio.generate", "media.carousel", "media.image"]} display="block">
             <Button
               type="button"
               variant="outline"
@@ -621,6 +634,7 @@ export default function InstagramCarouselEditor({
               {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               <span>{isRegeneratingSlide ? `Stop Regenerating Slide ${currentIdx + 1}` : `Regenerate Slide ${currentIdx + 1} Copy & Visual`}</span>
             </Button>
+            </FeatureGate>
           </div>
 
           {/* MODEL SETTINGS (GOOGLE NANO BANANA PRO / GEMINI 3 PRO IMAGE) */}
@@ -699,6 +713,7 @@ export default function InstagramCarouselEditor({
             </label>
             <div className="flex items-center gap-3">
               {onCaptionToPrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isGeneratingPromptFromScript && !hasCaption}
@@ -720,8 +735,10 @@ export default function InstagramCarouselEditor({
                 >
                   {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt from Caption"}
                 </button>
+                </FeatureGate>
               )}
               {onEnhancePrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isEnhancingPrompt && (!activeSlide.visualPrompt || !activeSlide.visualPrompt.trim())}
@@ -743,6 +760,7 @@ export default function InstagramCarouselEditor({
                   {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                 </button>
+                </FeatureGate>
               )}
               {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
                 <button
@@ -765,6 +783,10 @@ export default function InstagramCarouselEditor({
             className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
           />
 
+          {/* One slide's graphic is billed as a plain `media.image`, so that count is
+              what the lock has to read — a trial that has spent its 5 images is refused
+              here even though the deck format itself is included. */}
+          <FeatureGate feature={["media.carousel", "media.image"]} display="block">
           <Button
             type="button"
             size="sm"
@@ -794,6 +816,7 @@ export default function InstagramCarouselEditor({
               </>
             )}
           </Button>
+          </FeatureGate>
         </div>
       </div>
     </div>

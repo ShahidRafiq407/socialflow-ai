@@ -279,6 +279,11 @@ model ChatSettings {
 
   // --- Brain ---
   model            String  @default("gemini-3.1-pro-preview")
+  /// True only when the user picked this model themselves. False means "follow the
+  /// model the back office has chat pointed at", so an admin moving the default
+  /// brain moves every workspace that never expressed a preference — including the
+  /// ones whose `model` column was written by an unrelated settings save.
+  modelPinned      Boolean @default(false)
   temperature      Float   @default(0.4)
   maxToolLoops     Int     @default(8)
   /// "off" | "concise" | "balanced" | "deep"
@@ -1708,6 +1713,8 @@ model UserNotification {
   createdAt DateTime @default(now())
 
   @@index([userId, readAt, createdAt])
+  /// The admin send history reads a range of recent notifications across all users.
+  @@index([createdAt])
 }
 
 /// A thumbs up or down on one assistant message, with an optional note. Unique

@@ -5,6 +5,8 @@ import prisma from "@/lib/db";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { buildBrandProfile } from "@/lib/brand/profile";
 import { ArticleWriterHQ } from "@/components/dashboard/ArticleWriterHQ";
+import LockedSurface from "@/components/billing/LockedSurface";
+import { surfaceAccess } from "@/lib/billing/access.server";
 
 /**
  * The page hands down facts, never defaults. The old version passed
@@ -21,6 +23,20 @@ export default async function ArticleWriterPage() {
 
   if (!userId) {
     redirect("/sign-in");
+  }
+
+  // Quick is the cheaper of the two modes, so a plan without it has no article
+  // pipeline at all and the page has nothing to offer. Deep is gated separately, at
+  // the mode toggle, because a plan can have one and not the other.
+  const gate = await surfaceAccess(userId, "article.quick");
+  if (!gate.allowed) {
+    return (
+      <LockedSurface
+        access={gate}
+        title="Article Writer"
+        purpose="A research pipeline that writes a finished, sourced article for your business and publishes it to your site."
+      />
+    );
   }
 
   const workspace = await prisma.workspace.findFirst({

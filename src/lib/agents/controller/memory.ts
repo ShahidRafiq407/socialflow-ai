@@ -16,6 +16,7 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
+import { EMBEDDING_DIMENSIONS } from "@/lib/providers/VertexAIProvider";
 import { embedText } from "../embeddings";
 import { ensureControllerSchema } from "./schema";
 import { rankFacts } from "./memoryRank";
@@ -77,7 +78,7 @@ async function ensureMemoryVector(): Promise<void> {
     vectorReady = (async () => {
       try {
         await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector;`);
-        await prisma.$executeRawUnsafe(`ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS embedding vector(768);`);
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS embedding vector(${EMBEDDING_DIMENSIONS});`);
         await prisma.$executeRawUnsafe(
           `CREATE INDEX IF NOT EXISTS "Memory_embedding_idx" ON "Memory" USING hnsw (embedding vector_cosine_ops);`
         );

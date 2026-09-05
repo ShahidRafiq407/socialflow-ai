@@ -8,7 +8,8 @@
 // reachable from here — that is the point of the tab.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -23,11 +24,12 @@ import {
 } from "lucide-react";
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from "@/lib/agents/controller/settingsShape";
-import { chatModelLabel, setChatModelCatalog, type ChatModelInfo } from "@/lib/agents/controller/models";
+import { chatModelLabel, resolveChatModel, setChatModelCatalog, type ChatModelInfo } from "@/lib/agents/controller/models";
+import type { ChatCataloguePayload } from "@/lib/agents/controller/catalogue";
 import { CONFIG_REVISION_EVENT } from "@/components/dashboard/ConfigSync";
 import type { ConnectedPlugin } from "@/lib/plugins/connected";
 import { submitChatFeedback, getSessionFeedback } from "@/actions/chatFeedback";
-import { useChatStream, type PendingFile } from "./useChatStream";
+import { useChatStream, type ChatNotice, type PendingFile } from "./useChatStream";
 import { MessageThread, type FeedbackVotes } from "./MessageThread";
 import { Composer } from "./Composer";
 import { SessionRail } from "./SessionRail";
@@ -43,6 +45,27 @@ interface ChatWorkbenchProps {
   initialMessages: ChatMessage[];
   initialSessions: ChatSessionSummary[];
   initialSettings: ChatSettings;
+  /**
+   * The live model catalogue, resolved on the server for the first render.
+   *
+   * `models.ts` is compiled into this bundle, so the browser's copy of the
+   * catalogue starts as the single model that shipped with the build — the admin's
+   * additions only arrive once `loadCatalogue` has round-tripped. Seeding from a
+   * prop makes the first paint correct and makes a failed fetch survivable.
+   * Null when the server-side read timed out; the fetch below then fills it in.
+   */
+  initialCatalogue?: ChatCataloguePayload | null;
+  /**
+   * True when the server's settings read timed out and `initialSettings` is a
+   * default rather than this workspace's stored row.
+   *
+   * The workbench then adopts the settings that come back with the catalogue
+   * fetch, once, so a degraded first render heals itself instead of showing
+   * someone else's defaults until they reload. Only once, and only in this case:
+   * `loadCatalogue` re-runs on every config-revision event, and adopting there
+   * unconditionally would overwrite an edit the user has in flight.
+   */
+  settingsDegraded?: boolean;
   /** Plugins this workspace has connected, for one-tap mentions in the composer. */
   connectedPlugins: ConnectedPlugin[];
   /** Panel to open on load, from a `?panel=` deep link (e.g. open_tab → settings). */
@@ -51,6 +74,37 @@ interface ChatWorkbenchProps {
 
 type SidePanel = "none" | "settings" | "memory" | "requests";
 
+/** The per-model facts the settings panel needs, keyed by id. */
+function availabilityOf(models: Array<ChatModelInfo & { locked?: boolean }>): Record<string, ModelAvailability> {
+  return Object.fromEntries(
+    models.map((m) => [
+      m.id,
+      {
+        chatCredits: m.chatCredits,
+        locked: m.locked,
+        minPlan: m.minPlan ?? null,
+        provider: m.provider,
+        contextWindow: m.contextWindow,
+      },
+    ])
+  );
+}
+
+/**
+ * Points the bundled catalogue singleton at the server's list.
+ *
+ * `includeBuiltIn: false` because the payload is already the authoritative
+ * pickable set: re-seeding the shipped row here would put a model the admin has
+ * disabled for chat back in the picker, unlocked, for a request the stream route
+ * then refuses.
+ */
+function seedCatalogue(
+  models: Array<ChatModelInfo & { locked?: boolean }>,
+  defaultModelId?: string | null
+): void {
+  setChatModelCatalog(models, defaultModelId ?? null, { includeBuiltIn: false });
+}
+
 export function ChatWorkbench({
   workspaceId,
   workspaceName,
@@ -58,10 +112,20 @@ export function ChatWorkbench({
   initialMessages,
   initialSessions,
   initialSettings,
+  initialCatalogue,
+  settingsDegraded,
   connectedPlugins,
   initialPanel,
 }: ChatWorkbenchProps) {
   const router = useRouter();
+
+  // Before the first paint, not in an effect: the composer label, the header and
+  // the picker all read the module singleton during render.
+  useMemo(() => {
+    if (initialCatalogue?.models?.length) {
+      seedCatalogue(initialCatalogue.models, initialCatalogue.defaultModelId);
+    }
+  }, [initialCatalogue]);
 
   const [settings, setSettings] = useState<ChatSettings>(initialSettings || DEFAULT_CHAT_SETTINGS);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -73,12 +137,19 @@ export function ChatWorkbench({
   const [draft, setDraft] = useState("");
   const [localNotice, setLocalNotice] = useState<string | null>(null);
   const [openedArtifacts, setOpenedArtifacts] = useState<Set<string>>(new Set());
-  const [feedbackOn, setFeedbackOn] = useState(true);
-  const [pickerOn, setPickerOn] = useState(true);
-  const [availability, setAvailability] = useState<Record<string, ModelAvailability>>({});
+  const [feedbackOn, setFeedbackOn] = useState(initialCatalogue?.flags?.feedback ?? true);
+  const [pickerOn, setPickerOn] = useState(initialCatalogue?.flags?.modelPicker ?? true);
+  const [availability, setAvailability] = useState<Record<string, ModelAvailability>>(() =>
+    initialCatalogue?.models?.length ? availabilityOf(initialCatalogue.models) : {}
+  );
   const [catalogueVersion, setCatalogueVersion] = useState(0);
-  const [defaultCredits, setDefaultCredits] = useState<number | undefined>(undefined);
-  const [plan, setPlan] = useState<string | null>(null);
+  const [defaultCredits, setDefaultCredits] = useState<number | undefined>(
+    initialCatalogue?.defaultChatCredits
+  );
+  const [plan, setPlan] = useState<string | null>(initialCatalogue?.plan ?? null);
+
+  /** One-shot latch for the degraded-render heal described on `settingsDegraded`. */
+  const adoptedSettings = useRef(!settingsDegraded);
 
   // The live configuration the admin controls: which models the picker may show
   // (with this plan's locks and prices) and whether feedback is on. The browser's
@@ -96,38 +167,34 @@ export function ChatWorkbench({
 
       if (Array.isArray(data.models)) {
         const models = data.models as Array<ChatModelInfo & { locked?: boolean }>;
-        setChatModelCatalog(models, models.find((m) => m.recommended)?.id ?? null);
-        setAvailability(
-          Object.fromEntries(
-            models.map((m) => [
-              m.id,
-              {
-                chatCredits: m.chatCredits,
-                locked: m.locked,
-                minPlan: m.minPlan ?? null,
-                provider: m.provider,
-                contextWindow: m.contextWindow,
-              },
-            ])
-          )
-        );
+        seedCatalogue(models, typeof data.defaultModelId === "string" ? data.defaultModelId : null);
+        setAvailability(availabilityOf(models));
         setCatalogueVersion((v) => v + 1);
       }
       if (typeof data.defaultChatCredits === "number") setDefaultCredits(data.defaultChatCredits);
       if (typeof data.plan === "string") setPlan(data.plan);
       if (data.flags && typeof data.flags.feedback === "boolean") setFeedbackOn(data.flags.feedback);
       if (data.flags && typeof data.flags.modelPicker === "boolean") setPickerOn(data.flags.modelPicker);
+
+      if (!adoptedSettings.current && data.settings) {
+        adoptedSettings.current = true;
+        setSettings(data.settings as ChatSettings);
+      }
     } catch {
       // A stale catalogue is better than a broken chat tab.
     }
   }, [workspaceId]);
 
   useEffect(() => {
-    void loadCatalogue();
+    // The prop already seeded the catalogue, so the mount fetch is only worth its
+    // round trip when something the server should have sent is missing — a timed-out
+    // catalogue, or a timed-out settings row this fetch can heal. `ConfigSync` drives
+    // the rest.
+    if (!initialCatalogue?.models?.length || !adoptedSettings.current) void loadCatalogue();
     const onConfigChange = () => void loadCatalogue();
     window.addEventListener(CONFIG_REVISION_EVENT, onConfigChange);
     return () => window.removeEventListener(CONFIG_REVISION_EVENT, onConfigChange);
-  }, [loadCatalogue]);
+  }, [loadCatalogue, initialCatalogue]);
 
   const refreshSessions = useCallback(
     async (archived = showArchived) => {
@@ -272,15 +339,31 @@ export function ChatWorkbench({
     return session?.title || (chat.messages.length > 0 ? "Current chat" : "New chat");
   }, [sessions, chat.sessionId, chat.messages.length]);
 
-  const notice = localNotice
-    ? { level: "warn" as const, message: localNotice }
+  const notice: ChatNotice | null = localNotice
+    ? { level: "warn", message: localNotice }
     : chat.notice;
 
+  // Just the plan locks, so the composer can name the model that will serve the turn
+  // without taking a dependency on the whole availability shape.
+  const lockedModels = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const [id, info] of Object.entries(availability)) out[id] = info.locked === true;
+    return out;
+  }, [availability]);
+
   // Re-read after the catalogue arrives, because the label lives in a module-level table.
+  //
+  // `activeModel` is what a turn reported actually serving it, so it wins outright.
+  // With no turn yet, the saved pick is resolved rather than labelled straight: a model
+  // the admin disabled, or one this plan lost, is not the one the next turn will use,
+  // and the header said otherwise.
   const modelLabel = useMemo(
-    () => chatModelLabel(chat.activeModel || settings.model),
+    () =>
+      chat.activeModel
+        ? chatModelLabel(chat.activeModel)
+        : resolveChatModel(settings.model, (id) => lockedModels[id] === true).label,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chat.activeModel, settings.model, catalogueVersion]
+    [chat.activeModel, settings.model, lockedModels, catalogueVersion]
   );
 
   // Votes already cast on this session, so the thumbs stay lit after a reload.
@@ -415,6 +498,14 @@ export function ChatWorkbench({
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             )}
             <span className="flex-1">{notice.message}</span>
+            {notice.action && (
+              <Link
+                href={notice.action.href}
+                className="shrink-0 rounded-md border mkt-border px-2 py-0.5 font-medium hover:bg-white/5"
+              >
+                {notice.action.label}
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -465,6 +556,7 @@ export function ChatWorkbench({
           onStop={chat.stop}
           onSettingsChange={updateSettings}
           onNotice={setLocalNotice}
+          lockedModels={lockedModels}
         />
       </main>
 

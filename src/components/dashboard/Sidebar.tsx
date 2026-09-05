@@ -20,6 +20,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { PostloomLogo } from "@/components/marketing/logo";
+import { LockBadge } from "@/components/billing/FeatureLock";
+import { SURFACE_FEATURE } from "@/lib/billing/access";
 
 export const sidebarLinks = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -87,6 +89,10 @@ export function Sidebar({
           const isPending =
             pendingNav?.href === item.href && pendingNav?.from === pathname;
 
+          // The feature this tab exists for, where it has one. Absent for the tabs
+          // that do something useful on every plan.
+          const gated = SURFACE_FEATURE[item.href];
+
           return (
             <Link
               key={item.href}
@@ -97,7 +103,11 @@ export function Sidebar({
                   setPendingNav({ href: item.href, from: pathname });
                 }
               }}
-              className={`flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
+              // `group/lock relative` is what the badge's tooltip hangs off: it opens
+              // on hover and, because the row itself is the focusable element, on
+              // keyboard focus too. A second focusable element inside a nav link
+              // would be invalid HTML and give the row two tab stops.
+              className={`group/lock relative flex items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition-all ${
                 isActive
                   ? "bg-primary/10 text-primary font-semibold shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100"
@@ -116,6 +126,10 @@ export function Sidebar({
               {isPending && (
                 <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
               )}
+              {/* Renders nothing when the plan includes the feature. The row stays
+                  navigable either way — the page behind it shows what the tab does
+                  and what it costs, which a dead nav item cannot. */}
+              {gated && !isPending && <LockBadge feature={gated} side="right" />}
             </Link>
           );
         })}

@@ -22,6 +22,8 @@ import {
   extractAndApplyBrandDNAFromUrl,
   extractAndApplyBrandDNAFromDocument,
 } from "@/actions/brand";
+import { useFeature } from "@/components/billing/AccessProvider";
+import { FeatureGate, FeatureNotice } from "@/components/billing/FeatureLock";
 
 interface BrandDNAHQProps {
   workspaceId: string;
@@ -45,6 +47,10 @@ export function BrandDNAHQ({
   const [isScanning, startScanningTransition] = useTransition();
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // Both quick-import buttons are the same priced action, and on the entry plan it
+  // is capped rather than absent. The count is shown before it runs out, because a
+  // limit a customer only learns about by hitting it reads as a fault.
+  const brandAI = useFeature("brandDna.analyze");
   // Both imports are metered, so both can be refused — for the month's cap, for the
   // plan, or for a file we cannot read. Every one of those refusals arrives as a
   // sentence worth showing, and until this the component logged it and left the
@@ -166,6 +172,12 @@ export function BrandDNAHQ({
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Paste your website URL, or upload a deck, brief, or PDF to auto-fill the form below.
               </p>
+              {typeof brandAI.cap === "number" && brandAI.cap > 0 && (
+                <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                  {Math.max(0, brandAI.remaining ?? brandAI.cap)} of {brandAI.cap} brand reads left
+                  this period.
+                </p>
+              )}
             </div>
           </div>
 
@@ -179,21 +191,23 @@ export function BrandDNAHQ({
                 placeholder="https://smbrobotic.com"
                 className="h-8 w-full sm:w-52 text-xs bg-white dark:bg-slate-900"
               />
-              <Button
-                onClick={handleScanWebsite}
-                disabled={isScanning || !formData.website}
-                variant="outline"
-                className="h-8 px-3 text-xs font-medium border-slate-200 dark:border-slate-700 shrink-0"
-              >
-                {isScanning ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <>
-                    <Globe className="h-3 w-3 mr-1 text-primary" />
-                    <span>Scan URL</span>
-                  </>
-                )}
-              </Button>
+              <FeatureGate feature="brandDna.analyze" side="bottom">
+                <Button
+                  onClick={handleScanWebsite}
+                  disabled={isScanning || !formData.website}
+                  variant="outline"
+                  className="h-8 px-3 text-xs font-medium border-slate-200 dark:border-slate-700 shrink-0"
+                >
+                  {isScanning ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <>
+                      <Globe className="h-3 w-3 mr-1 text-primary" />
+                      <span>Scan URL</span>
+                    </>
+                  )}
+                </Button>
+              </FeatureGate>
             </div>
 
             {/* HIDDEN FILE INPUT & UPLOAD BUTTON */}
@@ -204,27 +218,33 @@ export function BrandDNAHQ({
               accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md"
               className="hidden"
             />
-            <Button
-              type="button"
-              onClick={handlePdfUploadClick}
-              disabled={isUploadingPdf}
-              variant="outline"
-              className="h-8 px-3 text-xs font-medium border-slate-200 dark:border-slate-700 shrink-0"
-            >
-              {isUploadingPdf ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  <span>Extracting...</span>
-                </>
-              ) : (
-                <>
-                  <FileText className="h-3 w-3 mr-1 text-purple-500" />
-                  <span>Upload document</span>
-                </>
-              )}
-            </Button>
+            <FeatureGate feature="brandDna.analyze" side="bottom">
+              <Button
+                type="button"
+                onClick={handlePdfUploadClick}
+                disabled={isUploadingPdf}
+                variant="outline"
+                className="h-8 px-3 text-xs font-medium border-slate-200 dark:border-slate-700 shrink-0"
+              >
+                {isUploadingPdf ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    <span>Extracting...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="h-3 w-3 mr-1 text-purple-500" />
+                    <span>Upload document</span>
+                  </>
+                )}
+              </Button>
+            </FeatureGate>
           </div>
           </div>
+
+          {/* Explains itself in place when the plan or the period's count is the
+              reason both buttons above are locked. Renders nothing when they work. */}
+          <FeatureNotice feature="brandDna.analyze" />
 
           {importError && (
             <p

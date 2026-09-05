@@ -25,9 +25,31 @@ export * from "./settingsShape";
  * default a workspace should actually get is whatever the back office currently
  * points CHAT_CONTROLLER at, so a deployment that never ships a new build still
  * moves everyone onto the new brain.
+ *
+ * Exported because callers that race this module's reads against a timeout need
+ * somewhere to fall back to, and falling back to `DEFAULT_CHAT_SETTINGS` hands the
+ * browser the build-time id — the exact staleness this function exists to avoid.
+ * Only safe to call after `ensureRuntimeConfig()` has been awaited somewhere on
+ * the request; before that it returns the shipped id, same as the constant.
  */
-function liveDefaults(): ChatSettings {
-  return { ...DEFAULT_CHAT_SETTINGS, model: getDefaultChatModelId() };
+export function liveDefaults(): ChatSettings {
+  return { ...DEFAULT_CHAT_SETTINGS, model: getDefaultChatModelId(), modelPinned: false };
+}
+
+/**
+ * Settings as the rest of the product should read them.
+ *
+ * The stored `model` is only authoritative when the user picked it. Otherwise it
+ * is a copy of whatever the default was on the day some unrelated setting was
+ * saved, and honouring it meant the back office's "default chat brain" only ever
+ * reached workspaces that had never opened the settings panel — every established
+ * account stayed on the id baked into an old build, which is the opposite of what
+ * an admin pressing that switch is asking for.
+ */
+function withLiveModel(settings: ChatSettings): ChatSettings {
+  if (settings.modelPinned) return settings;
+  const live = getDefaultChatModelId();
+  return settings.model === live ? settings : { ...settings, model: live };
 }
 
 /** Reads a workspace's settings, falling back to defaults on any failure. */
@@ -40,7 +62,7 @@ export async function getChatSettings(workspaceId: string): Promise<ChatSettings
     await Promise.all([ensureControllerSchema(), ensureRuntimeConfig()]);
     const row = await (prisma as any).chatSettings.findUnique({ where: { workspaceId } });
     if (!row) return liveDefaults();
-    return normalizeChatSettings(row, liveDefaults());
+    return withLiveModel(normalizeChatSettings(row, liveDefaults()));
   } catch (err) {
     console.warn("[getChatSettings] falling back to defaults:", err instanceof Error ? err.message : err);
     return liveDefaults();

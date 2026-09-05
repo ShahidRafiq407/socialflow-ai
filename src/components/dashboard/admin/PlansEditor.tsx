@@ -74,6 +74,20 @@ function diff(values: PlanValues, base: PlanValues): PlanOverride {
   return out;
 }
 
+/**
+ * A stamp of what the SERVER currently says this tier is.
+ *
+ * Used as the card's React key so the form re-seeds when the stored values change.
+ * `PlanCard` copies `plan.live` into state once, and after a save the refreshed props
+ * arrived while the state kept the numbers that had been typed — so a cap the save
+ * had actually dropped stayed on screen, and re-saving from that stale form wrote it
+ * back. Typing does not change this string, so an edit in progress is never lost;
+ * only a real change on the server remounts the card.
+ */
+function liveSignature(plan: PlanSnapshot): string {
+  return JSON.stringify([plan.live, plan.override]);
+}
+
 export function PlansEditor({
   plans,
   featureKeys,
@@ -95,7 +109,12 @@ export function PlansEditor({
       </TabsList>
       {plans.map((p) => (
         <TabsContent key={p.tier} value={p.tier}>
-          <PlanCard plan={p} featureKeys={featureKeys} featureLabels={featureLabels} />
+          <PlanCard
+            key={liveSignature(p)}
+            plan={p}
+            featureKeys={featureKeys}
+            featureLabels={featureLabels}
+          />
         </TabsContent>
       ))}
     </Tabs>

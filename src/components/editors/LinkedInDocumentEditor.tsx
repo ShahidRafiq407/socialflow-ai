@@ -30,6 +30,7 @@ import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndic
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { AIRenderOptions } from "./aiRenderOptions";
@@ -547,6 +548,7 @@ export default function LinkedInDocumentEditor({
                 Document Title
               </label>
               {onGenerateField && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button type="button" onClick={() => {
                   if (generatingField === "title") {
                     cancelAIAction("field", `${formatKey}:title`);
@@ -560,6 +562,7 @@ export default function LinkedInDocumentEditor({
                 } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
                   {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
                 </button>
+                </FeatureGate>
               )}
             </div>
             <Input
@@ -602,6 +605,7 @@ export default function LinkedInDocumentEditor({
                 <Hash className="h-3.5 w-3.5 text-secondary" /> Professional Hashtags
               </label>
               {onGenerateField && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button type="button" onClick={() => {
                   if (generatingField === "hashtags") {
                     cancelAIAction("field", `${formatKey}:hashtags`);
@@ -615,6 +619,7 @@ export default function LinkedInDocumentEditor({
                 } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
                   {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
                 </button>
+                </FeatureGate>
               )}
             </div>
             <Input
@@ -640,6 +645,10 @@ export default function LinkedInDocumentEditor({
             hashtags and then designs every page graphic — nothing stops at a prompt.
           */}
           <div className="pt-1 space-y-1.5">
+            {/* Commentary plus a paid render for every page of the document — the studio's
+                other big deck press. All three keys are read so the refusal names what is
+                actually missing: the plan's AI, slide sets, or the image count. */}
+            <FeatureGate feature={["aistudio.generate", "media.carousel", "media.image"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -660,6 +669,7 @@ export default function LinkedInDocumentEditor({
               {isGeneratingAI ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isGeneratingAI ? (generationProgress > 0 ? `Generating Document (${generationProgress}%)...` : "Generating Full Document...") : `Generate Complete ${capability.format} Post with AI`}</span>
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
               Writes the commentary and hashtags, then designs all {slides.length} page graphics.
               Every selected platform that shares this format gets the same post.
@@ -722,6 +732,9 @@ export default function LinkedInDocumentEditor({
                 placeholder="e.g. Focus on measurable ROI and scalability metrics..."
                 className="h-8 text-xs bg-white dark:bg-slate-900 rounded-lg"
               />
+              {/* Rewriting one page re-renders its graphic, so the image count is read
+                  alongside the deck feature. */}
+              <FeatureGate feature={["aistudio.generate", "media.carousel", "media.image"]} display="block">
               <Button
                 type="button"
                 variant="outline"
@@ -745,6 +758,7 @@ export default function LinkedInDocumentEditor({
                 {isRegeneratingSlide ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 <span>{isRegeneratingSlide ? `Stop Regenerating Page ${currentIdx + 1}` : `Regenerate Page ${currentIdx + 1} with AI`}</span>
               </Button>
+              </FeatureGate>
             </div>
           </div>
 
@@ -816,6 +830,7 @@ export default function LinkedInDocumentEditor({
             </label>
             <div className="flex items-center gap-3">
               {onCaptionToPrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isGeneratingPromptFromScript && !hasCommentary}
@@ -837,8 +852,10 @@ export default function LinkedInDocumentEditor({
                 >
                   {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt from Commentary"}
                 </button>
+                </FeatureGate>
               )}
               {onEnhancePrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isEnhancingPrompt && !activeSlide.visualPrompt?.trim()}
@@ -860,6 +877,7 @@ export default function LinkedInDocumentEditor({
                   {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                 </button>
+                </FeatureGate>
               )}
               {originalPrompt && originalPrompt !== activeSlide.visualPrompt && onRestoreOriginalPrompt && (
                 <button
@@ -883,6 +901,7 @@ export default function LinkedInDocumentEditor({
           />
 
           {onRenderSlideMedia && (
+            <FeatureGate feature={["media.carousel", "media.image"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -912,6 +931,7 @@ export default function LinkedInDocumentEditor({
                 </>
               )}
             </Button>
+            </FeatureGate>
           )}
         </div>
       </div>

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PolicyPage } from "@/components/marketing/policy-page";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import { PLAN_CATALOG } from "@/lib/billing/plans";
 
 export const metadata: Metadata = {
@@ -8,7 +9,15 @@ export const metadata: Metadata = {
     "PostloomAI refund and billing policy: how the 3-day trial, credits, top-ups, refunds and cancellations work on every plan.",
 };
 
-const TRIAL = PLAN_CATALOG.TRIAL;
+/**
+ * Re-rendered every five minutes rather than baked at build.
+ *
+ * The page quotes prices, and a build artefact cannot know that the admin changed
+ * one an hour later. Five minutes is short enough that a price edit reaches the
+ * published policy quickly and long enough that a legal page is not a database read
+ * per visitor.
+ */
+export const revalidate = 300;
 
 /**
  * Why the guarantee is bounded by consumption rather than by time alone.
@@ -25,7 +34,14 @@ const TRIAL = PLAN_CATALOG.TRIAL;
  * before committing to a month. The window is 14 days rather than 30 because that
  * is long enough to decide and short enough to sit inside one billing period.
  */
-export default function RefundPolicyPage() {
+export default async function RefundPolicyPage() {
+  // A stated price is a promise, so it has to be the price this deployment charges.
+  // The admin's overrides land on `PLAN_CATALOG` only after the settings are read;
+  // this was a module constant, evaluated before any read and then never again.
+  await ensureRuntimeConfig();
+  const TRIAL = PLAN_CATALOG.TRIAL;
+  const CONVERTS_TO = PLAN_CATALOG[TRIAL.convertsTo ?? "GO"];
+
   return (
     <PolicyPage
       title="Refund & Billing Policy"
@@ -36,7 +52,7 @@ export default function RefundPolicyPage() {
           heading: "1. Try It Before You Commit",
           paragraphs: [
             `The Free plan does not expire and never asks for a card, so you can connect your accounts and publish before spending anything. To try the AI features, the ${TRIAL.name} is $${TRIAL.oneTimePrice} once and opens the whole product for ${TRIAL.trialDays} days — AI posts, images, a video, the CEO chat and an article.`,
-            `Cancel inside those ${TRIAL.trialDays} days and nothing further is charged. If you do not cancel, the trial becomes a ${PLAN_CATALOG[TRIAL.convertsTo ?? "GO"].name} subscription at $${PLAN_CATALOG[TRIAL.convertsTo ?? "GO"].priceMonthly} a month, and we email you before that happens.`,
+            `Cancel inside those ${TRIAL.trialDays} days and nothing further is charged. If you do not cancel, the trial becomes a ${CONVERTS_TO.name} subscription at $${CONVERTS_TO.priceMonthly} a month, and we email you before that happens.`,
             `The trial is one per person. It is priced to cover the AI it gives you rather than to make money, which is why it cannot be taken twice.`,
           ],
         },

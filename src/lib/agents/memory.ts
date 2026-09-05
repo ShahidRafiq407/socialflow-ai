@@ -1,4 +1,5 @@
 import prisma from "@/lib/db";
+import { EMBEDDING_DIMENSIONS } from "@/lib/providers/VertexAIProvider";
 import { embedText } from "./embeddings";
 import { NOT_A_FACT_SQL } from "./controller/memory";
 
@@ -15,7 +16,7 @@ async function ensureVectorSetup(): Promise<void> {
       try {
         await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS vector;`);
         await prisma.$executeRawUnsafe(
-          `ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS embedding vector(768);`
+          `ALTER TABLE "Memory" ADD COLUMN IF NOT EXISTS embedding vector(${EMBEDDING_DIMENSIONS});`
         );
         await prisma.$executeRawUnsafe(
           `CREATE INDEX IF NOT EXISTS "Memory_embedding_idx" ON "Memory" USING hnsw (embedding vector_cosine_ops);`

@@ -27,6 +27,7 @@ import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import CharacterCounter from "@/components/CharacterCounter";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { AIRenderOptions } from "./aiRenderOptions";
 import { Square } from "lucide-react";
@@ -231,6 +232,7 @@ export default function VideoPostEditor({
                   <p className="text-[10px] text-slate-400 line-clamp-2">{videoError || "Synthesis could not be completed."}</p>
                 </div>
                 <div className="flex items-center justify-center gap-1.5 pt-1">
+                  <FeatureGate feature="media.video">
                   <Button
                     type="button"
                     size="sm"
@@ -239,6 +241,7 @@ export default function VideoPostEditor({
                   >
                     <RefreshCw className="h-3 w-3 mr-1" /> Retry
                   </Button>
+                  </FeatureGate>
                 </div>
               </div>
             ) : displayVideoUrl ? (
@@ -376,6 +379,7 @@ export default function VideoPostEditor({
                 Prompt
               </label>
               <div className="flex items-center gap-3">
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isGeneratingPromptFromScript && !hasCaption}
@@ -403,6 +407,8 @@ export default function VideoPostEditor({
                     "Auto-Prompt from Caption"
                   )}
                 </button>
+                </FeatureGate>
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
@@ -430,6 +436,7 @@ export default function VideoPostEditor({
                     <span>Enhance Prompt ✨</span>
                   )}
                 </button>
+                </FeatureGate>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
                   <button
                     type="button"
@@ -532,6 +539,9 @@ export default function VideoPostEditor({
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
 
+            {/* Every press here spends a video render, which is capped per plan —
+                so this lock also carries "3 uses this billing period … used them all". */}
+            <FeatureGate feature="media.video" display="block">
             <Button
               type="button"
               size="sm"
@@ -539,14 +549,14 @@ export default function VideoPostEditor({
               onClick={isRenderingVideo ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
-                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                window.dispatchEvent(new CustomEvent("cancel-render-media", {
+                  detail: { formatKey: `${capability.platform}-${capability.format}` }
                 }));
               } : () => onRenderAIVideo(videoRenderOptions({ prompt }))
               }
               className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
-                isRenderingVideo 
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                isRenderingVideo
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
                 : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
               }`}
             >
@@ -562,6 +572,7 @@ export default function VideoPostEditor({
                 </>
               )}
             </Button>
+            </FeatureGate>
           </div>
         </div>
 
@@ -576,6 +587,7 @@ export default function VideoPostEditor({
                     {capability.platform === "youtube" ? "Video Title" : "Short / Reel Title"}
                   </label>
                   {onGenerateField && (
+                    <FeatureGate feature="aistudio.generate">
                     <button type="button" onClick={() => {
                       if (generatingField === "title") {
                         cancelAIAction("field", `${formatKey}:title`);
@@ -589,6 +601,7 @@ export default function VideoPostEditor({
                     } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
                       {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
                     </button>
+                    </FeatureGate>
                   )}
                 </div>
                 <CharacterCounter current={title.length} max={capability.titleLimit || 100} />
@@ -638,6 +651,7 @@ export default function VideoPostEditor({
                     Hashtags
                   </label>
                   {onGenerateField && (
+                    <FeatureGate feature="aistudio.generate">
                     <button
                       type="button"
                       onClick={() => {
@@ -657,6 +671,7 @@ export default function VideoPostEditor({
                     >
                       {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
                     </button>
+                    </FeatureGate>
                   )}
                 </div>
                 <Input
@@ -697,6 +712,9 @@ export default function VideoPostEditor({
 
           {/* ONE PRESS → THE WHOLE POST: SCRIPT, CAPTION, HASHTAGS *AND* THE RENDERED VIDEO */}
           <div className="pt-1">
+            {/* Copy and a video render in one press, so both entitlements are checked and
+                the stricter of the two — usually the video count — is what the lock says. */}
+            <FeatureGate feature={["aistudio.generate", "media.video"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -721,6 +739,7 @@ export default function VideoPostEditor({
               {isGeneratingCompletePost ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isGeneratingCompletePost ? "Stop Generating" : `Generate Complete ${capability.label} with AI`}</span>
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
               Writes the caption, hashtags and video script, then renders the {durationSec}s video with the settings above.
               Every selected platform that shares this format gets the same post.

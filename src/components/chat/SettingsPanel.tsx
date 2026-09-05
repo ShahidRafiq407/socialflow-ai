@@ -9,8 +9,9 @@
 // ============================================================================
 
 import { useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, Check, Loader2, Lock, X } from "lucide-react";
-import { getChatModel, listChatModels } from "@/lib/agents/controller/models";
+import { listChatModels, resolveChatModel } from "@/lib/agents/controller/models";
 import { providerLabel } from "@/lib/providers/registry";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { Row, Section, Segmented, Slider, Toggle } from "./SettingsControls";
@@ -60,11 +61,20 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [instructions, setInstructions] = useState(settings.customInstructions);
   const [instructionsSaved, setInstructionsSaved] = useState(false);
-  const model = getChatModel(settings.model);
   const models = listChatModels();
+  // The model the next turn will genuinely run on, resolved the same way the request
+  // handler resolves it: a saved pick that the admin has since disabled, or one this
+  // plan may not use, is not what will serve the turn. Read straight from the id, this
+  // panel used to price and describe the stale pick while the composer below it was
+  // about to run the default brain — and no row in the list showed as selected.
+  const model = resolveChatModel(settings.model, (id) => availability[id]?.locked === true);
+  const fallenBack = !!settings.model && settings.model !== model.id;
   // One model is still worth listing: the user asked to see what the turn costs,
   // and hiding the list also hides the price.
   const showPicker = pickerEnabled && models.length > 0;
+  const savedRow = fallenBack ? models.find((m) => m.id === settings.model) : undefined;
+  const savedLabel = savedRow?.label ?? settings.model;
+  const savedLockedPlan = fallenBack ? availability[settings.model]?.minPlan : null;
 
   const priceOf = (id: string) => availability[id]?.chatCredits ?? defaultCredits;
   const activePrice = priceOf(model.id);
@@ -102,6 +112,16 @@ export function SettingsPanel({
         <Section title="Brain">
           <div>
             <div className="mb-2 text-[12.5px] font-medium mkt-text">Model</div>
+            {fallenBack && (
+              <div className="mb-2 flex items-start gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>
+                  {savedLockedPlan
+                    ? `${savedLabel} needs the ${savedLockedPlan} plan, so turns run on ${model.label} until you upgrade or pick another model.`
+                    : `${savedLabel} is no longer available, so turns run on ${model.label}. Pick a model below to make it stick.`}
+                </span>
+              </div>
+            )}
             {showPicker ? (
               <div className="space-y-1.5">
                 {models.map((m) => {
@@ -110,25 +130,21 @@ export function SettingsPanel({
                   const active = m.id === model.id;
                   const credits = priceOf(m.id);
                   const provider = info.provider || m.provider;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      disabled={locked}
-                      onClick={() => onChange({ model: m.id })}
-                      className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
-                        active
-                          ? "border-[color:var(--mkt-accent)]/50 mkt-bg2"
-                          : "mkt-border hover:mkt-bg2"
-                      } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
-                    >
+                  const needsPlan = info.minPlan || m.minPlan || "higher";
+                  const className = `block w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                    active
+                      ? "border-[color:var(--mkt-accent)]/50 mkt-bg2"
+                      : "mkt-border hover:mkt-bg2"
+                  } ${locked ? "opacity-70" : ""}`;
+                  const body = (
+                    <>
                       <div className="flex items-center gap-1.5">
                         <span className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[color:var(--mkt-accent)]" : "bg-[color:var(--mkt-border)]"}`} />
                         <span className="truncate text-[12.5px] font-medium mkt-text">{m.label}</span>
                         {locked ? (
                           <span className="ml-auto flex shrink-0 items-center gap-1 rounded border mkt-border px-1 text-[9.5px] uppercase tracking-wide mkt-faint">
                             <Lock className="h-2.5 w-2.5" />
-                            {info.minPlan || m.minPlan || "upgrade"}
+                            {needsPlan}
                           </span>
                         ) : (
                           <span className="ml-auto shrink-0 rounded border border-[color:var(--mkt-accent)]/30 px-1 text-[10.5px] tabular-nums mkt-accent-text">
@@ -144,12 +160,31 @@ export function SettingsPanel({
                         <span>
                           ·{" "}
                           {locked
-                            ? `Needs the ${info.minPlan || m.minPlan || "higher"} plan`
+                            ? `Needs the ${needsPlan} plan — see plans`
                             : typeof credits === "number"
                               ? `You can use this — each turn spends ${credits} credit${credits === 1 ? "" : "s"}`
                               : "You can use this"}
                         </span>
                       </p>
+                    </>
+                  );
+                  // A locked row is a link to the plans, not a dead button. The user
+                  // asked for the list to say "you can use this" — the corollary is that
+                  // a row saying you cannot has to be the thing that changes it. As a
+                  // `disabled` button it swallowed the click and left the lock icon as
+                  // the only explanation, with the upgrade page nowhere in reach.
+                  return locked ? (
+                    <Link
+                      key={m.id}
+                      href="/dashboard/billing"
+                      title={`${m.label} needs the ${needsPlan} plan`}
+                      className={className}
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    <button key={m.id} type="button" onClick={() => onChange({ model: m.id })} className={className}>
+                      {body}
                     </button>
                   );
                 })}
@@ -184,7 +219,11 @@ export function SettingsPanel({
             )}
             {plan && (
               <p className="mt-1.5 text-[10.5px] mkt-faint">
-                You are on the <span className="uppercase">{plan}</span> plan. Locked models need a higher one.
+                You are on the <span className="uppercase">{plan}</span> plan. Locked models need a higher one —{" "}
+                <Link href="/dashboard/billing" className="underline hover:mkt-text">
+                  see plans
+                </Link>
+                .
               </p>
             )}
           </div>

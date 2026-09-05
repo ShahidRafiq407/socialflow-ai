@@ -34,9 +34,11 @@ import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { AIRenderOptions } from "./aiRenderOptions";
+import type { FeatureKey } from "@/lib/billing/plans";
 
 interface PinterestPinEditorProps {
   capability: PlatformCapability;
@@ -192,10 +194,20 @@ export default function PinterestPinEditor({
     onRenderAI(pinRenderOptions());
   };
 
+  /**
+   * A Video Pin spends a video render and an image Pin spends an image render — two
+   * separate entitlements with separate counts. The lock has to name the one this
+   * Pin would actually charge, or it sends the customer to the wrong plan line.
+   */
+  const mediaFeature: FeatureKey = isVideo ? "media.video" : "media.image";
+
   return (
     <div className="space-y-6 text-left">
       {/* HEADER & AI ACTION BAR */}
       <div className="flex items-center justify-end pb-2.5 border-b border-slate-200 dark:border-slate-800">
+        {/* Copy and the Pin visual in one press, so both are checked — and for a Video
+            Pin the video count is what usually refuses first. */}
+        <FeatureGate feature={["aistudio.generate", mediaFeature]} side="bottom">
         <Button
           type="button"
           size="sm"
@@ -226,6 +238,7 @@ export default function PinterestPinEditor({
               : `Generate Complete ${isVideo ? "Video Pin" : "Pin"} with AI`}
           </span>
         </Button>
+        </FeatureGate>
       </div>
 
       {/* TWO-COLUMN PINTEREST LAYOUT */}
@@ -285,6 +298,8 @@ export default function PinterestPinEditor({
                   <p className="text-xs font-bold text-red-400">Generation failed</p>
                   <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
                 </div>
+                {/* A retry is a fresh paid render, not a free do-over. */}
+                <FeatureGate feature={mediaFeature}>
                 <Button
                   type="button"
                   size="sm"
@@ -294,6 +309,7 @@ export default function PinterestPinEditor({
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
+                </FeatureGate>
               </div>
             ) : videoStatus === "failed" ? (
               /* A Video Pin that failed synthesis reports through videoStatus, not
@@ -307,6 +323,8 @@ export default function PinterestPinEditor({
                     {videoError || "Video synthesis failed."}
                   </p>
                 </div>
+                {/* Same again for a failed Video Pin: the retry spends another clip. */}
+                <FeatureGate feature={mediaFeature}>
                 <Button
                   type="button"
                   size="sm"
@@ -316,6 +334,7 @@ export default function PinterestPinEditor({
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
+                </FeatureGate>
               </div>
             ) : (
               <div className="p-3 text-center space-y-2 w-full">
@@ -572,6 +591,7 @@ export default function PinterestPinEditor({
               </label>
               <div className="flex items-center gap-3 flex-wrap">
                 {onCaptionToPrompt && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
                   <button
                     type="button"
                     disabled={!isGeneratingPromptFromScript && !description.trim()}
@@ -592,7 +612,9 @@ export default function PinterestPinEditor({
                     {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
                     <span>{isGeneratingPromptFromScript ? "Stop" : "Auto Prompt from Description"}</span>
                   </button>
+                  </FeatureGate>
                 )}
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
@@ -614,6 +636,7 @@ export default function PinterestPinEditor({
                   {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                 </button>
+                </FeatureGate>
                 {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
                   <button
                     type="button"
@@ -633,6 +656,8 @@ export default function PinterestPinEditor({
               placeholder={isVideo ? "Describe 9:16 vertical video motion, scene, and aesthetics..." : "Describe 2:3 vertical Pin visual style, typography, and aesthetic..."}
               className="w-full text-xs p-2.5 rounded-lg bg-white dark:bg-slate-900 font-mono leading-relaxed"
             />
+            {/* The render on its own, gated on the kind of media it would charge. */}
+            <FeatureGate feature={mediaFeature} display="block">
             <Button
               type="button"
               size="sm"
@@ -640,13 +665,13 @@ export default function PinterestPinEditor({
               onClick={isRenderingMedia ? (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent("cancel-render-media", { 
-                  detail: { formatKey: `${capability.platform}-${capability.format}` } 
+                window.dispatchEvent(new CustomEvent("cancel-render-media", {
+                  detail: { formatKey: `${capability.platform}-${capability.format}` }
                 }));
               } : handleGeneratePin}
               className={`w-full h-9 text-xs font-bold gap-1.5 shadow-xs transition-colors ${
-                isRenderingMedia 
-                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700" 
+                isRenderingMedia
+                ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
                 : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 text-white"
               }`}
             >
@@ -662,6 +687,7 @@ export default function PinterestPinEditor({
                 </>
               )}
             </Button>
+            </FeatureGate>
           </div>
         </div>
 
@@ -683,6 +709,7 @@ export default function PinterestPinEditor({
               <div className="flex items-center gap-1.5">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Title</label>
                 {onGenerateField && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
                   <button type="button" onClick={() => {
                     if (generatingField === "title") {
                       cancelAIAction("field", `${formatKey}:title`);
@@ -696,6 +723,7 @@ export default function PinterestPinEditor({
                   } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
                   </button>
+                  </FeatureGate>
                 )}
               </div>
               <span className="text-[11px] text-slate-400 font-mono">{title.length} / 100</span>
@@ -715,6 +743,7 @@ export default function PinterestPinEditor({
               <div className="flex items-center gap-1.5">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Description</label>
                 {onGenerateField && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
                   <button type="button" onClick={() => {
                     if (generatingField === "description") {
                       cancelAIAction("field", `${formatKey}:description`);
@@ -728,6 +757,7 @@ export default function PinterestPinEditor({
                   } ${generatingField !== null && generatingField !== "description" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "description" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "description" ? "Stop" : "AI"}
                   </button>
+                  </FeatureGate>
                 )}
               </div>
               <span className="text-[11px] text-slate-400 font-mono">{description.length} / 500</span>
@@ -856,6 +886,7 @@ export default function PinterestPinEditor({
                   <div className="flex items-center gap-1.5">
                     <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Alt Text</label>
                     {onGenerateField && (
+                      <FeatureGate feature="aistudio.generate" side="bottom">
                       <button type="button" onClick={() => {
                         if (generatingField === "altText") {
                           cancelAIAction("field", `${formatKey}:altText`);
@@ -869,6 +900,7 @@ export default function PinterestPinEditor({
                       } ${generatingField !== null && generatingField !== "altText" ? "opacity-50 cursor-not-allowed" : ""}`}>
                         {generatingField === "altText" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "altText" ? "Stop" : "AI"}
                       </button>
+                      </FeatureGate>
                     )}
                   </div>
                   <Textarea

@@ -9,17 +9,16 @@
 // admin has added and enabled for chat, filtered to what this account's plan may
 // pick. A model the plan cannot use is still sent (so the picker can show it as
 // an upgrade), flagged with `locked: true`.
+//
+// That catalogue is built by `chatCataloguePayload`, not here, because the chat
+// page sends the same object down with the first render. Two builders meant the
+// first paint and the first refresh could disagree about which models exist.
 // ============================================================================
 
 import { NextResponse } from "next/server";
 import { resolveIdentity } from "@/lib/agents/controller/auth";
 import { getChatSettings, saveChatSettings } from "@/lib/agents/controller/settings";
-import { planMayUseModel, serializeChatModels } from "@/lib/agents/controller/models";
-import { getPlanContext } from "@/lib/billing/entitlements";
-import { planRank } from "@/lib/billing/plans";
-import { actionCredits } from "@/lib/billing/actions";
-import { ensureRuntimeConfig, getFlags } from "@/lib/admin/runtimeConfig";
-import { configRevision } from "@/lib/admin/revision";
+import { chatCataloguePayload } from "@/lib/agents/controller/catalogue";
 
 export const dynamic = "force-dynamic";
 
@@ -28,36 +27,19 @@ export async function GET(req: Request) {
   const identity = await resolveIdentity(searchParams.get("workspaceId"));
   if (!identity.ok) return NextResponse.json({ error: identity.error }, { status: identity.status });
 
-  // Without this the catalogue and the flags are whatever the last request on
-  // this instance happened to load — which on a cold lambda is nothing at all.
-  await ensureRuntimeConfig();
-
-  const [settings, ctx, revision] = await Promise.all([
+  // `chatCataloguePayload` awaits `ensureRuntimeConfig()` before it reads anything,
+  // which is also what makes the `getChatSettings` beside it safe to run in
+  // parallel — on a cold lambda the catalogue would otherwise be nothing at all.
+  const [catalogue, settings] = await Promise.all([
+    chatCataloguePayload(identity.identity.userId),
     getChatSettings(identity.identity.workspaceId),
-    getPlanContext(identity.identity.userId),
-    configRevision(),
   ]);
-  const flags = getFlags();
-  const flat = actionCredits("chat.message");
 
   return NextResponse.json(
     {
       success: true,
       settings,
-      models: serializeChatModels().map((m) => ({
-        ...m,
-        chatCredits: m.chatCredits ?? flat,
-        locked: !planMayUseModel(m, ctx.plan, planRank),
-      })),
-      flags: {
-        modelPicker: flags.chatModelPickerEnabled,
-        feedback: flags.chatFeedbackEnabled,
-      },
-      /** What one turn costs on a model with no price of its own. */
-      defaultChatCredits: flat,
-      plan: ctx.plan,
-      /** Lets the client tell whether its catalogue is still current. */
-      revision,
+      ...catalogue,
       workspaceId: identity.identity.workspaceId,
     },
     { headers: { "cache-control": "no-store, max-age=0" } },

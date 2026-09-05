@@ -14,6 +14,8 @@ import { suggestChannels, PLATFORM_LABEL } from "@/lib/growth/channelAdvisor";
 import type { LeadSource } from "@/lib/types/growth";
 import { getAppBaseUrl } from "@/lib/media/urls";
 import { GoalHQShell } from "@/components/dashboard/goals/GoalHQShell";
+import LockedSurface from "@/components/billing/LockedSurface";
+import { surfaceAccess } from "@/lib/billing/access.server";
 import type { GoalHQData } from "@/components/dashboard/goals/types";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,19 @@ function normalizeSources(value: any): LeadSource[] {
 export default async function LeadGoalPage() {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
+
+  // Seven reads and a channel-advice pass follow. None of them are worth doing for
+  // an account whose plan does not include the tab they render.
+  const gate = await surfaceAccess(userId, "goals.manage");
+  if (!gate.allowed) {
+    return (
+      <LockedSurface
+        access={gate}
+        title="Lead Goal"
+        purpose="Set a lead target, then see which channel, pillar and post is actually delivering against it — with the next moves ranked."
+      />
+    );
+  }
 
   const workspace = await prisma.workspace.findFirst({
     ...(await activeWorkspaceQuery(userId)),

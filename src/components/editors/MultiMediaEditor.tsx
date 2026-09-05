@@ -27,6 +27,7 @@ import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndicator";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { AIRenderOptions } from "./aiRenderOptions";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
@@ -424,7 +425,9 @@ export default function MultiMediaEditor({
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
                 <Hash className="h-3.5 w-3.5 text-secondary" /> Hashtags
               </label>
-              {onGenerateField && (<button type="button" onClick={() => {
+              {onGenerateField && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
+                <button type="button" onClick={() => {
                 if (generatingField === "hashtags") {
                   cancelAIAction("field", `${formatKey}:hashtags`);
                 } else {
@@ -436,7 +439,9 @@ export default function MultiMediaEditor({
                   : "bg-secondary/10 text-secondary hover:bg-secondary/20"
               } ${generatingField !== null && generatingField !== "hashtags" ? "opacity-50 cursor-not-allowed" : ""}`}>
                       {generatingField === "hashtags" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "hashtags" ? "Stop" : "AI"}
-                    </button>)}
+                    </button>
+                </FeatureGate>
+              )}
             </div>
             <Input
               value={hashtags.join(" ")}
@@ -461,6 +466,10 @@ export default function MultiMediaEditor({
             every asset in the strip, so the format comes out publish-ready.
           */}
           <div className="pt-1 space-y-1.5">
+            {/* Copy plus one paid image per slot in the strip. The image count is read
+                next to the studio's own feature, because that is the line a trial or a
+                Go account actually runs out of. */}
+            <FeatureGate feature={["aistudio.generate", "media.image"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -487,6 +496,7 @@ export default function MultiMediaEditor({
               {isGeneratingAllMedia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               <span>{isGeneratingAllMedia ? "Stop Generating" : fullPostLabel}</span>
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
               {onePressAssetCount > 1
                 ? `Writes the caption and hashtags, then designs all ${onePressAssetCount} assets.`
@@ -577,6 +587,7 @@ export default function MultiMediaEditor({
             </span>
             <span className="flex items-center gap-3 flex-wrap justify-end">
               {onCaptionToPrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isGeneratingPromptFromScript && !caption.trim()}
@@ -597,7 +608,9 @@ export default function MultiMediaEditor({
                   {isGeneratingPromptFromScript ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
                   <span>{isGeneratingPromptFromScript ? "Stop" : "Auto Prompt from Caption"}</span>
                 </button>
+                </FeatureGate>
               )}
+              <FeatureGate feature="aistudio.generate" side="bottom">
               <button
                 type="button"
                 disabled={!isEnhancingPrompt && (!prompt || !prompt.trim())}
@@ -619,6 +632,7 @@ export default function MultiMediaEditor({
                 {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
               </button>
+              </FeatureGate>
               {originalPrompt && originalPrompt !== prompt && onRestoreOriginalPrompt && (
                 <button
                   type="button"
@@ -638,6 +652,8 @@ export default function MultiMediaEditor({
               placeholder="Describe image for this asset slot..."
               className="h-9 text-xs bg-white dark:bg-slate-900 flex-1"
             />
+            {/* One asset slot re-rendered on its own — a plain paid image. */}
+            <FeatureGate feature="media.image">
             <Button
               type="button"
               size="sm"
@@ -666,6 +682,7 @@ export default function MultiMediaEditor({
                 </span>
               )}
             </Button>
+            </FeatureGate>
           </div>
         </div>
       </div>

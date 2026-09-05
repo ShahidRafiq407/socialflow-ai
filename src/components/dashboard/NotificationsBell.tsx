@@ -39,6 +39,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { CONFIG_REVISION_EVENT } from "@/components/dashboard/ConfigSync";
 import {
   getNotifications,
   type NotificationItem,
@@ -176,6 +177,19 @@ export function NotificationsBell({ activeWorkspaceId }: NotificationsBellProps)
     }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+  }, [load]);
+
+  // Focus and open are not enough on their own: a tab you are actively working in
+  // is already focused, so an admin granting credits or sending a message reached
+  // nobody until they happened to click the bell. `ConfigSync` polls a revision
+  // token whose per-account half moves when a notification is written, so this is
+  // the push half of the same signal.
+  useEffect(() => {
+    function onRevision() {
+      void load();
+    }
+    window.addEventListener(CONFIG_REVISION_EVENT, onRevision);
+    return () => window.removeEventListener(CONFIG_REVISION_EVENT, onRevision);
   }, [load]);
 
   useEffect(() => {

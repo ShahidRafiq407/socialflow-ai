@@ -166,14 +166,47 @@ export function manualOnlyPlatforms(): string[] {
  * `planTier` is only passed when billing is actually enforced — with the billing
  * kill-switch off, no plan row appears, because telling a user their plan blocks
  * something that in fact works would be a lie in the other direction.
+ *
+ * `model` describes the model the turn is actually running on. Since the picker
+ * carries models an admin added, not every one of them does tools or vision, and a
+ * boundary that ignored that had the prompt list thirty tools to a model that cannot
+ * call one — so it narrated the work instead of doing it, with no way for the user to
+ * tell why. Optional, because callers that have not resolved a model yet should get
+ * the workspace's own boundary rather than a guess about capabilities.
  */
 export function computeLimits(params: {
   settings: ChatSettings;
   snapshot: LimitSnapshot;
   planTier?: string | null;
+  model?: { label?: string; supportsTools?: boolean; supportsVision?: boolean } | null;
 }): CapabilityLimit[] {
   const { settings, snapshot } = params;
   const limits: CapabilityLimit[] = [];
+
+  const modelName = params.model?.label?.trim() || "The selected model";
+  if (params.model && params.model.supportsTools === false) {
+    limits.push({
+      key: "model:no_tools",
+      capability: "Doing anything through a tool on this model",
+      reason: "setting_off",
+      detail:
+        `${modelName} cannot call tools, so none were sent this turn — you can answer, write and advise, but you ` +
+        `cannot read the workspace, publish, schedule or generate media. Say so plainly and name the model; ` +
+        `switching model in this chat's Settings panel restores every tool. Do not describe a tool call as done.`,
+      fix: chatPanelFix("settings", "Open chat settings"),
+    });
+  }
+  if (params.model && params.model.supportsVision === false) {
+    limits.push({
+      key: "model:no_vision",
+      capability: "Looking at an attached image, video or audio file",
+      reason: "setting_off",
+      detail:
+        `${modelName} takes text only, so attached media was not sent to it and you genuinely cannot see or hear ` +
+        `it. Text-bearing files are still readable. Never describe an attachment you were not given.`,
+      fix: chatPanelFix("settings", "Open chat settings"),
+    });
+  }
 
   for (const entry of SETTING_LIMITS) {
     if (settings[entry.flag] !== false) continue;

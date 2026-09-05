@@ -13,6 +13,7 @@ import StockMediaModal from "@/components/stock-media/StockMediaModal";
 import VideoPreviewPlayer from "@/components/ui/VideoPreviewPlayer";
 import MultiAgentStreamModal from "@/components/ai-studio/MultiAgentStreamModal";
 import PublishStatusModal, { type PublishItemResult } from "@/components/modals/PublishStatusModal";
+import { FeatureGate, FeatureNotice } from "@/components/billing/FeatureLock";
 import {
   Card,
   CardHeader,
@@ -4888,6 +4889,12 @@ export default function AIStudioPage() {
         </div>
       </div>
 
+      {/* The tab itself is never locked — composing and scheduling by hand for every
+          connected platform is what the free plan is sold on, and this is where that
+          happens. Only the AI presses inside it are gated, so the page says once, at the
+          top, what every lock further down is about. Renders nothing when the plan has AI. */}
+      <FeatureNotice feature="aistudio.generate" />
+
       {/* TOAST */}
       {publishResult && (
         <div className={`fixed top-20 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-sm animate-in slide-in-from-right-2 ${
@@ -5136,14 +5143,20 @@ export default function AIStudioPage() {
               </div>
               {/* GENERATE BUTTON — INSIDE CARD (CENTERED) */}
               <div className="pt-2.5 flex items-center justify-center">
-                <Button
-                  onClick={() => setIsMultiAgentModalOpen(true)}
-                  disabled={selectedPlatforms.length === 0}
-                  className="w-full sm:w-auto px-4 py-1.5 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-semibold text-xs shadow-sm gap-1.5 transition-all"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Generate Content with AI for All Selected Platforms ({selectedPlatforms.length})</span>
-                </Button>
+                {/* The multi-agent run is the studio's most expensive press — one
+                    `ai.post.campaign` charge plus a render per selected format. It is also
+                    the one a plan without AI post generation used to open anyway, so the
+                    lock sits on the button rather than on the modal's first request. */}
+                <FeatureGate feature="aistudio.generate">
+                  <Button
+                    onClick={() => setIsMultiAgentModalOpen(true)}
+                    disabled={selectedPlatforms.length === 0}
+                    className="w-full sm:w-auto px-4 py-1.5 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white font-semibold text-xs shadow-sm gap-1.5 transition-all"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Generate Content with AI for All Selected Platforms ({selectedPlatforms.length})</span>
+                  </Button>
+                </FeatureGate>
               </div>
             </CardContent>
           </Card>

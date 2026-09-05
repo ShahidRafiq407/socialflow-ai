@@ -18,7 +18,8 @@
 import prisma from "@/lib/db";
 import { netAfterFees } from "@/lib/billing/lemonsqueezy";
 import { effectivePlanFor } from "@/lib/billing/entitlements";
-import { PLAN_TIERS, type PlanTier } from "@/lib/billing/plans";
+import { PLAN_CATALOG, PLAN_TIERS, type PlanTier } from "@/lib/billing/plans";
+import { ensureRuntimeConfig } from "./runtimeConfig";
 import { ensureAdminSchema } from "./schema";
 
 export type StatsRange = "7d" | "30d" | "90d" | "12m" | "all";
@@ -160,7 +161,12 @@ async function safe<T>(fallback: T, fn: () => Promise<T>): Promise<T> {
 }
 
 export async function getAdminOverview(range: StatsRange = "30d"): Promise<AdminOverview> {
-  await ensureAdminSchema();
+  // MRR below multiplies subscription rows by `PLAN_CATALOG` prices, and those are
+  // patched in place from `AppSetting` — so an instance that has not loaded the
+  // settings cache reports revenue at the prices that shipped with the build. An
+  // admin who has since raised Pro from $49 sees a number that is wrong by the
+  // difference times their whole paid base, on the one screen they check it on.
+  await Promise.all([ensureAdminSchema(), ensureRuntimeConfig()]);
   const since = sinceFor(range);
   const inRange = since ? { gte: since } : undefined;
   const now = new Date();
@@ -314,7 +320,6 @@ export async function getAdminOverview(range: StatsRange = "30d"): Promise<Admin
   let pastDue = 0;
   let cancelling = 0;
   let mrrUsd = 0;
-  const { PLAN_CATALOG } = await import("@/lib/billing/plans");
   for (const sub of subs) {
     // The same decision the product enforces, so "42 Pro" here means 42 accounts
     // that can actually use Pro — not 42 rows that once said Pro. A trial whose

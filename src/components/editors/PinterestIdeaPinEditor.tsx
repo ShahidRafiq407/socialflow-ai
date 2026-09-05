@@ -29,6 +29,7 @@ import GenerationProgressIndicator from "@/components/ui/GenerationProgressIndic
 import ContentMediaRenderer from "@/components/ui/ContentMediaRenderer";
 import AnalyzeMediaAIButton from "./AnalyzeMediaAIButton";
 import CaptionRefineActions from "./CaptionRefineActions";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 import { IMAGE_MODEL_ID } from "@/lib/agents/mediaModels";
 import { AIRenderOptions } from "./aiRenderOptions";
@@ -277,6 +278,7 @@ export default function PinterestIdeaPinEditor({
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Idea Pin Title</label>
             {onGenerateField && (
+              <FeatureGate feature="aistudio.generate" side="bottom">
               <button type="button" onClick={() => {
                 if (generatingField === "title") {
                   cancelAIAction("field", `${formatKey}:title`);
@@ -290,6 +292,7 @@ export default function PinterestIdeaPinEditor({
               } ${generatingField !== null && generatingField !== "title" ? "opacity-50 cursor-not-allowed" : ""}`}>
                 {generatingField === "title" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "title" ? "Stop" : "AI"}
               </button>
+              </FeatureGate>
             )}
           </div>
           <Input
@@ -467,6 +470,8 @@ export default function PinterestIdeaPinEditor({
                   <p className="text-xs font-bold text-destructive">Generation failed</p>
                   <p className="text-[10px] text-slate-400 line-clamp-2">{renderError}</p>
                 </div>
+                {/* A retry re-renders the page, which is another paid image. */}
+                <FeatureGate feature={["media.carousel", "media.image"]}>
                 <Button
                   type="button"
                   size="sm"
@@ -475,6 +480,7 @@ export default function PinterestIdeaPinEditor({
                 >
                   <RefreshCw className="h-3 w-3 mr-1" /> Retry
                 </Button>
+                </FeatureGate>
               </div>
             ) : activePage.mediaUrl ? (
               <div className="relative w-full h-full rounded-xl overflow-hidden">
@@ -522,6 +528,7 @@ export default function PinterestIdeaPinEditor({
               </label>
               <div className="flex items-center gap-2">
                 {onGenerateField && (
+                  <FeatureGate feature="aistudio.generate" side="bottom">
                   <button type="button" onClick={() => {
                     if (generatingField === "description") {
                       cancelAIAction("field", `${formatKey}:description`);
@@ -535,6 +542,7 @@ export default function PinterestIdeaPinEditor({
                   } ${generatingField !== null && generatingField !== "description" ? "opacity-50 cursor-not-allowed" : ""}`}>
                     {generatingField === "description" ? <Square className="h-3 w-3 fill-current" /> : <Sparkles className="h-3 w-3" />} {generatingField === "description" ? "Stop" : "AI"}
                   </button>
+                  </FeatureGate>
                 )}
                 <CharacterCounter current={(description || "").length} max={capability.captionLimit} />
               </div>
@@ -643,6 +651,9 @@ export default function PinterestIdeaPinEditor({
             then designs every page graphic — nothing stops at a prompt.
           */}
           <div className="pt-1 space-y-1.5">
+            {/* Title, description and a paid render for every page in the Idea Pin. All
+                three keys are read so the refusal names the one that is actually short. */}
+            <FeatureGate feature={["aistudio.generate", "media.carousel", "media.image"]} display="block">
             <Button
               type="button"
               size="sm"
@@ -670,6 +681,7 @@ export default function PinterestIdeaPinEditor({
                 </>
               )}
             </Button>
+            </FeatureGate>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed">
               Writes the title and description, then designs all {effectivePages.length} page graphics.
               Every selected platform that shares this format gets the same post.
@@ -804,6 +816,7 @@ export default function PinterestIdeaPinEditor({
             </label>
             <div className="flex items-center gap-3">
               {onCaptionToPrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isGeneratingPromptFromScript && !hasSourceText}
@@ -825,8 +838,10 @@ export default function PinterestIdeaPinEditor({
                 >
                   {isGeneratingPromptFromScript ? "Stop" : "Auto-Prompt"}
                 </button>
+                </FeatureGate>
               )}
               {onEnhancePrompt && (
+                <FeatureGate feature="aistudio.generate" side="bottom">
                 <button
                   type="button"
                   disabled={!isEnhancingPrompt && (!activePage.visualPrompt || !activePage.visualPrompt.trim())}
@@ -848,6 +863,7 @@ export default function PinterestIdeaPinEditor({
                   {isEnhancingPrompt ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   <span>{isEnhancingPrompt ? "Stop Enhancing" : "Enhance Prompt ✨"}</span>
                 </button>
+                </FeatureGate>
               )}
               {originalPrompt && originalPrompt !== activePage.visualPrompt && onRestoreOriginalPrompt && (
                 <button
@@ -870,6 +886,8 @@ export default function PinterestIdeaPinEditor({
             className="w-full text-xs p-2.5 rounded-xl bg-white dark:bg-slate-900 font-mono text-slate-600 dark:text-slate-300 leading-relaxed"
           />
 
+          {/* One page's visual on its own — a paid image inside the slide-set format. */}
+          <FeatureGate feature={["media.carousel", "media.image"]} display="block">
           <Button
             type="button"
             size="sm"
@@ -900,6 +918,7 @@ export default function PinterestIdeaPinEditor({
               </>
             )}
           </Button>
+          </FeatureGate>
         </div>
       </div>
 

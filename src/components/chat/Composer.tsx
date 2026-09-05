@@ -18,9 +18,11 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { getChatModel } from "@/lib/agents/controller/models";
+import { resolveChatModel } from "@/lib/agents/controller/models";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import type { ConnectedPlugin } from "@/lib/plugins/connected";
+import { useFeature } from "@/components/billing/AccessProvider";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { PluginStrip } from "./PluginStrip";
 import type { PendingFile } from "./useChatStream";
 
@@ -63,6 +65,12 @@ interface ComposerProps {
   onStop: () => void;
   onSettingsChange: (patch: Partial<ChatSettings>) => void;
   onNotice: (message: string) => void;
+  /**
+   * Server-computed plan locks per model id, so the label names the model that will
+   * really serve the turn. Undefined until the settings fetch lands, which resolves to
+   * the saved pick — the honest answer before the locks are known.
+   */
+  lockedModels?: Record<string, boolean>;
 }
 
 export function Composer({
@@ -76,10 +84,15 @@ export function Composer({
   onStop,
   onSettingsChange,
   onNotice,
+  lockedModels,
 }: ComposerProps) {
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [reading, setReading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Archives and whole folders are a plan line, so this decides both the folder
+  // button's lock and whether a dropped `.zip` is accepted at all. The server
+  // refuses it either way; refusing here means the user is told before they wait.
+  const archives = useFeature("export.zip");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,11 +115,16 @@ export function Composer({
       const accepted: PendingFile[] = [];
       let bytes = files.reduce((sum, f) => sum + f.size, 0);
       let skipped = 0;
+      let blockedArchives = 0;
 
       for (const file of incoming) {
         const path = (file as any).webkitRelativePath || file.name;
         if (SKIP_PATH.test(path)) {
           skipped += 1;
+          continue;
+        }
+        if (!archives.allowed && /\.zip$/i.test(file.name)) {
+          blockedArchives += 1;
           continue;
         }
         if (files.length + accepted.length >= MAX_FILES) {
@@ -131,11 +149,22 @@ export function Composer({
       }
 
       if (accepted.length > 0) setFiles((prev) => [...prev, ...accepted]);
+      if (blockedArchives > 0) {
+        // `reason` is a finished sentence from the server, so it is dropped in whole
+        // rather than spliced into one — a reworded plan reason is a wrong price.
+        onNotice(
+          `${blockedArchives === 1 ? "That archive was" : `${blockedArchives} archives were`} not attached. ${archives.reason || "Reading archives is not part of this plan."} Single documents still work.`
+        );
+      }
       if (skipped > 0) {
+        // The "zip it instead" advice is only true when this plan can read archives.
+        const tail = archives.allowed
+          ? " Zip a large project and attach the zip instead."
+          : "";
         onNotice(
           accepted.length > 0
-            ? `Attached ${accepted.length} file(s); skipped ${skipped} (build folders, or over the ${(MAX_TOTAL_BYTES / 1024 / 1024).toFixed(1)} MB limit). Zip a large project and attach the zip instead.`
-            : `Nothing could be attached — ${skipped} file(s) were build folders or over the ${(MAX_TOTAL_BYTES / 1024 / 1024).toFixed(1)} MB limit. Zip the project and attach the zip.`
+            ? `Attached ${accepted.length} file(s); skipped ${skipped} (build folders, or over the ${(MAX_TOTAL_BYTES / 1024 / 1024).toFixed(1)} MB limit).${tail}`
+            : `Nothing could be attached — ${skipped} file(s) were build folders or over the ${(MAX_TOTAL_BYTES / 1024 / 1024).toFixed(1)} MB limit.${tail}`
         );
       }
     } catch (err) {
@@ -183,7 +212,11 @@ export function Composer({
     void ingest(e.dataTransfer?.files || null);
   };
 
-  const model = getChatModel(settings.model);
+  // Resolved rather than looked up by id, so this names the model the send button is
+  // actually about to use. A pick the admin has since disabled, or one the plan no
+  // longer covers, falls back to the default brain in the request handler — and this
+  // label went on advertising the old one right next to the button.
+  const model = resolveChatModel(settings.model, (id) => lockedModels?.[id] === true);
 
   return (
     <div className="shrink-0 border-t mkt-border mkt-bg/80 backdrop-blur">
@@ -282,14 +315,19 @@ export function Composer({
             >
               {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
             </button>
-            <button
-              type="button"
-              title="Attach a folder"
-              onClick={() => folderInputRef.current?.click()}
-              className="flex h-8 w-8 items-center justify-center rounded-lg mkt-muted transition-colors hover:mkt-bg2 hover:mkt-text"
-            >
-              <FolderUp className="h-4 w-4" />
-            </button>
+            {/* A whole project folder is the archive feature by another route, so it
+                carries the same lock — and says why on hover instead of opening a
+                picker whose files would then be refused. */}
+            <FeatureGate feature="export.zip" side="top">
+              <button
+                type="button"
+                title="Attach a folder"
+                onClick={() => folderInputRef.current?.click()}
+                className="flex h-8 w-8 items-center justify-center rounded-lg mkt-muted transition-colors hover:mkt-bg2 hover:mkt-text"
+              >
+                <FolderUp className="h-4 w-4" />
+              </button>
+            </FeatureGate>
 
             <div className="mx-1 h-5 w-px bg-[color:var(--mkt-border)]" aria-hidden />
 

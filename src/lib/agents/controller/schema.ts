@@ -49,6 +49,7 @@ const STATEMENTS: string[] = [
       "id"                 TEXT NOT NULL,
       "workspaceId"        TEXT NOT NULL,
       "model"              TEXT NOT NULL DEFAULT 'gemini-3.1-pro-preview',
+      "modelPinned"        BOOLEAN NOT NULL DEFAULT false,
       "temperature"        DOUBLE PRECISION NOT NULL DEFAULT 0.4,
       "maxToolLoops"       INTEGER NOT NULL DEFAULT 8,
       "thinkingLevel"      TEXT NOT NULL DEFAULT 'balanced',
@@ -74,6 +75,11 @@ const STATEMENTS: string[] = [
    )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ChatSettings_workspaceId_key"
      ON "ChatSettings" ("workspaceId")`,
+  // False means "whatever the back office points chat at", which is what every
+  // existing row should mean: `model` was written by the system on the first save
+  // of any unrelated setting, so treating a stored id as a deliberate choice
+  // froze thousands of workspaces onto the id that shipped with the build.
+  `ALTER TABLE "ChatSettings" ADD COLUMN IF NOT EXISTS "modelPinned" BOOLEAN NOT NULL DEFAULT false`,
 ];
 
 /**

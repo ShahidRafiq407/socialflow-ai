@@ -214,7 +214,23 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
     const feature = input.context?.feature ?? ctx?.feature ?? "unknown";
     const action = input.context?.action ?? ctx?.action ?? null;
 
-    const costMicros = computeCostMicros(input);
+    // A failed call is priced on what came back, never on what was sent.
+    //
+    // Every writer of `ok: false` hands us an ESTIMATE of the prompt — `meteredCall`
+    // passes `fallbackInputTokens`, the media generator passes `estimateTokens(prompt)` —
+    // because a call that threw has no usage report to quote. Pricing that estimate
+    // invents money: a 429, a socket timeout or a refused connection read nothing at
+    // all, yet the row went in carrying a full prompt's worth of input cost. Those
+    // invented micro-dollars are what `getActionCostMicros` sums, so they landed in the
+    // ledger as provider spend and understated the margin on every retried action.
+    //
+    // Output-side figures are only ever set from a real response, so a stream that died
+    // after emitting tokens or a render that returned one of two images is still billed
+    // for that part. The token counts themselves stay on the row either way — they are
+    // what makes a failure diagnosable.
+    const costMicros = computeCostMicros(
+      input.ok === false ? { ...input, inputTokens: 0, cachedTokens: 0 } : input
+    );
 
     await prisma.usageEvent.create({
       data: {
@@ -494,6 +510,12 @@ export async function getUsageByModel(
  * honest way to answer "is `article.deep` at 350 credits still the right price".
  * Scoped by reference id where the action has one, so two concurrent runs of the
  * same action do not pool their costs.
+ *
+ * Failed calls are excluded. An action that succeeded on its third attempt made three
+ * rows, and the two that threw were priced from an estimate of the prompt rather than
+ * a usage report — counting them inflated the action's recorded spend by roughly the
+ * number of retries it took, which is precisely backwards for pricing a credit cost.
+ * `calls` therefore means successful calls, matching the sum beside it.
  */
 export async function getActionCostMicros(
   userId: string,
@@ -502,7 +524,7 @@ export async function getActionCostMicros(
 ): Promise<{ calls: number; costMicros: number }> {
   try {
     const agg = await prisma.usageEvent.aggregate({
-      where: { userId, action, createdAt: { gte: since } },
+      where: { userId, action, createdAt: { gte: since }, ok: true },
       _count: { _all: true },
       _sum: { costMicros: true },
     });

@@ -30,7 +30,7 @@ import {
   type AffiliateTerms,
 } from "@/lib/admin/runtimeConfig";
 import { purgeUserData } from "@/lib/account/purge";
-import { forgetConfigRevision } from "@/lib/admin/revision";
+import { forgetConfigRevision, forgetAccountRevision } from "@/lib/admin/revision";
 import { providerSpec } from "@/lib/providers/registry";
 import { testModel, type ProviderTestResult } from "@/lib/providers/gateway";
 import { defaultRoleModel, type ModelRole } from "@/lib/agents/llm";
@@ -65,6 +65,23 @@ function fail(err: unknown): { success: false; error: string } {
  */
 function publishToUsers(): void {
   forgetConfigRevision();
+  revalidatePath("/dashboard", "layout");
+}
+
+/**
+ * The same, for a write that changed one account rather than the deployment.
+ *
+ * A plan grant, a suspension, a role change or a credit adjustment moves nothing
+ * in `AppSetting` or `AiModel`, so the shared half of the revision token cannot
+ * see it. Without this the user's own tab kept rendering the plan it had before —
+ * suspension included — until they happened to navigate.
+ *
+ * Call it *after* the write, and after any notification the action sends: the
+ * per-account half of the token is derived from those rows, so dropping the memo
+ * first would just re-cache the old value.
+ */
+function publishToUser(userId: string): void {
+  forgetAccountRevision(userId);
   revalidatePath("/dashboard", "layout");
 }
 
@@ -105,6 +122,7 @@ export async function blockUserAction(input: { userId: string; reason: string })
     await recordAudit(admin, { action: "user.block", targetType: "user", targetId: data.userId, details: { reason: data.reason } });
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");
+    publishToUser(data.userId);
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -132,6 +150,7 @@ export async function unblockUserAction(input: { userId: string }): Promise<Resu
     await recordAudit(admin, { action: "user.unblock", targetType: "user", targetId: data.userId });
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");
+    publishToUser(data.userId);
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -160,6 +179,7 @@ export async function setUserRoleAction(input: { userId: string; role: "USER" | 
     await recordAudit(admin, { action: "user.role", targetType: "user", targetId: data.userId, details: { role: data.role } });
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");
+    publishToUser(data.userId);
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -229,6 +249,7 @@ export async function adjustCreditsAction(input: {
       details: { credits: data.credits, applied: result.applied, note: data.note, balanceAfter: result.balance },
     });
     revalidatePath(`/adminshahid/users/${data.userId}`);
+    publishToUser(data.userId);
     return { success: true, balance: result.balance ?? 0 };
   } catch (err) {
     return fail(err);
@@ -345,7 +366,10 @@ export async function setUserPlanAction(input: {
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");
     // The user's own sidebar badge, credit counter and billing page read this.
-    publishToUsers();
+    // Per-account rather than global: this write moves no `AppSetting` or
+    // `AiModel` row, so the shared half of the revision token would not budge and
+    // the tab would compare two identical tokens and refresh nothing.
+    publishToUser(data.userId);
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -432,6 +456,11 @@ export async function sendUserNotificationAction(input: {
       details: { recipients: data.userIds.length, title: data.title, tone: data.tone },
     });
     for (const id of data.userIds.slice(0, 20)) revalidatePath(`/adminshahid/users/${id}`);
+    // Each recipient's bell is driven by the per-account revision token, whose
+    // notification half we just moved. Drop their memos so a tab polling right now
+    // lights up on this poll rather than the next one.
+    for (const id of data.userIds) forgetAccountRevision(id);
+    revalidatePath("/dashboard", "layout");
     return { success: true, sent: created.count };
   } catch (err) {
     return fail(err);
@@ -504,6 +533,12 @@ export async function sendSegmentNotificationAction(input: {
       action: "notification.segment",
       details: { segment: data.plan, recipients: sent, title: data.title, tone: data.tone },
     });
+    // A segment send can be thousands of accounts, so clear the whole per-account
+    // memo rather than walking the list — it is rebuilt lazily, one entry per tab
+    // that actually polls, and the alternative is thousands of map deletes for
+    // entries that mostly are not there.
+    forgetAccountRevision();
+    revalidatePath("/dashboard", "layout");
     return { success: true, sent };
   } catch (err) {
     return fail(err);

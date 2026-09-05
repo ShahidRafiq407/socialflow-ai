@@ -57,10 +57,22 @@ export function PlanGrid({
   const ongoing = plans.filter((plan) => plan.id !== "TRIAL");
   const topSaving = Math.max(0, ...ongoing.map((plan) => plan.yearlySaving));
 
-  // The strip is an offer, and an offer that cannot be taken is noise. It goes when
-  // the trial has been used, when a subscription already exists, or when the store
-  // has no trial variant configured.
-  const showTrial = Boolean(trial) && store.trialPurchasable && !planState.hasSubscription;
+  // The strip goes only when the offer genuinely does not exist for this account:
+  // a subscription is already running, the trial is running right now, or this
+  // person has already had their one.
+  //
+  // A deployment whose trial variant is not configured is deliberately NOT one of
+  // those cases. The offer is real; the till is not open yet. Hiding the card there
+  // is how the trial came to be missing from the plans area entirely — so it renders
+  // either way, and the button says why it cannot be pressed instead of vanishing.
+  const showTrial =
+    Boolean(trial) && !store.trialUsed && !planState.isTrial && !planState.hasSubscription;
+
+  // Reachable only while the card is shown, which already rules out "already used" —
+  // so an unpurchasable trial here can only be an unconfigured store.
+  const trialBlockedReason = store.trialPurchasable
+    ? null
+    : "Checkout for the trial is not connected on this deployment yet, so it cannot be started right now.";
 
   return (
     <div className="space-y-5">
@@ -145,8 +157,10 @@ export function PlanGrid({
 
           <Button
             className="mt-5 gap-2 text-xs font-semibold"
+            variant={trialBlockedReason ? "outline" : "default"}
             onClick={onTrial}
-            disabled={busy !== null}
+            disabled={busy !== null || trialBlockedReason !== null}
+            title={trialBlockedReason ?? undefined}
           >
             {busy === "TRIAL" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -157,6 +171,12 @@ export function PlanGrid({
               </>
             )}
           </Button>
+
+          {/* Said in the open as well as on hover: a disabled button with a tooltip
+              tells a phone nothing. */}
+          {trialBlockedReason && (
+            <p className="mt-2 text-[11px] text-muted-foreground">{trialBlockedReason}</p>
+          )}
         </div>
       )}
 

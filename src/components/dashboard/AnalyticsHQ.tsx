@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { WorkspaceAnalyticsData } from "@/actions/analytics";
+import { useFeature } from "@/components/billing/AccessProvider";
+import { FeatureGate } from "@/components/billing/FeatureLock";
+import { BASIC_ANALYTICS_WINDOW_DAYS } from "@/lib/billing/access";
 
 /**
  * Analytics HQ — real measured data only.
@@ -54,12 +57,27 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "platforms", label: "Platforms", icon: <Layers className="w-3.5 h-3.5" /> },
 ];
 
-const TIMEFRAMES = [
+/**
+ * The selectable windows.
+ *
+ * `advanced` is derived, not typed in: a window is basic only when the server also
+ * sends the period before it, because every figure on this page is compared against
+ * its previous window. That keeps this list and the server's clamp from drifting
+ * apart if either number changes.
+ */
+const TIMEFRAMES = ([
   { key: "7D", days: 7 },
   { key: "14D", days: 14 },
   { key: "30D", days: 30 },
   { key: "90D", days: 90 },
-] as const;
+] as const).map((tf) => ({
+  ...tf,
+  advanced: tf.days * 2 > BASIC_ANALYTICS_WINDOW_DAYS,
+}));
+
+/** The longest window each kind of plan can actually select, used as its default. */
+const BASIC_DEFAULT = [...TIMEFRAMES].reverse().find((tf) => !tf.advanced) ?? TIMEFRAMES[0];
+const ADVANCED_DEFAULT = TIMEFRAMES.find((tf) => tf.key === "30D") ?? BASIC_DEFAULT;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -400,14 +418,24 @@ function SplitBar({
 
 export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
   const router = useRouter();
+  const advancedHistory = useFeature("analytics.advanced");
   const [tab, setTab] = useState<TabKey>("overview");
-  const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]["key"]>("30D");
+  // A plan without the long history opens on the longest window it can read, not on
+  // a locked one — landing on 30D with 28 days of data would show a short month and
+  // an empty comparison.
+  const [timeframe, setTimeframe] = useState<(typeof TIMEFRAMES)[number]["key"]>(
+    advancedHistory.allowed ? ADVANCED_DEFAULT.key : BASIC_DEFAULT.key
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string>("ALL");
   const [isExporting, setIsExporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const days = TIMEFRAMES.find((t) => t.key === timeframe)!.days;
+  const selected = TIMEFRAMES.find((t) => t.key === timeframe) ?? BASIC_DEFAULT;
+  // Belt and braces: if state ever holds a window this plan cannot read, fall back
+  // to the basic default rather than slicing past the end of the series.
+  const days =
+    selected.advanced && !advancedHistory.allowed ? BASIC_DEFAULT.days : selected.days;
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -656,20 +684,31 @@ export function AnalyticsHQ({ initialData }: AnalyticsHQProps) {
         </div>
 
         <div className="flex items-center bg-muted p-1 rounded-xl border border-border">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.key}
-              type="button"
-              onClick={() => setTimeframe(tf.key)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                timeframe === tf.key
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tf.key}
-            </button>
-          ))}
+          {TIMEFRAMES.map((tf) => {
+            const button = (
+              <button
+                key={tf.key}
+                type="button"
+                onClick={() => setTimeframe(tf.key)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  timeframe === tf.key
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tf.key}
+              </button>
+            );
+            // The long windows are the plan line, so the lock sits on the button that
+            // would select them — and says why on hover instead of just going dead.
+            return tf.advanced ? (
+              <FeatureGate key={tf.key} feature="analytics.advanced" side="bottom">
+                {button}
+              </FeatureGate>
+            ) : (
+              button
+            );
+          })}
         </div>
       </div>
 

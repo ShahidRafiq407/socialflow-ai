@@ -17,7 +17,7 @@ import type { ErrorRow } from "@/lib/admin/errors";
 import { resolveAllErrorsAction, resolveErrorAction } from "@/actions/admin";
 import { Empty, Section, fmtAgo, fmtDate, fmtInt } from "./primitives";
 
-function Row({ row }: { row: ErrorRow }) {
+function Row({ row, onError }: { row: ErrorRow; onError: (message: string) => void }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
@@ -25,8 +25,16 @@ function Row({ row }: { row: ErrorRow }) {
 
   const toggle = async (resolved: boolean) => {
     setBusy(true);
-    await resolveErrorAction({ id: row.id, resolved });
+    // The action returns a Result, and its failure branch used to be discarded: a
+    // refused resolve looked exactly like a successful one — spinner off, row
+    // unchanged after the refresh — so the only way to notice was to reload and
+    // find the error still open.
+    const result = await resolveErrorAction({ id: row.id, resolved });
     setBusy(false);
+    if (!result.success) {
+      onError(result.error || "Could not update that error.");
+      return;
+    }
     startTransition(() => router.refresh());
   };
 
@@ -71,6 +79,7 @@ export function ErrorsView({ errors, includeResolved }: { errors: ErrorRow[]; in
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const open = errors.filter((e) => !e.resolvedAt);
 
   return (
@@ -89,8 +98,13 @@ export function ErrorsView({ errors, includeResolved }: { errors: ErrorRow[]; in
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                await resolveAllErrorsAction();
+                setError(null);
+                const result = await resolveAllErrorsAction();
                 setBusy(false);
+                if (!result.success) {
+                  setError(result.error || "Could not resolve those errors.");
+                  return;
+                }
                 startTransition(() => router.refresh());
               }}
             >
@@ -100,12 +114,17 @@ export function ErrorsView({ errors, includeResolved }: { errors: ErrorRow[]; in
         </div>
       }
     >
+      {error && (
+        <p className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
+          {error}
+        </p>
+      )}
       {errors.length === 0 ? (
         <Empty>{includeResolved ? "No errors recorded." : "No open errors."}</Empty>
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {errors.map((row) => (
-            <Row key={row.id} row={row} />
+            <Row key={row.id} row={row} onError={setError} />
           ))}
         </ul>
       )}

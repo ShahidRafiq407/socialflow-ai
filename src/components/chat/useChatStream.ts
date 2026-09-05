@@ -85,13 +85,27 @@ function settleMessage(message: ChatMessage, cancelled: boolean): ChatMessage {
   };
 }
 
+/**
+ * The one-line banner above the thread.
+ *
+ * `action` is optional and is the whole reason this is a named type: a refusal the
+ * user can lift themselves has to arrive with the link that lifts it. A plan boundary
+ * rendered as bare prose left the user reading "needs a paid plan" with nothing to
+ * click, which is indistinguishable from a dead end.
+ */
+export interface ChatNotice {
+  level: "info" | "warn";
+  message: string;
+  action?: { label: string; href: string };
+}
+
 export function useChatStream(options: UseChatStreamOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(options.initialMessages || []);
   const [sessionId, setSessionId] = useState<string | null>(options.initialSessionId || null);
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState<StreamStatus | null>(null);
   const [memoryFlash, setMemoryFlash] = useState<MemoryFlash[]>([]);
-  const [notice, setNotice] = useState<{ level: "info" | "warn"; message: string } | null>(null);
+  const [notice, setNotice] = useState<ChatNotice | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -295,6 +309,28 @@ export function useChatStream(options: UseChatStreamOptions) {
                 break;
 
               case "error":
+                // A plan boundary is not a fault. The server sends the refusal down the
+                // open stream as an `error` frame because a 402 body would arrive as an
+                // unparseable chunk, and it marks it `plan_blocked` for exactly this
+                // branch — which used to ignore the code and print "Something went
+                // wrong", so a turn refused for want of credits read as a broken
+                // product and the upgrade link was nowhere on screen.
+                if (event.code === "plan_blocked") {
+                  setNotice({
+                    level: "warn",
+                    message: event.message || "This needs a paid plan.",
+                    action: { label: "See plans", href: "/dashboard/billing" },
+                  });
+                  patchAssistant((m) => ({
+                    ...m,
+                    content:
+                      m.content +
+                      (m.content ? "\n\n" : "") +
+                      (event.message || "This needs a paid plan."),
+                    finishReason: "plan_blocked",
+                  }));
+                  break;
+                }
                 patchAssistant((m) => ({
                   ...m,
                   content:

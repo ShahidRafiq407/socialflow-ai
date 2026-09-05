@@ -36,6 +36,7 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
+import { buildAccess, openAccess, type AccessSnapshot } from "./access";
 import { getAction, type ActionKey } from "./actions";
 import {
   FEATURE_LABELS,
@@ -1376,6 +1377,65 @@ export async function getAccountSummary(userId: string): Promise<AccountSummary>
     storage: { usedMb, limitMb: context.entitlements.storageMb },
     workspaces: { used: workspaceCount, limit: context.entitlements.workspaces },
   };
+}
+
+/**
+ * What the browser is told about this account's plan, in one round of reads.
+ *
+ * Every dashboard page gets this from the layout, so it is deliberately three
+ * queries and no model calls: the plan row, the period's feature counters, and
+ * the wallet. The verdicts themselves are computed by `buildAccess`, which is
+ * pure and lives in a file with no Prisma import, because the result is
+ * serialised into the client bundle.
+ *
+ * Built here rather than in the browser for one reason that matters: an admin can
+ * rename Go, reprice it, or move a feature between tiers, and those overrides are
+ * applied to this process's copy of the tables only. A client that computed its
+ * own reasons would quote the code defaults and tell a customer to buy a plan at
+ * a price that is no longer real.
+ *
+ * A suspended account is not given feature-level refusals — the shell already
+ * shows the suspension banner, and "AI video is not part of Go" would be a
+ * misleading second answer to a question that has one.
+ */
+export async function getAccessSnapshot(userId: string): Promise<AccessSnapshot> {
+  const context = await getPlanContext(userId);
+
+  // Same reason as `getAccountSummary`: Free's grant is created on first use, and
+  // a snapshot read before it exists would report a zero balance and lock every
+  // priced control on a plan that has not spent anything.
+  await ensureGrantForFree(context);
+
+  const [wallet, usage] = await Promise.all([
+    getWalletBalance(userId, context.plan),
+    getFeatureUsageMap(context),
+  ]);
+
+  return buildAccess({
+    plan: context.plan,
+    isTrial: context.isTrial,
+    trialEndsAt: context.trialEndsAt,
+    periodEnd: context.periodEnd,
+    balance: wallet.available,
+    usage,
+  });
+}
+
+/**
+ * The snapshot, or an open one if anything went wrong reading it.
+ *
+ * For the dashboard layout, which must render whatever happens. The failure mode
+ * this avoids is the expensive one: a database hiccup that locked every control in
+ * the product would look like a billing bug to every customer at once, whereas an
+ * open snapshot costs at most one press arriving at the real gate a moment later.
+ */
+export async function getAccessSnapshotSafe(userId: string): Promise<AccessSnapshot> {
+  try {
+    return await getAccessSnapshot(userId);
+  } catch (err) {
+    console.error("[entitlements] getAccessSnapshot failed", err);
+    return openAccess();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

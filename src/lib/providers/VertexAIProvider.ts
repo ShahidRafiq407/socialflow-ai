@@ -1,4 +1,5 @@
 import { GoogleGenAI, type Content, type FunctionDeclaration, type Part } from "@google/genai";
+import { ensureRuntimeConfig, modelForRole } from "@/lib/admin/runtimeConfig";
 import {
   classifyError,
   estimateMessageTokens,
@@ -8,6 +9,16 @@ import {
   recordUsageAsync,
   type CallKind,
 } from "@/lib/billing/meter";
+
+/**
+ * The width of every vector this application stores.
+ *
+ * The `Memory.embedding` column is declared `vector(768)`, so this is not a preference —
+ * it is the shape the database will accept. Exported so the two places that create that
+ * column and the code that asks the model for a vector cannot drift onto different
+ * numbers, which would show up only as inserts failing in production.
+ */
+export const EMBEDDING_DIMENSIONS = 768;
 
 /** A tool call the model asked for during an agent turn. */
 export interface AgentFunctionCall {
@@ -1058,15 +1069,38 @@ export class VertexAIProvider {
   }
 
   /**
-   * Generate text embeddings using Vertex AI (text-embedding-004, 768 dims by default).
-   * Returns one float[] per input string. Configurable via MODEL_EMBEDDING.
+   * Generate text embeddings using Vertex AI. Returns one float[] per input string,
+   * aligned with the input order, with an empty array where one could not be produced.
    *
-   * Cheap per call and easy to overlook, which is exactly why it is metered: memory
-   * extraction embeds on every chat turn, and a thousand cheap calls is a real line
-   * on the invoice.
+   * The model follows the same three layers as every other role — the admin's pick in
+   * the back office first, then `MODEL_EMBEDDING`, then the code default. It used to read
+   * the environment variable alone, which meant the "Embeddings (memory)" row the admin
+   * screen offers wrote a setting nothing ever read: the row saved, the screen showed the
+   * new model, and every embed kept going to the old one. `ensureRuntimeConfig` is awaited
+   * because the pick is read out of the settings cache, and on a cold instance that cache
+   * is empty until someone fills it — the sync read alone would silently return the
+   * default for the first request each lambda serves.
+   *
+   * `dimensions` is asked for explicitly rather than taking whatever the model likes to
+   * return. The memory store is a `vector(768)` column, so a vector of any other width
+   * cannot be inserted at all and one of the same width from a different model sits in a
+   * different space, where cosine distance against the existing rows is arithmetic
+   * without meaning. Newer embedding models default wider (gemini-embedding-001 returns
+   * 3072) and honour this parameter, so an admin moving the role forward keeps a store
+   * that still works. A response that comes back the wrong width anyway is dropped here,
+   * where it is one skipped recall, rather than at the insert, where it is a raised error
+   * in the middle of a chat turn.
    */
-  async embed(texts: string[]): Promise<number[][]> {
-    const modelName = process.env.MODEL_EMBEDDING || "text-embedding-004";
+  async embed(
+    texts: string[],
+    options?: { model?: string; dimensions?: number }
+  ): Promise<number[][]> {
+    let modelName = (options?.model || "").trim();
+    if (!modelName) {
+      await ensureRuntimeConfig();
+      modelName = modelForRole("EMBEDDING") || process.env.MODEL_EMBEDDING || "text-embedding-004";
+    }
+    const dimensions = options?.dimensions ?? EMBEDDING_DIMENSIONS;
     const out: number[][] = [];
     for (const text of texts) {
       const startedAt = Date.now();
@@ -1074,6 +1108,7 @@ export class VertexAIProvider {
         const response = (await this.ai.models.embedContent({
           model: modelName,
           contents: text,
+          config: { outputDimensionality: dimensions },
         })) as any;
         recordUsageAsync({
           model: modelName,
@@ -1083,7 +1118,13 @@ export class VertexAIProvider {
           ok: true,
         });
         const values = response?.embeddings?.[0]?.values;
-        out.push(Array.isArray(values) && values.length > 0 ? values.map(Number) : []);
+        const vector = Array.isArray(values) && values.length > 0 ? values.map(Number) : [];
+        if (vector.length > 0 && vector.length !== dimensions) {
+          console.warn(
+            `[Vertex AI Embed] ${modelName} returned ${vector.length} dimensions, expected ${dimensions} — vector dropped.`
+          );
+          out.push([]);
+        } else out.push(vector);
       } catch (err: any) {
         recordUsageAsync({
           model: modelName,

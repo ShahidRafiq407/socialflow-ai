@@ -2,10 +2,13 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/db";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
-import { DEFAULT_CHAT_SETTINGS, getChatSettings } from "@/lib/agents/controller/settings";
+import { getChatSettings, liveDefaults } from "@/lib/agents/controller/settings";
+import { chatCataloguePayload, type ChatCataloguePayload } from "@/lib/agents/controller/catalogue";
 import { listSessions, loadSessionMessages } from "@/lib/agents/controller/session";
 import { listConnectedPlugins, type ConnectedPlugin } from "@/lib/plugins/connected";
 import { ChatWorkbench } from "@/components/chat/ChatWorkbench";
+import LockedSurface from "@/components/billing/LockedSurface";
+import { surfaceAccess } from "@/lib/billing/access.server";
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import type { ChatSettings } from "@/lib/agents/controller/settings";
 
@@ -26,6 +29,21 @@ export default async function AutomateTaskPage({
 }) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
+
+  // Before the workspace read, and before the sessions and plugin lists: this whole
+  // tab is the CEO chat, so a plan without it has nothing here to load. It used to
+  // render the full workbench on Free and refuse at the first message, after the
+  // person had typed one.
+  const gate = await surfaceAccess(userId, "chat.message");
+  if (!gate.allowed) {
+    return (
+      <LockedSurface
+        access={gate}
+        title="Automate Task"
+        purpose="A chat that runs the account: it reads your workspace, drafts and schedules posts, and reports back — using your connected tools when you let it."
+      />
+    );
+  }
 
   const params = (await searchParams) || {};
 
@@ -57,10 +75,16 @@ export default async function AutomateTaskPage({
     );
   }
 
-  const [settings, sessions, connectedPlugins] = await Promise.all([
+  const [settings, sessions, connectedPlugins, catalogue] = await Promise.all([
     withTimeout<ChatSettings | null>(getChatSettings(workspace.id), null),
     withTimeout<ChatSessionSummary[]>(listSessions(workspace.id, { limit: 40 }), []),
     withTimeout<ConnectedPlugin[]>(listConnectedPlugins(workspace.id), []),
+    // Sent with the first render so the picker, the composer label and the credit
+    // warning are right on paint. Without it the browser starts on the one model
+    // compiled into the bundle and only becomes correct once a `useEffect` has
+    // round-tripped — so every model the admin added was missing for a beat, and
+    // missing for the whole session if that fetch failed.
+    withTimeout<ChatCataloguePayload | null>(chatCataloguePayload(userId), null),
   ]);
 
   // Reopen whatever was last worked on — a pinned chat sorts first in the rail
@@ -83,6 +107,14 @@ export default async function AutomateTaskPage({
     initialMessages = loaded.messages;
   }
 
+  // `liveDefaults()` rather than the shipped `DEFAULT_CHAT_SETTINGS`: the read above
+  // is raced against a 3s timeout, and on a slow cold instance — the one case where
+  // this fallback is reached — handing the browser the build-time model id is the
+  // exact staleness the back office's "default chat brain" switch is meant to fix.
+  // Safe to read synchronously here: `surfaceAccess` at the top of this function
+  // already awaited `ensureRuntimeConfig()` via `getPlanContext`.
+  const initialSettings = settings || liveDefaults();
+
   return (
     <div className="h-[calc(100vh-4.5rem)] w-full">
       <ChatWorkbench
@@ -91,7 +123,9 @@ export default async function AutomateTaskPage({
         initialSessionId={target?.id || null}
         initialMessages={initialMessages}
         initialSessions={sessions}
-        initialSettings={settings || DEFAULT_CHAT_SETTINGS}
+        initialSettings={initialSettings}
+        initialCatalogue={catalogue}
+        settingsDegraded={settings === null}
         connectedPlugins={connectedPlugins}
         initialPanel={initialPanel}
       />

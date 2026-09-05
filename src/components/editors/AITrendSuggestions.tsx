@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { TrendingUp, RefreshCw, Loader2, Zap, Info, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useFeature } from "@/components/billing/AccessProvider";
+import { FeatureNotice } from "@/components/billing/FeatureLock";
 
 export interface TrendSuggestionItem {
   id: string;
@@ -42,6 +44,13 @@ export default function AITrendSuggestions({
   const [detailModalTrend, setDetailModalTrend] = useState<TrendSuggestionItem | null>(null);
   /** Only the newest request may write state — see the guard in `fetchTrends`. */
   const requestIdRef = useRef(0);
+  /**
+   * This panel is the one AI control that spends before anyone presses anything: it
+   * researches live trends on mount and on every platform switch. So the verdict is
+   * read here rather than only at the button, and a plan without AI post generation
+   * never fires the request at all.
+   */
+  const access = useFeature("aistudio.generate");
 
   const fetchTrends = async () => {
     const requestId = ++requestIdRef.current;
@@ -78,8 +87,12 @@ export default function AITrendSuggestions({
   };
 
   useEffect(() => {
+    // The check belongs in front of the effect, not on the cards below: this panel
+    // researches on mount, so gating only the buttons would still have paid for
+    // trends the plan does not include and nobody pressed for.
+    if (!access.allowed) return;
     fetchTrends();
-  }, [platform, format]);
+  }, [platform, format, access.allowed]);
 
   /** Any press that would collide with this one — whichever button started it. */
   const isLocked = isApplyingTrend || isBusyElsewhere;
@@ -100,6 +113,39 @@ export default function AITrendSuggestions({
       .replace(/s$/, "");
   const differentFormat = (recommended: string) =>
     Boolean(recommended?.trim()) && normalize(recommended) !== normalize(format);
+
+  /**
+   * Refused, but still explained. The panel keeps its heading and its one-line
+   * description so the customer can see what the plan above theirs would do here;
+   * an empty space teaches nothing and reads as a broken panel.
+   */
+  if (!access.allowed) {
+    return (
+      <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-2.5 text-left">
+        <div className="flex items-center gap-2">
+          <div className="h-6 w-6 rounded-md bg-slate-500/10 text-slate-500 dark:text-slate-400 flex items-center justify-center font-bold">
+            <TrendingUp className="h-3.5 w-3.5" />
+          </div>
+          <h4 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Trending Now
+          </h4>
+          <Badge
+            variant="outline"
+            className="text-[10px] uppercase font-bold py-0 h-4 border-slate-300 dark:border-slate-700 text-slate-500"
+          >
+            {platform} {format}
+          </Badge>
+        </div>
+
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          Researches what is working on {platform} right now, then writes the copy and renders this format's
+          media from the trend you pick.
+        </p>
+
+        <FeatureNotice feature="aistudio.generate" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 space-y-3 text-left">

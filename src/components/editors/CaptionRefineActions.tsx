@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Loader2, RefreshCw, Zap, Briefcase, Hash, Square } from "lucide-react";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 export type CaptionRefineAction = "regenerate" | "boost-hook" | "executive-tone" | "add-hashtags";
@@ -40,45 +41,52 @@ export default function CaptionRefineActions({
   return (
     <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">AI Caption Tools:</span>
-      {ACTIONS.map(({ key, label, icon }) => {
-        const isActive = isRefining && refiningAction === key;
-        const isDisabled = isRefining && refiningAction !== key;
-        return (
-          <button
-            key={key}
-            type="button"
-            disabled={isDisabled}
-            onClick={() => {
-              if (isActive) {
-                cancelAIAction("refine", formatKey);
-                return;
-              }
-              onRefine(key);
-            }}
-            title={isActive ? `Stop: ${label}` : label}
-            className={`text-[10px] font-bold flex items-center gap-1 px-2 py-1 rounded-md transition-colors ${
-              isActive
-                ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
-                : isDisabled
-                ? "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
-                : "bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/40"
-            }`}
-          >
-            {isActive ? (
-              <>
-                <Square className="h-3 w-3 fill-current" />
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>Stop</span>
-              </>
-            ) : (
-              <>
-                {icon}
-                <span>{label}</span>
-              </>
-            )}
-          </button>
-        );
-      })}
+      {/* One lock for the bar rather than four. Every action here is charged as
+          `ai.post.rewrite`, so all four are refused or allowed together, and four
+          badges saying the same sentence would be four times the noise. */}
+      <FeatureGate feature="aistudio.generate">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {ACTIONS.map(({ key, label, icon }) => {
+            const isActive = isRefining && refiningAction === key;
+            const isDisabled = isRefining && refiningAction !== key;
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={isDisabled}
+                onClick={() => {
+                  if (isActive) {
+                    cancelAIAction("refine", formatKey);
+                    return;
+                  }
+                  onRefine(key);
+                }}
+                title={isActive ? `Stop: ${label}` : label}
+                className={`text-[10px] font-bold flex items-center gap-1 px-2 py-1 rounded-md transition-colors ${
+                  isActive
+                    ? "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+                    : isDisabled
+                    ? "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
+                    : "bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/40"
+                }`}
+              >
+                {isActive ? (
+                  <>
+                    <Square className="h-3 w-3 fill-current" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Stop</span>
+                  </>
+                ) : (
+                  <>
+                    {icon}
+                    <span>{label}</span>
+                  </>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </FeatureGate>
     </div>
   );
 }

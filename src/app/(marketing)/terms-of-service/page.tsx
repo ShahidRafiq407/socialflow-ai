@@ -9,6 +9,9 @@ export const metadata: Metadata = {
     "The terms governing use of PostloomAI: your account, connected platforms, AI-generated content, subscriptions and credits, and how either side can end the agreement.",
 };
 
+/** Re-rendered every five minutes so an edited price reaches the published terms. */
+export const revalidate = 300;
+
 export default async function TermsOfServicePage() {
   // The prices below are a contractual statement, so they have to be the ones this
   // deployment charges. The admin's overrides are patched into `PLAN_CATALOG` once the

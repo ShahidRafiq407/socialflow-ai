@@ -100,10 +100,18 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
   const [notes, setNotes] = useState(user.adminNotes ?? "");
   const [credits, setCredits] = useState("");
   const [creditNote, setCreditNote] = useState("");
-  const [plan, setPlan] = useState<PlanTier>(user.plan?.effective ?? "FREE");
+  // Seeded from the STORED plan, not the effective one. This picker writes the
+  // subscription row, and `effective` is what that row resolves to after the period
+  // check — on a Pro account whose renewal never arrived, `effective` is FREE. Seeding
+  // from it preselected FREE and put "Set plan to FREE" under the cursor, so the
+  // obvious click on a stale-Pro account overwrote PRO with FREE and destroyed the
+  // very row that said what they had paid for.
+  const [plan, setPlan] = useState<PlanTier>(user.plan?.stored ?? "FREE");
   const [planDays, setPlanDays] = useState("30");
   const [planNote, setPlanNote] = useState("");
   const [grantCredits, setGrantCredits] = useState(true);
+  /** Set when the picker is on FREE, because that revokes a plan rather than sets one. */
+  const [confirmFree, setConfirmFree] = useState(false);
   const [msgTitle, setMsgTitle] = useState("");
   const [msgBody, setMsgBody] = useState("");
   const [msgTone, setMsgTone] = useState<"info" | "success" | "warning" | "error">("info");
@@ -237,9 +245,27 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
           {/* Plan */}
           <Section title="Change plan" description="Puts the account on a plan by hand, outside Lemon Squeezy.">
             <div className="space-y-2">
+              {/* Both numbers, because they disagree exactly when this form is most
+                  dangerous: a lapsed paid plan reads PRO here and FREE in force, and
+                  an admin who only sees one of them cannot tell which they are about
+                  to overwrite. */}
+              {user.plan && user.plan.stored !== user.plan.effective && (
+                <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                  Row says <strong>{user.plan.stored}</strong>, in force right now is{" "}
+                  <strong>{user.plan.effective}</strong> — the period lapsed without a renewal.
+                  Saving here replaces the row.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Plan">
-                  <select value={plan} onChange={(e) => setPlan(e.target.value as PlanTier)} className={select}>
+                <Field label={user.plan ? `Plan (row: ${user.plan.stored})` : "Plan"}>
+                  <select
+                    value={plan}
+                    onChange={(e) => {
+                      setPlan(e.target.value as PlanTier);
+                      setConfirmFree(false);
+                    }}
+                    className={select}
+                  >
                     {PLAN_TIERS.map((t) => (
                       <option key={t} value={t}>
                         {t}
@@ -258,11 +284,27 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
                   Grant the plan&apos;s monthly credits now
                 </label>
               )}
+              {/* FREE is the one branch that takes something away, and it is also the
+                  one an accidental click lands on. It asks twice. */}
+              {plan === "FREE" && (
+                <label className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={confirmFree}
+                    onChange={(e) => setConfirmFree(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Move this account to Free. Paid features switch off immediately and any
+                    remaining grant credits are cleared.
+                  </span>
+                </label>
+              )}
               <Button
                 size="sm"
                 variant="outline"
                 className="w-full"
-                disabled={act.busy !== null}
+                disabled={act.busy !== null || (plan === "FREE" && !confirmFree)}
                 onClick={() =>
                   act.run("plan", () =>
                     setUserPlanAction({ userId: user.id, plan, days: Number(planDays) || 30, grantCredits, note: planNote || undefined })

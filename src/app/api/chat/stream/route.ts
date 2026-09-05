@@ -21,7 +21,7 @@
 // asset. This endpoint charges for thinking, never for pixels.
 // ============================================================================
 
-import { getEntitlements, planRank } from "@/lib/billing/plans";
+import { getEntitlements, planHasFeature, planRank } from "@/lib/billing/plans";
 import {
   completeAction,
   failAction,
@@ -49,7 +49,7 @@ import {
   type AttachmentRef,
   type ControllerEvent,
 } from "@/lib/agents/controller/types";
-import { parseAllUploadedFiles } from "@/lib/agents/chat/documentParser";
+import { parseAllUploadedFiles, detectKind } from "@/lib/agents/chat/documentParser";
 import { getChatModel, isKnownChatModel, planMayUseModel } from "@/lib/agents/controller/models";
 import { getFlags, ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 
@@ -92,9 +92,19 @@ function errorStream(event: ControllerEvent): Response {
 /**
  * Parses text-bearing attachments up front so the model's prompt can describe
  * them accurately, and keeps media as data URLs for inline multimodal use.
+ *
+ * `archivesAllowed` is the `export.zip` verdict. An archive is a whole project in
+ * one file, which is why it is a plan line rather than just another upload — so a
+ * plan without it never has its ZIPs unpacked here. The refusal is written into
+ * the attachment's summary instead of failing the turn: the customer asked a
+ * question and attached a file, and the answer should say what happened to the
+ * file rather than disappear. (The folder button is the other half of this
+ * feature, and it can only be enforced client-side — a directory upload arrives
+ * as a flat list of ordinary files with nothing marking it as a folder.)
  */
 async function prepareAttachments(
-  files: IncomingFile[]
+  files: IncomingFile[],
+  archivesAllowed: boolean
 ): Promise<{ attachments: ControllerAttachment[]; refs: AttachmentRef[] }> {
   const usable = files
     .filter((f) => f && typeof f.name === "string" && typeof f.content === "string" && f.content.length > 0)
@@ -102,20 +112,35 @@ async function prepareAttachments(
 
   if (usable.length === 0) return { attachments: [], refs: [] };
 
+  // Worked out before the parse, not after, so a refused archive is never unpacked.
+  const blockedArchive = usable.map(
+    (f) => !archivesAllowed && detectKind(String(f.name || ""), f.type || "") === "zip"
+  );
+
   const parsed = await parseAllUploadedFiles(
-    usable.map((f) => ({ name: f.name as string, type: f.type || "", content: f.content as string }))
+    usable.map((f, i) =>
+      blockedArchive[i]
+        ? { name: `${f.name}.txt`, type: "text/plain", content: "" }
+        : { name: f.name as string, type: f.type || "", content: f.content as string }
+    )
   ).catch(() => []);
 
   const attachments: ControllerAttachment[] = usable.map((f, i) => {
     const p = (parsed as any[])[i];
-    const kind = p?.kind || "unknown";
-    const summary = p?.error ? `Could not read: ${p.error}` : p?.summary || "Attached file";
+    const kind = blockedArchive[i] ? "zip" : p?.kind || "unknown";
+    const summary = blockedArchive[i]
+      ? `Not read — "${f.name}" is an archive, and reading archives is not part of this plan. Single documents still work.`
+      : p?.error
+        ? `Could not read: ${p.error}`
+        : p?.summary || "Attached file";
     return {
       name: f.name as string,
       type: f.type || p?.type || "application/octet-stream",
       size: typeof f.size === "number" ? f.size : (f.content as string).length,
       kind,
-      content: f.content as string,
+      // Emptied deliberately: an archive this plan cannot read must not travel any
+      // further, not even as bytes a later tool could open.
+      content: blockedArchive[i] ? "" : (f.content as string),
       summary,
     };
   });
@@ -267,7 +292,7 @@ export async function POST(req: Request) {
     settings = await getChatSettings(workspaceId);
 
     const [prepared, opened] = await Promise.all([
-      prepareAttachments(files),
+      prepareAttachments(files, planHasFeature(planContext.plan, "export.zip")),
       openSession({
         workspaceId,
         sessionId: requestedSessionId,

@@ -104,15 +104,38 @@ export const BUILT_IN_CHAT_MODEL: ChatModelInfo = {
 let catalog: ChatModelInfo[] = [BUILT_IN_CHAT_MODEL];
 let defaultId: string = CONTROLLER_MODEL_ID;
 
+/** Options for `setChatModelCatalog`. */
+export interface SetChatModelCatalogOptions {
+  /**
+   * Whether to keep the shipped built-in row in the catalogue.
+   *
+   * True on the server, where the id must stay resolvable for sessions that
+   * already used it and for the `?? CONTROLLER_MODEL_ID` fallback below. False in
+   * the browser, where the list arriving from `/api/chat/settings` is already the
+   * authoritative *pickable* set: re-inserting the built-in there resurrects a
+   * model the admin has disabled for chat, and it renders as a live, unlocked
+   * button captioned "You can use this" for a model the stream route will refuse.
+   */
+  includeBuiltIn?: boolean;
+}
+
 /**
  * Replaces the live catalogue. Custom rows override a built-in row with the same
  * id; the default is the admin's CHAT_CONTROLLER role pick, else the row marked
  * `recommended`, else the shipped model. Called by the runtime config on the
  * server and by the chat workbench in the browser.
  */
-export function setChatModelCatalog(custom: ChatModelInfo[], preferredDefaultId?: string | null): void {
+export function setChatModelCatalog(
+  custom: ChatModelInfo[],
+  preferredDefaultId?: string | null,
+  opts: SetChatModelCatalogOptions = {},
+): void {
   const byId = new Map<string, ChatModelInfo>();
-  byId.set(BUILT_IN_CHAT_MODEL.id, BUILT_IN_CHAT_MODEL);
+  // An empty payload with `includeBuiltIn: false` would leave nothing to pick, so
+  // the seed still happens when the caller sent no rows at all — a failed fetch
+  // degrades to the shipped model rather than to an empty picker.
+  const keepBuiltIn = opts.includeBuiltIn !== false || !custom?.length;
+  if (keepBuiltIn) byId.set(BUILT_IN_CHAT_MODEL.id, BUILT_IN_CHAT_MODEL);
   for (const model of custom || []) {
     if (!model?.id) continue;
     const base = byId.get(model.id);
@@ -161,6 +184,33 @@ export const DEFAULT_CHAT_MODEL = CONTROLLER_MODEL_ID;
 
 export function getChatModel(id: string | null | undefined): ChatModelInfo {
   return catalog.find((m) => m.id === id) || catalog.find((m) => m.id === defaultId) || BUILT_IN_CHAT_MODEL;
+}
+
+/**
+ * The model that will actually serve a turn, given a requested id.
+ *
+ * `getChatModel` answers a different question — "what is this id" — and looks through
+ * the whole catalogue, disabled rows included, so it happily returns a model nobody may
+ * select. The chat request handler does not: an id that is not pickable, or one this
+ * plan may not use, falls back to the default brain rather than refusing the turn. The
+ * two client surfaces that name the model were built on `getChatModel`, so after an
+ * admin disabled a model or a subscription lapsed they went on printing the old model's
+ * name and price beside a composer that was about to run the default one — and the
+ * picker showed no selected row at all, because the saved id was no longer in the list.
+ *
+ * @param isLocked Optional plan test. The browser has this as a server-computed
+ *   `locked` flag per model; the server tests the plan directly. Omitted means "no plan
+ *   restriction known", which is the right default for a surface that has not loaded
+ *   availability yet — better to name the model the user picked than to claim a
+ *   fallback that may not happen.
+ */
+export function resolveChatModel(
+  requested: string | null | undefined,
+  isLocked?: (id: string) => boolean
+): ChatModelInfo {
+  const row = catalog.find((m) => m.id === requested);
+  if (row && isPickable(row) && !isLocked?.(row.id)) return row;
+  return getChatModel(null);
 }
 
 /** True when a user may select this id right now. */

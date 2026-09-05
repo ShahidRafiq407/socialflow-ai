@@ -3,6 +3,7 @@
 import React from "react";
 import { Loader2, ScanSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FeatureGate } from "@/components/billing/FeatureLock";
 import { cancelAIAction } from "@/lib/aiActionEvents";
 
 interface AnalyzeMediaAIButtonProps {
@@ -43,37 +44,42 @@ export default function AnalyzeMediaAIButton({
     : "AI analyzes the uploaded image/video (including its voice) and writes a matching caption, hashtags and more";
 
   return (
-    <Button
-      type="button"
-      size="sm"
-      disabled={effectiveDisabled && !isAnalyzing}
-      onClick={() => {
-        if (isAnalyzing) {
-          cancelAIAction("analyze", formatKey);
-          return;
-        }
-        if (!effectiveDisabled) onClick();
-      }}
-      title={title}
-      className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
-        isAnalyzing
-          ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
-          : effectiveDisabled
-          ? "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
-          : "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white"
-      }`}
-    >
-      {isAnalyzing ? (
-        <>
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>Stop Analyzing Media</span>
-        </>
-      ) : (
-        <>
-          <ScanSearch className="h-3.5 w-3.5" />
-          <span>Analyze Uploaded Media with AI (Caption &amp; More)</span>
-        </>
-      )}
-    </Button>
+    // Charged as `ai.post.fromMedia`, which is metered against the studio's
+    // generation feature — so a plan without AI post generation shows the lock here
+    // rather than accepting the click and refusing after the upload was sent.
+    <FeatureGate feature="aistudio.generate" display="block">
+      <Button
+        type="button"
+        size="sm"
+        disabled={effectiveDisabled && !isAnalyzing}
+        onClick={() => {
+          if (isAnalyzing) {
+            cancelAIAction("analyze", formatKey);
+            return;
+          }
+          if (!effectiveDisabled) onClick();
+        }}
+        title={title}
+        className={`w-full h-auto min-h-8 px-3 py-1.5 text-xs font-bold gap-1.5 shadow-2xs rounded-lg whitespace-normal transition-colors ${
+          isAnalyzing
+            ? "bg-red-500 hover:bg-red-600 text-white dark:bg-red-600 dark:hover:bg-red-700"
+            : effectiveDisabled
+            ? "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
+            : "bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white"
+        }`}
+      >
+        {isAnalyzing ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>Stop Analyzing Media</span>
+          </>
+        ) : (
+          <>
+            <ScanSearch className="h-3.5 w-3.5" />
+            <span>Analyze Uploaded Media with AI (Caption &amp; More)</span>
+          </>
+        )}
+      </Button>
+    </FeatureGate>
   );
 }

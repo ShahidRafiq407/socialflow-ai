@@ -26,11 +26,24 @@ function Row({ row }: { row: FeedbackRow }) {
   const [, startTransition] = useTransition();
   const [note, setNote] = useState(row.adminNote ?? "");
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const triage = async (status: "reviewed" | "actioned" | "dismissed" | null) => {
     setBusy(status ?? "reopen");
-    await triageFeedbackAction({ id: row.id, status, adminNote: note || undefined });
+    setError(null);
+    // A discarded Result made a refused triage indistinguishable from a successful
+    // one: the spinner stopped, the refresh ran, and the row came back exactly as it
+    // was — so the note the admin had just typed looked saved when it was not.
+    const result = await triageFeedbackAction({
+      id: row.id,
+      status,
+      adminNote: note || undefined,
+    });
     setBusy(null);
+    if (!result.success) {
+      setError(result.error || "Could not save that triage.");
+      return;
+    }
     startTransition(() => router.refresh());
   };
 
@@ -70,6 +83,11 @@ function Row({ row }: { row: FeedbackRow }) {
         )}
         <span className="text-[10px] text-muted-foreground">session {row.sessionId.slice(0, 8)}…</span>
       </div>
+      {error && (
+        <p className="mt-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive">
+          {error}
+        </p>
+      )}
     </li>
   );
 }
