@@ -84,6 +84,16 @@ export function useThemePreference(): Theme {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
+/**
+ * Returns the currently active resolved theme ("dark" or "light") taking into
+ * account explicit user choice or OS system preference.
+ */
+export function useResolvedTheme(): "dark" | "light" {
+  const theme = useThemePreference();
+  if (typeof window === "undefined") return "dark";
+  return resolveTheme(theme);
+}
+
 export function ThemeToggle() {
   const theme = useThemePreference();
   const toggle = useCallback(() => {

@@ -34,13 +34,13 @@ function SectionHeading({ badge, title, sub }: { badge: string; title: React.Rea
       initial="hidden"
       whileInView="show"
       viewport={{ once: true, margin: "-80px" }}
-      className="text-center max-w-3xl mx-auto mb-16"
+      className="text-center max-w-3xl mx-auto mb-10 sm:mb-16 px-2"
     >
-      <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1E8A47]/10 border border-[#3DB36B]/30 mkt-accent-text text-xs font-semibold tracking-widest uppercase mb-6">
+      <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#1E8A47]/10 border border-[#3DB36B]/30 mkt-accent-text text-[11px] sm:text-xs font-semibold tracking-widest uppercase mb-4 sm:mb-6">
         <Sparkles className="w-3.5 h-3.5" /> {badge}
       </span>
-      <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-6">{title}</h2>
-      <p className="text-lg mkt-muted leading-relaxed">{sub}</p>
+      <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-snug sm:leading-tight mb-4 sm:mb-6">{title}</h2>
+      <p className="text-sm sm:text-base lg:text-lg mkt-muted leading-relaxed max-w-2xl mx-auto">{sub}</p>
     </motion.div>
   );
 }
@@ -178,12 +178,12 @@ function NewsletterForm() {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="you@company.com"
-        className="flex-1 h-12 px-4 rounded-xl mkt-surface border mkt-border text-sm placeholder:text-stone-600 focus:outline-none focus:border-[#6D54A8]/60 focus:ring-2 focus:ring-[#5A4591]/20 transition"
+        className="flex-1 h-11 sm:h-12 px-4 rounded-xl mkt-surface border mkt-border text-sm placeholder:text-slate-400 dark:placeholder:text-stone-500 focus:outline-none focus:border-[#6D54A8]/60 focus:ring-2 focus:ring-[#5A4591]/20 transition"
       />
       <button
         type="submit"
         disabled={state === "loading"}
-        className="h-12 px-5 rounded-xl text-sm font-bold bg-[#18713C] text-white hover:scale-[1.03] transition-transform shadow-[0_8px_25px_-8px_rgba(24,113,60,0.7)] disabled:opacity-60"
+        className="h-11 sm:h-12 px-4 sm:px-5 rounded-xl text-sm font-bold bg-[#18713C] text-white hover:scale-[1.03] transition-transform shadow-[0_8px_25px_-8px_rgba(24,113,60,0.7)] disabled:opacity-60 shrink-0"
       >
         {state === "loading" ? "..." : state === "error" ? "Retry" : "Subscribe"}
       </button>
@@ -299,14 +299,14 @@ export function MarketingHome({
 
 
       {/* ================= HERO ================= */}
-      <section className="relative pt-16 pb-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
+      <section className="relative pt-10 sm:pt-16 pb-16 sm:pb-24 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
           <div className="text-center lg:text-left">
             <motion.div variants={fadeUp} initial="hidden" animate="show" custom={0}>
-              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full mkt-surface border mkt-border backdrop-blur-md text-sm mkt-accent-text mb-8">
-                <span className="relative flex h-2.5 w-2.5">
+              <span className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full mkt-surface border mkt-border backdrop-blur-md text-xs sm:text-sm mkt-accent-text mb-5 sm:mb-8 max-w-full text-center">
+                <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5 shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3DB36B] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#3DB36B]" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-[#3DB36B]" />
                 </span>
                 Meet Loom — Your Autonomous AI Marketing Robot
               </span>
@@ -314,7 +314,7 @@ export function MarketingHome({
 
             <motion.h1
               variants={fadeUp} initial="hidden" animate="show" custom={1}
-              className="text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter leading-[1.05] mb-6"
+              className="text-3xl sm:text-5xl lg:text-7xl font-black tracking-tight sm:tracking-tighter leading-[1.15] sm:leading-[1.05] mb-5 sm:mb-6"
             >
               Marketing That
               <br />
@@ -325,7 +325,7 @@ export function MarketingHome({
 
             <motion.p
               variants={fadeUp} initial="hidden" animate="show" custom={2}
-              className="text-lg sm:text-xl mkt-muted max-w-xl mx-auto lg:mx-0 leading-relaxed mb-10"
+              className="text-sm sm:text-lg lg:text-xl mkt-muted max-w-xl mx-auto lg:mx-0 leading-relaxed mb-6 sm:mb-10"
             >
               PostloomAI plans, creates, schedules and publishes scroll-stopping
               content across every platform — powered by a team of AI agents that
@@ -334,31 +334,31 @@ export function MarketingHome({
 
             <motion.div
               variants={fadeUp} initial="hidden" animate="show" custom={3}
-              className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start"
+              className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center lg:justify-start items-stretch sm:items-center"
             >
               <Link
                 href={isLoggedIn ? "/dashboard" : "/sign-up"}
-                className="group relative inline-flex items-center justify-center h-14 px-8 text-lg font-bold rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.7)] hover:shadow-[0_0_60px_-5px_rgba(24,113,60,0.9)] transition-all duration-300 hover:scale-[1.04]"
+                className="group relative inline-flex items-center justify-center h-12 sm:h-14 px-5 sm:px-8 text-sm sm:text-base lg:text-lg font-bold rounded-xl sm:rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.7)] hover:shadow-[0_0_60px_-5px_rgba(24,113,60,0.9)] transition-all duration-300 hover:scale-[1.03] active:scale-95 text-center"
               >
                 {isLoggedIn ? "Open Dashboard" : "Start Free — No Card Needed"}
-                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                <ArrowRight className="ml-2 w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link
                 href="#how-it-works"
-                className="inline-flex items-center justify-center h-14 px-8 text-lg font-semibold rounded-2xl border mkt-border mkt-surface backdrop-blur-md hover:mkt-surface2 hover:border-[#3DB36B]/40 transition-all duration-300"
+                className="inline-flex items-center justify-center h-12 sm:h-14 px-5 sm:px-8 text-sm sm:text-base lg:text-lg font-semibold rounded-xl sm:rounded-2xl border mkt-border mkt-surface backdrop-blur-md hover:mkt-surface2 hover:border-[#3DB36B]/40 transition-all duration-300 active:scale-95 text-center"
               >
-                <MousePointerClick className="mr-2 w-5 h-5 mkt-accent-text" />
+                <MousePointerClick className="mr-2 w-4 h-4 sm:w-5 sm:h-5 mkt-accent-text" />
                 See How It Works
               </Link>
             </motion.div>
 
             <motion.div
               variants={fadeUp} initial="hidden" animate="show" custom={4}
-              className="mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-3 text-sm mkt-faint"
+              className="mt-6 sm:mt-10 flex flex-wrap items-center justify-center lg:justify-start gap-x-4 sm:gap-x-8 gap-y-2.5 text-xs sm:text-sm mkt-faint"
             >
-              <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Free plan, no card</span>
-              <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> Cancel anytime</span>
-              <span className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-400" /> 10,000+ marketers</span>
+              <span className="flex items-center gap-1.5 sm:gap-2"><Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" /> Free plan, no card</span>
+              <span className="flex items-center gap-1.5 sm:gap-2"><Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" /> Cancel anytime</span>
+              <span className="flex items-center gap-1.5 sm:gap-2"><Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" /> 10,000+ marketers</span>
             </motion.div>
           </div>
 
@@ -373,12 +373,12 @@ export function MarketingHome({
           </motion.div>
         </div>
 
-        {/* Mobile 3D robot (scaled down, fully visible on phones) */}
+        {/* Mobile 3D robot */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
+          initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          className="relative flex md:hidden justify-center mt-8 origin-top scale-[0.62] h-[280px]"
+          className="relative flex md:hidden justify-center mt-6 w-full"
         >
           <Robot3D />
         </motion.div>
@@ -386,7 +386,7 @@ export function MarketingHome({
         {/* stats strip */}
         <motion.div
           variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="max-w-5xl mx-auto mt-24 grid grid-cols-2 md:grid-cols-4 gap-px rounded-3xl overflow-hidden mkt-glass"
+          className="max-w-5xl mx-auto mt-14 sm:mt-24 grid grid-cols-2 md:grid-cols-4 gap-px rounded-2xl sm:rounded-3xl overflow-hidden mkt-glass bg-slate-200/60 dark:bg-white/5"
         >
           {[
             { value: "10K+", label: "Active Marketers" },
@@ -394,29 +394,29 @@ export function MarketingHome({
             { value: "20 hrs", label: "Saved Weekly / User" },
             { value: "4.9★", label: "Average Rating" },
           ].map((s) => (
-            <div key={s.label} className="bg-[#0D120E]/80 px-6 py-8 text-center">
-              <div className="text-3xl sm:text-4xl font-black mkt-accent-text">
+            <div key={s.label} className="bg-white/80 dark:bg-[#0D120E]/80 backdrop-blur-md px-3 sm:px-6 py-5 sm:py-8 text-center transition-colors">
+              <div className="text-2xl sm:text-3xl lg:text-4xl font-black mkt-accent-text">
                 {s.value}
               </div>
-              <div className="text-xs sm:text-sm mkt-muted mt-1">{s.label}</div>
+              <div className="text-[11px] sm:text-xs lg:text-sm mkt-muted mt-1 font-medium">{s.label}</div>
             </div>
           ))}
         </motion.div>
       </section>
 
       {/* ================= FEATURES ================= */}
-      <section id="features" className="relative py-28 px-4 sm:px-6 lg:px-8">
+      <section id="features" className="relative py-14 sm:py-20 lg:py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <SectionHeading
             badge="Superpowers"
             title={<>Everything You Need, <GradientText>Nothing You Don&apos;t</GradientText></>}
             sub="A full AI marketing department packed into one beautiful platform."
           />
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {[
               { icon: BrainCircuit, title: "AI Content Engine", desc: "Generate captions, hooks, hashtags and full campaigns tuned to your brand voice in seconds.", color: "#18713C" },
-              { icon: Wand2, title: "`AI Image & Video Studio", desc: "Create stunning visuals, product shots and short-form videos without a designer.", color: "#48357B" },
-              { icon: CalendarClock, title: "`Smart Auto-Scheduling", desc: "Loom picks the perfect posting time per platform and publishes automatically.", color: "#48357B" },
+              { icon: Wand2, title: "AI Image & Video Studio", desc: "Create stunning visuals, product shots and short-form videos without a designer.", color: "#48357B" },
+              { icon: CalendarClock, title: "Smart Auto-Scheduling", desc: "Loom picks the perfect posting time per platform and publishes automatically.", color: "#48357B" },
               { icon: BarChart3, title: "Deep Analytics", desc: "Know exactly what's working with AI-powered insights, not just vanity metrics.", color: "#48357B" },
               { icon: Globe2, title: "Every Platform, One Place", desc: "Instagram, TikTok, X, LinkedIn, Facebook & YouTube — connected in one dashboard.", color: "#18713C" },
               { icon: ShieldCheck, title: "Brand-Safe by Default", desc: "Approval flows, brand guardrails and human-in-the-loop controls built in.", color: "#48357B" },
@@ -426,14 +426,14 @@ export function MarketingHome({
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i % 3}
                 whileHover={{ y: -10, rotateX: 4, rotateY: -4 }}
                 style={{ transformStyle: "preserve-3d", perspective: 800 }}
-                className="group relative rounded-3xl mkt-glass p-8 hover:mkt-border transition-colors"
+                className="group relative rounded-2xl sm:rounded-3xl mkt-glass p-5 sm:p-8 hover:mkt-border transition-colors"
               >
-                <div style={{ backgroundColor: f.color }} className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-[0.08] transition-opacity duration-500" />
-                <div style={{ backgroundColor: f.color }} className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300">
-                  <f.icon className="w-7 h-7 text-white" />
+                <div style={{ backgroundColor: f.color }} className="absolute inset-0 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-[0.08] transition-opacity duration-500" />
+                <div style={{ backgroundColor: f.color }} className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-6 shadow-lg group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300">
+                  <f.icon className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
                 </div>
-                <h3 className="text-xl font-bold mb-3">{f.title}</h3>
-                <p className="mkt-muted leading-relaxed">{f.desc}</p>
+                <h3 className="text-lg sm:text-xl font-bold mb-2 sm:mb-3">{f.title}</h3>
+                <p className="text-sm sm:text-base mkt-muted leading-relaxed">{f.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -441,14 +441,14 @@ export function MarketingHome({
       </section>
 
       {/* ================= HOW IT WORKS ================= */}
-      <section id="how-it-works" className="relative py-28 px-4 sm:px-6 lg:px-8">
+      <section id="how-it-works" className="relative py-14 sm:py-20 lg:py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           <SectionHeading
             badge="How It Works"
             title={<>Live in <GradientText>3 Simple Steps</GradientText></>}
             sub="From signup to your first AI-generated campaign in under 5 minutes."
           />
-          <div className="grid md:grid-cols-3 gap-8 relative">
+          <div className="grid md:grid-cols-3 gap-6 sm:gap-8 relative">
             <div className="hidden md:block absolute top-12 left-[16%] right-[16%] h-px bg-[#48357B]/50" />
             {[
               { icon: Layers, step: "01", title: "Connect Your Brand", desc: "Link your social accounts and tell Loom about your brand voice, audience and goals." },
@@ -460,16 +460,16 @@ export function MarketingHome({
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
                 className="relative text-center"
               >
-                <div className="relative inline-flex mb-8">
-                  <div className="w-24 h-24 rounded-3xl mkt-surface border mkt-border flex items-center justify-center shadow-[0_0_40px_-10px_rgba(24,113,60,0.6)]">
-                    <s.icon className="w-10 h-10 mkt-accent-text" />
+                <div className="relative inline-flex mb-5 sm:mb-8">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl sm:rounded-3xl mkt-surface border mkt-border flex items-center justify-center shadow-[0_0_40px_-10px_rgba(24,113,60,0.6)]">
+                    <s.icon className="w-8 h-8 sm:w-10 sm:h-10 mkt-accent-text" />
                   </div>
-                  <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-[#18713C] text-sm font-black flex items-center justify-center shadow-lg">
+                  <span className="absolute -top-2.5 -right-2.5 sm:-top-3 sm:-right-3 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#18713C] text-white text-xs sm:text-sm font-black flex items-center justify-center shadow-lg">
                     {s.step}
                   </span>
                 </div>
-                <h3 className="text-2xl font-bold mb-3">{s.title}</h3>
-                <p className="mkt-muted leading-relaxed max-w-xs mx-auto">{s.desc}</p>
+                <h3 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-3">{s.title}</h3>
+                <p className="text-sm sm:text-base mkt-muted leading-relaxed max-w-xs mx-auto">{s.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -477,7 +477,7 @@ export function MarketingHome({
       </section>
 
       {/* ================= PRICING ================= */}
-      <section id="pricing" className="relative py-28 px-4 sm:px-6 lg:px-8">
+      <section id="pricing" className="relative py-14 sm:py-20 lg:py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <SectionHeading
             badge="Pricing"
@@ -486,16 +486,16 @@ export function MarketingHome({
           />
 
           {/* Monthly / Yearly Billing Toggle */}
-          <div className="flex flex-col items-center justify-center mt-8 mb-10 gap-3">
-            <div className="inline-flex items-center p-1.5 rounded-2xl mkt-glass border mkt-border shadow-inner">
+          <div className="flex flex-col items-center justify-center mt-6 sm:mt-8 mb-8 sm:mb-10 gap-3">
+            <div className="inline-flex items-center p-1 sm:p-1.5 rounded-2xl mkt-glass border mkt-border shadow-inner">
               <button
                 type="button"
                 onClick={() => setBillingCycle("monthly")}
                 disabled={!CYCLES.monthly}
-                className={`relative px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`relative px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
                   billingCycle === "monthly"
                     ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
-                    : "mkt-muted hover:text-white"
+                    : "mkt-muted hover:mkt-text"
                 }`}
               >
                 Monthly billing
@@ -504,24 +504,22 @@ export function MarketingHome({
                 type="button"
                 onClick={() => setBillingCycle("yearly")}
                 disabled={!CYCLES.yearly}
-                className={`relative flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
+                className={`relative flex items-center gap-1.5 sm:gap-2 px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
                   billingCycle === "yearly"
                     ? "bg-[#18713C] text-white shadow-[0_4px_16px_rgba(24,113,60,0.5)]"
-                    : "mkt-muted hover:text-white"
+                    : "mkt-muted hover:mkt-text"
                 }`}
               >
                 <span>Yearly billing</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-[#3DB36B]/20 text-[#3DB36B] border border-[#3DB36B]/30">
+                <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-[#3DB36B]/20 text-[#3DB36B] border border-[#3DB36B]/30">
                   Save {YEARLY_SAVING}%
                 </span>
               </button>
             </div>
 
-            {/* Only ever shown when a cycle genuinely cannot be bought. Better to say
-                so on the page than to let someone click through to a checkout that
-                does not exist yet. */}
+            {/* Only ever shown when a cycle genuinely cannot be bought. */}
             {!CYCLES[billingCycle] && (
-              <p className="text-xs mkt-faint">
+              <p className="text-xs mkt-faint text-center">
                 {billingCycle === "yearly" ? "Yearly" : "Monthly"} billing is not open yet
                 {CYCLES[billingCycle === "yearly" ? "monthly" : "yearly"]
                   ? ` — ${billingCycle === "yearly" ? "monthly" : "yearly"} is available today.`
@@ -530,27 +528,23 @@ export function MarketingHome({
             )}
           </div>
 
-          {/* The trial, on its own. A dollar for three days is the honest way to find
-              out whether the AI is any good, so it sits above the grid where a buyer
-              reads it before choosing a monthly commitment. The dollar is stated as
-              charged today, not as a formality: a trial that surprises someone with a
-              charge has bought a chargeback rather than a customer. */}
+          {/* The trial card */}
           <motion.div
             variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}
-            className="rounded-3xl mkt-glass !bg-[#48357B]/10 border-[#48357B]/40 p-8 mb-10 flex flex-col lg:flex-row lg:items-center gap-8"
+            className="rounded-2xl sm:rounded-3xl mkt-glass !bg-[#48357B]/10 border-[#48357B]/40 p-5 sm:p-8 mb-8 sm:mb-10 flex flex-col lg:flex-row lg:items-center gap-6 sm:gap-8"
           >
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="px-3 py-1 rounded-full bg-[#48357B] text-[11px] font-black tracking-wide uppercase">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-2 sm:mb-3">
+                <span className="px-2.5 sm:px-3 py-1 rounded-full bg-[#48357B] text-white text-[10px] sm:text-[11px] font-black tracking-wide uppercase">
                   {TRIAL_PLAN.badge}
                 </span>
-                <h3 className="text-2xl font-bold">{TRIAL_PLAN.name}</h3>
+                <h3 className="text-xl sm:text-2xl font-bold">{TRIAL_PLAN.name}</h3>
               </div>
-              <p className="mkt-muted leading-relaxed max-w-2xl">{TRIAL_PLAN.blurb}</p>
-              <ul className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mt-5">
+              <p className="text-sm sm:text-base mkt-muted leading-relaxed max-w-2xl">{TRIAL_PLAN.blurb}</p>
+              <ul className="grid sm:grid-cols-2 gap-x-6 sm:gap-x-8 gap-y-2 mt-4 sm:mt-5">
                 {TRIAL_PLAN.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2.5 text-sm mkt-muted">
-                    <Check className="w-4 h-4 mt-0.5 shrink-0 mkt-accent2-text" />
+                  <li key={f} className="flex items-start gap-2 sm:gap-2.5 text-xs sm:text-sm mkt-muted">
+                    <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 mt-0.5 shrink-0 mkt-accent2-text" />
                     {f}
                   </li>
                 ))}
@@ -558,25 +552,23 @@ export function MarketingHome({
             </div>
             <div className="lg:w-64 shrink-0 text-center lg:text-right">
               <div className="mb-1">
-                <span className="text-5xl font-black">${TRIAL_PLAN.oneTimePrice}</span>
-                <span className="mkt-muted ml-1">once</span>
+                <span className="text-4xl sm:text-5xl font-black">${TRIAL_PLAN.oneTimePrice}</span>
+                <span className="mkt-muted ml-1 text-sm sm:text-base">once</span>
               </div>
-              <p className="text-sm mkt-faint mb-6">
+              <p className="text-xs sm:text-sm mkt-faint mb-4 sm:mb-6">
                 Charged today · {TRIAL_PLAN.trialDays} days · nothing renews · one per person
               </p>
               {TRIAL_OPEN ? (
                 <Link
                   href={planCtaHref(isLoggedIn, "TRIAL")}
-                  className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03]"
+                  className="inline-flex items-center justify-center w-full h-11 sm:h-12 rounded-xl text-sm sm:text-base font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03] active:scale-95 text-center"
                 >
                   {TRIAL_PLAN.ctaLabel}
                 </Link>
               ) : (
-                // Not a link, because there is nowhere for it to go yet. Kept visible
-                // so the offer still reads as real — it is; the till is not open.
                 <span
                   aria-disabled="true"
-                  className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed"
+                  className="inline-flex items-center justify-center w-full h-11 sm:h-12 rounded-xl text-sm sm:text-base font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed text-center"
                 >
                   Opening soon
                 </span>
@@ -584,7 +576,7 @@ export function MarketingHome({
             </div>
           </motion.div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 items-stretch">
             {ONGOING_PLANS.map((p, i) => {
               const isFree = p.priceMonthly === 0;
               const effectiveMonthly = isFree
@@ -597,46 +589,44 @@ export function MarketingHome({
                 <motion.div
                   key={p.id}
                   variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
-                  whileHover={{ y: -12 }}
-                  className={`relative rounded-3xl p-8 flex flex-col mkt-glass transition-colors ${
+                  whileHover={{ y: -8 }}
+                  className={`relative rounded-2xl sm:rounded-3xl p-5 sm:p-8 flex flex-col mkt-glass transition-colors ${
                     p.highlight
-                      ? "!bg-[#48357B]/10 border-[#48357B]/50 shadow-[0_0_60px_-15px_rgba(72,53,123,0.6)] lg:scale-[1.05] z-10"
+                      ? "!bg-[#48357B]/10 border-[#48357B]/50 shadow-[0_0_60px_-15px_rgba(72,53,123,0.6)] lg:scale-[1.03] z-10"
                       : "hover:border-[#18713C]/40"
                   }`}
                 >
                   {p.badge && (
-                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-[#48357B] text-xs font-black tracking-wide uppercase shadow-lg whitespace-nowrap">
+                    <span className="absolute -top-3.5 sm:-top-4 left-1/2 -translate-x-1/2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#48357B] text-white text-[11px] sm:text-xs font-black tracking-wide uppercase shadow-lg whitespace-nowrap">
                       {p.badge}
                     </span>
                   )}
-                  <h3 className="text-lg font-bold mkt-muted">{p.name}</h3>
-                  <div className="mt-4 mb-1">
-                    <span className="text-5xl font-black">${effectiveMonthly}</span>
-                    <span className="mkt-muted ml-1">{isFree ? "forever" : "/month"}</span>
+                  <h3 className="text-base sm:text-lg font-bold mkt-muted">{p.name}</h3>
+                  <div className="mt-3 sm:mt-4 mb-1">
+                    <span className="text-4xl sm:text-5xl font-black">${effectiveMonthly}</span>
+                    <span className="mkt-muted ml-1 text-sm sm:text-base">{isFree ? "forever" : "/month"}</span>
                   </div>
-                  <p className="text-sm mkt-faint mb-2">{p.tagline}</p>
-                  <p className="text-xs mkt-faint mb-8 h-4">
+                  <p className="text-xs sm:text-sm mkt-faint mb-1.5 sm:mb-2">{p.tagline}</p>
+                  <p className="text-[11px] sm:text-xs mkt-faint mb-6 sm:mb-8 h-4">
                     {!isFree && (
                       billingCycle === "yearly"
                         ? `Billed $${p.priceYearly}/year · 2 months free`
                         : `or $${p.priceYearly} a year — ${YEARLY_SAVING}% off`
                     )}
                   </p>
-                  <ul className="space-y-3.5 mb-6 flex-1">
+                  <ul className="space-y-2.5 sm:space-y-3.5 mb-6 flex-1">
                     {p.features.map((f) => (
-                      <li key={f} className="flex items-start gap-3 text-sm mkt-muted">
-                        <Check className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
+                      <li key={f} className="flex items-start gap-2.5 sm:gap-3 text-xs sm:text-sm mkt-muted">
+                        <Check className={`w-3.5 h-3.5 sm:w-4 sm:h-4 mt-0.5 shrink-0 ${p.highlight ? "mkt-accent2-text" : "text-[#3DB36B]"}`} />
                         {f}
                       </li>
                     ))}
                   </ul>
-                  {/* Where the plan stops, not only where it starts. A buyer who finds
-                      this out after paying asks for their money back. */}
                   {p.notIncluded && p.notIncluded.length > 0 && (
-                    <ul className="space-y-2 mb-8 pt-5 border-t mkt-border">
+                    <ul className="space-y-2 mb-6 sm:mb-8 pt-4 sm:pt-5 border-t mkt-border">
                       {p.notIncluded.map((f) => (
-                        <li key={f} className="flex items-start gap-3 text-sm mkt-faint">
-                          <Minus className="w-4 h-4 mt-0.5 shrink-0 opacity-60" />
+                        <li key={f} className="flex items-start gap-2.5 sm:gap-3 text-xs sm:text-sm mkt-faint">
+                          <Minus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mt-0.5 shrink-0 opacity-60" />
                           {f}
                         </li>
                       ))}
@@ -645,7 +635,7 @@ export function MarketingHome({
                   {isFree || CYCLES[billingCycle] ? (
                     <Link
                       href={planCtaHref(isLoggedIn, p.id, billingCycle)}
-                      className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
+                      className={`inline-flex items-center justify-center h-11 sm:h-12 rounded-xl text-sm sm:text-base font-bold transition-all duration-300 hover:scale-[1.03] active:scale-95 text-center ${
                         p.highlight
                           ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
                           : "border mkt-border mkt-surface hover:mkt-surface2"
@@ -656,7 +646,7 @@ export function MarketingHome({
                   ) : (
                     <span
                       aria-disabled="true"
-                      className="inline-flex items-center justify-center h-12 rounded-xl font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed"
+                      className="inline-flex items-center justify-center h-11 sm:h-12 rounded-xl text-sm sm:text-base font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed text-center"
                     >
                       {billingCycle === "yearly" ? "Yearly opening soon" : "Opening soon"}
                     </span>
@@ -675,34 +665,34 @@ export function MarketingHome({
 
 
       {/* ================= TESTIMONIALS ================= */}
-      <section id="testimonials" className="relative py-28 px-4 sm:px-6 lg:px-8">
+      <section id="testimonials" className="relative py-14 sm:py-20 lg:py-28 px-4 sm:px-6 lg:px-8">
         <div className="max-w-6xl mx-auto">
           <SectionHeading
             badge="Loved by Marketers"
             title={<>Don&apos;t Take Our <GradientText>Word For It</GradientText></>}
             sub="Real results from real teams running on PostloomAI."
           />
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-3 gap-4 sm:gap-6">
             {TESTIMONIALS.map((t, i) => (
               <motion.div
                 key={t.name}
                 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} custom={i}
                 whileHover={{ y: -8 }}
-                className="rounded-3xl mkt-glass p-8 hover:mkt-border transition-colors"
+                className="rounded-2xl sm:rounded-3xl mkt-glass p-5 sm:p-8 hover:mkt-border transition-colors"
               >
-                <div className="flex gap-1 mb-5">
+                <div className="flex gap-1 mb-4 sm:mb-5">
                   {Array.from({ length: 5 }).map((_, s) => (
-                    <Star key={s} className="w-4 h-4 fill-[#3DB36B] text-[#3DB36B]" />
+                    <Star key={s} className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-[#3DB36B] text-[#3DB36B]" />
                   ))}
                 </div>
-                <p className="mkt-muted leading-relaxed mb-8">&ldquo;{t.quote}&rdquo;</p>
+                <p className="text-sm sm:text-base mkt-muted leading-relaxed mb-6 sm:mb-8">&ldquo;{t.quote}&rdquo;</p>
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#18713C] flex items-center justify-center font-black text-sm">
+                  <div className="w-9 sm:w-11 h-9 sm:h-11 rounded-full bg-[#18713C] text-white flex items-center justify-center font-black text-xs sm:text-sm shrink-0">
                     {t.name.split(" ").map((n) => n[0]).join("")}
                   </div>
                   <div>
-                    <div className="font-bold text-sm">{t.name}</div>
-                    <div className="text-xs mkt-faint">{t.role}</div>
+                    <div className="font-bold text-xs sm:text-sm">{t.name}</div>
+                    <div className="text-[11px] sm:text-xs mkt-faint">{t.role}</div>
                   </div>
                 </div>
               </motion.div>
@@ -712,32 +702,32 @@ export function MarketingHome({
       </section>
 
       {/* ================= CTA ================= */}
-      <section className="relative py-28 px-4 sm:px-6 lg:px-8">
+      <section className="relative py-14 sm:py-20 lg:py-28 px-4 sm:px-6 lg:px-8">
         <motion.div
           variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-          className="relative max-w-5xl mx-auto rounded-[40px] border mkt-border mkt-glass backdrop-blur-xl p-12 sm:p-20 text-center overflow-hidden"
+          className="relative max-w-5xl mx-auto rounded-3xl sm:rounded-[40px] border mkt-border mkt-glass backdrop-blur-xl p-6 sm:p-14 lg:p-20 text-center overflow-hidden"
         >
-          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[400px] h-[300px] bg-[#7A5CC9]/25 blur-[100px] rounded-full" />
-          <Bot className="w-14 h-14 mx-auto mb-6 mkt-accent-text" />
-          <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight mb-6">
+          <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[300px] sm:w-[400px] h-[200px] sm:h-[300px] bg-[#7A5CC9]/25 blur-[100px] rounded-full" />
+          <Bot className="w-10 h-10 sm:w-14 sm:h-14 mx-auto mb-4 sm:mb-6 mkt-accent-text" />
+          <h2 className="text-2xl sm:text-4xl lg:text-6xl font-black tracking-tight mb-4 sm:mb-6">
             Ready to Put Marketing<br />on <GradientText>Autopilot?</GradientText>
           </h2>
-          <p className="text-lg mkt-muted mb-10 max-w-2xl mx-auto">
+          <p className="text-sm sm:text-base lg:text-lg mkt-muted mb-8 sm:mb-10 max-w-2xl mx-auto leading-relaxed">
             Join 10,000+ creators and brands growing with PostloomAI. Your first campaign is free.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-stretch sm:items-center">
             <Link
               href={isLoggedIn ? "/dashboard" : "/sign-up"}
-              className="group inline-flex items-center justify-center h-14 px-10 text-lg font-bold rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.8)] hover:scale-[1.04] transition-all duration-300"
+              className="group inline-flex items-center justify-center h-12 sm:h-14 px-6 sm:px-10 text-sm sm:text-base lg:text-lg font-bold rounded-xl sm:rounded-2xl bg-[#18713C] text-white shadow-[0_0_40px_-5px_rgba(24,113,60,0.8)] hover:scale-[1.03] active:scale-95 transition-all duration-300 text-center"
             >
               Get Started Free
-              <Rocket className="ml-2 w-5 h-5 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
+              <Rocket className="ml-2 w-4 h-4 sm:w-5 sm:h-5 group-hover:-translate-y-1 group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
               href="#pricing"
-              className="inline-flex items-center justify-center h-14 px-10 text-lg font-semibold rounded-2xl border mkt-border mkt-surface hover:mkt-surface2 transition-all duration-300"
+              className="inline-flex items-center justify-center h-12 sm:h-14 px-6 sm:px-10 text-sm sm:text-base lg:text-lg font-semibold rounded-xl sm:rounded-2xl border mkt-border mkt-surface hover:mkt-surface2 active:scale-95 transition-all duration-300 text-center"
             >
-              <LineChart className="mr-2 w-5 h-5 mkt-accent-text" />
+              <LineChart className="mr-2 w-4 h-4 sm:w-5 sm:h-5 mkt-accent-text" />
               Compare Plans
             </Link>
           </div>
@@ -745,13 +735,13 @@ export function MarketingHome({
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer className="relative border-t mkt-border mkt-bg2 pt-20 pb-10 px-4 sm:px-6 lg:px-8">
+      <footer className="relative border-t mkt-border mkt-bg2 pt-14 sm:pt-20 pb-10 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           {/* top row: brand + newsletter */}
-          <div className="flex flex-col lg:flex-row justify-between gap-10 pb-14 border-b mkt-border">
+          <div className="flex flex-col lg:flex-row justify-between gap-8 sm:gap-10 pb-10 sm:pb-14 border-b mkt-border">
             <div className="max-w-sm">
               <Link href="/" className="flex items-center gap-3 mb-5 group w-fit">
-                <PostloomLogo size={44} />
+                <PostloomLogo size={40} />
                 <div className="leading-none">
                   <span className="block font-black text-xl tracking-tight">
                     Postloom<span className="mkt-accent-text">AI</span>
@@ -761,11 +751,11 @@ export function MarketingHome({
                   </span>
                 </div>
               </Link>
-              <p className="text-sm mkt-faint leading-relaxed mb-6">
+              <p className="text-xs sm:text-sm mkt-faint leading-relaxed mb-6">
                 The autonomous AI marketing platform that plans, creates and publishes
                 content that grows your brand — 24/7.
               </p>
-              <div className="flex gap-3">
+              <div className="flex gap-2.5 sm:gap-3">
                 {SOCIALS.map(({ Icon, label, href }) => (
                   <a
                     key={label}
@@ -774,18 +764,18 @@ export function MarketingHome({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl border mkt-border mkt-surface flex items-center justify-center mkt-muted hover:text-white hover:border-[#6D54A8]/50 hover:bg-[#5A4591]/10 hover:-translate-y-0.5 transition-all duration-300"
+                    className="w-9 sm:w-10 h-9 sm:h-10 rounded-xl border mkt-border mkt-surface flex items-center justify-center mkt-muted hover:mkt-text hover:border-[#6D54A8]/50 hover:bg-[#5A4591]/10 hover:-translate-y-0.5 transition-all duration-300"
                   >
-                    <Icon className="w-4.5 h-4.5" />
+                    <Icon className="w-4 sm:w-4.5 h-4 sm:h-4.5" />
                   </a>
                 ))}
               </div>
             </div>
             <div className="max-w-md w-full">
-              <h4 className="font-bold text-sm tracking-wide uppercase mkt-muted mb-2">
+              <h4 className="font-bold text-xs sm:text-sm tracking-wide uppercase mkt-muted mb-2">
                 Stay in the loop
               </h4>
-              <p className="text-sm mkt-faint mb-4">
+              <p className="text-xs sm:text-sm mkt-faint mb-4">
                 Monthly growth tactics, product updates and AI marketing playbooks. No spam.
               </p>
               <NewsletterForm />
@@ -793,13 +783,13 @@ export function MarketingHome({
           </div>
 
           {/* link columns */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-10 py-14">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 sm:gap-10 py-10 sm:py-14">
             {FOOTER_COLS.map((col) => (
               <div key={col.title}>
-                <h4 className="font-bold mb-5 text-xs tracking-[0.18em] uppercase mkt-muted">
+                <h4 className="font-bold mb-4 sm:mb-5 text-[11px] sm:text-xs tracking-[0.18em] uppercase mkt-muted">
                   {col.title}
                 </h4>
-                <ul className="space-y-3 text-sm mkt-faint">
+                <ul className="space-y-2.5 sm:space-y-3 text-xs sm:text-sm mkt-faint">
                   {col.links.map((l) => (
                     <li key={l.label}>
                       <Link
@@ -821,7 +811,7 @@ export function MarketingHome({
           </div>
 
           {/* bottom bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t mkt-border pt-8 text-sm mkt-faint">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t mkt-border pt-6 sm:pt-8 text-xs sm:text-sm mkt-faint text-center sm:text-left">
             <p>© {new Date().getFullYear()} PostloomAI, Inc. All rights reserved.</p>
             <div className="flex items-center gap-2 text-xs">
               <span className="relative flex h-2 w-2">
@@ -830,7 +820,7 @@ export function MarketingHome({
               </span>
               All systems operational
             </div>
-            <div className="flex gap-6 text-xs">
+            <div className="flex gap-4 sm:gap-6 text-xs">
               <Link href="/privacy-policy" className="hover:mkt-accent-text transition">Privacy</Link>
               <Link href="/terms-of-service" className="hover:mkt-accent-text transition">Terms</Link>
               <Link href="/cookie-policy" className="hover:mkt-accent-text transition">Cookies</Link>
