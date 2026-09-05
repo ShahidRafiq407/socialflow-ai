@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminShahidLayout({ children }: { children: ReactNode }) {
   const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
+  if (!userId) redirect("/sign-in?redirect_url=/adminshahid");
 
   const isAdmin = await isAdminUser(userId);
   if (!isAdmin) {

@@ -53,15 +53,24 @@ export const isAdminUser = cache(async function isAdminUser(userId: string): Pro
 
   try {
     await ensureAdminSchema();
-    const row = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    const row = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, email: true } });
     if (row?.role === "ADMIN") return true;
+    if (row?.email && allowed.includes(row.email.toLowerCase())) {
+      await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }).catch(() => {});
+      return true;
+    }
   } catch {
     // Fall through to the email check.
   }
 
   if (allowed.length === 0) return false;
   const emails = await currentEmails();
-  return emails.some((email) => allowed.includes(email));
+  const matched = emails.some((email) => allowed.includes(email));
+  if (matched) {
+    await prisma.user.update({ where: { id: userId }, data: { role: "ADMIN" } }).catch(() => {});
+    return true;
+  }
+  return false;
 });
 
 export interface AdminIdentity {
