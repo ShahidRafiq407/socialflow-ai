@@ -642,16 +642,25 @@ export function MarketingHome({
                       ))}
                     </ul>
                   )}
-                  <Link
-                    href={planCtaHref(isLoggedIn, p.id, billingCycle)}
-                    className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
-                      p.highlight
-                        ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
-                        : "border mkt-border mkt-surface hover:mkt-surface2"
-                    }`}
-                  >
-                    {p.ctaLabel}
-                  </Link>
+                  {isFree || CYCLES[billingCycle] ? (
+                    <Link
+                      href={planCtaHref(isLoggedIn, p.id, billingCycle)}
+                      className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
+                        p.highlight
+                          ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"
+                          : "border mkt-border mkt-surface hover:mkt-surface2"
+                      }`}
+                    >
+                      {p.ctaLabel}
+                    </Link>
+                  ) : (
+                    <span
+                      aria-disabled="true"
+                      className="inline-flex items-center justify-center h-12 rounded-xl font-bold border mkt-border mkt-surface mkt-faint cursor-not-allowed"
+                    >
+                      {billingCycle === "yearly" ? "Yearly opening soon" : "Opening soon"}
+                    </span>
+                  )}
                 </motion.div>
               );
             })}
@@ -812,7 +821,7 @@ export function MarketingHome({
           </div>
 
           {/* bottom bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t mkt-border pt-8 text-sm text-stone-600">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t mkt-border pt-8 text-sm mkt-faint">
             <p>© {new Date().getFullYear()} PostloomAI, Inc. All rights reserved.</p>
             <div className="flex items-center gap-2 text-xs">
               <span className="relative flex h-2 w-2">

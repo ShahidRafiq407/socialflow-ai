@@ -1049,7 +1049,7 @@ export default function MultiAgentStreamModal({
       <div
         className={`relative overflow-hidden shadow-2xl transition-all duration-300 ease-in-out w-full flex flex-col ${
           isCompleted
-            ? "max-w-[520px] bg-white rounded-2xl md:rounded-[20px] border border-[#E5E7EB]"
+            ? "max-w-[520px] bg-white dark:bg-[#11141A] rounded-2xl md:rounded-[20px] border border-[#E5E7EB] dark:border-[#252A32]"
             : "max-w-[1180px] h-[92vh] max-h-[750px] min-h-[500px] bg-[#0B0D10] rounded-2xl md:rounded-[18px] border border-[#252A32]"
         }`}
       >
@@ -1772,14 +1772,14 @@ export default function MultiAgentStreamModal({
 
         {/* Completed State */}
         {isCompleted && (
-          <div className="flex flex-col text-[#111318] p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex flex-col text-[#111318] dark:text-slate-100 p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300">
             {/* Header */}
             <div className="flex items-center justify-between mb-4 sm:mb-6">
               <div>
-                <h2 className="text-lg sm:text-xl font-bold tracking-tight">AI Studio</h2>
-                <p className="text-xs sm:text-sm text-[#6B7280]">Multi-Agent Campaign</p>
+                <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">AI Studio</h2>
+                <p className="text-xs sm:text-sm text-[#6B7280] dark:text-slate-400">Multi-Agent Campaign</p>
               </div>
-              <button onClick={onClose} className="p-2 text-[#6B7280] hover:text-[#111318] hover:bg-gray-100 rounded-lg transition-colors">
+              <button onClick={onClose} className="p-2 text-[#6B7280] dark:text-slate-400 hover:text-[#111318] dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1790,8 +1790,8 @@ export default function MultiAgentStreamModal({
                 <CheckCircle2 className="w-[40px] h-[40px] sm:w-[48px] sm:h-[48px] text-[#22C55E]" />
               </div>
               <div>
-                <h3 className="text-xl sm:text-2xl font-bold mb-1.5">Campaign Ready!</h3>
-                <p className="text-xs sm:text-sm text-[#6B7280]">
+                <h3 className="text-xl sm:text-2xl font-bold mb-1.5 text-slate-900 dark:text-white">Campaign Ready!</h3>
+                <p className="text-xs sm:text-sm text-[#6B7280] dark:text-slate-400">
                   {mediaGaps.length > 0
                     ? `Every post is written. ${mediaGaps.length} of them still need media.`
                     : "Your content has been successfully created."}
@@ -1808,8 +1808,8 @@ export default function MultiAgentStreamModal({
             {mediaGaps.length > 0 && (
               <div className="rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3 sm:p-4 space-y-2">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-[#B45309] shrink-0 mt-0.5" />
-                  <p className="text-xs sm:text-sm font-semibold text-[#92400E]">
+                  <AlertTriangle className="w-4 h-4 text-[#B45309] dark:text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-xs sm:text-sm font-semibold text-[#92400E] dark:text-amber-300">
                     Add media for {mediaGaps.length} post{mediaGaps.length === 1 ? "" : "s"} in the content editor
                   </p>
                 </div>
@@ -1817,13 +1817,13 @@ export default function MultiAgentStreamModal({
                   {mediaGaps.map((gap, gIdx) => (
                     <li
                       key={`${gap.platform}-${gap.contentType}-${gIdx}`}
-                      className="text-[11px] sm:text-xs bg-white/70 border border-[#F59E0B]/20 rounded-lg px-2.5 py-2"
+                      className="text-[11px] sm:text-xs bg-white/70 dark:bg-white/5 border border-[#F59E0B]/20 rounded-lg px-2.5 py-2"
                     >
-                      <span className="font-semibold capitalize text-[#111318]">
+                      <span className="font-semibold capitalize text-[#111318] dark:text-slate-200">
                         {gap.platform} — {gap.contentType}
                       </span>
-                      <span className="text-[#6B7280]"> ({gap.format})</span>
-                      <span className="block text-[#6B7280] mt-0.5">{gap.reason}</span>
+                      <span className="text-[#6B7280] dark:text-slate-400"> ({gap.format})</span>
+                      <span className="block text-[#6B7280] dark:text-slate-400 mt-0.5">{gap.reason}</span>
                     </li>
                   ))}
                 </ul>

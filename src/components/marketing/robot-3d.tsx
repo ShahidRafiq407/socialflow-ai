@@ -1,173 +1,262 @@
 "use client";
 
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Zap } from "lucide-react";
 
 /**
- * Pure CSS-3D AI Robot with mouse parallax, floating animation,
- * glowing eyes, orbiting rings and holographic base.
+ * Loom — High-End Autonomous AI Marketing Droid.
+ *
+ * Sculpted obsidian-titanium chassis, living holographic visor with neural waveform,
+ * aerodynamic floating magnetic stabilizer foils, and floating marketing telemetry chips.
+ * Natural, organic lighting and smooth spring-physics parallax that stays
+ * 100% mobile-first responsive and non-blocking for touch scrolling.
  */
 export function Robot3D() {
+  const [isMobile, setIsMobile] = useState(false);
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
-  const sx = useSpring(mx, { stiffness: 60, damping: 15 });
-  const sy = useSpring(my, { stiffness: 60, damping: 15 });
-  const rotateY = useTransform(sx, [-0.5, 0.5], [-22, 22]);
-  const rotateX = useTransform(sy, [-0.5, 0.5], [16, -16]);
+  const sx = useSpring(mx, { stiffness: 45, damping: 18 });
+  const sy = useSpring(my, { stiffness: 45, damping: 18 });
+
+  const rotateY = useTransform(sx, [-0.5, 0.5], [-16, 16]);
+  const rotateX = useTransform(sy, [-0.5, 0.5], [12, -12]);
+  const wingTiltLeft = useTransform(sx, [-0.5, 0.5], [4, -14]);
+  const wingTiltRight = useTransform(sx, [-0.5, 0.5], [14, -4]);
 
   useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
     const onMove = (e: MouseEvent) => {
-      mx.set(e.clientX / window.innerWidth - 0.5);
-      my.set(e.clientY / window.innerHeight - 0.5);
+      if (window.innerWidth >= 768) {
+        mx.set(e.clientX / window.innerWidth - 0.5);
+        my.set(e.clientY / window.innerHeight - 0.5);
+      }
     };
     window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+      window.removeEventListener("mousemove", onMove);
+    };
   }, [mx, my]);
 
   return (
-    <div className="relative flex items-center justify-center" style={{ perspective: 1200 }}>
-      {/* glow behind robot */}
-      <div className="absolute w-[420px] h-[420px] rounded-full bg-[#48357B]/25 blur-[100px] animate-pulse" />
+    <div
+      className="relative flex items-center justify-center select-none w-full max-w-[460px] mx-auto py-6"
+      style={{ perspective: 1100 }}
+    >
+      {/* Volumetric ambient back-glows (soft, atmospheric lighting) */}
+      <div className="absolute w-[300px] sm:w-[420px] h-[300px] sm:h-[420px] rounded-full bg-[#18713C]/20 blur-[90px] pointer-events-none" />
+      <div className="absolute w-[240px] sm:w-[360px] h-[240px] sm:h-[360px] rounded-full bg-[#48357B]/25 blur-[100px] pointer-events-none -translate-y-6" />
 
-      {/* orbiting rings */}
+      {/* Subtle orbital energy horizon */}
       <motion.div
-        className="absolute w-[440px] h-[440px] rounded-full border border-[#3DB36B]/20"
-        style={{ rotateX: 70 }}
+        className="absolute w-[290px] sm:w-[400px] h-[110px] sm:h-[130px] rounded-[50%] border border-[#3DB36B]/20 pointer-events-none"
+        style={{ rotateX: 72 }}
         animate={{ rotateZ: 360 }}
-        transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
+        transition={{ duration: 32, repeat: Infinity, ease: "linear" }}
       >
-        <div className="absolute -top-1.5 left-1/2 w-3 h-3 rounded-full bg-[#3DB36B] shadow-[0_0_20px_4px_rgba(92,196,137,0.8)]" />
-      </motion.div>
-      <motion.div
-        className="absolute w-[520px] h-[520px] rounded-full border border-[#8B6FD8]/15"
-        style={{ rotateX: 70 }}
-        animate={{ rotateZ: -360 }}
-        transition={{ duration: 26, repeat: Infinity, ease: "linear" }}
-      >
-        <div className="absolute top-1/2 -right-1.5 w-2.5 h-2.5 rounded-full bg-[#8B6FD8] shadow-[0_0_16px_4px_rgba(139,111,216,0.7)]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#3DB36B] shadow-[0_0_12px_2px_#3DB36B]" />
       </motion.div>
 
-      {/* floating robot */}
+      {/* Floating Marketing Telemetry Card 1 — Top Left */}
       <motion.div
-        animate={{ y: [0, -22, 0] }}
-        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute -top-1 sm:top-2 left-0 sm:-left-4 z-30 pointer-events-none"
+        animate={{ y: [0, -8, 0] }}
+        transition={{ duration: 4.2, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] text-[11px] font-medium text-slate-200">
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+          </span>
+          <span className="font-semibold text-white">Autopilot Active</span>
+          <span className="text-[10px] text-slate-400 hidden sm:inline">· 6 platforms</span>
+        </div>
+      </motion.div>
+
+      {/* Floating Marketing Telemetry Card 2 — Bottom Right */}
+      <motion.div
+        className="absolute -bottom-2 sm:bottom-4 right-0 sm:-right-4 z-30 pointer-events-none"
+        animate={{ y: [0, 8, 0] }}
+        transition={{ duration: 4.8, repeat: Infinity, ease: "easeInOut", delay: 0.6 }}
+      >
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-white/10 shadow-[0_8px_20px_rgba(0,0,0,0.45)] text-[11px] font-medium text-slate-200">
+          <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <div>
+            <span className="font-semibold text-white">Peak Timing Pick</span>
+            <span className="text-[10px] text-emerald-400 ml-1.5 font-bold">+42% reach</span>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Floating Droid Assembly with Levitation Physics */}
+      <motion.div
+        animate={{ y: [0, -18, 0] }}
+        transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
+        className="relative"
       >
         <motion.div
-          style={{ rotateX, rotateY, transformStyle: "preserve-3d" }}
-          className="relative w-[260px] h-[360px]"
+          style={{
+            rotateX: isMobile ? 0 : rotateX,
+            rotateY: isMobile ? 0 : rotateY,
+            transformStyle: "preserve-3d",
+          }}
+          className="relative w-[230px] sm:w-[260px] h-[330px] sm:h-[360px] flex items-center justify-center"
         >
-          {/* ===== HEAD ===== */}
+          {/* ===== HEAD & LIVING VISOR ===== */}
           <div
-            className="absolute left-1/2 top-0 -translate-x-1/2 w-[190px] h-[150px] rounded-[42px] bg-gradient-to-b from-stone-100 via-stone-300 to-stone-400 shadow-[inset_0_-14px_24px_rgba(0,0,0,0.25),0_25px_60px_rgba(92,196,137,0.25)]"
-            style={{ transformStyle: "preserve-3d", transform: "translateZ(40px)" }}
+            className="absolute left-1/2 top-4 -translate-x-1/2 w-[168px] sm:w-[188px] h-[136px] sm:h-[150px] rounded-[44px] bg-gradient-to-b from-slate-800 via-[#131720] to-slate-950 border border-white/15 shadow-[inset_0_2px_4px_rgba(255,255,255,0.2),inset_0_-8px_16px_rgba(0,0,0,0.7),0_20px_45px_rgba(0,0,0,0.6)]"
+            style={{ transformStyle: "preserve-3d", transform: "translateZ(36px)" }}
           >
-            {/* face screen */}
-            <div className="absolute inset-x-4 top-6 bottom-6 rounded-[28px] bg-[#101610] overflow-hidden border border-[#3DB36B]/30 shadow-[inset_0_0_30px_rgba(92,196,137,0.15)]">
+            {/* Specular curved reflection across crown */}
+            <div className="absolute top-2 inset-x-8 h-4 rounded-full bg-gradient-to-r from-transparent via-white/20 to-transparent blur-[1px]" />
+
+            {/* Panoramic Curved Dark-Glass Visor */}
+            <div className="absolute inset-x-3.5 top-5 bottom-5 rounded-[32px] bg-[#070a0d] overflow-hidden border border-emerald-500/20 shadow-[inset_0_0_28px_rgba(61,179,107,0.12),0_4px_12px_rgba(0,0,0,0.8)]">
+              {/* Glass glare diagonal highlight */}
+              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.07] to-transparent pointer-events-none" />
+
+              {/* Neural Waveform Spectrum Line (living intelligence activity) */}
+              <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex items-center justify-between opacity-80 pointer-events-none">
+                {[14, 22, 38, 52, 32, 48, 64, 42, 28, 16].map((h, i) => (
+                  <motion.div
+                    key={i}
+                    className="w-1.5 rounded-full bg-gradient-to-b from-[#3DB36B] to-[#8B6FD8] shadow-[0_0_8px_rgba(61,179,107,0.8)]"
+                    animate={{
+                      height: [h * 0.4, h, h * 0.35],
+                      opacity: [0.6, 1, 0.6],
+                    }}
+                    transition={{
+                      duration: 2.2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                      delay: i * 0.14,
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Living Optical Sensor Array — Left & Right subtle apertures */}
               <motion.div
-                className="absolute left-9 top-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
-                animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
-                transition={{ duration: 4, repeat: Infinity, times: [0, 0.45, 0.5, 0.55, 1] }}
-              />
+                className="absolute left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border border-emerald-400/60 bg-emerald-500/10 flex items-center justify-center shadow-[0_0_14px_rgba(61,179,107,0.6)]"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.8, 1, 0.8] }}
+                transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#3DB36B]" />
+              </motion.div>
+
               <motion.div
-                className="absolute right-9 top-1/2 -translate-y-1/2 w-8 h-10 rounded-full bg-[#3DB36B] shadow-[0_0_25px_6px_rgba(92,196,137,0.7)]"
-                animate={{ scaleY: [1, 1, 0.1, 1, 1] }}
-                transition={{ duration: 4, repeat: Infinity, times: [0, 0.45, 0.5, 0.55, 1] }}
-              />
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-4 w-14 h-4 border-b-4 border-[#5CC489]/90 rounded-b-full" />
+                className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border border-emerald-400/60 bg-emerald-500/10 flex items-center justify-center shadow-[0_0_14px_rgba(61,179,107,0.6)]"
+                animate={{ scale: [1, 1.15, 1], opacity: [0.8, 1, 0.8] }}
+                transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#3DB36B]" />
+              </motion.div>
+
+              {/* Gentle horizontal scan telemetry ray */}
               <motion.div
-                className="absolute inset-x-0 h-8 bg-[#3DB36B]/10"
-                animate={{ top: ["-20%", "120%"] }}
-                transition={{ duration: 3.2, repeat: Infinity, ease: "linear" }}
+                className="absolute inset-x-0 h-4 bg-gradient-to-b from-transparent via-emerald-400/15 to-transparent pointer-events-none"
+                animate={{ top: ["-10%", "110%"] }}
+                transition={{ duration: 3.8, repeat: Infinity, ease: "linear" }}
               />
             </div>
-            {/* ear pods */}
-            <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-5 h-14 rounded-full bg-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
-            <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-5 h-14 rounded-full bg-[#48357B] shadow-[0_0_20px_rgba(24,113,60,0.7)]" />
-            {/* antenna */}
-            <div className="absolute left-1/2 -translate-x-1/2 -top-10 w-1.5 h-10 bg-gradient-to-t from-stone-400 to-stone-200 rounded-full">
-              <motion.div
-                className="absolute -top-3 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-[#8B6FD8] shadow-[0_0_18px_5px_rgba(139,111,216,0.8)]"
-                animate={{ scale: [1, 1.35, 1] }}
-                transition={{ duration: 1.6, repeat: Infinity }}
-              />
+
+            {/* Aerodynamic lateral acoustic sensor pods */}
+            <div className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-12 rounded-full bg-gradient-to-b from-slate-700 via-slate-900 to-slate-950 border border-white/10 shadow-md">
+              <div className="absolute inset-y-2.5 left-1 w-1 rounded-full bg-emerald-400/40" />
+            </div>
+            <div className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-12 rounded-full bg-gradient-to-b from-slate-700 via-slate-900 to-slate-950 border border-white/10 shadow-md">
+              <div className="absolute inset-y-2.5 right-1 w-1 rounded-full bg-emerald-400/40" />
+            </div>
+
+            {/* Integrated micro-comm link on top */}
+            <div className="absolute left-1/2 -translate-x-1/2 -top-2 w-10 h-2 rounded-full bg-slate-800 border border-white/15 flex items-center justify-center">
+              <div className="w-4 h-1 rounded-full bg-emerald-400 shadow-[0_0_6px_#3DB36B]" />
             </div>
           </div>
 
-
-          {/* ===== NECK ===== */}
+          {/* ===== MAGNETIC ARTICULATED COLLAR ===== */}
           <div
-            className="absolute left-1/2 top-[152px] -translate-x-1/2 w-12 h-6 bg-gradient-to-b from-stone-500 to-stone-600 rounded"
-            style={{ transform: "translateZ(20px)" }}
+            className="absolute left-1/2 top-[162px] sm:top-[174px] -translate-x-1/2 w-14 h-4 rounded-md bg-gradient-to-b from-slate-700 to-slate-900 border-x border-white/10"
+            style={{ transform: "translateZ(18px)" }}
           />
 
-          {/* ===== BODY ===== */}
+          {/* ===== CHASSIS BODY ===== */}
           <div
-            className="absolute left-1/2 top-[176px] -translate-x-1/2 w-[150px] h-[130px] rounded-[36px] bg-gradient-to-b from-stone-200 via-stone-300 to-stone-500 shadow-[inset_0_-12px_20px_rgba(0,0,0,0.3),0_20px_50px_rgba(24,113,60,0.25)]"
-            style={{ transform: "translateZ(30px)" }}
+            className="absolute left-1/2 top-[178px] sm:top-[192px] -translate-x-1/2 w-[140px] sm:w-[154px] h-[116px] sm:h-[126px] rounded-[38px] bg-gradient-to-b from-slate-800 via-[#11161f] to-slate-950 border border-white/15 shadow-[inset_0_2px_4px_rgba(255,255,255,0.15),inset_0_-8px_16px_rgba(0,0,0,0.8),0_18px_40px_rgba(0,0,0,0.5)] flex items-center justify-center"
+            style={{ transformStyle: "preserve-3d", transform: "translateZ(26px)" }}
           >
+            {/* Luminous Central Neural Core */}
             <motion.div
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-[#18713C]"
+              className="relative w-14 h-14 rounded-full bg-[#080d11] border border-emerald-500/40 flex items-center justify-center"
               animate={{
                 boxShadow: [
-                  "0 0 20px 4px rgba(92,196,137,0.5)",
-                  "0 0 45px 12px rgba(24,113,60,0.7)",
-                  "0 0 20px 4px rgba(92,196,137,0.5)",
+                  "0 0 16px 2px rgba(61,179,107,0.3)",
+                  "0 0 32px 6px rgba(61,179,107,0.6)",
+                  "0 0 16px 2px rgba(61,179,107,0.3)",
                 ],
               }}
-              transition={{ duration: 2.4, repeat: Infinity }}
+              transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
             >
-              <div className="absolute inset-2 rounded-full bg-[#0F160F]" />
+              {/* Rotating inner gyroscopic ring */}
               <motion.div
-                className="absolute inset-4 rounded-full bg-[#18713C]"
+                className="absolute inset-1 rounded-full border border-dashed border-emerald-400/50"
                 animate={{ rotate: 360 }}
-                transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+              />
+              {/* Pulsing core orb */}
+              <motion.div
+                className="w-5 h-5 rounded-full bg-gradient-to-tr from-[#18713C] via-[#3DB36B] to-[#8B6FD8] shadow-[0_0_12px_#3DB36B]"
+                animate={{ scale: [0.92, 1.08, 0.92] }}
+                transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
               />
             </motion.div>
           </div>
 
-          {/* ===== ARMS ===== */}
+          {/* ===== FLOATING MAGNETIC STABILIZER WINGS (AERODYNAMIC) ===== */}
+          {/* Left Wing */}
           <motion.div
-            className="absolute left-[-6px] top-[190px] w-10 h-24 rounded-full bg-gradient-to-b from-stone-300 to-stone-500 origin-top"
-            style={{ transform: "translateZ(10px)" }}
-            animate={{ rotate: [8, 16, 8] }}
-            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute left-[-2px] sm:left-[2px] top-[190px] sm:top-[204px] w-7 sm:w-8 h-24 sm:h-26 rounded-[22px] bg-gradient-to-b from-slate-700 via-slate-900 to-slate-950 border border-white/15 shadow-[0_10px_25px_rgba(0,0,0,0.5)] origin-top"
+            style={{
+              transformStyle: "preserve-3d",
+              transform: "translateZ(14px)",
+              rotateZ: isMobile ? 6 : wingTiltLeft,
+            }}
           >
-            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#48357B] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
-          </motion.div>
-          <motion.div
-            className="absolute right-[-6px] top-[190px] w-10 h-24 rounded-full bg-gradient-to-b from-stone-300 to-stone-500 origin-top"
-            style={{ transform: "translateZ(10px)" }}
-            animate={{ rotate: [-8, -16, -8] }}
-            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
-          >
-            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-[#48357B] shadow-[0_0_15px_rgba(92,196,137,0.6)]" />
+            {/* Wing accent light ribbon */}
+            <div className="absolute top-4 bottom-4 right-1.5 w-1 rounded-full bg-gradient-to-b from-[#3DB36B] to-[#8B6FD8] shadow-[0_0_6px_rgba(61,179,107,0.7)]" />
           </motion.div>
 
-          {/* ===== HOLO BASE ===== */}
+          {/* Right Wing */}
           <motion.div
-            className="absolute left-1/2 -translate-x-1/2 bottom-[-18px] w-[220px] h-[50px] rounded-[50%] bg-[#48357B]/40 blur-md"
-            animate={{ scaleX: [1, 1.15, 1], opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 3, repeat: Infinity }}
-          />
+            className="absolute right-[-2px] sm:right-[2px] top-[190px] sm:top-[204px] w-7 sm:w-8 h-24 sm:h-26 rounded-[22px] bg-gradient-to-b from-slate-700 via-slate-900 to-slate-950 border border-white/15 shadow-[0_10px_25px_rgba(0,0,0,0.5)] origin-top"
+            style={{
+              transformStyle: "preserve-3d",
+              transform: "translateZ(14px)",
+              rotateZ: isMobile ? -6 : wingTiltRight,
+            }}
+          >
+            {/* Wing accent light ribbon */}
+            <div className="absolute top-4 bottom-4 left-1.5 w-1 rounded-full bg-gradient-to-b from-[#3DB36B] to-[#8B6FD8] shadow-[0_0_6px_rgba(61,179,107,0.7)]" />
+          </motion.div>
         </motion.div>
       </motion.div>
 
-      {/* floating particles */}
-      {[
-        { x: -170, y: -60, d: 0 },
-        { x: 180, y: -110, d: 0.8 },
-        { x: -150, y: 130, d: 1.6 },
-        { x: 165, y: 110, d: 2.2 },
-        { x: 0, y: -180, d: 1.1 },
-      ].map((p, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-2 h-2 rounded-full bg-[#5CC489] shadow-[0_0_12px_3px_rgba(92,196,137,0.7)]"
-          style={{ left: `calc(50% + ${p.x}px)`, top: `calc(50% + ${p.y}px)` }}
-          animate={{ y: [0, -18, 0], opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 3.5, repeat: Infinity, delay: p.d }}
-        />
-      ))}
+      {/* Responsive Ground Levitation Shadow */}
+      <motion.div
+        className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-[180px] sm:w-[220px] h-[32px] rounded-[50%] bg-[#3DB36B]/15 blur-lg pointer-events-none"
+        animate={{
+          scaleX: [0.85, 1.1, 0.85],
+          opacity: [0.4, 0.7, 0.4],
+        }}
+        transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
+      />
     </div>
   );
 }

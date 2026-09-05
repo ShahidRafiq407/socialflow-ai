@@ -57,7 +57,7 @@ export default function ContactPage() {
               rel="noopener noreferrer"
               className="group rounded-3xl mkt-glass p-8 hover:-translate-y-1.5 transition-all duration-300 block"
             >
-              <c.icon className="w-10 h-10 mb-5 text-[#48357B]" />
+              <c.icon className="w-10 h-10 mb-5 mkt-accent2-text" />
               <h2 className="text-xl font-bold mb-3">{c.title}</h2>
               <p className="text-sm mkt-faint leading-relaxed mb-6">{c.desc}</p>
               <span className="inline-flex items-center justify-center h-11 px-6 text-sm font-bold rounded-full bg-[#18713C] text-white group-hover:bg-[#1E8A47] transition-colors">

@@ -136,10 +136,10 @@
   --mkt-bg2: #0d120e;
   --mkt-surface: rgba(255, 255, 255, 0.04);
   --mkt-surface2: rgba(255, 255, 255, 0.08);
-  --mkt-border: rgba(255, 255, 255, 0.1);
+  --mkt-border: rgba(255, 255, 255, 0.12);
   --mkt-text: #ffffff;
-  --mkt-muted: #a8a29e;
-  --mkt-faint: #78716c;
+  --mkt-muted: #cbd5e1;
+  --mkt-faint: #94a3b8;
   --mkt-accent: #3db36b;
   --mkt-accent2: #8b6fd8;
   --mkt-glass-shine: rgba(255, 255, 255, 0.09);

@@ -27,7 +27,7 @@ export default function AboutPage() {
             </span>
           </h1>
           <p className="text-lg mkt-muted leading-relaxed max-w-2xl mx-auto">
-            PostloomAI is a product of <strong className="text-white">SMB Robotics</strong> —
+            PostloomAI is a product of <strong className="mkt-text">SMB Robotics</strong> —
             a technology company on a mission to put intelligent automation in the hands of
             every business, not just the giants.
           </p>
@@ -47,7 +47,7 @@ export default function AboutPage() {
             </p>
             <p className="mkt-muted leading-relaxed">
               When you talk to us — on WhatsApp, email or social media — you&apos;ll see the
-              SMB Robotics name and logo. Don&apos;t be confused: <strong className="text-white">PostloomAI
+              SMB Robotics name and logo. Don&apos;t be confused: <strong className="mkt-text">PostloomAI
               is our product</strong>, and SMB Robotics is the company behind it. Same team,
               same support, same commitment.
             </p>
