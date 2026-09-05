@@ -23,6 +23,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sweepExpiredHolds } from "@/lib/billing/wallet";
 import { unlockMaturedCommissions } from "@/lib/affiliate/referral";
+import { syncAllWorkspacesInsights } from "@/actions/insights";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,10 +51,22 @@ export async function GET(req: NextRequest) {
     console.log(`[Cron: billing-maintenance] unlocked ${unlocked} affiliate commission(s)`);
   }
 
+  // Daily platform-insights refresh (followers/impressions/engagement) for
+  // every workspace with connected accounts. Hobby allows only two cron
+  // routes, so this daily housekeeping run doubles as the sync schedule; the
+  // dashboard additionally refreshes stale snapshots on open.
+  let insights = { workspaces: 0, refreshed: 0 };
+  try {
+    insights = await syncAllWorkspacesInsights();
+  } catch (error) {
+    console.error("[Cron: billing-maintenance] platform insights sync failed:", error);
+  }
+
   return NextResponse.json({
     success: true,
     releasedHolds: released,
     unlockedCommissions: unlocked,
+    insights,
     ranAt: new Date().toISOString(),
   });
 }

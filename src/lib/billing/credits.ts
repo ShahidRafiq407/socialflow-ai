@@ -46,6 +46,7 @@ export interface WorkspaceCreditInfo {
   canGenerateVideo: boolean;
   maxSocialAccounts: number;
   connectedAccounts: number;
+  resetDate?: string | null;
 }
 
 /** What Free looks like, for the paths where nothing else is known. */
@@ -66,6 +67,7 @@ function freeInfo(connectedAccounts = 0): WorkspaceCreditInfo {
     canGenerateVideo: false,
     maxSocialAccounts: entitlements.socialAccountsPerWorkspace,
     connectedAccounts,
+    resetDate: null,
   };
 }
 
@@ -105,6 +107,7 @@ export async function getWorkspaceCreditInfo(workspaceId: string): Promise<Works
       canGenerateVideo: planHasFeature(context.plan, "media.video"),
       maxSocialAccounts: context.entitlements.socialAccountsPerWorkspace,
       connectedAccounts: accountCount,
+      resetDate: wallet.grantPeriodEnd ? wallet.grantPeriodEnd.toISOString() : null,
     };
   } catch (error) {
     console.warn("[getWorkspaceCreditInfo] falling back to Free", error);
