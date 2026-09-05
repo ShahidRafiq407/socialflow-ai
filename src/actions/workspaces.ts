@@ -99,22 +99,46 @@ function normalizeWebsite(raw: string): string {
  * constraint is on email, so a placeholder would otherwise be permanent.
  */
 async function ensureUserRow(userId: string): Promise<void> {
-  const existing = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-  if (existing) return;
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, avatar: true },
+  });
 
   const user = await currentUser().catch(() => null);
-  const email = user?.emailAddresses?.[0]?.emailAddress || `${userId}@placeholder.local`;
+  const email = user?.emailAddresses?.[0]?.emailAddress;
   const name = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : null;
+  const avatar = user?.imageUrl || null;
 
+  if (existing) {
+    if (
+      (existing.email.includes("@placeholder") && email) ||
+      (!existing.name && name) ||
+      (!existing.avatar && avatar)
+    ) {
+      await prisma.user
+        .update({
+          where: { id: userId },
+          data: {
+            ...(existing.email.includes("@placeholder") && email ? { email } : {}),
+            ...(!existing.name && name ? { name } : {}),
+            ...(!existing.avatar && avatar ? { avatar } : {}),
+          },
+        })
+        .catch(() => {});
+    }
+    return;
+  }
+
+  const fallbackEmail = email || `${userId}@placeholder.local`;
   try {
-    await prisma.user.create({ data: { id: userId, email, name } });
+    await prisma.user.create({ data: { id: userId, email: fallbackEmail, name, avatar } });
   } catch (err) {
     // P2002 = that email already belongs to another row. The login is still
     // valid, so fall back to an id-derived address rather than failing the
     // whole create.
     if ((err as { code?: string })?.code !== "P2002") throw err;
     await prisma.user.create({
-      data: { id: userId, email: `${userId}@placeholder.local`, name },
+      data: { id: userId, email: `${userId}@placeholder.local`, name, avatar },
     });
   }
 

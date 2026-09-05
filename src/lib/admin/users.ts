@@ -9,12 +9,74 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
+import { clerkClient } from "@clerk/nextjs/server";
 import { getPlanContext } from "@/lib/billing/entitlements";
 import { getWalletBalance, getLedgerEntries, type LedgerEntry, type WalletBalance } from "@/lib/billing/wallet";
 import { getUsageTotals, getUsageByFeature, getUsageByModel, type UsageTotals } from "@/lib/billing/meter";
 import type { PlanTier } from "@/lib/billing/plans";
 import { ensureAdminSchema } from "./schema";
 import { listAudit, type AuditRow } from "./audit";
+
+/**
+ * Reconciles local database user rows that have placeholder emails or missing
+ * profile info with their authoritative Clerk profile. Updates the database
+ * permanently so search, filtering, and table displays show real user data.
+ */
+async function healPlaceholderAccounts(userIds?: string[]): Promise<void> {
+  try {
+    const whereClause = userIds && userIds.length > 0
+      ? { id: { in: userIds } }
+      : {
+          OR: [
+            { email: { contains: "@placeholder" } },
+            { name: null },
+          ],
+        };
+
+    const candidates = await prisma.user.findMany({
+      where: whereClause,
+      select: { id: true, email: true, name: true, avatar: true },
+      take: 50,
+    });
+
+    if (candidates.length === 0) return;
+
+    const clerk = await clerkClient();
+    await Promise.allSettled(
+      candidates.map(async (c) => {
+        try {
+          const clerkUser = await clerk.users.getUser(c.id);
+          const realEmail = clerkUser?.emailAddresses?.[0]?.emailAddress;
+          const realName = clerkUser?.firstName
+            ? `${clerkUser.firstName} ${clerkUser.lastName || ""}`.trim()
+            : null;
+          const realAvatar = clerkUser?.imageUrl || null;
+
+          const needsUpdate =
+            (realEmail && c.email !== realEmail) ||
+            (realName && c.name !== realName) ||
+            (realAvatar && c.avatar !== realAvatar);
+
+          if (needsUpdate) {
+            await prisma.user.update({
+              where: { id: c.id },
+              data: {
+                ...(realEmail ? { email: realEmail } : {}),
+                ...(realName ? { name: realName } : {}),
+                ...(realAvatar ? { avatar: realAvatar } : {}),
+              },
+            }).catch(() => {});
+          }
+        } catch {
+          // Non-fatal if Clerk user was deleted or lookup fails
+        }
+      })
+    );
+  } catch (err) {
+    // Non-fatal if Clerk client is unavailable
+    console.warn("[admin-users] healPlaceholderAccounts error:", err);
+  }
+}
 
 export type UserSort = "newest" | "oldest" | "lastSeen" | "spend" | "balance";
 
@@ -53,6 +115,9 @@ export interface UserListResult {
 
 export async function listUsers(query: UserListQuery = {}): Promise<UserListResult> {
   await ensureAdminSchema();
+  // Heal placeholder accounts in DB so search and counts reflect real Clerk emails/names
+  await healPlaceholderAccounts();
+
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 25));
   const q = (query.q ?? "").trim();
@@ -118,6 +183,22 @@ export async function listUsers(query: UserListQuery = {}): Promise<UserListResu
         },
       }),
     ]);
+
+    // Ensure any returned rows with placeholder or missing details are healed immediately
+    const stillPlaceholder = rows.filter((r) => r.email.includes("@placeholder") || !r.name);
+    if (stillPlaceholder.length > 0) {
+      await healPlaceholderAccounts(stillPlaceholder.map((r) => r.id));
+      for (const r of stillPlaceholder) {
+        const fresh = await prisma.user
+          .findUnique({ where: { id: r.id }, select: { email: true, name: true, avatar: true } })
+          .catch(() => null);
+        if (fresh) {
+          r.email = fresh.email;
+          r.name = fresh.name;
+          r.avatar = fresh.avatar;
+        }
+      }
+    }
 
     return {
       total,
@@ -263,6 +344,18 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
     })
     .catch(() => null);
   if (!user) return null;
+
+  if (user.email.includes("@placeholder") || !user.name || !user.avatar) {
+    await healPlaceholderAccounts([userId]);
+    const fresh = await prisma.user
+      .findUnique({ where: { id: userId }, select: { email: true, name: true, avatar: true } })
+      .catch(() => null);
+    if (fresh) {
+      user.email = fresh.email;
+      user.name = fresh.name;
+      user.avatar = fresh.avatar;
+    }
+  }
 
   const since30 = new Date(Date.now() - 30 * 86_400_000);
   const [ctx, wallet, ledger, usage30d, usageByFeature, usageByModel, commissions, converted, audit] = await Promise.all([

@@ -1,6 +1,6 @@
 "use server";
 
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/db";
 import { checkWorkspaceLimit } from "@/lib/billing/entitlements";
@@ -27,23 +27,46 @@ export async function createWorkspaceAction(data: {
     throw new Error(gate.message ?? "Your plan does not include another workspace.");
   }
 
-  // Ensure user exists in our DB
+  // Ensure user exists in our DB with real Clerk profile details
   let user = await prisma.user.findUnique({
     where: { id: userId },
   });
 
+  const clerkUser = await currentUser().catch(() => null);
+  const realEmail = clerkUser?.emailAddresses?.[0]?.emailAddress || `${userId}@placeholder.com`;
+  const realName = clerkUser?.firstName
+    ? `${clerkUser.firstName} ${clerkUser.lastName || ""}`.trim()
+    : null;
+  const realAvatar = clerkUser?.imageUrl || null;
+
   if (!user) {
-    // If Clerk user doesn't exist in our DB, create them with minimal info
     user = await prisma.user.create({
       data: {
         id: userId,
-        email: `${userId}@placeholder.com`, // Placeholder email
+        email: realEmail,
+        name: realName,
+        avatar: realAvatar,
       },
     });
 
     // The moment the account is born is the only moment a referral can be
     // attributed to it. Idempotent, and never allowed to fail the signup.
     await attributeReferral(userId).catch(() => undefined);
+  } else if (
+    (user.email.includes("@placeholder") && !realEmail.includes("@placeholder")) ||
+    (!user.name && realName) ||
+    (!user.avatar && realAvatar)
+  ) {
+    user = await prisma.user
+      .update({
+        where: { id: userId },
+        data: {
+          ...(user.email.includes("@placeholder") && !realEmail.includes("@placeholder") ? { email: realEmail } : {}),
+          ...(!user.name && realName ? { name: realName } : {}),
+          ...(!user.avatar && realAvatar ? { avatar: realAvatar } : {}),
+        },
+      })
+      .catch(() => user);
   }
 
   const workspace = await prisma.$transaction(async (tx) => {

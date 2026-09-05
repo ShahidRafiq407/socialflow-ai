@@ -6,6 +6,7 @@ import { isAdminUser } from "@/lib/admin/auth";
 import { getAccountBlock } from "@/lib/admin/block";
 import { ensureRuntimeConfig, getFlags } from "@/lib/admin/runtimeConfig";
 import { touchLastSeen } from "@/lib/admin/presence";
+import prisma from "@/lib/db";
 
 export default async function DashboardLayout({
   children,
@@ -44,10 +45,35 @@ export default async function DashboardLayout({
         ]).catch(() => null),
       ]);
 
+      const primaryEmail = user?.emailAddresses?.[0]?.emailAddress || "";
+      const fullName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : null;
+      const avatarUrl = user?.imageUrl || null;
+
       userDetails = {
-        name: user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : "Shahid",
-        email: user?.emailAddresses?.[0]?.emailAddress || "",
+        name: fullName || "User",
+        email: primaryEmail,
       };
+
+      if (primaryEmail) {
+        // Auto-heal DB user record if it was born with placeholder or missing name/avatar
+        prisma.user
+          .updateMany({
+            where: {
+              id: userId,
+              OR: [
+                { email: { contains: "@placeholder" } },
+                { name: null },
+                { avatar: null },
+              ],
+            },
+            data: {
+              email: primaryEmail,
+              ...(fullName ? { name: fullName } : {}),
+              ...(avatarUrl ? { avatar: avatarUrl } : {}),
+            },
+          })
+          .catch(() => {});
+      }
 
       workspaces = context?.workspaces || [];
       activeWorkspaceId = context?.activeWorkspaceId ?? null;

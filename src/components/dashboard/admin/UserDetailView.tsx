@@ -120,20 +120,36 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
         <Link href="/adminshahid/users" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> All users
         </Link>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <h2 className="truncate text-lg font-bold">{user.email}</h2>
-          <PlanPill plan={user.plan?.effective ?? "FREE"} />
-          {user.role === "ADMIN" && (
-            <Badge variant="secondary" className="bg-primary/10 text-primary">
-              <ShieldCheck className="h-3 w-3" /> admin
-            </Badge>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          {user.avatar ? (
+            <img
+              src={user.avatar}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-full object-cover border border-slate-200 dark:border-slate-800"
+            />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              {((user.name || user.email)[0] || "U").toUpperCase()}
+            </div>
           )}
-          {blocked && (
-            <Badge variant="destructive">
-              <Ban className="h-3 w-3" /> blocked
-            </Badge>
-          )}
-          {isSelf && <Badge variant="outline">you</Badge>}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-lg font-bold">{user.name || user.email}</h2>
+              <PlanPill plan={user.plan?.effective ?? "FREE"} />
+              {user.role === "ADMIN" && (
+                <Badge variant="secondary" className="bg-primary/10 text-primary">
+                  <ShieldCheck className="h-3 w-3" /> admin
+                </Badge>
+              )}
+              {blocked && (
+                <Badge variant="destructive">
+                  <Ban className="h-3 w-3" /> blocked
+                </Badge>
+              )}
+              {isSelf && <Badge variant="outline">you</Badge>}
+            </div>
+            {user.name && <div className="text-xs text-muted-foreground">{user.email}</div>}
+          </div>
         </div>
       </div>
 
@@ -155,6 +171,7 @@ export function UserDetailView({ user, selfId }: { user: UserDetail; selfId: str
           <Section title="Account">
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               <KV label="Name">{user.name || "—"}</KV>
+              <KV label="Email">{user.email}</KV>
               <KV label="User id">
                 <span className="font-mono text-[11px]">{user.id}</span>
               </KV>
