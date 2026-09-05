@@ -31,7 +31,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import type { PlanTier } from "@/lib/billing/plans";
-import { PLAN_CATALOG, TOPUP_PACKS } from "@/lib/billing/plans";
+import { TOPUP_PACKS } from "@/lib/billing/plans";
 import {
   readEventFacts,
   verifyWebhookSignature,
@@ -41,12 +41,15 @@ import {
   getSubscription,
   factsFromSubscription,
   isHandledEvent,
-  TRIAL_PRICE_CENTS,
   type BillingCycleValue,
   type LemonEventFacts,
   type LemonWebhookPayload,
-  type PurchaseKind,
 } from "@/lib/billing/lemonsqueezy";
+// The money rules — what was bought, whether the event may name the plan it names,
+// and whether an order starts a trial. They live outside this file because a route
+// handler may only export its HTTP methods, and rules this expensive to get wrong
+// need tests. See `tests/lib/billingWebhookRules.test.ts`.
+import { purchaseKind, trustPlan, trialGrantDecision } from "@/lib/billing/webhookRules";
 import {
   syncPeriodGrant,
   applyPlanChangeGrant,
@@ -414,93 +417,9 @@ interface ApplyResult {
   summary: string;
 }
 
-/**
- * What was bought, with the checkout's own word for it as the fallback.
- *
- * `facts.purchase` is the trustworthy answer — it means the variant on the payload
- * is one we configured. But an order for the $1 trial produces no subscription
- * event, so if the variant ids have not been filled in and we ignore the order too,
- * a customer pays and receives nothing at all. So the checkout's stated purpose is
- * allowed to route the event, and the money is checked before anything is granted.
- */
-function purchaseKind(facts: LemonEventFacts): PurchaseKind | null {
-  if (facts.purchase !== null) return facts.purchase.kind;
-  if (facts.custom.purpose === "TRIAL" || facts.custom.intent === "trial") return "trial";
-  if (facts.custom.purpose === "TOPUP" || facts.custom.packId !== null) return "topup";
-  return null;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Is this event allowed to name a plan?
-//
-// `readEventFacts` will fall back to `custom_data.purpose` when the variant id on
-// the payload is not one we have configured. That fallback is load-bearing — it is
-// how a checkout built by hand still finds its plan — and it is also the one place
-// a buyer has any say over what they are granted, because `custom_data` travels in
-// the checkout URL and can be edited before paying.
-//
-// So a plan that came from custom data alone has to agree with the money. A variant
-// we recognise needs no such check: the price is the product's, set in the Lemon
-// Squeezy dashboard, and nothing in the URL can change it.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** A plan's list price for one cycle, in USD cents. */
-function listPriceCents(plan: PlanTier, cycle: BillingCycleValue): number | null {
-  const config = PLAN_CATALOG[plan];
-  if (!config) return null;
-  if (config.oneTimePrice !== undefined) return Math.round(config.oneTimePrice * 100);
-  const dollars = cycle === "yearly" ? config.priceYearly : config.priceMonthly;
-  return dollars > 0 ? Math.round(dollars * 100) : null;
-}
-
-/**
- * Half price, as the floor.
- *
- * Not the exact price: Lemon Squeezy's `total` is after any discount code we chose
- * to issue, so an exact match would refuse our own promotions. Half is loose enough
- * for a real launch discount and nowhere near loose enough for the attack this
- * guards against, which is paying the $1 trial and claiming Agency.
- */
-const PRICE_FLOOR_RATIO = 0.5;
-
-type PlanTrust = { ok: true } | { ok: false; summary: string };
-
-function trustPlan(facts: LemonEventFacts): PlanTrust {
-  // The variant is one of ours: whatever it charges is what it charges.
-  if (facts.purchase !== null) return { ok: true };
-  // Nothing claimed, nothing to abuse. `reconcileSubscription` uses the stored plan.
-  if (facts.plan === null || facts.plan === "FREE") return { ok: true };
-
-  const claimed = facts.plan;
-  const cycle = facts.cycle ?? "monthly";
-  const expected = listPriceCents(claimed, cycle);
-  const paid = facts.amountUsdCents ?? facts.amountCents;
-
-  if (paid === null) {
-    // A subscription event carries no total, so there is nothing to check it
-    // against. Refusing means Lemon Squeezy retries, and a retry is also another
-    // chance for the variant lookup to succeed and settle this properly.
-    return {
-      ok: false,
-      summary: `Variant ${facts.variantId ?? "?"} is not one of ours, so "${claimed}" is only what the checkout claimed. Set the variant ids and this will settle on retry.`,
-    };
-  }
-
-  if (expected !== null && paid + 1 < Math.round(expected * PRICE_FLOOR_RATIO)) {
-    return {
-      ok: false,
-      summary: `Refused: the checkout claimed ${claimed} (${cycle}, list $${(expected / 100).toFixed(2)}) but only $${(paid / 100).toFixed(2)} was charged.`,
-    };
-  }
-
-  console.warn(
-    "[ls-webhook] plan taken from custom_data, checked against the amount paid:",
-    claimed,
-    cycle,
-    paid
-  );
-  return { ok: true };
-}
+// `purchaseKind`, `trustPlan` and `trialGrantDecision` are in
+// `@/lib/billing/webhookRules`. Read them there — they are the rules that decide
+// what a payment is worth, and they are covered by tests.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The $1 trial
@@ -517,49 +436,16 @@ function trustPlan(facts: LemonEventFacts): PlanTrust {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function applyTrialOrder(userId: string, facts: LemonEventFacts): Promise<ApplyResult> {
-  const expected = listPriceCents("TRIAL", "monthly") ?? TRIAL_PRICE_CENTS;
-  const paid = facts.amountUsdCents ?? facts.amountCents;
-
-  // Underpaying is the only way this is worth attacking, so only that is refused.
-  // Paying more — sales tax on top, a rounded-up currency conversion — is fine.
-  if (paid === null || paid + 2 < expected) {
-    return {
-      applied: false,
-      summary: `Refused: a trial order should charge $${(expected / 100).toFixed(2)} but this one was $${paid === null ? "?" : (paid / 100).toFixed(2)}.`,
-    };
-  }
-
   const existing = await prisma.subscription.findUnique({
     where: { userId },
     select: { plan: true, lsSubscriptionId: true, lsOrderId: true, trialEndsAt: true },
   });
 
-  // A real subscription must never be overwritten by a $1 order. Anyone who buys
-  // the trial while subscribed keeps what they are paying for, and the order is
-  // recorded so it can be refunded by hand.
-  if (existing?.lsSubscriptionId) {
-    return {
-      applied: true,
-      summary: "Trial order recorded, but this account already has a subscription, so nothing changed.",
-    };
-  }
+  const decision = trialGrantDecision(facts, existing, new Date());
+  if (decision.kind === "refuse") return { applied: false, summary: decision.summary };
+  if (decision.kind === "noop") return { applied: true, summary: decision.summary };
 
-  // One per person. Keyed on the order id rather than on a claim row so that a
-  // redelivery of THIS order still applies (and grants nothing extra, because the
-  // period grant is keyed on the period start), while a second, later trial does
-  // not.
-  const already =
-    existing?.plan === "TRIAL" && existing.lsOrderId !== null && existing.lsOrderId !== facts.orderId;
-  if (already) {
-    return {
-      applied: true,
-      summary: "Trial order recorded; this account has already had its trial, so no new period was granted.",
-    };
-  }
-
-  const startedAt = facts.createdAt ?? new Date();
-  const days = PLAN_CATALOG.TRIAL.trialDays ?? 3;
-  const endsAt = new Date(startedAt.getTime() + days * 24 * 60 * 60_000);
+  const { startedAt, endsAt, days } = decision;
 
   // Read by `resolvePeriod` as a trial period: three days, TRIAL's allowance, and
   // no renewal date, which is what stops it looking like a monthly plan.
@@ -594,6 +480,10 @@ async function applyTrialOrder(userId: string, facts: LemonEventFacts): Promise<
         : `Trial recorded; the allowance for this period was already granted`,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A refunded trial
+// ─────────────────────────────────────────────────────────────────────────────
 
 /** A refunded trial ends it there and then. */
 async function revokeTrial(userId: string, facts: LemonEventFacts): Promise<ApplyResult> {
