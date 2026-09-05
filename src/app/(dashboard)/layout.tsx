@@ -1,5 +1,6 @@
 import React from "react";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
+import { ConfigSync } from "@/components/dashboard/ConfigSync";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getWorkspaceContext } from "@/lib/workspace/active";
 import { isAdminUser } from "@/lib/admin/auth";
@@ -98,6 +99,8 @@ export default async function DashboardLayout({
       accountBlock={block}
       maintenanceMessage={maintenance}
     >
+      {/* Watches for admin changes so an open tab never serves a stale catalogue. */}
+      {userId && <ConfigSync />}
       {children}
     </DashboardShell>
   );

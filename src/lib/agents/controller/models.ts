@@ -60,6 +60,14 @@ export interface ChatModelInfo {
   kind?: string;
   /** True for rows the admin created, so the screen can say where it came from. */
   custom?: boolean;
+  /**
+   * Which model company serves it — a `ProviderSpec.id` from the provider
+   * registry. Undefined means the built-in Google path. Safe to send to the
+   * browser: it is a vendor label, never a credential or an endpoint.
+   */
+  provider?: string;
+  /** Context size in tokens, for display next to the model. */
+  contextWindow?: number;
   /** List price, for the admin cost view and the meter. */
   rate?: ChatModelRate;
   sortOrder?: number;
@@ -115,9 +123,16 @@ export function setChatModelCatalog(custom: ChatModelInfo[], preferredDefaultId?
     (a, b) => (a.sortOrder ?? 100) - (b.sortOrder ?? 100) || a.label.localeCompare(b.label)
   );
 
-  const preferred = preferredDefaultId && byId.has(preferredDefaultId) ? preferredDefaultId : null;
+  // A default has to be selectable. An admin can pin CHAT_CONTROLLER to a row and
+  // later disable it for chat (or switch it to an image model); honouring that
+  // pick would make `getDefaultChatModelId()` name a model the picker never shows
+  // and `isKnownChatModel` rejects, so every new chat would start on a model it
+  // is not allowed to use.
+  const preferredRow = preferredDefaultId ? byId.get(preferredDefaultId) : undefined;
+  const preferred = preferredRow && isPickable(preferredRow) ? preferredRow.id : null;
   const flagged = list.find((m) => m.recommended && m.custom && isPickable(m))?.id ?? null;
-  const next = preferred ?? flagged ?? CONTROLLER_MODEL_ID;
+  const firstPickable = list.find(isPickable)?.id ?? null;
+  const next = preferred ?? flagged ?? firstPickable ?? CONTROLLER_MODEL_ID;
 
   catalog = list.map((m) => ({ ...m, recommended: m.id === next }));
   defaultId = next;
@@ -189,6 +204,10 @@ export function serializeChatModels(): ChatModelInfo[] {
     minPlan: m.minPlan,
     kind: m.kind ?? "text",
     custom: m.custom,
+    // Vendor label and context size: the settings panel shows both, and neither
+    // is a credential or an endpoint.
+    provider: m.provider,
+    contextWindow: m.contextWindow,
     sortOrder: m.sortOrder,
   }));
 }

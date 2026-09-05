@@ -21,8 +21,8 @@ import {
   MODEL_ROLE_KEYS,
   SecretStorageError,
   deleteSetting,
+  ensureRuntimeConfig,
   getFlags,
-  getPlanOverrides,
   maskValue,
   refreshRuntimeConfig,
   setSetting,
@@ -30,9 +30,21 @@ import {
   type AffiliateTerms,
 } from "@/lib/admin/runtimeConfig";
 import { purgeUserData } from "@/lib/account/purge";
+import { forgetConfigRevision } from "@/lib/admin/revision";
+import { providerSpec } from "@/lib/providers/registry";
+import { testModel, type ProviderTestResult } from "@/lib/providers/gateway";
+import { defaultRoleModel, type ModelRole } from "@/lib/agents/llm";
+import { isKnownModel } from "@/lib/billing/modelPricing";
 import { adjustCredits, syncPeriodGrant } from "@/lib/billing/wallet";
-import { getPlanContext } from "@/lib/billing/entitlements";
-import { FEATURE_KEYS, PLAN_TIERS, isPlanTier, type PlanOverride, type PlanTier } from "@/lib/billing/plans";
+import { getPlanContext, effectivePlanFor } from "@/lib/billing/entitlements";
+import {
+  FEATURE_KEYS,
+  PLAN_TIERS,
+  isPlanTier,
+  type PlanOverride,
+  type PlanOverrides,
+  type PlanTier,
+} from "@/lib/billing/plans";
 import { ensureAdminSchema } from "@/lib/admin/schema";
 
 type Result<T = object> = ({ success: true } & T) | { success: false; error: string };
@@ -42,6 +54,18 @@ function fail(err: unknown): { success: false; error: string } {
   if (err instanceof z.ZodError) return { success: false, error: err.issues[0]?.message || "Invalid input." };
   console.error("[admin-action]", err);
   return { success: false, error: err instanceof Error ? err.message : "Something went wrong." };
+}
+
+/**
+ * An admin write that users can see. Drops the derived config revision so the
+ * next poll from any open tab notices immediately instead of within its memo
+ * window, and invalidates the server-rendered dashboard shell (sidebar plan
+ * badge, credit counter, maintenance banner) so a `router.refresh()` on the
+ * client actually returns new HTML.
+ */
+function publishToUsers(): void {
+  forgetConfigRevision();
+  revalidatePath("/dashboard", "layout");
 }
 
 const userIdSchema = z.string().trim().min(1).max(120);
@@ -242,7 +266,16 @@ export async function setUserPlanAction(input: {
     if (data.plan === "FREE") {
       await prisma.subscription.upsert({
         where: { userId: data.userId },
-        create: { userId: data.userId, plan: "FREE", status: "NONE", periodStart: now, periodEnd },
+        create: {
+          userId: data.userId,
+          plan: "FREE",
+          status: "NONE",
+          periodStart: now,
+          periodEnd,
+          endsAt: now,
+          cancelAtPeriodEnd: false,
+          trialEndsAt: null,
+        },
         update: {
           plan: "FREE",
           status: "NONE",
@@ -252,31 +285,26 @@ export async function setUserPlanAction(input: {
         },
       });
     } else {
+      // Create and update have to agree. They did not: a first-time row stored
+      // plan=TRIAL while an existing row was rewritten to GO, so the same support
+      // action produced two different rows and the two read back differently on
+      // any screen that shows the stored tier.
+      const storedPlan = data.plan;
+      const status = data.plan === "TRIAL" ? "TRIALING" : "ACTIVE";
+      const shape = {
+        plan: storedPlan,
+        status,
+        periodStart: now,
+        periodEnd,
+        trialEndsAt: data.plan === "TRIAL" ? periodEnd : null,
+        endsAt: null,
+        cancelAtPeriodEnd: false,
+        testMode: false,
+      } as const;
       await prisma.subscription.upsert({
         where: { userId: data.userId },
-        create: {
-          userId: data.userId,
-          plan: data.plan,
-          status: data.plan === "TRIAL" ? "TRIALING" : "ACTIVE",
-          cycle: "MONTHLY",
-          periodStart: now,
-          periodEnd,
-          trialEndsAt: data.plan === "TRIAL" ? periodEnd : null,
-          renewsAt: null,
-          endsAt: null,
-          cancelAtPeriodEnd: false,
-          testMode: false,
-        },
-        update: {
-          plan: data.plan === "TRIAL" ? "GO" : data.plan,
-          status: data.plan === "TRIAL" ? "TRIALING" : "ACTIVE",
-          periodStart: now,
-          periodEnd,
-          trialEndsAt: data.plan === "TRIAL" ? periodEnd : null,
-          endsAt: null,
-          cancelAtPeriodEnd: false,
-          testMode: false,
-        },
+        create: { userId: data.userId, cycle: "MONTHLY", renewsAt: null, ...shape },
+        update: { ...shape },
       });
 
       if (data.grantCredits !== false) {
@@ -310,6 +338,8 @@ export async function setUserPlanAction(input: {
     });
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");
+    // The user's own sidebar badge, credit counter and billing page read this.
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -416,36 +446,59 @@ export async function sendSegmentNotificationAction(input: {
     const data = noticeSchema.extend({ plan: z.enum([...PLAN_TIERS, "ALL", "PAID"]) }).parse(input);
     await ensureAdminSchema();
 
-    const where =
-      data.plan === "ALL"
+    // Coarse filter in SQL, exact tier in code. Classifying on the stored enums
+    // alone sent "your Pro plan" to accounts whose period ended months ago, and
+    // dropped an expired paid account out of the Free segment too — so a lapsed
+    // user was in no segment at all. `effectivePlanFor` is the same decision the
+    // dashboard, the user list and the entitlements use.
+    const GRANTING_STATUSES = ["TRIALING", "ACTIVE", "PAST_DUE", "CANCELLED"];
+    const coarse =
+      data.plan === "ALL" || data.plan === "FREE"
         ? { blockedAt: null }
-        : data.plan === "PAID"
-          ? { blockedAt: null, subscription: { status: { in: ["ACTIVE", "PAST_DUE", "CANCELLED"] }, plan: { in: ["GO", "PRO", "AGENCY"] } } }
-          : data.plan === "FREE"
-            ? { blockedAt: null, OR: [{ subscription: null }, { subscription: { status: { in: ["NONE", "EXPIRED", "UNPAID", "PAUSED"] } } }] }
-            : data.plan === "TRIAL"
-              ? { blockedAt: null, subscription: { status: "TRIALING" } }
-              : { blockedAt: null, subscription: { plan: data.plan, status: { in: ["ACTIVE", "PAST_DUE", "CANCELLED"] } } };
+        : { blockedAt: null, subscription: { status: { in: GRANTING_STATUSES } } };
 
-    const users = await prisma.user.findMany({ where: where as never, select: { id: true } });
-    if (users.length === 0) return { success: true, sent: 0 };
-
-    const created = await prisma.userNotification.createMany({
-      data: users.map((u) => ({
-        userId: u.id,
-        tone: data.tone,
-        title: data.title,
-        body: data.body || null,
-        href: data.href || null,
-        linkLabel: data.href ? data.linkLabel || null : null,
-        sentBy: admin.userId,
-      })),
+    const candidates = await prisma.user.findMany({
+      where: coarse as never,
+      select: {
+        id: true,
+        subscription: {
+          select: { plan: true, status: true, periodEnd: true, trialEndsAt: true, endsAt: true, testMode: true },
+        },
+      },
     });
+
+    const now = new Date();
+    const recipients = candidates
+      .filter((u) => {
+        if (data.plan === "ALL") return true;
+        const tier = effectivePlanFor(u.subscription, now);
+        if (data.plan === "PAID") return tier !== "FREE" && tier !== "TRIAL";
+        return tier === data.plan;
+      })
+      .map((u) => u.id);
+
+    if (recipients.length === 0) return { success: true, sent: 0 };
+
+    let sent = 0;
+    for (let i = 0; i < recipients.length; i += 500) {
+      const created = await prisma.userNotification.createMany({
+        data: recipients.slice(i, i + 500).map((userId) => ({
+          userId,
+          tone: data.tone,
+          title: data.title,
+          body: data.body || null,
+          href: data.href || null,
+          linkLabel: data.href ? data.linkLabel || null : null,
+          sentBy: admin.userId,
+        })),
+      });
+      sent += created.count;
+    }
     await recordAudit(admin, {
       action: "notification.segment",
-      details: { segment: data.plan, recipients: created.count, title: data.title, tone: data.tone },
+      details: { segment: data.plan, recipients: sent, title: data.title, tone: data.tone },
     });
-    return { success: true, sent: created.count };
+    return { success: true, sent };
   } catch (err) {
     return fail(err);
   }
@@ -454,6 +507,21 @@ export async function sendSegmentNotificationAction(input: {
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * True when this id is something the platform can already route to without a
+ * custom row: a priced entry on the rate card, or the code default for a role.
+ */
+function isBuiltInModelId(id: string): boolean {
+  if (isKnownModel(id)) return true;
+  return MODEL_ROLE_KEYS.some((role) => {
+    try {
+      return defaultRoleModel(role as ModelRole) === id;
+    } catch {
+      return false;
+    }
+  });
+}
 
 const modelSchema = z.object({
   id: z
@@ -465,6 +533,16 @@ const modelSchema = z.object({
   label: z.string().trim().min(1).max(80),
   blurb: z.string().trim().max(300).optional(),
   provider: z.string().trim().max(40).default("vertex"),
+  baseUrl: z
+    .string()
+    .trim()
+    .max(512)
+    .refine((v) => !v || /^https?:\/\//i.test(v), "The base URL must start with http:// or https://.")
+    .nullable()
+    .optional(),
+  apiKeyRef: z.string().trim().max(80).nullable().optional(),
+  contextWindow: z.number().int().min(0).max(20_000_000).nullable().optional(),
+  maxOutputTokens: z.number().int().min(0).max(1_000_000).nullable().optional(),
   kind: z.enum(["text", "image", "video", "embed"]).default("text"),
   inputPerMTok: z.number().min(0).max(10_000).default(0),
   outputPerMTok: z.number().min(0).max(10_000).default(0),
@@ -484,27 +562,147 @@ const modelSchema = z.object({
 
 export type AdminModelInput = z.input<typeof modelSchema>;
 
-export async function upsertModelAction(input: AdminModelInput): Promise<Result> {
+/**
+ * Normalises a parsed row into what the database stores. A blank base URL or key
+ * reference becomes NULL rather than "", so `resolveConfig` falls back to the
+ * provider's registry default instead of treating an empty string as an override.
+ */
+function modelRowData(data: z.output<typeof modelSchema>) {
+  const spec = providerSpec(data.provider);
+  return {
+    ...data,
+    blurb: data.blurb || null,
+    // The built-in Google path has no endpoint and no key of its own.
+    baseUrl: spec.wire === "vertex" ? null : data.baseUrl?.trim().replace(/\/+$/, "") || null,
+    apiKeyRef: spec.wire === "vertex" ? null : data.apiKeyRef?.trim() || null,
+    contextWindow: data.contextWindow ?? null,
+    maxOutputTokens: data.maxOutputTokens ?? null,
+  };
+}
+
+export async function upsertModelAction(
+  input: AdminModelInput & { originalId?: string | null }
+): Promise<Result> {
   try {
     const admin = await requireAdmin();
     const data = modelSchema.parse(input);
+    const originalId = typeof input?.originalId === "string" ? input.originalId.trim() : "";
+    // An edit that changed the id is a rename, not a new row: without this the
+    // upsert creates a duplicate and the old row stays enabled in the picker.
+    const renamingFrom = originalId && originalId !== data.id ? originalId : null;
     await ensureAdminSchema();
 
-    if (data.isDefaultChat) {
-      await prisma.aiModel.updateMany({ where: { isDefaultChat: true, NOT: { id: data.id } }, data: { isDefaultChat: false } });
+    const spec = providerSpec(data.provider);
+    if (spec.requiresBaseUrl && !data.baseUrl?.trim()) {
+      throw new Error(`${spec.label} has no default endpoint. Enter the base URL for your deployment.`);
     }
-    await prisma.aiModel.upsert({
-      where: { id: data.id },
-      create: { ...data, blurb: data.blurb || null, createdBy: admin.userId, archived: false },
-      update: { ...data, blurb: data.blurb || null, archived: false },
+    if (spec.wire !== "vertex" && !spec.baseUrl && !data.baseUrl?.trim()) {
+      throw new Error(`${spec.label} needs a base URL.`);
+    }
+    // A chat row with no price and no per-token rate would be metered at zero.
+    if (data.enabledForChat && data.kind === "text") {
+      const hasRate = data.inputPerMTok > 0 || data.outputPerMTok > 0;
+      const hasFlat = typeof data.chatCredits === "number" && data.chatCredits > 0;
+      if (!hasRate && !hasFlat) {
+        throw new Error(
+          "A model users can pick needs a price: set the per-million-token rates, or a flat credits-per-turn."
+        );
+      }
+    }
+    if (renamingFrom) {
+      const collision = await prisma.aiModel.findUnique({ where: { id: data.id }, select: { id: true } });
+      if (collision) throw new Error(`A model with the id "${data.id}" already exists.`);
+    }
+
+    const row = modelRowData(data);
+    await prisma.$transaction(async (tx) => {
+      if (renamingFrom) {
+        // Carry the created-by and the archive state across, then drop the old id.
+        const previous = await tx.aiModel.findUnique({ where: { id: renamingFrom } });
+        await tx.aiModel.create({
+          data: { ...row, createdBy: previous?.createdBy || admin.userId, archived: false },
+        });
+        await tx.aiModel.delete({ where: { id: renamingFrom } }).catch(() => undefined);
+      } else {
+        await tx.aiModel.upsert({
+          where: { id: data.id },
+          create: { ...row, createdBy: admin.userId, archived: false },
+          update: { ...row, archived: false },
+        });
+      }
+      if (data.isDefaultChat) {
+        await tx.aiModel.updateMany({
+          where: { isDefaultChat: true, NOT: { id: data.id } },
+          data: { isDefaultChat: false },
+        });
+      }
     });
-    if (data.isDefaultChat && data.enabledForChat) {
-      await setSetting("ai.model.CHAT_CONTROLLER", data.id, { updatedBy: admin.userId });
+
+    // Role pointers are settings, not foreign keys, so a rename has to move them
+    // or every role pinned to the old id silently falls back to its code default.
+    if (renamingFrom) {
+      for (const role of MODEL_ROLE_KEYS) {
+        const current = await prisma.appSetting.findUnique({ where: { key: `ai.model.${role}` } });
+        if (current && current.value === renamingFrom) {
+          await setSetting(`ai.model.${role}`, data.id, { updatedBy: admin.userId });
+        }
+      }
     }
+
+    // Keep the CHAT_CONTROLLER pointer honest in both directions. Only writing it
+    // when the box is ticked left a stale pointer behind when it was unticked, and
+    // the picker would then default to a model it no longer offers.
+    const chatDefaultKey = "ai.model.CHAT_CONTROLLER";
+    if (data.isDefaultChat && data.enabledForChat && data.kind === "text") {
+      await setSetting(chatDefaultKey, data.id, { updatedBy: admin.userId });
+    } else {
+      const pointer = await prisma.appSetting.findUnique({ where: { key: chatDefaultKey } });
+      if (pointer && (pointer.value === data.id || (renamingFrom && pointer.value === renamingFrom))) {
+        await deleteSetting(chatDefaultKey);
+      }
+    }
+    // A row that is no longer the default must not keep the column set either.
+    if (!data.isDefaultChat) {
+      await prisma.aiModel
+        .updateMany({ where: { id: data.id, isDefaultChat: true }, data: { isDefaultChat: false } })
+        .catch(() => undefined);
+    }
+
     await refreshRuntimeConfig();
-    await recordAudit(admin, { action: "model.upsert", targetType: "model", targetId: data.id, details: { ...data } });
+    await recordAudit(admin, {
+      action: renamingFrom ? "model.rename" : "model.upsert",
+      targetType: "model",
+      targetId: data.id,
+      details: { ...row, ...(renamingFrom ? { renamedFrom: renamingFrom } : {}) },
+    });
     revalidatePath("/adminshahid/models");
+    // The chat surface reads the catalogue, so it has to be told as well.
+    publishToUsers();
     return { success: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Sends one real, minimal request to the vendor so a misconfigured row is caught
+ * on this screen instead of by a user mid-conversation. Never persists anything.
+ */
+export async function testModelAction(input: AdminModelInput): Promise<Result<{ test: ProviderTestResult }>> {
+  try {
+    await requireAdmin();
+    const data = modelSchema.parse(input);
+    // The gateway resolves credentials through the runtime-config key resolver,
+    // which is only installed once the cache has loaded at least once.
+    await ensureRuntimeConfig();
+    const test = await testModel({
+      modelId: data.id,
+      provider: data.provider,
+      baseUrl: data.baseUrl ?? null,
+      apiKeyRef: data.apiKeyRef ?? null,
+      maxOutputTokens: data.maxOutputTokens ?? null,
+    });
+    return { success: true, test };
   } catch (err) {
     return fail(err);
   }
@@ -524,6 +722,7 @@ export async function archiveModelAction(input: { id: string }): Promise<Result>
     await refreshRuntimeConfig();
     await recordAudit(admin, { action: "model.archive", targetType: "model", targetId: data.id });
     revalidatePath("/adminshahid/models");
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -537,12 +736,40 @@ export async function setRoleModelAction(input: { role: string; modelId: string 
       .object({ role: z.enum(MODEL_ROLE_KEYS), modelId: z.string().trim().min(1).max(120).nullable() })
       .parse(input);
     if (data.modelId) {
+      // A typo here used to be accepted and then failed at request time, once per
+      // user turn, with a vendor 404. Check the id is something we can actually
+      // route to before pinning a role to it.
+      await ensureAdminSchema();
+      const row = await prisma.aiModel
+        .findUnique({ where: { id: data.modelId }, select: { archived: true, kind: true, enabledForChat: true } })
+        .catch(() => null);
+      const builtIn = !row && isBuiltInModelId(data.modelId);
+      if (!row && !builtIn) {
+        throw new Error(`No model with the id "${data.modelId}". Add it under Models first.`);
+      }
+      if (row?.archived) {
+        throw new Error(`"${data.modelId}" is archived. Restore it before assigning it to a role.`);
+      }
+      // The chat picker only ever offers text models it is allowed to show, so a
+      // controller pinned to an image row or a chat-disabled row is unusable.
+      if (data.role === "CHAT_CONTROLLER" && row) {
+        if (row.kind !== "text") {
+          throw new Error(`"${data.modelId}" is a ${row.kind} model. The chat controller has to be a text model.`);
+        }
+        if (!row.enabledForChat) {
+          throw new Error(`"${data.modelId}" is not enabled for chat. Tick "available in chat" on it first.`);
+        }
+      }
       await setSetting(`ai.model.${data.role}`, data.modelId, { updatedBy: admin.userId });
     } else {
       await deleteSetting(`ai.model.${data.role}`);
     }
+    // CHAT_CONTROLLER is the default the picker shows; the catalogue has to be
+    // rebuilt for `setChatModelCatalog` to learn the new default.
+    await refreshRuntimeConfig();
     await recordAudit(admin, { action: "model.role", targetType: "setting", targetId: `ai.model.${data.role}`, details: { modelId: data.modelId } });
     revalidatePath("/adminshahid/models");
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -566,6 +793,8 @@ export async function setManagedKeyAction(input: { name: string; value: string }
     } else {
       await setSetting(`keys.${spec.name}`, value, { secret: spec.secret, updatedBy: admin.userId });
     }
+    // A provider key just changed, so the gateway's cached clients are stale.
+    await refreshRuntimeConfig();
     await recordAudit(admin, {
       action: value ? "key.set" : "key.clear",
       targetType: "key",
@@ -573,6 +802,7 @@ export async function setManagedKeyAction(input: { name: string; value: string }
       details: { preview: value ? (spec.secret ? maskValue(value) : value) : null },
     });
     revalidatePath("/adminshahid/keys");
+    forgetConfigRevision();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -601,26 +831,64 @@ const planOverrideSchema = z.object({
   caps: z.record(z.string(), z.number().int().min(-1)).optional(),
 });
 
+/**
+ * The authoritative value of a shared settings map, read straight from the row.
+ *
+ * Several settings are one JSON blob holding every tier or every flag, and the
+ * actions that edit one member have to merge into the rest. Merging into
+ * `peekSetting()` is not safe: a server action POST is its own request and can
+ * land on an instance whose module cache was never warmed, in which case the
+ * merge base is `{}` and the write deletes every other member. A read of the
+ * row itself cannot be cold or stale.
+ */
+async function authoritativeMap<T extends object>(key: string): Promise<T> {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { key }, select: { value: true } });
+    const value = row?.value;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as T) : ({} as T);
+  } catch {
+    // Falling back to the cache is still better than starting from nothing, and
+    // `setSetting` below would fail on the same database anyway.
+    return {} as T;
+  }
+}
+
 export async function savePlanOverrideAction(input: { plan: PlanTier; override: PlanOverride | null }): Promise<Result> {
   try {
     const admin = await requireAdmin();
     if (!isPlanTier(input?.plan)) return { success: false, error: "Unknown plan." };
     const override = input.override === null ? null : planOverrideSchema.parse(input.override);
 
-    const current = { ...getPlanOverrides() };
+    // All five tiers share one row, so the merge base has to be the row.
+    const current = { ...(await authoritativeMap<PlanOverrides>("billing.plans")) };
     if (override === null || Object.keys(override).length === 0) {
       delete current[input.plan];
     } else {
-      const caps: Record<string, number> = {};
-      for (const [key, value] of Object.entries(override.caps ?? {})) {
-        if ((FEATURE_KEYS as readonly string[]).includes(key)) caps[key] = value;
+      // Only touch `caps` when the editor actually sent caps. Writing `caps: {}`
+      // for a price-only edit would read back as "this tier has no ceilings",
+      // which turns every metered feature on that plan unlimited.
+      let caps: PlanOverride["caps"] | undefined;
+      if (override.caps !== undefined) {
+        const filtered: Record<string, number> = {};
+        for (const [key, value] of Object.entries(override.caps)) {
+          if ((FEATURE_KEYS as readonly string[]).includes(key)) filtered[key] = value;
+        }
+        caps = filtered as PlanOverride["caps"];
       }
-      current[input.plan] = { ...override, caps: caps as PlanOverride["caps"] } as PlanOverride;
+      const previous = current[input.plan];
+      current[input.plan] = {
+        ...override,
+        // A tier that already had caps keeps them through an unrelated edit.
+        ...(caps !== undefined ? { caps } : previous?.caps ? { caps: previous.caps } : {}),
+      } as PlanOverride;
     }
     await setSetting("billing.plans", current as never, { updatedBy: admin.userId });
     await recordAudit(admin, { action: "plan.override", targetType: "plan", targetId: input.plan, details: { override } });
     revalidatePath("/adminshahid/plans");
     revalidatePath("/dashboard/billing");
+    revalidatePath("/pricing");
+    revalidatePath("/", "layout");
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -640,11 +908,15 @@ const flagsSchema = z.object({
 export async function saveFlagsAction(input: FeatureFlags): Promise<Result> {
   try {
     const admin = await requireAdmin();
-    const data = flagsSchema.parse({ ...getFlags(), ...input });
+    // The editor posts every flag, but merging into the stored row as well means
+    // a future flag added by a newer deploy is not dropped by an older tab.
+    const stored = await authoritativeMap<Partial<FeatureFlags>>("flags");
+    const data = flagsSchema.parse({ ...getFlags(), ...stored, ...input });
     await setSetting("flags", data, { updatedBy: admin.userId });
     await recordAudit(admin, { action: "flags.update", targetType: "setting", targetId: "flags", details: data });
     revalidatePath("/adminshahid/settings");
-    revalidatePath("/dashboard", "layout");
+    revalidatePath("/", "layout");
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -666,6 +938,7 @@ export async function saveAffiliateTermsAction(input: AffiliateTerms): Promise<R
     await recordAudit(admin, { action: "affiliate.terms", targetType: "setting", targetId: "affiliate.terms", details: data });
     revalidatePath("/adminshahid/affiliate");
     revalidatePath("/dashboard/affiliate");
+    publishToUsers();
     return { success: true };
   } catch (err) {
     return fail(err);
@@ -725,7 +998,9 @@ export async function triageFeedbackAction(input: {
       where: { id: data.id },
       data: {
         status: data.status,
-        adminNote: data.adminNote ?? undefined,
+        // An empty box means "clear the note", which is a null column rather than
+        // an empty string — every reader tests the column for null.
+        adminNote: data.adminNote === undefined ? undefined : data.adminNote || null,
         reviewedBy: data.status ? admin.userId : null,
         reviewedAt: data.status ? new Date() : null,
       },

@@ -56,7 +56,8 @@ function GradientText({ children }: { children: React.ReactNode }) {
  *
  * The trial is not in the grid. One payment, one clock, one per person is a
  * different kind of thing from a plan that renews, and drawing it as a fifth
- * column invites a buyer to compare $7 against $19 a month.
+ * column invites a buyer to compare $1 against $19 a month — which reads as a
+ * ninety-five percent discount rather than as three days.
  */
 const ONGOING_PLANS: PlanConfig[] = (["FREE", "GO", "PRO", "AGENCY"] as const).map(
   (tier) => PLAN_CATALOG[tier]
@@ -409,12 +410,14 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           <SectionHeading
             badge="Pricing"
             title={<>Simple Plans, <GradientText>Serious Results</GradientText></>}
-            sub={`Start free and stay free. Every paid plan runs on credits you can see being spent, and yearly billing is two months on us — ${YEARLY_SAVING}% off.`}
+            sub={`Every account starts on Free and stays there until you choose otherwise. Paid plans run on credits you can see being spent, and yearly billing is two months on us — ${YEARLY_SAVING}% off.`}
           />
 
-          {/* The trial, on its own. Three days at $7 is the honest way to find out
-              whether the AI is any good, so it sits above the grid where a buyer
-              reads it before choosing a monthly commitment. */}
+          {/* The trial, on its own. A dollar for three days is the honest way to find
+              out whether the AI is any good, so it sits above the grid where a buyer
+              reads it before choosing a monthly commitment. The dollar is stated as
+              charged today, not as a formality: a trial that surprises someone with a
+              charge has bought a chargeback rather than a customer. */}
           <motion.div
             variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}
             className="rounded-3xl mkt-glass !bg-[#48357B]/10 border-[#48357B]/40 p-8 mb-10 flex flex-col lg:flex-row lg:items-center gap-8"
@@ -442,7 +445,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                 <span className="mkt-muted ml-1">once</span>
               </div>
               <p className="text-sm mkt-faint mb-6">
-                {TRIAL_PLAN.trialDays} days · cancel any time · one per person
+                Charged today · {TRIAL_PLAN.trialDays} days · cancel any time · one per person
               </p>
               <Link
                 href={isLoggedIn ? "/dashboard/billing" : "/sign-up"}
@@ -514,7 +517,8 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
           <p className="text-center text-sm mkt-faint mt-10 flex items-center justify-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            Cancel any time · No hidden fees · Refundable while your credits are unspent
+            Cancel any time · Remove your card any time · No hidden fees · Refundable while your
+            credits are unspent
           </p>
         </div>
       </section>

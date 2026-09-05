@@ -45,6 +45,10 @@ const STATEMENTS: string[] = [
       "label"            TEXT NOT NULL,
       "blurb"            TEXT,
       "provider"         TEXT NOT NULL DEFAULT 'vertex',
+      "baseUrl"          VARCHAR(512),
+      "apiKeyRef"        VARCHAR(80),
+      "contextWindow"    INTEGER,
+      "maxOutputTokens"  INTEGER,
       "kind"             TEXT NOT NULL DEFAULT 'text',
       "inputPerMTok"     DOUBLE PRECISION NOT NULL DEFAULT 0,
       "outputPerMTok"    DOUBLE PRECISION NOT NULL DEFAULT 0,
@@ -67,6 +71,13 @@ const STATEMENTS: string[] = [
       CONSTRAINT "AiModel_pkey" PRIMARY KEY ("id")
    )`,
   `CREATE INDEX IF NOT EXISTS "AiModel_enabledForChat_archived_idx" ON "AiModel" ("enabledForChat", "archived")`,
+  // Multi-provider columns, added after the table shipped. A deployment whose
+  // "AiModel" predates them needs these; a fresh one already has them from the
+  // CREATE above, and IF NOT EXISTS makes both paths the same statement.
+  `ALTER TABLE "AiModel" ADD COLUMN IF NOT EXISTS "baseUrl" VARCHAR(512)`,
+  `ALTER TABLE "AiModel" ADD COLUMN IF NOT EXISTS "apiKeyRef" VARCHAR(80)`,
+  `ALTER TABLE "AiModel" ADD COLUMN IF NOT EXISTS "contextWindow" INTEGER`,
+  `ALTER TABLE "AiModel" ADD COLUMN IF NOT EXISTS "maxOutputTokens" INTEGER`,
 
   // --- UserNotification ---
   `CREATE TABLE IF NOT EXISTS "UserNotification" (

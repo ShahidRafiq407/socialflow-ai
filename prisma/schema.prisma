@@ -1646,6 +1646,14 @@ model AiModel {
   label            String
   blurb            String?
   provider         String    @default("vertex")
+  /// Overrides the provider's default endpoint. Required for Azure, vLLM, proxies.
+  baseUrl          String?   @db.VarChar(512)
+  /// Managed key name holding this row's credential. Null = the provider default.
+  apiKeyRef        String?   @db.VarChar(80)
+  /// Shown to users as the model's context size. Display only.
+  contextWindow    Int?
+  /// Hard ceiling on a single reply. Anthropic requires one; others default.
+  maxOutputTokens  Int?
   /// "text" | "image" | "video" | "embed"
   kind             String    @default("text")
   inputPerMTok     Float     @default(0)

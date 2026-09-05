@@ -18,7 +18,8 @@ import { planMayUseModel, serializeChatModels } from "@/lib/agents/controller/mo
 import { getPlanContext } from "@/lib/billing/entitlements";
 import { planRank } from "@/lib/billing/plans";
 import { actionCredits } from "@/lib/billing/actions";
-import { getFlags } from "@/lib/admin/runtimeConfig";
+import { ensureRuntimeConfig, getFlags } from "@/lib/admin/runtimeConfig";
+import { configRevision } from "@/lib/admin/revision";
 
 export const dynamic = "force-dynamic";
 
@@ -27,27 +28,40 @@ export async function GET(req: Request) {
   const identity = await resolveIdentity(searchParams.get("workspaceId"));
   if (!identity.ok) return NextResponse.json({ error: identity.error }, { status: identity.status });
 
-  const [settings, ctx] = await Promise.all([
+  // Without this the catalogue and the flags are whatever the last request on
+  // this instance happened to load — which on a cold lambda is nothing at all.
+  await ensureRuntimeConfig();
+
+  const [settings, ctx, revision] = await Promise.all([
     getChatSettings(identity.identity.workspaceId),
     getPlanContext(identity.identity.userId),
+    configRevision(),
   ]);
   const flags = getFlags();
   const flat = actionCredits("chat.message");
 
-  return NextResponse.json({
-    success: true,
-    settings,
-    models: serializeChatModels().map((m) => ({
-      ...m,
-      chatCredits: m.chatCredits ?? flat,
-      locked: !planMayUseModel(m, ctx.plan, planRank),
-    })),
-    flags: {
-      modelPicker: flags.chatModelPickerEnabled,
-      feedback: flags.chatFeedbackEnabled,
+  return NextResponse.json(
+    {
+      success: true,
+      settings,
+      models: serializeChatModels().map((m) => ({
+        ...m,
+        chatCredits: m.chatCredits ?? flat,
+        locked: !planMayUseModel(m, ctx.plan, planRank),
+      })),
+      flags: {
+        modelPicker: flags.chatModelPickerEnabled,
+        feedback: flags.chatFeedbackEnabled,
+      },
+      /** What one turn costs on a model with no price of its own. */
+      defaultChatCredits: flat,
+      plan: ctx.plan,
+      /** Lets the client tell whether its catalogue is still current. */
+      revision,
+      workspaceId: identity.identity.workspaceId,
     },
-    workspaceId: identity.identity.workspaceId,
-  });
+    { headers: { "cache-control": "no-store, max-age=0" } },
+  );
 }
 
 export async function PATCH(req: Request) {

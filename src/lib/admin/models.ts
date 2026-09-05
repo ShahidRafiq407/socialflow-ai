@@ -26,6 +26,12 @@ export interface AdminModelRow {
   label: string;
   blurb: string | null;
   provider: string;
+  /** Endpoint override. Null means "use the provider's registry default". */
+  baseUrl: string | null;
+  /** Managed key name holding this row's credential. Null = provider default. */
+  apiKeyRef: string | null;
+  contextWindow: number | null;
+  maxOutputTokens: number | null;
   kind: string;
   inputPerMTok: number;
   outputPerMTok: number;
@@ -74,7 +80,7 @@ export interface ModelsView {
   custom: AdminModelRow[];
   roles: RoleAssignment[];
   builtIn: BuiltInRateRow[];
-  chatPicker: Array<{ id: string; label: string; chatCredits: number; minPlan: string | null; recommended: boolean; custom: boolean }>;
+  chatPicker: Array<{ id: string; label: string; chatCredits: number; minPlan: string | null; recommended: boolean; custom: boolean; provider: string }>;
   builtInChatModelId: string;
   flatChatCredits: number;
 }
@@ -110,6 +116,10 @@ export async function getModelsView(): Promise<ModelsView> {
       label: r.label,
       blurb: r.blurb,
       provider: r.provider,
+      baseUrl: r.baseUrl,
+      apiKeyRef: r.apiKeyRef,
+      contextWindow: r.contextWindow,
+      maxOutputTokens: r.maxOutputTokens,
       kind: r.kind,
       inputPerMTok: r.inputPerMTok,
       outputPerMTok: r.outputPerMTok,
@@ -153,6 +163,7 @@ export async function getModelsView(): Promise<ModelsView> {
       minPlan: m.minPlan ?? null,
       recommended: m.recommended === true,
       custom: m.custom === true,
+      provider: m.provider || "vertex",
     })),
     builtInChatModelId: BUILT_IN_CHAT_MODEL.id,
     flatChatCredits: flat,

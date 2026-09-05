@@ -9,8 +9,9 @@
 // ============================================================================
 
 import { useState } from "react";
-import { Check, Loader2, Lock, X } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Lock, X } from "lucide-react";
 import { getChatModel, listChatModels } from "@/lib/agents/controller/models";
+import { providerLabel } from "@/lib/providers/registry";
 import type { ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { Row, Section, Segmented, Slider, Toggle } from "./SettingsControls";
 
@@ -19,6 +20,10 @@ export interface ModelAvailability {
   chatCredits?: number;
   locked?: boolean;
   minPlan?: string | null;
+  /** Which model company serves it, for the row's second line. */
+  provider?: string;
+  /** Context size in tokens, shown next to the price. */
+  contextWindow?: number;
 }
 
 interface SettingsPanelProps {
@@ -30,14 +35,46 @@ interface SettingsPanelProps {
   availability?: Record<string, ModelAvailability>;
   /** False when the admin has pinned every chat to the default brain. */
   pickerEnabled?: boolean;
+  /** What a turn costs on a model that sets no price of its own. */
+  defaultCredits?: number;
+  /** This account's plan, so a locked row can say what it needs. */
+  plan?: string | null;
 }
 
-export function SettingsPanel({ settings, saving, onChange, onClose, availability = {}, pickerEnabled = true }: SettingsPanelProps) {
+/** "128K" / "1M" — a context window a person can read at a glance. */
+function fmtContext(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M ctx`;
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K ctx`;
+  return `${tokens} ctx`;
+}
+
+export function SettingsPanel({
+  settings,
+  saving,
+  onChange,
+  onClose,
+  availability = {},
+  pickerEnabled = true,
+  defaultCredits,
+  plan,
+}: SettingsPanelProps) {
   const [instructions, setInstructions] = useState(settings.customInstructions);
   const [instructionsSaved, setInstructionsSaved] = useState(false);
   const model = getChatModel(settings.model);
   const models = listChatModels();
-  const showPicker = pickerEnabled && models.length > 1;
+  // One model is still worth listing: the user asked to see what the turn costs,
+  // and hiding the list also hides the price.
+  const showPicker = pickerEnabled && models.length > 0;
+
+  const priceOf = (id: string) => availability[id]?.chatCredits ?? defaultCredits;
+  const activePrice = priceOf(model.id);
+  const baseline = defaultCredits;
+  // A model priced above the standard turn is the one thing a user can be
+  // surprised by after the fact, so it gets said out loud rather than implied.
+  const premium =
+    typeof activePrice === "number" && typeof baseline === "number" && activePrice > baseline
+      ? Math.round((activePrice / Math.max(1, baseline)) * 10) / 10
+      : null;
 
   const saveInstructions = () => {
     onChange({ customInstructions: instructions });
@@ -71,6 +108,8 @@ export function SettingsPanel({ settings, saving, onChange, onClose, availabilit
                   const info = availability[m.id] ?? {};
                   const locked = info.locked === true;
                   const active = m.id === model.id;
+                  const credits = priceOf(m.id);
+                  const provider = info.provider || m.provider;
                   return (
                     <button
                       key={m.id}
@@ -89,15 +128,28 @@ export function SettingsPanel({ settings, saving, onChange, onClose, availabilit
                         {locked ? (
                           <span className="ml-auto flex shrink-0 items-center gap-1 rounded border mkt-border px-1 text-[9.5px] uppercase tracking-wide mkt-faint">
                             <Lock className="h-2.5 w-2.5" />
-                            {info.minPlan || "upgrade"}
+                            {info.minPlan || m.minPlan || "upgrade"}
                           </span>
                         ) : (
-                          <span className="ml-auto shrink-0 text-[10.5px] tabular-nums mkt-faint">
-                            {typeof info.chatCredits === "number" ? `${info.chatCredits} cr/turn` : ""}
+                          <span className="ml-auto shrink-0 rounded border border-[color:var(--mkt-accent)]/30 px-1 text-[10.5px] tabular-nums mkt-accent-text">
+                            {typeof credits === "number" ? `${credits} cr/turn` : "—"}
                           </span>
                         )}
                       </div>
                       {m.blurb && <p className="mt-1 text-[11.5px] leading-snug mkt-faint">{m.blurb}</p>}
+                      {/* The line that answers "can I use this, and what will it cost me?" */}
+                      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] leading-snug mkt-faint">
+                        {provider && <span>{providerLabel(provider)}</span>}
+                        {info.contextWindow ? <span>· {fmtContext(info.contextWindow)}</span> : null}
+                        <span>
+                          ·{" "}
+                          {locked
+                            ? `Needs the ${info.minPlan || m.minPlan || "higher"} plan`
+                            : typeof credits === "number"
+                              ? `You can use this — each turn spends ${credits} credit${credits === 1 ? "" : "s"}`
+                              : "You can use this"}
+                        </span>
+                      </p>
                     </button>
                   );
                 })}
@@ -116,9 +168,25 @@ export function SettingsPanel({ settings, saving, onChange, onClose, availabilit
             )}
             <p className="mt-1.5 text-[11px] leading-snug mkt-faint">
               {showPicker
-                ? "The brain plans and runs the work; each turn costs the credits shown. Images and video are produced by their own dedicated models."
+                ? `The brain plans and runs the work. A turn on ${model.label} costs ${
+                    typeof activePrice === "number" ? `${activePrice} credit${activePrice === 1 ? "" : "s"}` : "the standard price"
+                  }, and every extra tool round it needs is charged on top. Images and video are produced by their own dedicated models.`
                 : "This is the only brain — it plans and runs the work. Images and video are produced by their own dedicated models when it calls them, so nothing here changes those."}
             </p>
+            {premium && (
+              <div className="mt-2 flex items-start gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>
+                  {model.label} is a premium brain: {premium}× the standard turn price ({activePrice} credits instead of {baseline}).
+                  Long conversations on it burn credits faster — switch to a cheaper model for routine work.
+                </span>
+              </div>
+            )}
+            {plan && (
+              <p className="mt-1.5 text-[10.5px] mkt-faint">
+                You are on the <span className="uppercase">{plan}</span> plan. Locked models need a higher one.
+              </p>
+            )}
           </div>
 
           <Row label="Creativity" hint="Low is precise and repeatable. High is more inventive.">

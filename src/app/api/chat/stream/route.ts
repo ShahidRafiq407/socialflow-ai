@@ -51,7 +51,7 @@ import {
 } from "@/lib/agents/controller/types";
 import { parseAllUploadedFiles } from "@/lib/agents/chat/documentParser";
 import { getChatModel, isKnownChatModel, planMayUseModel } from "@/lib/agents/controller/models";
-import { getFlags } from "@/lib/admin/runtimeConfig";
+import { getFlags, ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -132,6 +132,13 @@ async function prepareAttachments(
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
+
+  // Everything below reads admin-controlled config — the model catalogue, the
+  // picker flag, the provider routing table. On a cold instance none of it is
+  // loaded yet, and an unloaded catalogue would reject a custom model as unknown
+  // and route an Anthropic id to Vertex. Load it before the first read, not after.
+  await ensureRuntimeConfig();
+
   const message: string = typeof body?.message === "string" ? body.message : String(body?.prompt || "");
   const requestedWorkspaceId: string | null = body?.workspaceId || null;
   const requestedSessionId: string | null = body?.sessionId || body?.chatSessionId || null;

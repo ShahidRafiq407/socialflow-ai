@@ -62,11 +62,29 @@ const PAID_TIERS: PlanTier[] = ["GO", "PRO", "AGENCY"];
  * The thinnest cover in the action catalogue, measured from the `basis` lines:
  * `ai.post.single` charges 25 credits ($0.25) against ~$0.17 of measured spend.
  * A plan's worst case is its whole grant spent here and nowhere else.
+ *
+ * Note the `CREDIT_USD`: this is a ratio of dollars to dollars, 1.47. Written as
+ * `25 / 0.17` it is 147 — credits over dollars — and every worst case below comes
+ * out a hundredth of its real size, which is how the margin assertions in this file
+ * once passed while asserting nothing.
  */
-const THINNEST_COVER = 25 / 0.17;
+const THINNEST_COVER = (25 * CREDIT_USD) / 0.17;
 
 /** The launch margin. Below this a plan is not thin, it is wrong. */
 const MIN_FLOOR_USD = 5;
+
+/**
+ * The most a single trial may be allowed to cost us, worst case.
+ *
+ * The trial is priced as a filter rather than as a product — see the header of
+ * `plans.ts` — so it loses money by design. This is the ceiling on that loss: raise
+ * the trial grant past it and the trial has stopped being a marketing line item.
+ */
+const MAX_TRIAL_ACQUISITION_USD = 5;
+
+/** Lemon Squeezy is the merchant of record and takes 5% + $0.50 of every charge. */
+const LEMON_RATE = 0.05;
+const LEMON_FIXED_USD = 0.5;
 
 /** What a grant can cost us if it is spent entirely on the worst-covered action. */
 function worstCaseCostUsd(credits: number): number {
@@ -275,13 +293,34 @@ describe("no plan can be used at a loss", () => {
     }
   });
 
-  it("charges the trial more than its own grant can cost", () => {
-    // The trial is an acquisition cost, but a bounded one: $7 against a grant that
-    // cannot cost more than $5.44 even spent entirely on the worst-covered action.
-    const trial = PLAN_CATALOG.TRIAL;
-    expect(trial.oneTimePrice).toBeGreaterThan(0);
-    expect(worstCaseCostUsd(getEntitlements("TRIAL").monthlyCredits)).toBeLessThan(
-      trial.oneTimePrice as number
+  it("charges for the trial, always", () => {
+    // A trial that costs nothing is farmed. The dollar is not revenue, it is the
+    // filter: it takes a real card and someone willing to enter one, which is what
+    // the network checks in `trial-guard.ts` cannot establish on their own.
+    expect(PLAN_CATALOG.TRIAL.oneTimePrice).toBeGreaterThan(0);
+  });
+
+  it("keeps the trial's worst case inside the acquisition budget", () => {
+    // This deliberately does NOT assert the trial pays for itself. At $1 it cannot:
+    // the grant has to cover one honest pass at a video, a carousel, a campaign, the
+    // chat and an article, and that is worth more than a dollar. What has to hold is
+    // that the loss is bounded and known, so it stays a marketing line item rather
+    // than an open tap.
+    const worstCase = worstCaseCostUsd(getEntitlements("TRIAL").monthlyCredits);
+    expect(worstCase).toBeLessThanOrEqual(MAX_TRIAL_ACQUISITION_USD);
+  });
+
+  it("lets one conversion pay for the trial that produced it", () => {
+    // The break-even test that matters: a trial that converts to the cheapest paid
+    // plan must be recovered inside that plan's FIRST month, in the worst case for
+    // both. If this fails, the funnel loses money on its successes and no conversion
+    // rate can save it.
+    const price = PLAN_CATALOG.TRIAL.oneTimePrice ?? 0;
+    const netTake = price - (price * LEMON_RATE + LEMON_FIXED_USD);
+    const trialLoss = worstCaseCostUsd(getEntitlements("TRIAL").monthlyCredits) - netTake;
+    const goFloor = planPrice("GO", "monthly") - worstCaseCostUsd(getEntitlements("GO").monthlyCredits);
+    expect(goFloor, `Go's floor must cover a $${trialLoss.toFixed(2)} trial`).toBeGreaterThan(
+      trialLoss
     );
   });
 
@@ -523,12 +562,12 @@ describe("the trial shows the whole product", () => {
   });
 
   it("counts chat messages rather than model calls", () => {
-    // The card promises six messages. That only stays true while the rounds a
+    // The card promises three messages. That only stays true while the rounds a
     // message takes are counted somewhere else.
     const spec = ACTION_CATALOG["chat.toolLoop"];
     const counter = spec.countsAgainst ?? spec.feature;
     expect(counter).not.toBe("chat.message");
-    expect(featureCap("TRIAL", "chat.message")).toBe(6);
+    expect(featureCap("TRIAL", "chat.message")).toBe(3);
     expect(isUnlimited(featureCap("TRIAL", "chat.tools"))).toBe(true);
   });
 
@@ -536,13 +575,13 @@ describe("the trial shows the whole product", () => {
     expect(trial.features.includes("article.deep")).toBe(false);
     expect(trial.features.includes("media.imagePro")).toBe(false);
     // Both would fit the balance, which is exactly why the refusal has to be a
-    // feature and not a price: one deep article is 44% of the trial's credits.
+    // feature and not a price: one deep article is 56% of the trial's credits.
     expect(actionCredits("article.deep")).toBeLessThan(trial.monthlyCredits);
   });
 
   it("cannot be topped up", () => {
     // A trial that can buy credits is a paid plan with a three-day clock on it, and
-    // the anti-abuse work in `trialGuard.ts` assumes a fixed maximum exposure.
+    // the anti-abuse work in `trial-guard.ts` assumes a fixed maximum exposure.
     expect(trial.canBuyTopUps).toBe(false);
   });
 });

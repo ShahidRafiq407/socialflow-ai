@@ -117,6 +117,7 @@ export function BillingShell() {
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
   const [view, setView] = useState<View>("plans");
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmRemoveCard, setConfirmRemoveCard] = useState(false);
   const [toasts, setToasts] = useState<BillingToast[]>([]);
 
   const counter = useRef(0);
@@ -271,9 +272,9 @@ export function BillingShell() {
     [checkout]
   );
 
-  /** Cancel, resume and the invoice portal — one call out, then a re-read. */
+  /** Cancel, resume, remove the card, and the invoice portal — one call out, then a re-read. */
   const act = useCallback(
-    async (action: "cancel" | "resume" | "portal") => {
+    async (action: "cancel" | "resume" | "portal" | "remove-card") => {
       setBusy(action);
       try {
         const res = await fetch("/api/billing/subscription", {
@@ -294,6 +295,14 @@ export function BillingShell() {
           const opened = window.open(json.url, "_blank", "noopener,noreferrer");
           if (opened) pushToast("info", "Your invoices and receipts opened in a new tab.");
           else window.location.href = json.url;
+        } else if (action === "remove-card") {
+          // The charges have already stopped by the time this runs. The card itself
+          // lives at Lemon Squeezy, so the last step is theirs — opened in a new tab
+          // rather than navigated to, because the plan state behind this page has just
+          // changed and the customer should see it settle.
+          pushToast("success", json.message ?? "Done.");
+          if (json.url) window.open(json.url, "_blank", "noopener,noreferrer");
+          await load();
         } else {
           pushToast("success", json.message ?? "Done.");
           await load();
@@ -634,6 +643,7 @@ export function BillingShell() {
           onCancel={() => setConfirmCancel(true)}
           onResume={() => void act("resume")}
           onPortal={() => void act("portal")}
+          onRemoveCard={() => setConfirmRemoveCard(true)}
         />
       )}
 
@@ -679,6 +689,59 @@ export function BillingShell() {
               disabled={busy !== null}
             >
               Yes, cancel it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Removing the card, confirmed once ───────────────────────────────────
+          Worded around what actually happens, because the honest version is not what
+          the button implies: we cannot delete a card we have never held. What we can
+          do is guarantee it is never charged again, which means ending the plan, and
+          then open the one page where the details themselves can be deleted. A
+          customer who only wanted a different card should use "Update card", so that
+          is said here too rather than left to be discovered afterwards. */}
+      <Dialog open={confirmRemoveCard} onOpenChange={setConfirmRemoveCard}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove your card?</DialogTitle>
+            <DialogDescription>
+              Your card will not be charged again. {plan.name} ends on{" "}
+              {fmtDate(plan.endsAt ?? plan.renewsAt ?? plan.periodEnd)} and everything keeps
+              working until then, exactly as it does now.
+            </DialogDescription>
+          </DialogHeader>
+
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            The card details are held by Lemon Squeezy, our payment processor — they have never
+            been in our system. Their page opens straight after this so you can delete or replace
+            them there. Nothing about your account goes away: posts, brand, connected accounts and
+            drafts all stay, and you can come back to any plan whenever you like.
+          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            If you only want to pay with a different card, close this and use{" "}
+            <span className="font-semibold text-foreground">Update card</span> instead — that keeps
+            your plan running.
+          </p>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="text-xs font-semibold"
+              onClick={() => setConfirmRemoveCard(false)}
+            >
+              Keep my card
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                setConfirmRemoveCard(false);
+                void act("remove-card");
+              }}
+              disabled={busy !== null}
+            >
+              Remove it and stop billing
             </Button>
           </DialogFooter>
         </DialogContent>

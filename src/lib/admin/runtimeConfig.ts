@@ -29,6 +29,8 @@ import { decryptSecret, encryptSecret, isEncryptionConfigured } from "@/lib/cryp
 import { setPlanOverrides, type PlanOverrides } from "@/lib/billing/plans";
 import { setModelRateOverrides, type ModelRate } from "@/lib/billing/modelPricing";
 import { setChatModelCatalog, type ChatModelInfo } from "@/lib/agents/controller/models";
+import { PROVIDERS } from "@/lib/providers/registry";
+import { setModelRouting, type ModelRouting } from "@/lib/providers/gateway";
 import { ensureAdminSchema } from "./schema";
 
 /** How stale the cache may be before a request pays for a re-read. */
@@ -48,11 +50,17 @@ interface CacheState {
   loadedAt: number;
   rows: Map<string, SettingRow>;
   models: ChatModelInfo[];
+  /**
+   * Where each custom model's traffic goes. Kept next to `models` rather than
+   * inside it because it holds a base URL and a key name, and `models` is
+   * serialised to the browser.
+   */
+  routing: ModelRouting[];
   /** Bumped on every write so a client can tell "the config changed" cheaply. */
   version: number;
 }
 
-let cache: CacheState = { loadedAt: 0, rows: new Map(), models: [], version: 0 };
+let cache: CacheState = { loadedAt: 0, rows: new Map(), models: [], routing: [], version: 0 };
 let inflight: Promise<void> | null = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +104,14 @@ export const MODEL_ROLE_LABELS: Record<ModelRoleKey, string> = {
 
 /** Third-party keys the admin may set from the dashboard. */
 export const MANAGED_KEYS = [
+  // Model providers. Generated from the provider registry so adding a vendor
+  // there gives it a key field here without a second edit.
+  ...PROVIDERS.filter((p) => p.keyName).map((p) => ({
+    name: p.keyName,
+    label: `${p.label} API key`,
+    group: "AI providers",
+    secret: true,
+  })),
   { name: "SERPER_API_KEY", label: "Serper.dev (Google SERP)", group: "Search", secret: true },
   { name: "PIXABAY_API_KEY", label: "Pixabay (stock media)", group: "Media", secret: true },
   { name: "PIXABAY_API_KEY_FALLBACK", label: "Pixabay fallback key", group: "Media", secret: true },
@@ -204,6 +220,7 @@ async function loadFromDatabase(): Promise<void> {
     loadedAt: Date.now(),
     rows,
     models: models.map(toChatModelInfo),
+    routing: models.map(toModelRouting),
     version: cache.version + 1,
   };
   applyOverrides();
@@ -306,6 +323,11 @@ export function getCustomModels(): ChatModelInfo[] {
   return cache.models;
 }
 
+/** Where each custom model's traffic goes. Server-only: holds key names. */
+export function getModelRoutingRows(): ModelRouting[] {
+  return cache.routing;
+}
+
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -321,6 +343,8 @@ function toChatModelInfo(row: {
   label: string;
   blurb: string | null;
   kind: string;
+  provider: string;
+  contextWindow: number | null;
   supportsThinking: boolean;
   supportsTools: boolean;
   supportsVision: boolean;
@@ -350,6 +374,8 @@ function toChatModelInfo(row: {
     minPlan: (row.minPlan as ChatModelInfo["minPlan"]) ?? undefined,
     kind: row.kind,
     custom: true,
+    provider: row.provider || "vertex",
+    contextWindow: row.contextWindow ?? undefined,
     rate: {
       inputPerMTok: row.inputPerMTok,
       outputPerMTok: row.outputPerMTok,
@@ -358,6 +384,22 @@ function toChatModelInfo(row: {
       perVideoSecond: row.perVideoSecond ?? undefined,
     },
     sortOrder: row.sortOrder,
+  };
+}
+
+function toModelRouting(row: {
+  id: string;
+  provider: string;
+  baseUrl: string | null;
+  apiKeyRef: string | null;
+  maxOutputTokens: number | null;
+}): ModelRouting {
+  return {
+    modelId: row.id,
+    provider: row.provider || "vertex",
+    baseUrl: row.baseUrl,
+    apiKeyRef: row.apiKeyRef,
+    maxOutputTokens: row.maxOutputTokens,
   };
 }
 
@@ -372,6 +414,9 @@ function applyOverrides(): void {
   setModelRateOverrides(rates);
 
   setChatModelCatalog(cache.models, modelForRole("CHAT_CONTROLLER"));
+  // `managedKey` is passed rather than the keys themselves so the gateway never
+  // holds a credential of its own — it asks for one at the moment of the call.
+  setModelRouting(cache.routing, managedKey);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -488,7 +533,7 @@ export function listSettingRows(): Array<{ key: string; value: SettingValue; sec
 
 /** Test hook. */
 export function resetRuntimeConfigForTests(): void {
-  cache = { loadedAt: 0, rows: new Map(), models: [], version: 0 };
+  cache = { loadedAt: 0, rows: new Map(), models: [], routing: [], version: 0 };
   inflight = null;
   applyOverrides();
 }

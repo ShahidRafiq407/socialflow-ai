@@ -164,6 +164,28 @@ function envVarForPack(packId: string): string {
   return `LEMONSQUEEZY_VARIANT_${packId.toUpperCase()}`;
 }
 
+/**
+ * The variant behind the 3-day trial.
+ *
+ * HOW THIS VARIANT MUST BE SET UP IN THE DASHBOARD. The trial is sold as "$1 today,
+ * then $19 a month if you stay", and that shape is a store setting, not something
+ * this codebase can express at checkout. In Lemon Squeezy the variant needs:
+ *
+ *   - a SUBSCRIPTION product, monthly, priced at the Go rate ($19) — the trial
+ *     converts into Go, so the recurring price on this variant is Go's price;
+ *   - a free trial of 3 days, with "charge a setup fee" enabled at $1. The setup
+ *     fee is the only field that takes money on day zero while a trial is running.
+ *     A 3-day trial with no fee is a free trial, which is the thing this product
+ *     deliberately does not sell;
+ *   - the same store as every other variant, so one webhook signing secret covers
+ *     all of them.
+ *
+ * Getting that wrong fails in a way worth knowing about in advance. If the setup fee
+ * is missing, `subscription_created` still arrives and the trial still starts — the
+ * webhook has no `total` on subscription events, so it cannot tell a paid trial from
+ * a free one. Nothing here will catch it; the only evidence is the store's own
+ * revenue report. Check the first live trial by hand.
+ */
 const TRIAL_ENV_VAR = "LEMONSQUEEZY_VARIANT_TRIAL";
 
 /** Every variant this product sells, whether or not its id is configured yet. */

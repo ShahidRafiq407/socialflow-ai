@@ -411,6 +411,62 @@ export async function syncPeriodGrant(args: {
 }
 
 /**
+ * This month's credits for an account nobody is billing.
+ *
+ * Every other grant in the system is triggered by money moving: Lemon Squeezy takes
+ * a payment, sends a webhook, and `syncPeriodGrant` runs. A Free account never
+ * generates that event, so without this it never receives a credit — and the two AI
+ * actions Free is actually sold on, the scheduler's best-time pick and the brand
+ * scan, both cost credits and would be refused with INSUFFICIENT_CREDITS for the
+ * entire life of the account. The plan card promises "60 posts a month"; this is
+ * what makes that true.
+ *
+ * It is deliberately lazy rather than a cron. Free accounts are the many, most of
+ * them dormant, and a nightly sweep over all of them would spend a transaction each
+ * to hand out credits nobody asked for. Instead the grant happens the first time an
+ * account looks at its balance or spends from it, which for a dormant account is
+ * never — a wallet that has never been read costs us nothing to leave alone.
+ *
+ * Cheap enough to sit on a hot path: the common case is one indexed read that finds
+ * the period already granted and returns without opening a transaction. Correct even
+ * when it is not cheap, because `syncPeriodGrant` is idempotent on
+ * `grant:${userId}:${periodStart}` — two requests racing on the first spend of the
+ * month produce one grant and one no-op, not 140 credits.
+ *
+ * The period must be the same UTC calendar month `freeContext` reports as the
+ * period, or the meter would show a boundary the wallet does not share.
+ */
+export async function ensureFreeGrant(
+  userId: string,
+  periodStart: Date,
+  periodEnd: Date
+): Promise<GrantResult> {
+  const row = await prisma.creditWallet.findUnique({
+    where: { userId },
+    select: { grantPeriodStart: true },
+  });
+
+  // Greater-or-equal, unlike the guard inside `syncPeriodGrant`. There it has to let
+  // equality through, because `ensureWallet` may have just stamped this exact period
+  // on a wallet that has never been granted to. Here that case is already excluded:
+  // a never-granted wallet carries the epoch, which is earlier than any real period.
+  // A wallet stamped with a period at or after this one has had its grant — either
+  // this month's, or a larger one from a paid plan whose period started mid-month
+  // and which this must not overwrite.
+  if (row && row.grantPeriodStart.getTime() >= periodStart.getTime()) {
+    return { granted: false, credits: 0, expired: 0, reason: "already_granted" };
+  }
+
+  return syncPeriodGrant({
+    userId,
+    plan: "FREE",
+    periodStart,
+    periodEnd,
+    note: `Free plan credits for ${periodStart.toISOString().slice(0, 7)}`,
+  });
+}
+
+/**
  * Mid-period plan change.
  *
  * An upgrade takes effect immediately — Lemon Squeezy has already charged the

@@ -24,6 +24,7 @@ import {
 import type { ChatMessage, ChatSessionSummary } from "@/lib/agents/controller/types";
 import { DEFAULT_CHAT_SETTINGS, type ChatSettings } from "@/lib/agents/controller/settingsShape";
 import { chatModelLabel, setChatModelCatalog, type ChatModelInfo } from "@/lib/agents/controller/models";
+import { CONFIG_REVISION_EVENT } from "@/components/dashboard/ConfigSync";
 import type { ConnectedPlugin } from "@/lib/plugins/connected";
 import { submitChatFeedback, getSessionFeedback } from "@/actions/chatFeedback";
 import { useChatStream, type PendingFile } from "./useChatStream";
@@ -76,33 +77,57 @@ export function ChatWorkbench({
   const [pickerOn, setPickerOn] = useState(true);
   const [availability, setAvailability] = useState<Record<string, ModelAvailability>>({});
   const [catalogueVersion, setCatalogueVersion] = useState(0);
+  const [defaultCredits, setDefaultCredits] = useState<number | undefined>(undefined);
+  const [plan, setPlan] = useState<string | null>(null);
 
   // The live configuration the admin controls: which models the picker may show
-  // (with this plan's locks) and whether feedback is on. The browser's catalogue
-  // is whatever the server last said, so a model added in the back office is in
-  // the list on the next load without a deploy.
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/chat/settings?workspaceId=${encodeURIComponent(workspaceId)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.success) return;
-        if (Array.isArray(data.models)) {
-          const models = data.models as Array<ChatModelInfo & { locked?: boolean }>;
-          setChatModelCatalog(models, models.find((m) => m.recommended)?.id ?? null);
-          setAvailability(
-            Object.fromEntries(models.map((m) => [m.id, { chatCredits: m.chatCredits, locked: m.locked, minPlan: m.minPlan ?? null }]))
-          );
-          setCatalogueVersion((v) => v + 1);
-        }
-        if (data.flags && typeof data.flags.feedback === "boolean") setFeedbackOn(data.flags.feedback);
-        if (data.flags && typeof data.flags.modelPicker === "boolean") setPickerOn(data.flags.modelPicker);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+  // (with this plan's locks and prices) and whether feedback is on. The browser's
+  // catalogue is whatever the server last said, so a model added in the back
+  // office appears here without a deploy — and `ConfigSync` re-runs this the
+  // moment the admin changes anything, so an open tab never offers a stale list.
+  const loadCatalogue = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/settings?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.success) return;
+
+      if (Array.isArray(data.models)) {
+        const models = data.models as Array<ChatModelInfo & { locked?: boolean }>;
+        setChatModelCatalog(models, models.find((m) => m.recommended)?.id ?? null);
+        setAvailability(
+          Object.fromEntries(
+            models.map((m) => [
+              m.id,
+              {
+                chatCredits: m.chatCredits,
+                locked: m.locked,
+                minPlan: m.minPlan ?? null,
+                provider: m.provider,
+                contextWindow: m.contextWindow,
+              },
+            ])
+          )
+        );
+        setCatalogueVersion((v) => v + 1);
+      }
+      if (typeof data.defaultChatCredits === "number") setDefaultCredits(data.defaultChatCredits);
+      if (typeof data.plan === "string") setPlan(data.plan);
+      if (data.flags && typeof data.flags.feedback === "boolean") setFeedbackOn(data.flags.feedback);
+      if (data.flags && typeof data.flags.modelPicker === "boolean") setPickerOn(data.flags.modelPicker);
+    } catch {
+      // A stale catalogue is better than a broken chat tab.
+    }
   }, [workspaceId]);
+
+  useEffect(() => {
+    void loadCatalogue();
+    const onConfigChange = () => void loadCatalogue();
+    window.addEventListener(CONFIG_REVISION_EVENT, onConfigChange);
+    return () => window.removeEventListener(CONFIG_REVISION_EVENT, onConfigChange);
+  }, [loadCatalogue]);
 
   const refreshSessions = useCallback(
     async (archived = showArchived) => {
@@ -475,6 +500,8 @@ export function ChatWorkbench({
           onClose={() => setPanel("none")}
           availability={availability}
           pickerEnabled={pickerOn}
+          defaultCredits={defaultCredits}
+          plan={plan}
         />
       );
     }

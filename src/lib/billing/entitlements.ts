@@ -44,6 +44,7 @@ import {
   formatCap,
   getEntitlements,
   getPlanConfig,
+  isPlanTier,
   isUnlimited,
   lowestPlanWith,
   planRank,
@@ -58,6 +59,7 @@ import { getAccountBlock, type AccountBlock } from "@/lib/admin/block";
 import {
   attachLedgerCost,
   debitCredits,
+  ensureFreeGrant,
   getWalletBalance,
   refundCredits,
   releaseHold,
@@ -74,7 +76,7 @@ import {
  * a paying customer whose renewal webhook was delayed — they keep the tab they
  * paid for instead of being dropped to Free by our own plumbing.
  */
-const STALE_PERIOD_GRACE_MS = 7 * 24 * 60 * 60_000;
+export const STALE_PERIOD_GRACE_MS = 7 * 24 * 60 * 60_000;
 
 /** Mirrors the Prisma `SubscriptionStatus` enum without importing the client type. */
 export type SubscriptionStatusValue =
@@ -86,6 +88,52 @@ export type SubscriptionStatusValue =
   | "CANCELLED"
   | "EXPIRED"
   | "PAUSED";
+
+/**
+ * The columns of a `Subscription` row that decide which tier it grants.
+ *
+ * Named separately from `PlanContext` so a screen that only selected these
+ * five columns can still ask the one authoritative question below.
+ */
+export interface SubscriptionFacts {
+  plan: string;
+  status: string;
+  periodEnd: Date;
+  trialEndsAt?: Date | null;
+  endsAt?: Date | null;
+  testMode?: boolean | null;
+}
+
+/**
+ * THE definition of "what tier is this row worth right now".
+ *
+ * `getPlanContext` is the same decision plus a database read, a block check and
+ * a counting window; every other surface that needs the tier — the admin user
+ * list, the overview stats, a broadcast's audience — calls this so a lapsed row
+ * cannot read as paying on one screen and Free on another.
+ */
+export function effectivePlanFor(sub: SubscriptionFacts | null | undefined, now = new Date()): PlanTier {
+  if (!sub) return "FREE";
+  // A test store's checkout is free to anyone who finds the link.
+  if (sub.testMode === true && process.env.NODE_ENV === "production") return "FREE";
+
+  const storedPlan = (isPlanTier(sub.plan) ? sub.plan : "FREE") as PlanTier;
+  const at = now.getTime();
+
+  switch (sub.status) {
+    case "TRIALING":
+      return sub.trialEndsAt !== null && sub.trialEndsAt !== undefined && sub.trialEndsAt.getTime() <= at
+        ? "FREE"
+        : "TRIAL";
+    case "ACTIVE":
+    case "PAST_DUE":
+      return sub.periodEnd.getTime() + STALE_PERIOD_GRACE_MS <= at ? "FREE" : storedPlan;
+    case "CANCELLED":
+      return (sub.endsAt ?? sub.periodEnd).getTime() <= at ? "FREE" : storedPlan;
+    default:
+      return "FREE";
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The plan in force
@@ -239,30 +287,14 @@ export async function getPlanContext(userId: string, now = new Date()): Promise<
     return freeContext(userId, now, base);
   }
 
-  const trialOver = sub.trialEndsAt !== null && sub.trialEndsAt.getTime() <= now.getTime();
-  const accessEndsAt = sub.endsAt ?? sub.periodEnd;
-  const cancelledOver = accessEndsAt.getTime() <= now.getTime();
   const stale = sub.periodEnd.getTime() + STALE_PERIOD_GRACE_MS <= now.getTime();
 
-  let plan: PlanTier = "FREE";
-  switch (status) {
-    case "TRIALING":
-      // The trial's own entitlements, never the plan it will become. A trial is
-      // sold as a subscription with a 3-day trial on it, so the row says GO from
-      // the moment it starts — and Go's allowance for $1 would be the whole
-      // business model given away.
-      plan = trialOver ? "FREE" : "TRIAL";
-      break;
-    case "ACTIVE":
-    case "PAST_DUE":
-      plan = stale ? "FREE" : storedPlan;
-      break;
-    case "CANCELLED":
-      plan = cancelledOver ? "FREE" : storedPlan;
-      break;
-    default:
-      plan = "FREE";
-  }
+  // One decision, shared with the admin list, the stats and broadcast segments.
+  // TRIALING gets the trial's own entitlements, never the plan it will become: a
+  // trial is sold as a subscription with a 3-day trial on it, so the row says GO
+  // from the moment it starts — and Go's allowance for $1 would be the whole
+  // business model given away.
+  const plan: PlanTier = effectivePlanFor(sub, now);
 
   // A lapsed account counts against the calendar month, not against the period it
   // stopped paying for — otherwise its Free counters would never reset again.
@@ -665,6 +697,7 @@ export async function checkAction(
   if (!cap.allowed) return { ...cap, ...base };
 
   if (cost > 0) {
+    await ensureGrantForFree(ctx);
     const wallet = await getWalletBalance(ctx.userId, ctx.plan);
     if (wallet.available < cost) {
       return { ...base, ...insufficient(ctx, cost, wallet.available) };
@@ -672,6 +705,29 @@ export async function checkAction(
   }
 
   return { ...ALLOWED(ctx.plan), ...base };
+}
+
+/**
+ * Makes sure a Free account has been given this period's credits before we read or
+ * spend its balance.
+ *
+ * Free is the only plan with no payment event behind it, so it is the only plan
+ * whose grant has to be triggered by use. Anything paid was granted by the webhook
+ * and this returns immediately without touching the database — the `plan` check is
+ * the guard, not an optimisation: calling `ensureFreeGrant` for a paid account would
+ * offer to overwrite a larger grant with 70 credits.
+ *
+ * A failure here is not a failure of the gate. If the grant cannot be written the
+ * balance is simply read as it stands, which refuses the action — the same answer
+ * the account would have got a moment earlier, rather than a 500.
+ */
+async function ensureGrantForFree(ctx: PlanContext): Promise<void> {
+  if (ctx.plan !== "FREE") return;
+  try {
+    await ensureFreeGrant(ctx.userId, ctx.periodStart, ctx.periodEnd);
+  } catch {
+    // Deliberately swallowed — see above.
+  }
 }
 
 function insufficient(ctx: PlanContext, cost: number, available: number): GateResult {
@@ -866,6 +922,11 @@ export async function beginAction(args: {
   } satisfies ActionTicket;
 
   if (credits <= 0) return base;
+
+  // A Free account's grant is triggered by use, so this is the moment it arrives.
+  // Above the credit check, not below it: the alternative is refusing the first paid
+  // action of the month and granting afterwards.
+  await ensureGrantForFree(ctx);
 
   const undoClaim = async () => {
     if (claimed) await releaseFeatureUsage(ctx.userId, countsAgainst, ctx.periodStart, quantity);
@@ -1289,6 +1350,12 @@ export interface AccountSummary {
 /** Everything the billing tab needs about one account, in one round of reads. */
 export async function getAccountSummary(userId: string): Promise<AccountSummary> {
   const context = await getPlanContext(userId);
+
+  // Before the balance is read, not after. A Free account's credits are granted on
+  // use, and the billing tab is usually the first thing that asks — a meter reading
+  // "0 of 70" on a plan that has never spent anything is a support ticket.
+  await ensureGrantForFree(context);
+
   const [wallet, usage, usedMb, workspaceCount] = await Promise.all([
     getWalletBalance(userId, context.plan),
     getFeatureUsageMap(context),

@@ -16,7 +16,8 @@
 // ============================================================================
 
 import type { Content, Part } from "@google/genai";
-import { MODELS, vertexProvider } from "../llm";
+import { MODELS } from "../llm";
+import { generateJSON, streamAgentTurn } from "@/lib/providers/gateway";
 import type { AgentFunctionCall, ThinkingEffort } from "@/lib/providers/VertexAIProvider";
 import { getChatSettings, type ChatSettings } from "./settings";
 import { buildWorkspaceSnapshot } from "./snapshot";
@@ -429,7 +430,7 @@ export async function runController(params: RunControllerParams): Promise<RunCon
         break;
       }
 
-      const turn = await vertexProvider.streamAgentTurn(
+      const turn = await streamAgentTurn(
         {
           contents,
           systemInstruction,
@@ -731,7 +732,7 @@ async function generateSuggestions(params: {
   modelName: string;
 }): Promise<string[]> {
   try {
-    const data = await vertexProvider.generateJSON(
+    const data = await generateJSON(
       [
         {
           role: "system",
@@ -771,7 +772,7 @@ async function autoSaveMemory(params: {
   known: ControllerMemoryFact[];
 }): Promise<void> {
   try {
-    const data = await vertexProvider.generateJSON(
+    const data = await generateJSON(
       [
         {
           role: "system",

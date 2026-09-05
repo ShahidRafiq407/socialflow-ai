@@ -1,4 +1,4 @@
-import { VertexAIProvider } from "../providers/VertexAIProvider";
+import { providerFor, vertexClient } from "../providers/gateway";
 import { CONTROLLER_MODEL_ID } from "./controller/models";
 import { IMAGE_MODEL_ID, VIDEO_MODEL_ID } from "./mediaModels";
 import { modelForRole } from "@/lib/admin/runtimeConfig";
@@ -87,7 +87,16 @@ export function setWorkingModelName(name: string) {
   currentWorkingModel = name;
 }
 
-export const vertexProvider = new VertexAIProvider();
+/**
+ * The Google client, for the code that specifically wants Vertex features
+ * (grounding, vision, embeddings, image and video). It is the gateway's single
+ * instance, re-exported so the ~40 existing imports of this name keep working.
+ *
+ * For plain text and JSON prefer the role-aware adapters below: they route
+ * through the gateway, so a role an admin pinned to Claude or DeepSeek actually
+ * runs there instead of being sent to Vertex under a foreign model id.
+ */
+export const vertexProvider = vertexClient();
 
 function translateMessages(langchainMessages: any[]): any[] {
   return langchainMessages.map((msg) => {
@@ -118,7 +127,7 @@ class VertexLLMAdapter {
       generateOptions.tools = options.tools;
     }
 
-    const content = await vertexProvider.generateText(messages, generateOptions);
+    const content = await providerFor(modelName).generateText(messages, generateOptions);
     return { content };
   }
 
@@ -127,7 +136,7 @@ class VertexLLMAdapter {
       invoke: async (input: any[], options?: any) => {
         const messages = translateMessages(input);
         const modelName = options?.modelName || currentWorkingModel;
-        const content = await vertexProvider.generateJSON(messages, {
+        const content = await providerFor(modelName).generateJSON(messages, {
           modelName,
           temperature: 0.1, // Strict layout compliance
         });
@@ -142,8 +151,9 @@ export const llm = new VertexLLMAdapter();
 export const ceoLlm = {
   invoke: async (input: any[], options?: any) => {
     const messages = translateMessages(input);
-    const content = await vertexProvider.generateText(messages, {
-      modelName: MODELS.CEO_SUPERVISOR,
+    const model = MODELS.CEO_SUPERVISOR;
+    const content = await providerFor(model).generateText(messages, {
+      modelName: model,
       temperature: 0.2,
     });
     return { content };

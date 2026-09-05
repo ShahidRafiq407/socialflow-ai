@@ -13,16 +13,17 @@
 //              last 30 days of spend beside each so the cost is not abstract.
 // ============================================================================
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Check, Loader2, Pencil, Plus, RotateCcw, Sparkles, X } from "lucide-react";
+import { Archive, Check, Loader2, Pencil, Plug, Plus, RotateCcw, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdminModelRow, ModelsView } from "@/lib/admin/models";
 import { PLAN_TIERS } from "@/lib/billing/plans";
-import { archiveModelAction, setRoleModelAction, upsertModelAction, type AdminModelInput } from "@/actions/admin";
+import { providerKeyNames, providerLabel, providerSpec, providersByGroup } from "@/lib/providers/registry";
+import { archiveModelAction, setRoleModelAction, testModelAction, upsertModelAction, type AdminModelInput } from "@/actions/admin";
 import { Empty, PlanPill, Section, fmtInt, fmtMicros } from "./primitives";
 
 const select = "h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs dark:bg-input/30";
@@ -33,6 +34,10 @@ function blankModel(): AdminModelInput {
     label: "",
     blurb: "",
     provider: "vertex",
+    baseUrl: null,
+    apiKeyRef: null,
+    contextWindow: null,
+    maxOutputTokens: null,
     kind: "text",
     inputPerMTok: 0,
     outputPerMTok: 0,
@@ -57,6 +62,10 @@ function fromRow(row: AdminModelRow): AdminModelInput {
     label: row.label,
     blurb: row.blurb ?? "",
     provider: row.provider,
+    baseUrl: row.baseUrl,
+    apiKeyRef: row.apiKeyRef,
+    contextWindow: row.contextWindow,
+    maxOutputTokens: row.maxOutputTokens,
     kind: row.kind as AdminModelInput["kind"],
     inputPerMTok: row.inputPerMTok,
     outputPerMTok: row.outputPerMTok,
@@ -124,6 +133,7 @@ export function ModelsManager({ view }: { view: ModelsView }) {
               {m.recommended && <Sparkles className="h-3 w-3 text-primary" />}
               <span className="font-medium">{m.label}</span>
               <span className="font-mono text-[10px] text-muted-foreground">{m.id}</span>
+              <span className="text-[10px] text-muted-foreground">{providerLabel(m.provider)}</span>
               <span className="tabular-nums text-muted-foreground">{m.chatCredits} cr/turn</span>
               {m.minPlan && <PlanPill plan={m.minPlan} />}
               {m.custom && <Badge variant="outline" className="text-[10px]">custom</Badge>}
@@ -204,10 +214,11 @@ export function ModelsManager({ view }: { view: ModelsView }) {
           <Empty>No custom models yet. The product runs on its built-in defaults.</Empty>
         ) : (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-xs">
+            <table className="w-full min-w-[960px] text-left text-xs">
               <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="py-1 pr-2 font-medium">Model</th>
+                  <th className="py-1 pr-2 font-medium">Provider</th>
                   <th className="py-1 pr-2 font-medium">Kind</th>
                   <th className="py-1 pr-2 font-medium">Chat</th>
                   <th className="py-1 pr-2 text-right font-medium">Cr/turn</th>
@@ -223,6 +234,10 @@ export function ModelsManager({ view }: { view: ModelsView }) {
                     <td className="py-1.5 pr-2">
                       <div className="font-medium">{m.label} {m.isDefaultChat && <Sparkles className="inline h-3 w-3 text-primary" />}</div>
                       <div className="font-mono text-[10px] text-muted-foreground">{m.id}</div>
+                    </td>
+                    <td className="py-1.5 pr-2">
+                      <div>{providerLabel(m.provider)}</div>
+                      {m.baseUrl && <div className="max-w-[180px] truncate font-mono text-[10px] text-muted-foreground" title={m.baseUrl}>{m.baseUrl}</div>}
                     </td>
                     <td className="py-1.5 pr-2">{m.kind} · {m.tier}</td>
                     <td className="py-1.5 pr-2">{m.archived ? "archived" : m.enabledForChat ? <span className="text-emerald-600 dark:text-emerald-400">enabled</span> : "off"}</td>
@@ -296,7 +311,40 @@ function ModelForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const [testing, setTesting] = useState(false);
+  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const spec = useMemo(() => providerSpec(value.provider), [value.provider]);
+  const remote = spec.wire !== "vertex";
+  const keyNames = useMemo(() => providerKeyNames(), []);
+  const needsBaseUrl = remote && (spec.requiresBaseUrl === true || spec.baseUrl === "");
+  const baseUrlMissing = needsBaseUrl && !(value.baseUrl ?? "").trim();
+
   const set = <K extends keyof AdminModelInput>(key: K, v: AdminModelInput[K]) => onChange({ ...value, [key]: v });
+
+  /**
+   * Switching provider invalidates the endpoint and the key that belonged to the
+   * old one, so both drop back to "use this provider's default" rather than
+   * silently pointing a Claude row at an OpenAI URL.
+   */
+  const pickProvider = (id: string) => {
+    setTest(null);
+    onChange({ ...value, provider: id, baseUrl: null, apiKeyRef: null });
+  };
+
+  const runTest = async () => {
+    setTesting(true);
+    setTest(null);
+    const result = await testModelAction(value);
+    setTesting(false);
+    if (!result.success) return setTest({ ok: false, text: result.error });
+    setTest(
+      result.test.ok
+        ? { ok: true, text: `Reached ${spec.label} in ${result.test.latencyMs} ms — replied "${result.test.reply}".` }
+        : { ok: false, text: result.test.error }
+    );
+  };
+
   const field = (label: string, node: React.ReactNode, hint?: string) => (
     <label className="block space-y-1">
       <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
@@ -307,14 +355,70 @@ function ModelForm({
 
   return (
     <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+      {/* Where the model lives. Everything below this row depends on it. */}
       <div className="grid gap-3 md:grid-cols-3">
-        {field("Model id", <Input value={value.id} onChange={(e) => set("id", e.target.value)} placeholder="gemini-3.1-pro-preview" className="h-8 font-mono text-xs" />, "The exact id the provider accepts.")}
-        {field("Label", <Input value={value.label} onChange={(e) => set("label", e.target.value)} placeholder="Gemini 3.1 Pro" className="h-8 text-xs" />)}
+        {field("Provider", (
+          <select value={value.provider ?? "vertex"} onChange={(e) => pickProvider(e.target.value)} className={select}>
+            {providersByGroup().map((g) => (
+              <optgroup key={g.group} label={g.group}>
+                {g.items.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        ), spec.hint)}
+        {field("Model id", (
+          <>
+            <Input
+              list={`provider-examples-${spec.id}`}
+              value={value.id}
+              onChange={(e) => set("id", e.target.value)}
+              placeholder={spec.examples[0] || "model-id"}
+              className="h-8 font-mono text-xs"
+            />
+            <datalist id={`provider-examples-${spec.id}`}>
+              {spec.examples.map((ex) => (
+                <option key={ex} value={ex} />
+              ))}
+            </datalist>
+          </>
+        ), "The exact id the provider accepts.")}
+        {field("Label", <Input value={value.label} onChange={(e) => set("label", e.target.value)} placeholder="Claude Opus 5" className="h-8 text-xs" />, "What users see in the picker.")}
+
+        {remote && (
+          <>
+            {field("Base URL", (
+              <Input
+                value={value.baseUrl ?? ""}
+                onChange={(e) => set("baseUrl", e.target.value || null)}
+                placeholder={spec.baseUrl || "https://your-endpoint/v1"}
+                className={`h-8 font-mono text-xs ${baseUrlMissing ? "border-rose-500/60" : ""}`}
+              />
+            ), needsBaseUrl ? "Required — this provider has no default endpoint." : "Blank uses the provider default above.")}
+            {field("API key", (
+              <select value={value.apiKeyRef ?? ""} onChange={(e) => set("apiKeyRef", e.target.value || null)} className={select}>
+                <option value="">{spec.keyName ? `${spec.keyName} (provider default)` : "provider default"}</option>
+                {keyNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            ), "Set the value itself on the Keys screen.")}
+            {field("Max output tokens", <Input type="number" value={value.maxOutputTokens ?? ""} onChange={(e) => set("maxOutputTokens", num(e.target.value))} placeholder={spec.wire === "anthropic" ? "16384" : "provider default"} className="h-8 text-xs" />, spec.wire === "anthropic" ? "Anthropic requires a ceiling; blank uses 16384." : "Blank lets the provider decide.")}
+          </>
+        )}
+
         {field("Kind", (
           <select value={value.kind} onChange={(e) => set("kind", e.target.value as AdminModelInput["kind"])} className={select}>
             <option value="text">text</option><option value="image">image</option><option value="video">video</option><option value="embed">embed</option>
           </select>
         ), "Only text models are pickable in chat.")}
+        {field("Context window", <Input type="number" value={value.contextWindow ?? ""} onChange={(e) => set("contextWindow", num(e.target.value))} placeholder="200000" className="h-8 text-xs" />, "Shown to users. Display only.")}
+        {field("Tier", (
+          <select value={value.tier} onChange={(e) => set("tier", e.target.value as AdminModelInput["tier"])} className={select}>
+            <option value="frontier">frontier</option><option value="fast">fast</option><option value="legacy">legacy</option>
+          </select>
+        ))}
         <div className="md:col-span-3">
           {field("Blurb", <Textarea value={value.blurb ?? ""} onChange={(e) => set("blurb", e.target.value)} placeholder="One line shown next to the model in the picker." className="min-h-[50px] text-xs" />)}
         </div>
@@ -323,11 +427,6 @@ function ModelForm({
         {field("$ per 1M cached tokens", <Input type="number" step="0.001" value={value.cachedPerMTok ?? ""} onChange={(e) => set("cachedPerMTok", num(e.target.value))} className="h-8 text-xs" />)}
         {field("$ per image", <Input type="number" step="0.001" value={value.perImage ?? ""} onChange={(e) => set("perImage", num(e.target.value))} className="h-8 text-xs" />)}
         {field("$ per video second", <Input type="number" step="0.001" value={value.perVideoSecond ?? ""} onChange={(e) => set("perVideoSecond", num(e.target.value))} className="h-8 text-xs" />)}
-        {field("Tier", (
-          <select value={value.tier} onChange={(e) => set("tier", e.target.value as AdminModelInput["tier"])} className={select}>
-            <option value="frontier">frontier</option><option value="fast">fast</option><option value="legacy">legacy</option>
-          </select>
-        ))}
         {field("Credits per chat turn", <Input type="number" value={value.chatCredits ?? ""} onChange={(e) => set("chatCredits", num(e.target.value))} placeholder="flat" className="h-8 text-xs" />, "Blank = the catalogue's flat chat price.")}
         {field("Minimum plan", (
           <select value={value.minPlan ?? ""} onChange={(e) => set("minPlan", (e.target.value || null) as AdminModelInput["minPlan"])} className={select}>
@@ -344,9 +443,19 @@ function ModelForm({
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={value.supportsTools ?? true} onChange={(e) => set("supportsTools", e.target.checked)} /> Tools</label>
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={value.supportsVision ?? true} onChange={(e) => set("supportsVision", e.target.checked)} /> Vision</label>
       </div>
-      <div className="mt-3 flex justify-end gap-2">
+      {test && (
+        <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${test.ok ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400" : "border-rose-500/30 bg-rose-500/5 text-rose-700 dark:text-rose-400"}`}>
+          {test.text}
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {remote && (
+          <Button size="sm" variant="outline" disabled={testing || busy || !value.id.trim() || baseUrlMissing} onClick={runTest}>
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />} Test connection
+          </Button>
+        )}
         <Button size="sm" variant="outline" onClick={onCancel}><X className="h-3.5 w-3.5" /> Cancel</Button>
-        <Button size="sm" disabled={busy || !value.id.trim() || !value.label.trim()} onClick={onSave}>
+        <Button size="sm" disabled={busy || !value.id.trim() || !value.label.trim() || baseUrlMissing} onClick={onSave}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save model
         </Button>
       </div>

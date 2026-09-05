@@ -37,7 +37,7 @@
 //
 //                                          worst case   floor
 //   Free      $0   /     70 credits           $0.48     -$0.48   acquisition cost
-//   Trial     $7   /    800 credits           $5.44      $1.56   filtered, one per person
+//   Trial     $1   /    620 credits            $4.22     -$3.77   acquisition cost
 //   Go        $19  /  1,500 credits          $10.20      $8.80
 //   Pro       $49  /  5,000 credits          $34.01     $14.99
 //   Agency    $129 / 15,000 credits         $102.04     $26.96
@@ -48,9 +48,30 @@
 //   Go        $15.83/mo  →  $5.63     Pro  $40.83/mo  →  $6.82
 //   Agency   $107.50/mo  →  $5.46
 //
-// Every paid floor is at or above the $5 the product is launching on. Free is a
-// cost of acquisition by design and the trial is a filtered one, which is what the
-// device and network checks in `trialGuard.ts` are for.
+// Every paid floor is at or above the $5 the product is launching on. Free and the
+// trial are both costs of acquisition by design.
+//
+// THE TRIAL IS PRICED AS A FILTER, NOT AS A PRODUCT
+//
+// $1 does not pay for the trial and is not meant to. Lemon Squeezy takes 5% + $0.50,
+// so $1 nets $0.45 against a worst case of $4.22 — about $3.80 of deliberate spend
+// per trial. What the $1 buys is the two things that actually matter at the top of
+// the funnel: a verified card, and a person willing to enter one. Free-of-charge
+// trials are farmed; a card plus the network and device checks in `trial-guard.ts`
+// plus one-per-person makes farming cost more than it returns.
+//
+// The grant is sized to exactly one honest pass at everything, not to a month of
+// work: one campaign across every connected account with its extra formats (92),
+// five images (75), one video (120), three CEO chat messages with two tool rounds
+// each (108), one quick article (150), one autopilot cycle (20), one optimisation
+// run (30), ten best-time picks (10) and one brand scan (2) — 607, rounded to 620.
+// The per-feature caps below are what stop a second pass.
+//
+// At a floor of -$3.77 per trial against Go's floor of $8.80, 100 trials break even
+// at 43 conversions. On the typical ~2x mix rather than the worst case that number
+// is nearer 20. Both are demanding, which is the point: the trial is the marketing
+// budget, and if conversion does not clear it the price rises rather than the grant
+// shrinking, because a trial that cannot test everything tests nothing.
 //
 // Note what these floors are NOT: they are not the expected margin. They are the
 // margin if a customer spends an entire grant on the single worst-covered action
@@ -281,21 +302,26 @@ export const PLAN_ENTITLEMENTS: Record<PlanTier, PlanEntitlements> = {
     socialAccountsPerWorkspace: 6,
     storageMb: 1_024,
     analyticsRetentionDays: 30,
-    // Sized against the caps below rather than picked. Spending every cap to its
-    // ceiling costs 676 credits — 1 video (120), 8 images (120), 6 chat messages at
-    // three rounds each (216), 1 quick article (150), 1 autopilot cycle (20), 1
-    // optimisation run (30), 20 best-time picks (20) — and the uncapped rows a trial
-    // is expected to reach add about another 90: a campaign across every connected
-    // account (60), a couple of extra format variants (16), a trend refresh (6) and
-    // the brand scan (6). 800 covers all of it with room to press one button twice.
-    // A trial that promises more than its balance can buy is worse than a smaller
-    // trial.
-    monthlyCredits: 800,
+    // Sized against the caps below rather than picked, and sized for ONE honest pass
+    // at everything rather than for three days of work. Spending every cap to its
+    // ceiling costs 513 credits — 1 video (120), 5 images (75), 3 chat messages at
+    // two rounds each (108), 1 quick article (150), 1 autopilot cycle (20), 1
+    // optimisation run (30), 10 best-time picks (10) — and the uncapped rows a trial
+    // is expected to reach add 94: one campaign across every connected account (60),
+    // four extra format variants (32) and the brand scan (2). That is 607, so 620 is
+    // the grant: the whole product once, with a little slack, and not a credit more.
+    //
+    // It was 800 when the trial cost $7. At $1 the trial nets $0.45 after Lemon
+    // Squeezy's cut, so every credit here is marketing spend — see the header. The
+    // grant came down to what one pass actually needs rather than being padded, and
+    // the caps came down with it.
+    monthlyCredits: 620,
     seats: 1,
-    // Three rounds, not four. Enough to show the chat calling a tool, reading the
+    // Two rounds, not three. Enough to show the chat calling a tool, reading the
     // result and answering — which is the thing being demonstrated — without any one
-    // message costing 48 credits of a trial that has to cover six of them.
-    chatMaxToolLoops: 3,
+    // message costing 48 credits of a trial that has to cover three of them and a
+    // video and an article besides.
+    chatMaxToolLoops: 2,
     imageQuality: "standard",
     canBuyTopUps: false,
     // Everything a paying account gets, minus the two things one run of which
@@ -307,23 +333,24 @@ export const PLAN_ENTITLEMENTS: Record<PlanTier, PlanEntitlements> = {
       // `aistudio.generate` action, and `goal.taskPost` and `media.reelScript`
       // count against it too. A count here of the size a trial wants (two or
       // three) is spent by pressing "regenerate hashtags" twice, which is not
-      // what anybody means by trying the product. The 800-credit balance and the
+      // what anybody means by trying the product. The 620-credit balance and the
       // three-day clock are the limits; the rows below exist only for the actions
       // expensive enough to empty that balance in one press.
       "media.video": 1,
-      // Eight, not four: a carousel is five slides in one press, so a four-image
-      // ceiling refuses the deck the trial is meant to show off.
-      "media.image": 8,
-      // Six MESSAGES, which is what this counts — the rounds a message takes are
+      // Five, not four: a carousel is five slides in one press, so a four-image
+      // ceiling refuses the deck the trial is meant to show off. Five is exactly
+      // that press and nothing spare.
+      "media.image": 5,
+      // Three MESSAGES, which is what this counts — the rounds a message takes are
       // charged as `chat.toolLoop` under `chat.tools`, which is uncapped here on
       // purpose. Counting rounds against this row would turn the card's promise of
-      // six messages into six model calls, and a single tool-using question would
-      // eat half of them.
-      "chat.message": 6,
+      // three messages into three model calls, and a single tool-using question
+      // would eat one of them.
+      "chat.message": 3,
       "article.quick": 1,
       "goals.autopilot": 1,
       "optimize.run": 1,
-      "schedule.bestTime": 20,
+      "schedule.bestTime": 10,
     },
   },
 
@@ -441,9 +468,10 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
     name: "Free",
     tagline: "Publish everywhere, by hand.",
     blurb:
-      "Connect your accounts, write your own posts, and let the scheduler pick the moment each one goes out. No card, no expiry, no trial clock.",
+      "Where every account starts, with nothing to set up and nothing to cancel. Connect your accounts, write your own posts, and let the scheduler pick the moment each one goes out. No card, no expiry, no trial clock.",
     priceMonthly: 0,
     priceYearly: 0,
+    badge: "Your plan by default",
     ctaLabel: "Start free",
     features: [
       "1 workspace",
@@ -467,26 +495,28 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
   TRIAL: {
     id: "TRIAL",
     name: "3-Day Trial",
-    tagline: "The whole product, for three days.",
+    tagline: "The whole product for $1, for three days.",
     blurb:
-      "Sized for trying it properly rather than skimming it: generate a full campaign for every account you have connected, render a carousel and a video, put the CEO chat to work, and write an article. Cancel inside the three days and you are never charged again.",
+      "One dollar, charged today, and everything is unlocked for three days: generate a full campaign for every account you have connected, render a carousel and a video, put the CEO chat to work, and write an article. Cancel inside the three days and the dollar is all you ever pay.",
     priceMonthly: 0,
     priceYearly: 0,
-    oneTimePrice: 7,
+    oneTimePrice: 1,
     trialDays: 3,
     convertsTo: "GO",
-    badge: "Try everything",
-    ctaLabel: "Start the 3-day trial — $7",
+    badge: "Try everything for $1",
+    ctaLabel: "Start the 3-day trial — $1",
     features: [
-      "800 credits, valid for 3 days",
+      "$1 today, then $19 a month only if you stay",
+      "620 credits, valid for 3 days",
       "1 workspace, up to 6 connected accounts",
       "Content Studio: a full campaign across every connected account",
-      "Up to 8 AI images — enough for a 5-slide carousel and more",
+      "Up to 5 AI images — a full 5-slide carousel",
       "1 AI video",
-      "Up to 6 CEO chat messages, tools included",
+      "Up to 3 CEO chat messages, tools included",
       "1 quick article",
       "1 goal with autopilot, and 1 optimisation run",
-      "Cancel any time in the first 3 days",
+      "Cancel any time in the 3 days, in one click",
+      "Remove your card whenever you like",
     ],
     notIncluded: ["Deep research articles", "The premium image model"],
   },
@@ -670,7 +700,12 @@ export function setPlanOverrides(overrides: PlanOverrides): void {
       : [...base.features];
 
     const caps: Partial<Record<FeatureKey, number>> = {};
-    const capSource = patch.caps && typeof patch.caps === "object" ? patch.caps : base.caps;
+    // An empty `caps` object is not an instruction to remove every ceiling — it is
+    // what a price-only edit posts. Treating it as authoritative turned every
+    // metered feature on that tier unlimited, so it only counts when non-empty.
+    const patchCaps =
+      patch.caps && typeof patch.caps === "object" && Object.keys(patch.caps).length > 0 ? patch.caps : null;
+    const capSource = patchCaps ?? base.caps;
     for (const [key, value] of Object.entries(capSource)) {
       if ((FEATURE_KEYS as readonly string[]).includes(key) && typeof value === "number" && Number.isFinite(value)) {
         caps[key as FeatureKey] = value;
@@ -696,12 +731,13 @@ export function setPlanOverrides(overrides: PlanOverrides): void {
       name: typeof patch.name === "string" && patch.name.trim() ? patch.name.trim() : baseConfig.name,
       tagline: typeof patch.tagline === "string" && patch.tagline.trim() ? patch.tagline.trim() : baseConfig.tagline,
       priceMonthly,
+      // Only the admin sets the yearly price. Deriving it from a changed monthly
+      // used to invent a number nobody typed, which the pricing page then showed
+      // while the payment provider still charged the price on its own variant.
       priceYearly:
         patch.priceYearly !== undefined
           ? pickNumber(patch.priceYearly, baseConfig.priceYearly, 0)
-          : patch.priceMonthly !== undefined && baseConfig.priceYearly > 0
-            ? yearlyFor(priceMonthly)
-            : baseConfig.priceYearly,
+          : baseConfig.priceYearly,
     });
   }
 }

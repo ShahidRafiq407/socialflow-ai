@@ -1,8 +1,8 @@
 // ============================================================================
-// SUBSCRIPTION ACTIONS — CANCEL, RESUME, PORTAL
+// SUBSCRIPTION ACTIONS — CANCEL, RESUME, PORTAL, REMOVE CARD
 //
-// The three things a customer does to a subscription that already exists. All
-// three are one call to Lemon Squeezy and then a wait: the row in our database is
+// The four things a customer does to a subscription that already exists. All of
+// them are one call to Lemon Squeezy and then a wait: the row in our database is
 // updated by the webhook, not here, because the webhook is the only place that
 // sees the authoritative state and there must be exactly one writer of it.
 //
@@ -27,7 +27,9 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Action = "cancel" | "resume" | "portal";
+type Action = "cancel" | "resume" | "portal" | "remove-card";
+
+const ACTIONS: Action[] = ["cancel", "resume", "portal", "remove-card"];
 
 function fail(status: number, error: string, message: string) {
   return NextResponse.json({ ok: false, error, message }, { status });
@@ -50,7 +52,7 @@ export async function POST(req: Request) {
 
     const body = (await req.json().catch(() => ({}))) as { action?: string };
     const action = body.action as Action | undefined;
-    if (action !== "cancel" && action !== "resume" && action !== "portal") {
+    if (!action || !ACTIONS.includes(action)) {
       return fail(400, "UNKNOWN_ACTION", "That is not something that can be done here.");
     }
 
@@ -67,7 +69,13 @@ export async function POST(req: Request) {
     });
 
     if (!subscription?.lsSubscriptionId) {
-      return fail(404, "NO_SUBSCRIPTION", "There is no subscription on this account.");
+      return action === "remove-card"
+        ? fail(
+            404,
+            "NO_CARD",
+            "There is no card on this account. Nothing can be charged to you, and there is nothing to remove."
+          )
+        : fail(404, "NO_SUBSCRIPTION", "There is no subscription on this account.");
     }
     const lsId = subscription.lsSubscriptionId;
     const planName = getPlanConfig(subscription.plan as PlanTier).name;
@@ -126,6 +134,67 @@ export async function POST(req: Request) {
         // cancelling does not take anything away today, and the credits already
         // granted for this period stay spendable until it ends.
         message: `${planName} will end on ${onDate(endsAt)}. You keep everything until then, including the credits already in your balance, and you can resume before that date at no cost.`,
+      });
+    }
+
+    // ── Removing the card ───────────────────────────────────────────────────
+    // Lemon Squeezy is the merchant of record and the only holder of the card. There
+    // is no API to delete a stored payment method, and pretending otherwise — say by
+    // clearing the brand and last four from our own row — would be a lie the next
+    // webhook overwrites.
+    //
+    // So this does the half that is real and hands over the half that is not ours.
+    // The real half is stopping the charges: a card nobody will bill is the outcome
+    // the customer is actually asking for, and cancelling is how it is achieved.
+    // Leaving the subscription live and deleting the card at Lemon Squeezy would only
+    // buy a failed renewal and a PAST_DUE account, which serves neither side.
+    //
+    // The half that is not ours is the stored card itself, so the response carries
+    // the signed portal link with an explanation of what is behind it.
+    if (action === "remove-card") {
+      const alreadyEnding = subscription.cancelAtPeriodEnd || subscription.status === "CANCELLED";
+
+      if (!alreadyEnding) {
+        const cancelled = await cancelSubscription(lsId);
+        if (!cancelled.ok) {
+          return fail(502, "REMOVE_CARD_FAILED", cancelled.detail || cancelled.error);
+        }
+      }
+
+      // Fetched after the cancel, not before: the link is about to be clicked, and
+      // this is also where the customer confirms for themselves that the plan is
+      // ending. A portal fetch that fails does not undo the cancel — the charges have
+      // stopped either way, which is the part that mattered.
+      const portal = await getPortalUrls(lsId);
+      const endsAt = subscription.endsAt ?? subscription.periodEnd;
+
+      if (portal.ok) {
+        await prisma.subscription
+          .update({
+            where: { userId },
+            data: {
+              portalUrl: portal.data.customerPortal,
+              updatePaymentMethodUrl: portal.data.updatePaymentMethod,
+              portalUrlsFetchedAt: new Date(),
+            },
+          })
+          .catch(() => undefined);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        action,
+        alreadyDone: alreadyEnding,
+        endsAt: endsAt ? endsAt.toISOString() : null,
+        url: portal.ok ? portal.data.customerPortal : null,
+        updatePaymentMethodUrl: portal.ok ? portal.data.updatePaymentMethod : null,
+        message: portal.ok
+          ? `Your card will not be charged again${
+              alreadyEnding ? "" : ` — ${planName} now ends on ${onDate(endsAt)}`
+            }, and you keep everything until then. The card itself is held by Lemon Squeezy, our payment processor: their page is open now, and you can delete or replace it there. Come back to any plan whenever you like.`
+          : `Your card will not be charged again${
+              alreadyEnding ? "" : ` — ${planName} now ends on ${onDate(endsAt)}`
+            }, and you keep everything until then. To delete the card details themselves, open "Invoices and receipts" — that is Lemon Squeezy's own page, where the card is stored.`,
       });
     }
 

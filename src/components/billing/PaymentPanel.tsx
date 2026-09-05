@@ -7,6 +7,7 @@ import {
   Loader2,
   RotateCcw,
   ShieldCheck,
+  Trash2,
   Wallet,
   XCircle,
 } from "lucide-react";
@@ -22,6 +23,11 @@ import { fmtDate } from "./format";
  * number in this codebase — everything sensitive happens behind their signed portal
  * link, which expires, which is why the link is fetched rather than stored.
  *
+ * The same fact is why "Remove my card" is worded the way it is. We cannot delete a
+ * card we have never held; what we can do is guarantee nothing will be charged to it
+ * again, and send the customer to the one page where the details themselves live. The
+ * button says that rather than implying a deletion this codebase cannot perform.
+ *
  * The payment-method list is what the checkout *can* offer. Which methods a given
  * buyer actually sees is decided by their country, currency and device, so it is
  * never presented as a promise.
@@ -33,6 +39,7 @@ interface PaymentPanelProps {
   onCancel: () => void;
   onResume: () => void;
   onPortal: () => void;
+  onRemoveCard?: () => void;
 }
 
 function cardLine(payment: BillingPayment): string {
@@ -51,6 +58,7 @@ export function PaymentPanel({
   onCancel,
   onResume,
   onPortal,
+  onRemoveCard = onPortal,
 }: PaymentPanelProps) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -64,33 +72,55 @@ export function PaymentPanel({
         </p>
 
         {planState.hasSubscription ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              className="gap-1.5 text-xs font-semibold"
-              onClick={onPortal}
-              disabled={busy !== null}
-            >
-              {busy === "portal" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <ExternalLink className="h-3.5 w-3.5" />
-              )}
-              Invoices and receipts
-            </Button>
-
-            {payment.updatePaymentMethodUrl && (
-              <a
-                href={payment.updatePaymentMethodUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-foreground hover:bg-muted"
+          <>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                className="gap-1.5 text-xs font-semibold"
+                onClick={onPortal}
+                disabled={busy !== null}
               >
-                <CreditCard className="h-3.5 w-3.5" />
-                Update card
-              </a>
-            )}
-          </div>
+                {busy === "portal" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ExternalLink className="h-3.5 w-3.5" />
+                )}
+                Invoices and receipts
+              </Button>
+
+              {payment.updatePaymentMethodUrl && (
+                <a
+                  href={payment.updatePaymentMethodUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3.5 text-xs font-semibold text-foreground hover:bg-muted"
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  Update card
+                </a>
+              )}
+
+              <Button
+                variant="ghost"
+                className="gap-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                onClick={onRemoveCard}
+                disabled={busy !== null}
+              >
+                {busy === "remove-card" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                Remove my card
+              </Button>
+            </div>
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Removing your card ends the plan at the end of the period you have paid for, so
+              nothing is ever charged again. The details themselves are held by Lemon Squeezy —
+              we have never had them — so the last step happens on their page, which opens for
+              you. Come back to any plan whenever you like.
+            </p>
+          </>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
             Nothing is stored until you start a plan. When you do, the card lives with Lemon
