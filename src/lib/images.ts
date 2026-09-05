@@ -8,7 +8,7 @@
  * Default blog featured image: 1200x630 (16:9).
  */
 
-import { getPixabayKeys, hasPixabayKey } from "@/lib/apiKeys";
+import { ensureApiKeys, getPixabayKeys, hasPixabayKey } from "@/lib/apiKeys";
 
 export interface SmartImageResult {
   url: string;
@@ -60,6 +60,7 @@ async function pixabaySearch(
   orientation: "horizontal" | "vertical",
   perPage: number
 ): Promise<any[]> {
+  await ensureApiKeys();
   for (const key of getPixabayKeys()) {
     try {
       const endpoint =
@@ -112,6 +113,9 @@ export async function getSmartImages(
   query: string,
   options?: PixabaySearchOptions
 ): Promise<SmartImageResult[]> {
+  // Background jobs and server actions each start with an empty runtime-config
+  // cache, where a key set in the dashboard is invisible.
+  await ensureApiKeys();
   if (!hasPixabayKey()) return [];
 
   const { orientation, width, height } = dimensionsFor(options);

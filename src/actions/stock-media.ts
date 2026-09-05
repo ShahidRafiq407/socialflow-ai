@@ -20,7 +20,7 @@
  */
 
 import { auth } from "@clerk/nextjs/server";
-import { getPixabayKeys, PIXABAY_MISSING_MESSAGE } from "@/lib/apiKeys";
+import { ensureApiKeys, getPixabayKeys, PIXABAY_MISSING_MESSAGE } from "@/lib/apiKeys";
 
 export interface StockHit {
   id: string;
@@ -178,7 +178,10 @@ export async function searchStockMedia(
     };
   }
 
-  // Environment only. A literal key here would spend somebody else's quota.
+  // The dashboard's key lives in the runtime config, which this request has not
+  // necessarily loaded yet. Without the await, a key set in Admin → Keys reads
+  // as "not configured" on a cold instance.
+  await ensureApiKeys();
   const apiKey = getPixabayKeys()[0];
   if (!apiKey) {
     return {

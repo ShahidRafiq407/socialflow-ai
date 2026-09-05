@@ -13,6 +13,13 @@ import prisma from "@/lib/db";
 
 let bootstrapPromise: Promise<void> | null = null;
 
+/**
+ * Bumped whenever STATEMENTS changes. A database that reports this version has
+ * the whole list applied, so a cold instance can skip 25 sequential DDL round
+ * trips and answer with one SELECT.
+ */
+const SCHEMA_VERSION = "2026-09-05.roleSource";
+
 const STATEMENTS: string[] = [
   `DO $$ BEGIN
      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'UserRole') THEN
@@ -20,8 +27,20 @@ const STATEMENTS: string[] = [
      END IF;
    END $$`,
 
+  // "AiModel"."minPlan" is this enum. On a database where the billing migration
+  // never ran, a missing type made the whole CREATE TABLE below fail — and the
+  // model catalogue then looked simply empty.
+  `DO $$ BEGIN
+     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'PlanTier') THEN
+       CREATE TYPE "PlanTier" AS ENUM ('FREE', 'TRIAL', 'GO', 'PRO', 'AGENCY');
+     END IF;
+   END $$`,
+
   // --- User ---
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "role" "UserRole" NOT NULL DEFAULT 'USER'`,
+  // Where an ADMIN role came from, so one synced from ADMIN_USERS can be taken
+  // away again when the address leaves the allowlist.
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "roleSource" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "blockedAt" TIMESTAMP(3)`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "blockedReason" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "blockedBy" TEXT`,
@@ -163,21 +182,57 @@ const STATEMENTS: string[] = [
 ];
 
 /**
- * Applies the admin DDL once per process. Failures are logged and swallowed: a
- * database that is already migrated, or a role without DDL rights, must not
- * take the dashboard down, and every admin read path tolerates a missing
- * table by returning empty.
+ * Applies the admin DDL once per process, and at most once per database per
+ * schema version. Failures are logged and swallowed: a database that is already
+ * migrated, or a role without DDL rights, must not take the dashboard down, and
+ * every admin read path tolerates a missing table by returning empty. A failure
+ * also leaves the version sentinel unwritten, so the next cold start retries.
  */
 export async function ensureAdminSchema(): Promise<void> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
+      // Every statement is a separate round trip, and a cold serverless instance
+      // pays all of them before it can render anything. Once a database says it
+      // is at this version, one SELECT replaces the lot.
+      try {
+        const done = await prisma.$queryRaw<Array<{ ok: number }>>`
+          SELECT 1 AS ok FROM "AppSetting"
+          WHERE "key" = 'schema.admin.version' AND "value" = to_jsonb(${SCHEMA_VERSION}::text)
+        `;
+        if (done.length > 0) return;
+      } catch {
+        // No AppSetting table yet (first ever run), or no read rights. Either way
+        // the DDL below is what decides.
+      }
+
+      let failed = 0;
       for (const sql of STATEMENTS) {
         try {
           await prisma.$executeRawUnsafe(sql);
         } catch (err) {
+          failed += 1;
+          // Error level, with the whole message: a silently skipped statement is
+          // how a column goes missing and a feature looks broken instead.
+          console.error(
+            "[AdminSchema] statement failed:",
+            sql.slice(0, 120).replace(/\s+/g, " "),
+            "→",
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+
+      if (failed === 0) {
+        try {
+          await prisma.$executeRaw`
+            INSERT INTO "AppSetting" ("key", "value", "updatedAt", "createdAt")
+            VALUES ('schema.admin.version', to_jsonb(${SCHEMA_VERSION}::text), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = CURRENT_TIMESTAMP
+          `;
+        } catch (err) {
+          // Not fatal — it only means the next cold start repeats the DDL.
           console.warn(
-            "[AdminSchema] statement skipped (non-fatal):",
-            sql.slice(0, 72).replace(/\s+/g, " "),
+            "[AdminSchema] could not record the schema version:",
             err instanceof Error ? err.message : err
           );
         }

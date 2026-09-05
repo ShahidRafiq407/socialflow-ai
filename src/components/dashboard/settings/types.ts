@@ -46,6 +46,22 @@ export interface SettingsBillingData {
   monthlyGrant: number;
   /** Share of this period's grant already spent, 0-100. */
   percentUsed: number;
+  /**
+   * The plan as the SERVER sees it, admin overrides included.
+   *
+   * These are passed down rather than read from `plans.ts` in the card, because
+   * the card is a client component: the browser's copy of the plan tables is the
+   * code default and has never had the back office's overrides applied to it, so
+   * a renamed plan or an edited price showed correctly in the server HTML and then
+   * changed back on hydration.
+   */
+  planName: string;
+  priceMonthly: number;
+  oneTimePrice?: number;
+  /** Connected-account ceiling per workspace, -1 for unlimited. */
+  socialAccountsPerWorkspace: number;
+  hasAiGeneration: boolean;
+  hasAiVideo: boolean;
 }
 
 export interface SettingsWorkspaceData {

@@ -405,6 +405,12 @@ export function gateToResponseBody(gate: GateResult): Record<string, unknown> {
     reason: gate.reason,
     plan: gate.plan,
     requiredPlan: gate.requiredPlan,
+    // Resolved here, not in the browser. The plan tables are patched with the
+    // admin's overrides in this process only, so a client that turned the tier id
+    // into a name off its own bundled copy printed the plan's old name next to the
+    // new price. Sent alongside the id rather than instead of it, because the id is
+    // what a checkout call needs.
+    requiredPlanName: gate.requiredPlan ? getPlanConfig(gate.requiredPlan).name : undefined,
     feature: gate.feature,
     cap: gate.cap,
     used: gate.used,
@@ -715,7 +721,7 @@ export async function checkAction(
  * whose grant has to be triggered by use. Anything paid was granted by the webhook
  * and this returns immediately without touching the database — the `plan` check is
  * the guard, not an optimisation: calling `ensureFreeGrant` for a paid account would
- * offer to overwrite a larger grant with 70 credits.
+ * offer to overwrite a larger grant with Free's 66 credits.
  *
  * A failure here is not a failure of the gate. If the grant cannot be written the
  * balance is simply read as it stands, which refuses the action — the same answer

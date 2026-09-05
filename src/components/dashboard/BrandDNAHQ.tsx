@@ -14,17 +14,27 @@ import {
   Check,
   Loader2,
   Sparkles,
+  AlertCircle,
 } from "lucide-react";
 import {
   BrandDNAFormValues,
   saveWorkspaceBrandDNA,
   extractAndApplyBrandDNAFromUrl,
+  extractAndApplyBrandDNAFromDocument,
 } from "@/actions/brand";
 
 interface BrandDNAHQProps {
   workspaceId: string;
   initialData: BrandDNAFormValues;
 }
+
+/**
+ * Vercel caps a serverless request body at ~4.5 MB and the file arrives base64-encoded,
+ * which costs about a third on top — so the ceiling on real bytes is nearer 3 MB. A
+ * brand deck is comfortably inside that; a 20 MB scan is not, and refusing it here with
+ * its own size in the message beats a request that dies without one.
+ */
+const MAX_DOC_BYTES = 3 * 1024 * 1024;
 
 export function BrandDNAHQ({
   workspaceId,
@@ -35,6 +45,11 @@ export function BrandDNAHQ({
   const [isScanning, startScanningTransition] = useTransition();
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // Both imports are metered, so both can be refused — for the month's cap, for the
+  // plan, or for a file we cannot read. Every one of those refusals arrives as a
+  // sentence worth showing, and until this the component logged it and left the
+  // button looking broken.
+  const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to update field & clear save success state
@@ -46,6 +61,7 @@ export function BrandDNAHQ({
   // Handle URL scanning
   const handleScanWebsite = () => {
     if (!formData.website.trim()) return;
+    setImportError(null);
     startScanningTransition(async () => {
       try {
         const result = await extractAndApplyBrandDNAFromUrl(
@@ -56,26 +72,56 @@ export function BrandDNAHQ({
         setSaveSuccess(true);
       } catch (error: any) {
         console.error("Scan error:", error);
+        setImportError(error?.message || "We could not read that website. Check the address and try again.");
       }
     });
   };
 
-  // Handle simulated PDF upload & extraction
   const handlePdfUploadClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * Reads the file in the browser and hands the server a data URL, which is what
+   * `parseUploadedFile` already accepts. Nothing is uploaded to storage: the document
+   * is read once for its text and never kept.
+   */
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (!file) return;
 
+    setImportError(null);
+
+    if (file.size > MAX_DOC_BYTES) {
+      setImportError(
+        `${file.name} is ${(file.size / 1048576).toFixed(1)} MB. Uploads are capped at 3 MB — export a smaller version, or scan your website instead.`
+      );
+      return;
+    }
+
     setIsUploadingPdf(true);
-    setTimeout(() => {
-      // PDF extraction coming soon — for now just acknowledge the upload
-      alert(`File "${file.name}" received. PDF extraction feature coming soon. For now, use the "Scan URL" button or fill the form manually.`);
+    try {
+      const content = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("The file could not be read from your device."));
+        reader.readAsDataURL(file);
+      });
+
+      const result = await extractAndApplyBrandDNAFromDocument(workspaceId, {
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        content,
+      });
+      setFormData(result);
+      setSaveSuccess(true);
+    } catch (error: any) {
+      console.error("Document import error:", error);
+      setImportError(error?.message || "We could not read that document. Try a PDF, Word file, or deck.");
+    } finally {
       setIsUploadingPdf(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }, 800);
+    }
   };
 
   // Handle Save
@@ -107,7 +153,8 @@ export function BrandDNAHQ({
 
       {/* OPTIONAL: AI QUICK IMPORT BAR (URL OR PDF DECK) */}
       <Card className="border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 shadow-xs">
-        <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
               <Sparkles className="h-4 w-4" />
@@ -117,7 +164,7 @@ export function BrandDNAHQ({
                 AI Quick Import (Optional)
               </h2>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Paste your website URL or upload a pitch deck PDF to auto-fill the form below.
+                Paste your website URL, or upload a deck, brief, or PDF to auto-fill the form below.
               </p>
             </div>
           </div>
@@ -154,7 +201,7 @@ export function BrandDNAHQ({
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept=".pdf,.doc,.docx,.ppt,.pptx"
+              accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md"
               className="hidden"
             />
             <Button
@@ -172,11 +219,22 @@ export function BrandDNAHQ({
               ) : (
                 <>
                   <FileText className="h-3 w-3 mr-1 text-purple-500" />
-                  <span>Upload PDF</span>
+                  <span>Upload document</span>
                 </>
               )}
             </Button>
           </div>
+          </div>
+
+          {importError && (
+            <p
+              role="alert"
+              className="flex items-start gap-1.5 text-[11px] leading-relaxed text-red-600 dark:text-red-400"
+            >
+              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>{importError}</span>
+            </p>
+          )}
         </CardContent>
       </Card>
 

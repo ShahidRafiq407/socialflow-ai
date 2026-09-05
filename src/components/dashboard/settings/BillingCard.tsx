@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { ArrowRight, Check, FlaskConical, Share2, Sparkles, Video, Wallet } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCap, getEntitlements, getPlanConfig, planHasFeature } from "@/lib/billing/plans";
+import { formatCap } from "@/lib/billing/plans";
 import type { SettingsData } from "./types";
 
 /**
@@ -13,28 +13,44 @@ import type { SettingsData } from "./types";
  * Plan changes, checkout and invoices live on the billing page; this card only
  * shows what the account already has. The credit figures come from the wallet, so
  * they are the same numbers the gates enforce rather than a display estimate.
+ *
+ * Every plan figure arrives as data. It used to call `getPlanConfig`/
+ * `getEntitlements` here, which in a client component reads the code defaults
+ * compiled into the browser bundle — never the admin's overrides — so an edited
+ * price or a lowered account ceiling was shown wrong to the person it applies to.
  */
 export function BillingCard({ data }: { data: SettingsData }) {
-  const { tier, status, testMode, creditsAvailable, monthlyGrant, percentUsed } = data.billing;
-  const config = getPlanConfig(tier);
-  const entitlements = getEntitlements(tier);
+  const {
+    tier,
+    status,
+    testMode,
+    creditsAvailable,
+    monthlyGrant,
+    percentUsed,
+    planName,
+    priceMonthly,
+    oneTimePrice,
+    socialAccountsPerWorkspace,
+    hasAiGeneration,
+    hasAiVideo,
+  } = data.billing;
   const connected = data.counts.socialAccounts;
 
   const limits = [
     {
       icon: <Share2 className="h-4 w-4" />,
       label: "Social accounts",
-      value: `${connected} / ${formatCap(entitlements.socialAccountsPerWorkspace)} connected`,
+      value: `${connected} / ${formatCap(socialAccountsPerWorkspace)} connected`,
     },
     {
       icon: <Sparkles className="h-4 w-4" />,
       label: "AI generation",
-      value: planHasFeature(tier, "aistudio.generate") ? "Included" : "Manual mode only",
+      value: hasAiGeneration ? "Included" : "Manual mode only",
     },
     {
       icon: <Video className="h-4 w-4" />,
       label: "AI video",
-      value: planHasFeature(tier, "media.video") ? "Included" : "Not included",
+      value: hasAiVideo ? "Included" : "Not included",
     },
     {
       icon: <Wallet className="h-4 w-4" />,
@@ -65,7 +81,7 @@ export function BillingCard({ data }: { data: SettingsData }) {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-lg font-bold text-foreground">{config.name}</span>
+            <span className="text-lg font-bold text-foreground">{planName}</span>
             <span
               className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
                 tier === "PRO"
@@ -89,11 +105,11 @@ export function BillingCard({ data }: { data: SettingsData }) {
             </span>
           </div>
           <p className="text-sm text-muted-foreground">
-            {config.oneTimePrice !== undefined
-              ? `$${config.oneTimePrice} once`
-              : config.priceMonthly === 0
+            {oneTimePrice !== undefined
+              ? `$${oneTimePrice} once`
+              : priceMonthly === 0
                 ? "Free"
-                : `$${config.priceMonthly} / month`}
+                : `$${priceMonthly} / month`}
           </p>
         </div>
 

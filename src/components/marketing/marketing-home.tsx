@@ -10,7 +10,12 @@ import {
 } from "lucide-react";
 import { Robot3D } from "./robot-3d";
 import { PostloomLogo } from "./logo";
-import { PLAN_CATALOG, yearlySavingPercent, type PlanConfig } from "@/lib/billing/plans";
+import {
+  PLAN_CATALOG,
+  yearlySavingPercent,
+  type PlanConfig,
+  type PlanTier,
+} from "@/lib/billing/plans";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 40 },
@@ -54,16 +59,44 @@ function GradientText({ children }: { children: React.ReactNode }) {
  * feature listed here that the plan does not grant is a support ticket. `plans.ts`
  * has no imports of its own, so a client component can hold it.
  *
+ * These are only the FALLBACK, though. The admin's plan overrides are applied to
+ * `PLAN_CATALOG` in the server process, and this file is also compiled into the
+ * browser bundle, where nothing has ever applied them — so a price edited in the
+ * back office rendered correctly in the server HTML and then reverted to the code
+ * default on hydration. The real values arrive as props from the server page,
+ * which awaits the runtime config first; the constants below are what a caller
+ * that passes nothing (or a Storybook render) gets.
+ *
  * The trial is not in the grid. One payment, one clock, one per person is a
  * different kind of thing from a plan that renews, and drawing it as a fifth
  * column invites a buyer to compare $1 against $19 a month — which reads as a
  * ninety-five percent discount rather than as three days.
  */
-const ONGOING_PLANS: PlanConfig[] = (["FREE", "GO", "PRO", "AGENCY"] as const).map(
-  (tier) => PLAN_CATALOG[tier]
-);
-const TRIAL_PLAN: PlanConfig = PLAN_CATALOG.TRIAL;
-const YEARLY_SAVING = yearlySavingPercent("PRO");
+export const ONGOING_PLAN_TIERS = ["FREE", "GO", "PRO", "AGENCY"] as const;
+
+const FALLBACK_ONGOING_PLANS: PlanConfig[] = ONGOING_PLAN_TIERS.map((tier) => PLAN_CATALOG[tier]);
+const FALLBACK_TRIAL_PLAN: PlanConfig = PLAN_CATALOG.TRIAL;
+const FALLBACK_YEARLY_SAVING = yearlySavingPercent("PRO");
+
+/**
+ * Where a pricing CTA actually goes.
+ *
+ * A visitor who has clicked "Start the 3-day trial — $1" has decided. Landing them on
+ * the billing tab to pick the same thing a second time loses the ones who only had one
+ * decision in them, so the choice rides along in the query string and `BillingShell`
+ * opens the Lemon Squeezy page on arrival. Signed out, the same destination is handed
+ * to Clerk as `redirect_url`, which it honours ahead of its own fallback — so the trial
+ * survives the sign-up it requires.
+ *
+ * `FREE` is the exception and gets no query: it is the plan every account is already
+ * on, so there is nothing to buy and the dashboard is the honest destination.
+ */
+function planCtaHref(isLoggedIn: boolean, tier: PlanTier | "TRIAL"): string {
+  if (tier === "FREE") return isLoggedIn ? "/dashboard" : "/sign-up";
+  const target =
+    tier === "TRIAL" ? "/dashboard/billing?intent=trial" : `/dashboard/billing?plan=${tier}`;
+  return isLoggedIn ? target : `/sign-up?redirect_url=${encodeURIComponent(target)}`;
+}
 
 
 const TESTIMONIALS = [
@@ -214,7 +247,22 @@ const SOCIALS: { label: string; href: string; Icon: SocialIcon }[] = [
   },
 ];
 
-export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
+export function MarketingHome({
+  isLoggedIn,
+  plans,
+  trialPlan,
+  yearlySaving,
+}: {
+  isLoggedIn: boolean;
+  /** FREE/GO/PRO/AGENCY as the server sees them, admin overrides included. */
+  plans?: PlanConfig[];
+  trialPlan?: PlanConfig;
+  yearlySaving?: number;
+}) {
+  const ONGOING_PLANS = plans?.length ? plans : FALLBACK_ONGOING_PLANS;
+  const TRIAL_PLAN = trialPlan ?? FALLBACK_TRIAL_PLAN;
+  const YEARLY_SAVING = yearlySaving ?? FALLBACK_YEARLY_SAVING;
+
   return (
     <div className="relative mkt-bg mkt-text overflow-x-clip">
       {/* Global background fx */}
@@ -448,7 +496,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                 Charged today · {TRIAL_PLAN.trialDays} days · cancel any time · one per person
               </p>
               <Link
-                href={isLoggedIn ? "/dashboard/billing" : "/sign-up"}
+                href={planCtaHref(isLoggedIn, "TRIAL")}
                 className="inline-flex items-center justify-center w-full h-12 rounded-xl font-bold bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)] transition-all duration-300 hover:scale-[1.03]"
               >
                 {TRIAL_PLAN.ctaLabel}
@@ -503,7 +551,7 @@ export function MarketingHome({ isLoggedIn }: { isLoggedIn: boolean }) {
                   </ul>
                 )}
                 <Link
-                  href={isLoggedIn ? "/dashboard/billing" : "/sign-up"}
+                  href={planCtaHref(isLoggedIn, p.id)}
                   className={`inline-flex items-center justify-center h-12 rounded-xl font-bold transition-all duration-300 hover:scale-[1.03] ${
                     p.highlight
                       ? "bg-[#18713C] text-white shadow-[0_0_30px_-5px_rgba(24,113,60,0.8)]"

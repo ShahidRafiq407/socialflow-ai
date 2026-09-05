@@ -26,6 +26,7 @@ import {
   getPlanContext,
   requireFeature,
 } from "@/lib/billing/entitlements";
+import { getPlanConfig } from "@/lib/billing/plans";
 import { withMeterContext } from "@/lib/billing/meter";
 import {
   createWPCategory,
@@ -672,6 +673,13 @@ async function runArticleStep(ctx: ArticleStepContext): Promise<NextResponse> {
             reason: missing || (gate.allowed ? undefined : gate.message),
             plan: gate.plan,
             requiredPlan: gate.requiredPlan,
+            // Named on the server. `getPlanContext` above has already applied the
+            // admin's plan overrides to this process; the guide that renders this is
+            // a client component whose bundled catalogue never has them, so it used
+            // to print the plan's pre-override name on the upgrade button.
+            requiredPlanName: gate.requiredPlan
+              ? getPlanConfig(gate.requiredPlan).name
+              : undefined,
             // Present only where this plan caps the mode by count. Deep is capped
             // on no plan that has it, so it reports no meter rather than a zero.
             cap: meter?.cap,

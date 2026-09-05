@@ -18,7 +18,6 @@ import {
   PURCHASABLE_PLANS,
   lowestPlanWith,
   planRank,
-  yearlySavingPercent,
   type FeatureKey,
   type PlanConfig,
   type PlanTier,
@@ -32,6 +31,14 @@ import {
  * advertise a feature the plan no longer includes, or a price nobody is charged.
  * These are the same cards the billing page renders, and the button posts to the
  * same checkout route — so what is promised here is what is sold there.
+ *
+ * The catalogue itself comes in as `plans`. This is a client component, and the
+ * copy of `PLAN_CATALOG` compiled into the browser bundle is the code default: the
+ * admin's plan overrides are applied to the table in the server process only, so
+ * reading it here quoted a price the checkout would not charge. `plans` should be
+ * the `catalog.plans` array from `GET /api/billing/status`, which is serialised on
+ * the server after the settings have been read. The module tables remain as a
+ * fallback so a gate that has no status payload to hand still renders.
  */
 interface UpgradeModalProps {
   open: boolean;
@@ -42,6 +49,12 @@ interface UpgradeModalProps {
   highlightPlan?: PlanTier;
   /** What the account is on now, so its own card reads "current" and not an upsell. */
   currentPlan?: PlanTier;
+  /**
+   * The plans as the server resolved them, admin overrides included — normally
+   * `catalog.plans` from the billing status read. Extra tiers are ignored and
+   * missing ones fall back, so passing the whole catalogue is fine.
+   */
+  plans?: PlanConfig[];
   title?: string;
   description?: string;
 }
@@ -51,12 +64,26 @@ function perMonth(plan: PlanConfig, cycle: "monthly" | "yearly"): number {
   return cycle === "yearly" ? Math.round(plan.priceYearly / 12) : plan.priceMonthly;
 }
 
+/**
+ * The yearly discount for one plan, from that plan's own two prices.
+ *
+ * Deliberately not `yearlySavingPercent(tier)`: that reads the module catalogue,
+ * which in the browser is the un-overridden default, so an admin who edited the
+ * yearly price would have seen the old saving advertised beside the new price.
+ */
+function savingPercent(plan: PlanConfig): number {
+  if (!plan.priceMonthly || !plan.priceYearly) return 0;
+  const full = plan.priceMonthly * 12;
+  return Math.round(((full - plan.priceYearly) / full) * 100);
+}
+
 export function UpgradeModal({
   open,
   onOpenChange,
   feature,
   highlightPlan,
   currentPlan = "FREE",
+  plans,
   title,
   description,
 }: UpgradeModalProps) {
@@ -65,21 +92,34 @@ export function UpgradeModal({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // The three cards, in catalogue order, taken from the server's copy where one was
+  // supplied. A tier the caller did not send falls back to the bundled default, so a
+  // partial payload degrades one card instead of emptying the grid.
+  const cards: PlanConfig[] = React.useMemo(
+    () =>
+      PURCHASABLE_PLANS.map(
+        (tier) => plans?.find((entry) => entry.id === tier) ?? PLAN_CATALOG[tier]
+      ),
+    [plans]
+  );
+
   // The cheapest plan that actually unlocks what they tried to do. Leading with the
   // most expensive one is how a paywall starts reading as a shakedown.
   const suggested: PlanTier = highlightPlan ?? (feature ? lowestPlanWith(feature) : "PRO");
   const featureName = feature ? FEATURE_LABELS[feature] : null;
+  const suggestedName =
+    plans?.find((entry) => entry.id === suggested)?.name ?? PLAN_CATALOG[suggested].name;
 
   const heading = title ?? (featureName ? `${featureName} needs a plan` : "Unlock the rest of it");
   const blurb =
     description ??
     (featureName
-      ? `${featureName} is included from ${PLAN_CATALOG[suggested].name} upwards. Nothing you have already made is affected, and it works on the next click.`
+      ? `${featureName} is included from ${suggestedName} upwards. Nothing you have already made is affected, and it works on the next click.`
       : "Each plan includes everything in the one before it. Change or cancel whenever you like.");
 
-  // Said as "up to" and read from the catalogue, so a plan priced differently one
-  // day cannot make this line a lie.
-  const topSaving = Math.max(...PURCHASABLE_PLANS.map((tier) => yearlySavingPercent(tier)));
+  // Said as "up to" and computed from the prices actually on screen, so a plan
+  // repriced in the back office cannot make this line a lie.
+  const topSaving = Math.max(0, ...cards.map(savingPercent));
 
   async function choose(plan: PlanTier) {
     setBusy(plan);
@@ -175,8 +215,8 @@ export function UpgradeModal({
         )}
 
         <div className="grid gap-4 pt-4 md:grid-cols-3">
-          {PURCHASABLE_PLANS.map((tier) => {
-            const plan = PLAN_CATALOG[tier];
+          {cards.map((plan) => {
+            const tier = plan.id;
             const leads = tier === suggested;
             const isCurrent = tier === currentPlan;
             const isDowngrade = planRank(tier) < planRank(currentPlan);

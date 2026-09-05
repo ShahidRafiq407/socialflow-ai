@@ -31,14 +31,21 @@ export function AdminHeader({
 }) {
   const pathname = usePathname();
 
-  // Find matching title or default
-  let currentTitle = "System Overview";
-  for (const [route, title] of Object.entries(ROUTE_TITLES)) {
-    if (pathname === route || pathname.startsWith(`${route}/`)) {
-      currentTitle = title;
-      break;
+  // Longest match wins. Every route here starts with "/adminshahid", so taking
+  // the first hit in insertion order let the root entry swallow every sub-page
+  // and label all of them "System Overview".
+  const currentTitle = React.useMemo(() => {
+    let best = "System Overview";
+    let bestLength = -1;
+    for (const [route, title] of Object.entries(ROUTE_TITLES)) {
+      const hit = pathname === route || pathname.startsWith(`${route}/`);
+      if (hit && route.length > bestLength) {
+        best = title;
+        bestLength = route.length;
+      }
     }
-  }
+    return best;
+  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-40 h-16 w-full border-b border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between gap-4 font-sans">

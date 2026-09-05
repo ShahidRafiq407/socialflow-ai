@@ -42,6 +42,11 @@ model User {
   /// ADMIN rows open the back office. The env allowlist (ADMIN_USERS) is the
   /// bootstrap that makes the first admin; every later one is granted here.
   role          UserRole  @default(USER)
+  /// Where an ADMIN role came from: "ENV" when it was synced from the
+  /// ADMIN_USERS allowlist, "MANUAL" when an admin granted it in the back
+  /// office. An ENV role is taken away again when the address leaves the
+  /// allowlist; a MANUAL one is only ever removed by hand. Null on normal users.
+  roleSource    String?
   /// Set while the account is suspended. Every gate in the product refuses a
   /// blocked account, and the dashboard shows the reason instead of the app.
   blockedAt     DateTime?

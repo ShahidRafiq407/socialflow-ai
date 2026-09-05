@@ -1,6 +1,6 @@
 "use server";
 
-import { getSerperKey, hasSerperKey, SERPER_MISSING_MESSAGE } from "@/lib/apiKeys";
+import { ensureApiKeys, getSerperKey, hasSerperKey, SERPER_MISSING_MESSAGE } from "@/lib/apiKeys";
 
 export interface SerpResult {
   position: number;
@@ -117,6 +117,9 @@ export async function fetchSerpAnalysis(
     measureCount?: number;
   }
 ): Promise<{ success: boolean; data?: SerpAnalysis; error?: string }> {
+  // A server action is its own request: without this the dashboard's key is
+  // invisible on any instance that has not loaded the runtime config yet.
+  await ensureApiKeys();
   const key = getSerperKey();
   if (!hasSerperKey()) {
     return { success: false, error: SERPER_MISSING_MESSAGE };

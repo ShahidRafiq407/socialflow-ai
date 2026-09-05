@@ -10,36 +10,37 @@
 
 import prisma from "@/lib/db";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getPlanContext } from "@/lib/billing/entitlements";
+import { getPlanContext, effectivePlanFor, STALE_PERIOD_GRACE_MS } from "@/lib/billing/entitlements";
 import { getWalletBalance, getLedgerEntries, type LedgerEntry, type WalletBalance } from "@/lib/billing/wallet";
 import { getUsageTotals, getUsageByFeature, getUsageByModel, type UsageTotals } from "@/lib/billing/meter";
 import type { PlanTier } from "@/lib/billing/plans";
 import { ensureAdminSchema } from "./schema";
 import { listAudit, type AuditRow } from "./audit";
 
+/** What Clerk knows about an account, once it has been reconciled. */
+interface HealedProfile {
+  email: string;
+  name: string | null;
+  avatar: string | null;
+}
+
 /**
  * Reconciles local database user rows that have placeholder emails or missing
  * profile info with their authoritative Clerk profile. Updates the database
  * permanently so search, filtering, and table displays show real user data.
+ *
+ * Returns what it wrote, keyed by user id, so the caller can patch rows it
+ * already has in hand instead of re-reading each one.
  */
-async function healPlaceholderAccounts(userIds?: string[]): Promise<void> {
+async function healPlaceholderAccounts(userIds: string[]): Promise<Map<string, HealedProfile>> {
+  const healed = new Map<string, HealedProfile>();
+  if (userIds.length === 0) return healed;
   try {
-    const whereClause = userIds && userIds.length > 0
-      ? { id: { in: userIds } }
-      : {
-          OR: [
-            { email: { contains: "@placeholder" } },
-            { name: null },
-          ],
-        };
-
     const candidates = await prisma.user.findMany({
-      where: whereClause,
+      where: { id: { in: userIds } },
       select: { id: true, email: true, name: true, avatar: true },
-      take: 50,
     });
-
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return healed;
 
     const clerk = await clerkClient();
     await Promise.allSettled(
@@ -52,21 +53,26 @@ async function healPlaceholderAccounts(userIds?: string[]): Promise<void> {
             : null;
           const realAvatar = clerkUser?.imageUrl || null;
 
-          const needsUpdate =
-            (realEmail && c.email !== realEmail) ||
-            (realName && c.name !== realName) ||
-            (realAvatar && c.avatar !== realAvatar);
+          const next: HealedProfile = {
+            email: realEmail || c.email,
+            name: realName ?? c.name,
+            avatar: realAvatar ?? c.avatar,
+          };
+          const changed =
+            next.email !== c.email || next.name !== c.name || next.avatar !== c.avatar;
+          if (!changed) return;
 
-          if (needsUpdate) {
-            await prisma.user.update({
+          await prisma.user
+            .update({
               where: { id: c.id },
               data: {
                 ...(realEmail ? { email: realEmail } : {}),
                 ...(realName ? { name: realName } : {}),
                 ...(realAvatar ? { avatar: realAvatar } : {}),
               },
-            }).catch(() => {});
-          }
+            })
+            .catch(() => {});
+          healed.set(c.id, next);
         } catch {
           // Non-fatal if Clerk user was deleted or lookup fails
         }
@@ -76,6 +82,7 @@ async function healPlaceholderAccounts(userIds?: string[]): Promise<void> {
     // Non-fatal if Clerk client is unavailable
     console.warn("[admin-users] healPlaceholderAccounts error:", err);
   }
+  return healed;
 }
 
 export type UserSort = "newest" | "oldest" | "lastSeen" | "spend" | "balance";
@@ -111,92 +118,210 @@ export interface UserListResult {
   total: number;
   page: number;
   pageSize: number;
+  /** True when a computed sort had to stop counting; the UI can say so. */
+  truncated?: boolean;
+}
+
+/** Ordering by a value the database cannot sort on reads at most this many rows. */
+const COMPUTED_SORT_LIMIT = 20_000;
+
+/**
+ * The subscription shapes that currently grant a trial, expressed as a Prisma
+ * filter. Mirrors the TRIALING branch of `effectivePlanFor`.
+ */
+function trialGrantingFilter(now: Date, excludeTestMode: boolean) {
+  return {
+    status: "TRIALING",
+    ...(excludeTestMode ? { testMode: false } : {}),
+    OR: [{ trialEndsAt: null }, { trialEndsAt: { gt: now } }],
+  };
+}
+
+/**
+ * The subscription shapes that currently grant a paid tier. Mirrors the ACTIVE /
+ * PAST_DUE / CANCELLED branches of `effectivePlanFor`, including the seven-day
+ * grace a renewal webhook gets to land in.
+ */
+function paidGrantingFilter(now: Date, excludeTestMode: boolean, plan?: PlanTier) {
+  return {
+    plan: plan ? { equals: plan } : { in: ["GO", "PRO", "AGENCY"] },
+    ...(excludeTestMode ? { testMode: false } : {}),
+    OR: [
+      {
+        status: { in: ["ACTIVE", "PAST_DUE"] },
+        periodEnd: { gt: new Date(now.getTime() - STALE_PERIOD_GRACE_MS) },
+      },
+      {
+        status: "CANCELLED",
+        OR: [{ endsAt: { gt: now } }, { endsAt: null, periodEnd: { gt: now } }],
+      },
+    ],
+  };
+}
+
+/** Any subscription that grants something other than Free right now. */
+function anyGrantingFilter(now: Date, excludeTestMode: boolean) {
+  return { OR: [trialGrantingFilter(now, excludeTestMode), paidGrantingFilter(now, excludeTestMode)] };
 }
 
 export async function listUsers(query: UserListQuery = {}): Promise<UserListResult> {
   await ensureAdminSchema();
-  // Heal placeholder accounts in DB so search and counts reflect real Clerk emails/names
-  await healPlaceholderAccounts();
 
   const page = Math.max(1, query.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, query.pageSize ?? 25));
   const q = (query.q ?? "").trim();
+  const now = new Date();
+  // A test-store subscription is free to anyone who finds the checkout link, so
+  // in production it grants nothing — the filter has to agree with entitlements.
+  const excludeTestMode = process.env.NODE_ENV === "production";
 
-  const where: Record<string, unknown> = {};
+  // Every clause is ANDed. Writing `where.OR` twice (once for search, once for
+  // the Free filter) silently dropped the search, so "Free accounts matching
+  // acme" listed every Free account instead.
+  const clauses: Record<string, unknown>[] = [];
   if (q) {
-    where.OR = [
-      { email: { contains: q, mode: "insensitive" } },
-      { name: { contains: q, mode: "insensitive" } },
-      { id: { equals: q } },
-      { referralCode: { equals: q.toUpperCase() } },
-    ];
+    clauses.push({
+      OR: [
+        { email: { contains: q, mode: "insensitive" } },
+        { name: { contains: q, mode: "insensitive" } },
+        { id: { equals: q } },
+        { referralCode: { equals: q.toUpperCase() } },
+      ],
+    });
   }
-  if (query.status === "BLOCKED") where.blockedAt = { not: null };
-  if (query.status === "ACTIVE") where.blockedAt = null;
-  if (query.status === "ADMIN") where.role = "ADMIN";
+  if (query.status === "BLOCKED") clauses.push({ blockedAt: { not: null } });
+  if (query.status === "ACTIVE") clauses.push({ blockedAt: null });
+  if (query.status === "ADMIN") clauses.push({ role: "ADMIN" });
+
   if (query.plan && query.plan !== "ALL") {
-    where.subscription =
-      query.plan === "FREE"
-        ? undefined
-        : { plan: query.plan, status: { in: ["ACTIVE", "TRIALING", "PAST_DUE", "CANCELLED"] } };
     if (query.plan === "FREE") {
-      where.OR = [
-        ...((where.OR as unknown[]) ?? []),
-        { subscription: null },
-        { subscription: { status: { in: ["NONE", "EXPIRED", "UNPAID", "PAUSED"] } } },
-      ];
+      // The exact complement of "grants something", so the buckets partition and
+      // a lapsed paid account lands here instead of nowhere.
+      clauses.push({
+        OR: [
+          { subscription: { is: null } },
+          { subscription: { NOT: anyGrantingFilter(now, excludeTestMode) } },
+        ],
+      });
+    } else if (query.plan === "TRIAL") {
+      clauses.push({ subscription: trialGrantingFilter(now, excludeTestMode) });
+    } else {
+      clauses.push({ subscription: paidGrantingFilter(now, excludeTestMode, query.plan) });
     }
   }
+
+  const where: Record<string, unknown> = clauses.length > 0 ? { AND: clauses } : {};
 
   const orderBy =
     query.sort === "oldest"
       ? { createdAt: "asc" as const }
       : query.sort === "lastSeen"
         ? { lastSeenAt: { sort: "desc" as const, nulls: "last" as const } }
-        : query.sort === "spend"
-          ? { creditWallet: { lifetimeSpent: "desc" as const } }
-          : query.sort === "balance"
-            ? { creditWallet: { grantBalance: "desc" as const } }
-            : { createdAt: "desc" as const };
+        : { createdAt: "desc" as const };
+
+  // `balance` is grantBalance + topUpBalance, which no column holds, and both
+  // money sorts have to put accounts with no wallet row last rather than first
+  // (a LEFT JOIN NULL sorts first on DESC in Postgres). Both are computed here.
+  const computedSort = query.sort === "balance" || query.sort === "spend" ? query.sort : null;
+
+  const selection = {
+    id: true,
+    email: true,
+    name: true,
+    avatar: true,
+    role: true,
+    createdAt: true,
+    lastSeenAt: true,
+    blockedAt: true,
+    subscription: {
+      select: {
+        plan: true,
+        status: true,
+        periodEnd: true,
+        trialEndsAt: true,
+        endsAt: true,
+        testMode: true,
+      },
+    },
+    creditWallet: { select: { grantBalance: true, topUpBalance: true, lifetimeSpent: true } },
+    referral: { select: { referrer: { select: { email: true } } } },
+    _count: { select: { workspaces: true } },
+  } as const;
 
   try {
-    const [total, rows] = await Promise.all([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
+    // When the sort key is something no column holds, rank ids in memory first
+    // and let the page query fetch exactly those; otherwise Postgres orders and
+    // pages as usual.
+    let pageIds: string[] | null = null;
+    let rankedTotal: number | null = null;
+    let truncated = false;
+
+    if (computedSort) {
+      const scored = await prisma.user.findMany({
         where,
-        orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        orderBy: { createdAt: "desc" },
+        take: COMPUTED_SORT_LIMIT + 1,
         select: {
           id: true,
-          email: true,
-          name: true,
-          avatar: true,
-          role: true,
-          createdAt: true,
-          lastSeenAt: true,
-          blockedAt: true,
-          subscription: { select: { plan: true, status: true } },
           creditWallet: { select: { grantBalance: true, topUpBalance: true, lifetimeSpent: true } },
-          referral: { select: { referrer: { select: { email: true } } } },
-          _count: { select: { workspaces: true } },
         },
-      }),
+      });
+      truncated = scored.length > COMPUTED_SORT_LIMIT;
+      if (truncated) {
+        console.warn(
+          `[admin-users] "${computedSort}" sort ranked the newest ${COMPUTED_SORT_LIMIT} matches only.`
+        );
+      }
+      const ranked = scored.slice(0, COMPUTED_SORT_LIMIT);
+      const keyOf = (r: (typeof ranked)[number]) =>
+        computedSort === "balance"
+          ? (r.creditWallet?.grantBalance ?? 0) + (r.creditWallet?.topUpBalance ?? 0)
+          : (r.creditWallet?.lifetimeSpent ?? 0);
+      // No wallet row means nothing granted and nothing spent, which belongs at
+      // the bottom of "most" — not at the top, where a LEFT JOIN NULL lands.
+      ranked.sort((a, b) => {
+        const byKey = keyOf(b) - keyOf(a);
+        if (byKey !== 0) return byKey;
+        const aHas = a.creditWallet ? 1 : 0;
+        const bHas = b.creditWallet ? 1 : 0;
+        return bHas - aHas || a.id.localeCompare(b.id);
+      });
+
+      rankedTotal = truncated ? null : ranked.length;
+      pageIds = ranked.slice((page - 1) * pageSize, page * pageSize).map((r) => r.id);
+    }
+
+    const [total, fetched] = await Promise.all([
+      rankedTotal ?? prisma.user.count({ where }),
+      pageIds
+        ? prisma.user.findMany({ where: { id: { in: pageIds } }, select: selection })
+        : prisma.user.findMany({
+            where,
+            orderBy,
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+            select: selection,
+          }),
     ]);
 
-    // Ensure any returned rows with placeholder or missing details are healed immediately
-    const stillPlaceholder = rows.filter((r) => r.email.includes("@placeholder") || !r.name);
-    if (stillPlaceholder.length > 0) {
-      await healPlaceholderAccounts(stillPlaceholder.map((r) => r.id));
-      for (const r of stillPlaceholder) {
-        const fresh = await prisma.user
-          .findUnique({ where: { id: r.id }, select: { email: true, name: true, avatar: true } })
-          .catch(() => null);
-        if (fresh) {
-          r.email = fresh.email;
-          r.name = fresh.name;
-          r.avatar = fresh.avatar;
-        }
+    let rows = fetched;
+    if (pageIds) {
+      const byId = new Map(fetched.map((r) => [r.id, r]));
+      rows = pageIds.map((id) => byId.get(id)).filter((r): r is (typeof fetched)[number] => !!r);
+    }
+
+    // Reconcile only what this page shows, and only when it looks unreconciled.
+    // The old code walked up to 50 accounts through Clerk before the list query
+    // even ran, on every render, and then re-read each healed row one at a time.
+    const needsHeal = rows.filter((r) => r.email.includes("@placeholder") || !r.name);
+    if (needsHeal.length > 0) {
+      const healed = await healPlaceholderAccounts(needsHeal.map((r) => r.id));
+      for (const row of rows) {
+        const fresh = healed.get(row.id);
+        if (!fresh) continue;
+        row.email = fresh.email;
+        row.name = fresh.name;
+        row.avatar = fresh.avatar;
       }
     }
 
@@ -204,6 +329,7 @@ export async function listUsers(query: UserListQuery = {}): Promise<UserListResu
       total,
       page,
       pageSize,
+      ...(truncated ? { truncated } : {}),
       rows: rows.map((row) => ({
         id: row.id,
         email: row.email,
@@ -213,7 +339,9 @@ export async function listUsers(query: UserListQuery = {}): Promise<UserListResu
         createdAt: row.createdAt.toISOString(),
         lastSeenAt: row.lastSeenAt?.toISOString() ?? null,
         blockedAt: row.blockedAt?.toISOString() ?? null,
-        plan: effectiveTier(row.subscription),
+        // The same decision the dashboard and the entitlements make, so a lapsed
+        // account cannot read as paying here and Free there.
+        plan: effectivePlanFor(row.subscription, now),
         subscriptionStatus: row.subscription?.status ?? "NONE",
         balance: (row.creditWallet?.grantBalance ?? 0) + (row.creditWallet?.topUpBalance ?? 0),
         lifetimeSpent: row.creditWallet?.lifetimeSpent ?? 0,
@@ -225,13 +353,6 @@ export async function listUsers(query: UserListQuery = {}): Promise<UserListResu
     console.error("[admin-users] list failed", err);
     return { rows: [], total: 0, page, pageSize };
   }
-}
-
-function effectiveTier(sub: { plan: string; status: string } | null | undefined): PlanTier {
-  if (!sub) return "FREE";
-  if (sub.status === "TRIALING") return "TRIAL";
-  if (["ACTIVE", "PAST_DUE", "CANCELLED"].includes(sub.status)) return sub.plan as PlanTier;
-  return "FREE";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -346,10 +467,7 @@ export async function getUserDetail(userId: string): Promise<UserDetail | null> 
   if (!user) return null;
 
   if (user.email.includes("@placeholder") || !user.name || !user.avatar) {
-    await healPlaceholderAccounts([userId]);
-    const fresh = await prisma.user
-      .findUnique({ where: { id: userId }, select: { email: true, name: true, avatar: true } })
-      .catch(() => null);
+    const fresh = (await healPlaceholderAccounts([userId])).get(userId);
     if (fresh) {
       user.email = fresh.email;
       user.name = fresh.name;

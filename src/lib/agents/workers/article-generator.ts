@@ -22,7 +22,7 @@
 
 import { MODELS, vertexProvider } from "../llm";
 import type { SerpAnalysis } from "@/actions/serp";
-import { hasPixabayKey, hasSerperKey } from "@/lib/apiKeys";
+import { ensureApiKeys, hasPixabayKey, hasSerperKey } from "@/lib/apiKeys";
 import { getSmartImages } from "@/lib/images";
 import { getSmartYouTubeEmbed } from "@/lib/youtube";
 import {
@@ -1064,6 +1064,8 @@ async function resolveImages(
   blueprint: Blueprint
 ): Promise<{ images: ArticleImage[]; warnings: string[] }> {
   if (params.enableImages === false) return { images: [], warnings: [] };
+  // A generation run is a background request with its own empty config cache.
+  await ensureApiKeys();
   if (!hasPixabayKey()) {
     return {
       images: [],
@@ -1143,6 +1145,7 @@ async function resolveYouTube(
   warnings: string[];
 }> {
   if (!params.enableYoutube) return { video: null, warnings: [] };
+  await ensureApiKeys();
   if (!hasSerperKey()) {
     return {
       video: null,

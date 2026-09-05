@@ -84,6 +84,14 @@ export interface ModeAvailability {
   plan?: string;
   /** The cheapest plan that lifts whatever refused. */
   requiredPlan?: string;
+  /**
+   * That plan's display name, resolved on the server.
+   *
+   * Sent rather than looked up here: the plan catalogue in the browser bundle is the
+   * code default, and the admin's renamed or repriced plans are only ever patched
+   * into the server's copy.
+   */
+  requiredPlanName?: string;
   /** Per-period ceiling and what is gone, where the plan caps this mode by count. */
   cap?: number;
   used?: number;

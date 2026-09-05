@@ -16,6 +16,7 @@ export function DashboardShell({
   isAdmin = false,
   accountBlock = null,
   maintenanceMessage = null,
+  affiliateEnabled = true,
 }: {
   children: React.ReactNode;
   workspaces?: { id: string; name: string }[];
@@ -27,6 +28,8 @@ export function DashboardShell({
   accountBlock?: { blockedAt: string; reason: string } | null;
   /** The admin's maintenance banner, when the flag is on. */
   maintenanceMessage?: string | null;
+  /** From the admin's feature flags — hides the Affiliate nav entry when off. */
+  affiliateEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const isOnboarding = pathname === "/onboarding";
@@ -60,13 +63,14 @@ export function DashboardShell({
   return (
     <ActiveWorkspaceProvider activeWorkspaceId={activeWorkspaceId}>
       <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950">
-        <Sidebar isAdmin={isAdmin} />
+        <Sidebar isAdmin={isAdmin} affiliateEnabled={affiliateEnabled} />
         <div className="flex-1 flex flex-col md:pl-[250px] min-w-0">
           <Header
             workspaces={workspaces}
             activeWorkspaceId={activeWorkspaceId}
             userDetails={userDetails}
             isAdmin={isAdmin}
+            affiliateEnabled={affiliateEnabled}
           />
           {accountBlock && (
             <div className="flex items-start gap-2 border-b border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-800 dark:text-rose-200 md:px-6">

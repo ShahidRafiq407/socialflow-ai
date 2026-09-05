@@ -14,6 +14,7 @@
 // `hidden md:flex`, so a phone had a header with no search and no alerts at all.
 // ============================================================================
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
@@ -28,7 +29,7 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/marketing/theme-toggle";
-import { sidebarLinks } from "@/components/dashboard/Sidebar";
+import { visibleSidebarLinks } from "@/components/dashboard/Sidebar";
 import { WorkspaceSwitcher } from "@/components/dashboard/WorkspaceSwitcher";
 import { GlobalSearch } from "@/components/dashboard/GlobalSearch";
 import { NotificationsBell } from "@/components/dashboard/NotificationsBell";
@@ -39,6 +40,8 @@ interface HeaderProps {
   activeWorkspaceId?: string | null;
   userDetails?: { name: string; email: string } | null;
   isAdmin?: boolean;
+  /** From the admin's feature flags — keeps the mobile menu and ⌘K in step. */
+  affiliateEnabled?: boolean;
 }
 
 export function Header({
@@ -46,8 +49,10 @@ export function Header({
   activeWorkspaceId = null,
   userDetails = null,
   isAdmin = false,
+  affiliateEnabled = true,
 }: HeaderProps) {
   const pathname = usePathname();
+  const navLinks = useMemo(() => visibleSidebarLinks(affiliateEnabled), [affiliateEnabled]);
 
   function isCurrent(href: string): boolean {
     return href === "/dashboard"
@@ -67,7 +72,7 @@ export function Header({
             <Menu className="h-4 w-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64 max-h-[80vh] overflow-y-auto">
-            {sidebarLinks.map((item) => (
+            {navLinks.map((item) => (
               <DropdownMenuItem key={item.href} className="p-0">
                 <Link
                   href={item.href}
@@ -94,7 +99,7 @@ export function Header({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
-        <GlobalSearch activeWorkspaceId={activeWorkspaceId} />
+        <GlobalSearch activeWorkspaceId={activeWorkspaceId} affiliateEnabled={affiliateEnabled} />
         <NotificationsBell activeWorkspaceId={activeWorkspaceId} />
         <ThemeToggle />
 

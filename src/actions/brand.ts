@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import { llm } from "@/lib/agents/llm";
 import { HumanMessage } from "@langchain/core/messages";
-import { extractFromUrl } from "@/actions/extract";
+import { extractFromDocument, extractFromUrl } from "@/actions/extract";
 import { parseBrandMetadata } from "@/lib/brand/profile";
 import {
   completeAction,
@@ -320,5 +320,53 @@ export async function extractAndApplyBrandDNAFromUrl(
     // sentence and throw the rest away.
     if (isEntitlementError(error)) throw error;
     throw new Error(error.message || "Failed to scan URL for Brand DNA");
+  }
+}
+
+/**
+ * The same, from an uploaded document.
+ *
+ * `website` is the one field that cannot come from a PDF, so the existing value is
+ * kept rather than blanked — a customer who scanned their site last month and uploads
+ * a deck today should not lose the URL as the price of the upload.
+ *
+ * The credits belong to `extractFromDocument`. Nothing is charged for the save, and
+ * nothing is charged when the file cannot be read.
+ */
+export async function extractAndApplyBrandDNAFromDocument(
+  workspaceId: string,
+  file: { name: string; type: string; content: string },
+  owner?: string
+): Promise<BrandDNAFormValues> {
+  try {
+    const userId = await requireWorkspaceOwner(workspaceId, owner);
+
+    const extracted = await extractFromDocument(file, { userId, workspaceId });
+
+    const existing = await getWorkspaceBrandDNA(workspaceId, userId);
+
+    const updatedData: BrandDNAFormValues = {
+      name: extracted.companyName || existing.name,
+      website: existing.website,
+      industry: extracted.industry || existing.industry,
+      targetAudience: extracted.targetAudience || existing.targetAudience,
+      missionVision: extracted.missionVision || existing.missionVision,
+      ctaOffer: extracted.ctaOffer || existing.ctaOffer,
+      painPoints: extracted.painPoints || existing.painPoints,
+      differentiator: extracted.differentiator || existing.differentiator,
+      competitors: extracted.competitors || existing.competitors,
+      tone: extracted.brandTone || existing.tone,
+      writingStyle: existing.writingStyle,
+      primaryColors: existing.primaryColors,
+      forbiddenWords: existing.forbiddenWords,
+    };
+
+    await saveWorkspaceBrandDNA(workspaceId, updatedData, userId);
+
+    return updatedData;
+  } catch (error: any) {
+    console.error("Error extracting Brand DNA from a document:", error);
+    if (isEntitlementError(error)) throw error;
+    throw new Error(error.message || "Failed to read the document for Brand DNA");
   }
 }

@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getPlanConfig, isPlanTier, type PlanTier } from "@/lib/billing/plans";
+import { isPlanTier, type PlanTier } from "@/lib/billing/plans";
 import type { BillingCycle, BillingStatus, BillingToast } from "./types";
 import { CreditPanel } from "./CreditPanel";
 import { HistoryPanel } from "./HistoryPanel";
@@ -321,10 +321,17 @@ export function BillingShell() {
    * The query string is read from the browser rather than from props so the server
    * and client render the same markup and nothing hydrates wrong, and it is read
    * once — the parameters are stripped straight afterwards so a refresh cannot
-   * replay a checkout. Three arrivals land here: a return from Lemon Squeezy
-   * (`?checkout=success`), a return from a closed checkout, and a deep link from the
-   * pricing page (`?plan=PRO&cycle=yearly`), where the choice was already clicked
-   * once and asking for it twice would be the worse behaviour.
+   * replay a checkout. Four arrivals land here: a return from Lemon Squeezy
+   * (`?checkout=success`), a return from a closed checkout, a deep link from the
+   * pricing page (`?plan=PRO&cycle=yearly`), and the trial (`?intent=trial`) — in all
+   * of which the choice was already clicked once and asking for it twice would be the
+   * worse behaviour.
+   *
+   * The trial is a subscription like any other, so clicking it anywhere in the product
+   * has to end on the payment page rather than on this one. That is the whole reason
+   * the `intent=trial` branch exists: the marketing page and the sign-up return both
+   * land here, and without it a customer who has already decided is shown the grid
+   * again and asked to decide a second time.
    */
   useEffect(() => {
     if (bootstrapped.current) return;
@@ -336,6 +343,7 @@ export function BillingShell() {
     const wantedPlan = (params.get("plan") ?? "").toUpperCase();
     const rawCycle = params.get("cycle");
     const wantedCycle: BillingCycle = rawCycle === "yearly" ? "yearly" : "monthly";
+    const wantsTrial = intent === "trial" || wantedPlan === "TRIAL";
 
     if (rawCycle === "yearly" || rawCycle === "monthly") {
       cycleSeeded.current = true;
@@ -358,6 +366,15 @@ export function BillingShell() {
         pushToast("info", "Checkout was closed, so nothing was charged.");
         return;
       }
+      // Gated on exactly what `PlanGrid` gates its own trial strip on, so a deep link
+      // can never start something the button would not have offered. A refusal past
+      // that point comes from the trial guard itself and arrives as its own sentence.
+      if (first && wantsTrial) {
+        if (first.store.trialPurchasable && !first.plan.hasSubscription) {
+          await startTrial();
+        }
+        return;
+      }
       if (
         first &&
         isPlanTier(wantedPlan) &&
@@ -372,7 +389,7 @@ export function BillingShell() {
         });
       }
     })();
-  }, [checkout, load, pushToast, settle]);
+  }, [checkout, load, pushToast, settle, startTrial]);
 
   if (loading) {
     return (
@@ -424,6 +441,12 @@ export function BillingShell() {
   const { plan, credits, usage, storage, workspaces, payment, catalog, store, history, ledger } =
     data;
   const event = nextEvent(plan);
+  // Named from the payload rather than `getPlanConfig`: this is a client component,
+  // so the catalogue in the browser bundle is the code default and has never had the
+  // admin's plan overrides applied — a renamed plan read here disagreed with the very
+  // cards below it, which do come from the server. `catalog.plans` covers every tier.
+  const storedPlanName =
+    catalog.plans.find((entry) => entry.id === plan.storedPlan)?.name ?? plan.storedPlan;
 
   return (
     <div className="space-y-6">
@@ -490,7 +513,7 @@ export function BillingShell() {
         <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4">
           <p className="flex items-start gap-2 text-sm font-semibold text-foreground">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-            Your {getPlanConfig(plan.storedPlan).name} period ended without a renewal, so paid
+            Your {storedPlanName} period ended without a renewal, so paid
             features are switched off.
           </p>
           <p className="mt-1.5 pl-6 text-xs text-muted-foreground">

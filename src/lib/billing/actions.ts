@@ -60,6 +60,7 @@ export const ACTION_KEYS = [
   "optimize.run",
   "schedule.bestTime",
   "brand.analyze",
+  "brand.document",
   "brand.preview",
 ] as const;
 
@@ -395,6 +396,16 @@ export const ACTION_CATALOG: Record<ActionKey, ActionSpec> = {
       "`extractFromUrl` fetches the page and makes exactly one `llm.invoke`, which defaults to 3.1-pro. The page text is truncated to 10k characters, so input cannot run away: ~2.8k in at $2/1M plus ~300 out at $12/1M = ~$0.009. Two credits covers that and the outbound fetch.",
   },
 
+  "brand.document": {
+    key: "brand.document",
+    label: "Brand DNA from a document",
+    credits: 2,
+    feature: "brandDna.analyze",
+    description: "Reading a deck, brief, or PDF and filling in tone, audience, and voice.",
+    basis:
+      "`extractFromDocument` parses the upload locally — `parseUploadedFile` has no model in it — then makes the same single `llm.invoke` as the website scan against text truncated to the same 10k characters: ~2.8k in at $2/1M plus ~300 out at $12/1M = ~$0.009. Priced level with `brand.analyze` because it is the same call on a different source, and a customer choosing between a URL and a PDF should not be choosing between prices.",
+  },
+
   "brand.preview": {
     key: "brand.preview",
     label: "Brand voice preview",
@@ -487,7 +498,7 @@ export const ACTION_GROUPS: { title: string; blurb: string; actions: ActionKey[]
   },
   {
     title: "Research",
-    blurb: "Reading your own brand: your site, and the voice we learn from it.",
-    actions: ["brand.analyze", "brand.preview"],
+    blurb: "Reading your own brand: your site, your documents, and the voice we learn from them.",
+    actions: ["brand.analyze", "brand.document", "brand.preview"],
   },
 ];

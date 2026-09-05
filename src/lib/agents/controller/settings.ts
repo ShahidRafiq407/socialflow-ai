@@ -11,27 +11,48 @@
 // ============================================================================
 
 import prisma from "@/lib/db";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
+import { getDefaultChatModelId } from "./models";
 import { ensureControllerSchema } from "./schema";
 import { DEFAULT_CHAT_SETTINGS, normalizeChatSettings, type ChatSettings } from "./settingsShape";
 
 export * from "./settingsShape";
 
+/**
+ * Defaults with the admin's live pick as the model.
+ *
+ * `DEFAULT_CHAT_SETTINGS.model` is the *shipped* id, baked in at build time. The
+ * default a workspace should actually get is whatever the back office currently
+ * points CHAT_CONTROLLER at, so a deployment that never ships a new build still
+ * moves everyone onto the new brain.
+ */
+function liveDefaults(): ChatSettings {
+  return { ...DEFAULT_CHAT_SETTINGS, model: getDefaultChatModelId() };
+}
+
 /** Reads a workspace's settings, falling back to defaults on any failure. */
 export async function getChatSettings(workspaceId: string): Promise<ChatSettings> {
   try {
-    await ensureControllerSchema();
+    // The catalogue has to be loaded before `normalizeChatSettings` can judge a
+    // stored model id. Without this, a request served by an instance that never
+    // rendered an admin page sees a catalogue of one built-in model and rewrites
+    // every custom pick back to the shipped default.
+    await Promise.all([ensureControllerSchema(), ensureRuntimeConfig()]);
     const row = await (prisma as any).chatSettings.findUnique({ where: { workspaceId } });
-    if (!row) return { ...DEFAULT_CHAT_SETTINGS };
-    return normalizeChatSettings(row);
+    if (!row) return liveDefaults();
+    return normalizeChatSettings(row, liveDefaults());
   } catch (err) {
     console.warn("[getChatSettings] falling back to defaults:", err instanceof Error ? err.message : err);
-    return { ...DEFAULT_CHAT_SETTINGS };
+    return liveDefaults();
   }
 }
 
 /** Applies a partial patch on top of the stored settings and persists the result. */
 export async function saveChatSettings(workspaceId: string, patch: unknown): Promise<ChatSettings> {
-  await ensureControllerSchema();
+  // Same reason as the read: a PATCH is its own request, and validating the
+  // posted model against a cold catalogue would reject a model the picker is
+  // showing right now.
+  await Promise.all([ensureControllerSchema(), ensureRuntimeConfig()]);
   const current = await getChatSettings(workspaceId);
   const next = normalizeChatSettings(patch, current);
 

@@ -62,6 +62,15 @@ interface CacheState {
 
 let cache: CacheState = { loadedAt: 0, rows: new Map(), models: [], routing: [], version: 0 };
 let inflight: Promise<void> | null = null;
+/**
+ * When the last load FAILED. Kept apart from `cache.loadedAt` on purpose: the
+ * back-off used to be implemented by stamping `loadedAt` on the failed cache,
+ * which made an empty cache indistinguishable from a freshly loaded one — so
+ * `getFlags()` returned code defaults and the caller could not tell that the
+ * admin's maintenance switch, plan overrides and model catalogue were simply
+ * never read.
+ */
+let failedAt = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Setting keys
@@ -223,6 +232,7 @@ async function loadFromDatabase(): Promise<void> {
     routing: models.map(toModelRouting),
     version: cache.version + 1,
   };
+  failedAt = 0;
   applyOverrides();
 }
 
@@ -233,18 +243,31 @@ async function loadFromDatabase(): Promise<void> {
  */
 export async function ensureRuntimeConfig(force = false): Promise<void> {
   if (!force && Date.now() - cache.loadedAt < CACHE_TTL_MS) return;
+  // A failed load backs off for one TTL, without pretending the cache is fresh.
+  if (!force && failedAt > 0 && Date.now() - failedAt < CACHE_TTL_MS) return;
   if (!inflight) {
     inflight = loadFromDatabase()
       .catch((err) => {
         console.warn("[runtimeConfig] reload failed (keeping last values):", err instanceof Error ? err.message : err);
-        // Back off for one TTL so a broken database is not hammered per request.
-        cache = { ...cache, loadedAt: Date.now() };
+        failedAt = Date.now();
       })
       .finally(() => {
         inflight = null;
       });
   }
   return inflight;
+}
+
+/**
+ * True once this instance has actually read the settings out of the database.
+ *
+ * Callers that act on the ABSENCE of a value — "no maintenance banner", "this
+ * model is not in the catalogue", "the affiliate programme is off" — must check
+ * this first, because every one of those reads answers with a code default on a
+ * cache that never loaded.
+ */
+export function runtimeConfigLoaded(): boolean {
+  return cache.loadedAt > 0;
 }
 
 /** The cache version, for "has anything changed" checks. */

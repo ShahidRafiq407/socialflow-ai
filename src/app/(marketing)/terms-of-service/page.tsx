@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PolicyPage } from "@/components/marketing/policy-page";
+import { ensureRuntimeConfig } from "@/lib/admin/runtimeConfig";
 import { PLAN_CATALOG } from "@/lib/billing/plans";
 
 export const metadata: Metadata = {
@@ -8,10 +9,16 @@ export const metadata: Metadata = {
     "The terms governing use of PostloomAI: your account, connected platforms, AI-generated content, subscriptions and credits, and how either side can end the agreement.",
 };
 
-const TRIAL = PLAN_CATALOG.TRIAL;
-const CONVERTS_TO = PLAN_CATALOG[TRIAL.convertsTo ?? "GO"];
+export default async function TermsOfServicePage() {
+  // The prices below are a contractual statement, so they have to be the ones this
+  // deployment charges. The admin's overrides are patched into `PLAN_CATALOG` once the
+  // settings have been read, and these used to be module constants — evaluated at
+  // import time, before any read, and then frozen at the code defaults for the life of
+  // the process. Read inside the render, after the await, they follow the back office.
+  await ensureRuntimeConfig();
+  const TRIAL = PLAN_CATALOG.TRIAL;
+  const CONVERTS_TO = PLAN_CATALOG[TRIAL.convertsTo ?? "GO"];
 
-export default function TermsOfServicePage() {
   return (
     <PolicyPage
       title="Terms of Service"

@@ -35,7 +35,6 @@ import {
   deepOnlyStages,
 } from "@/lib/article/modes";
 import { stagesFor, type ArticleRunMode } from "@/lib/article/stages";
-import { getPlanConfig } from "@/lib/billing/plans";
 import type { ModeAvailability } from "./useArticleRun";
 
 /** Stage names carry their own one-liner on hover, so the list stays a list. */
@@ -195,7 +194,7 @@ function ModePanel({
             href="/dashboard/billing"
             className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-bold text-primary-foreground hover:bg-primary/90"
           >
-            Upgrade to {getPlanConfig(info.requiredPlan).name}
+            Upgrade to {info.requiredPlanName ?? info.requiredPlan ?? "a paid plan"}
             <ArrowRight className="h-3 w-3" />
           </Link>
         ) : (

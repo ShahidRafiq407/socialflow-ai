@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { sidebarLinks } from "@/components/dashboard/Sidebar";
+import { visibleSidebarLinks } from "@/components/dashboard/Sidebar";
 import { searchWorkspace, type SearchHit } from "@/actions/search";
 import { switchWorkspace } from "@/actions/workspaces";
 
@@ -75,9 +75,11 @@ function readRecents(workspaceId: string | null): string[] {
 
 export interface GlobalSearchProps {
   activeWorkspaceId: string | null;
+  /** From the admin's feature flags, so ⌘K cannot offer a disabled page. */
+  affiliateEnabled?: boolean;
 }
 
-export function GlobalSearch({ activeWorkspaceId }: GlobalSearchProps) {
+export function GlobalSearch({ activeWorkspaceId, affiliateEnabled = true }: GlobalSearchProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -154,7 +156,7 @@ export function GlobalSearch({ activeWorkspaceId }: GlobalSearchProps) {
         href: action.href,
         icon: action.icon,
       })),
-      ...sidebarLinks.map((link) => ({
+      ...visibleSidebarLinks(affiliateEnabled).map((link) => ({
         type: "command" as const,
         key: `nav:${link.href}`,
         label: link.name,
@@ -168,7 +170,7 @@ export function GlobalSearch({ activeWorkspaceId }: GlobalSearchProps) {
     return all
       .filter((row) => row.type === "command" && row.label.toLowerCase().includes(term))
       .slice(0, 5);
-  }, [query]);
+  }, [query, affiliateEnabled]);
 
   const hitRows = useMemo<Row[]>(
     () => hits.map((hit) => ({ type: "hit" as const, key: `${hit.kind}:${hit.id}`, hit })),

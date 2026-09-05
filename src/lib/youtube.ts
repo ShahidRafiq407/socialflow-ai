@@ -10,7 +10,7 @@
  * signal the article is built for.
  */
 
-import { getSerperKey, hasSerperKey } from "@/lib/apiKeys";
+import { ensureApiKeys, getSerperKey, hasSerperKey } from "@/lib/apiKeys";
 
 export interface YouTubeEmbedResult {
   videoId: string;
@@ -50,6 +50,8 @@ export async function getSmartYouTubeEmbed(
   keyword: string,
   options?: { targetCountry?: string; context?: string }
 ): Promise<YouTubeEmbedResult | null> {
+  // The key may only exist in the dashboard, which this instance has not read yet.
+  await ensureApiKeys();
   if (!hasSerperKey()) return null;
 
   const topic = (keyword || "").trim();

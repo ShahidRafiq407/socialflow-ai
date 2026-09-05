@@ -18,7 +18,7 @@
  */
 
 import { fetchSerpAnalysis, type SerpAnalysis } from "@/actions/serp";
-import { hasSerperKey, SERPER_MISSING_MESSAGE } from "@/lib/apiKeys";
+import { ensureApiKeys, hasSerperKey, SERPER_MISSING_MESSAGE } from "@/lib/apiKeys";
 import { MODELS, vertexProvider } from "@/lib/agents/llm";
 
 export interface TopicBrandContext {
@@ -229,6 +229,9 @@ export async function suggestTopicIdeas(
 
   // ── Harvest the real pool ────────────────────────────────────────────────
   let pool: PoolEntry[] = [];
+  // Otherwise a key that only exists in Admin → Keys reads as missing here and
+  // the caller is told, wrongly, that nothing was checked against live search.
+  await ensureApiKeys();
   if (!hasSerperKey()) {
     warnings.push(
       `${SERPER_MISSING_MESSAGE} These suggestions were not checked against live search results.`

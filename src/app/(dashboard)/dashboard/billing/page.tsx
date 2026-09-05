@@ -10,7 +10,10 @@
 // them a snapshot from render time that goes stale the moment a run spends a credit.
 // So this page checks that someone is signed in, reserves the space, and lets the
 // shell fetch. The only thing it adds is the auth redirect: a signed-out visitor
-// should land on sign-in rather than watch a spinner turn into a 401.
+// should land on sign-in rather than watch a spinner turn into a 401 — and carrying
+// the query string through that redirect is what lets `?intent=trial` survive it,
+// since a bare `redirect("/sign-in")` would drop the one parameter the visitor came
+// for and return them to a grid they had already chosen from.
 // ============================================================================
 
 import { Suspense } from "react";
@@ -37,9 +40,22 @@ function Fallback() {
   );
 }
 
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { userId } = await auth();
-  if (!userId) redirect("/sign-in");
+  if (!userId) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(await searchParams)) {
+      if (typeof value === "string") params.set(key, value);
+    }
+    const back = params.size
+      ? `/dashboard/billing?${params.toString()}`
+      : "/dashboard/billing";
+    redirect(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl pb-20 font-sans">

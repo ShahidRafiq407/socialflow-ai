@@ -150,7 +150,13 @@ export async function setUserRoleAction(input: { userId: string; role: "USER" | 
     if (data.role === "USER" && isEnvAdmin(data.userId, target.email)) {
       return { success: false, error: "This admin is set in the ADMIN_USERS environment variable and cannot be demoted here." };
     }
-    await prisma.user.update({ where: { id: data.userId }, data: { role: data.role } });
+    // "MANUAL" is what keeps this grant out of the allowlist sync's reach: an
+    // ENV-sourced role is revoked when the address leaves ADMIN_USERS, one
+    // granted here is not.
+    await prisma.user.update({
+      where: { id: data.userId },
+      data: { role: data.role, roleSource: data.role === "ADMIN" ? "MANUAL" : null },
+    });
     await recordAudit(admin, { action: "user.role", targetType: "user", targetId: data.userId, details: { role: data.role } });
     revalidatePath(`/adminshahid/users/${data.userId}`);
     revalidatePath("/adminshahid/users");

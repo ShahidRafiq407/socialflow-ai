@@ -36,7 +36,7 @@
 // measured), so the floor of each plan's margin is `price - (credits / 100) / 1.47`:
 //
 //                                          worst case   floor
-//   Free      $0   /     70 credits           $0.48     -$0.48   acquisition cost
+//   Free      $0   /     66 credits           $0.45     -$0.45   acquisition cost
 //   Trial     $1   /    620 credits            $4.22     -$3.77   acquisition cost
 //   Go        $19  /  1,500 credits          $10.20      $8.80
 //   Pro       $49  /  5,000 credits          $34.01     $14.99
@@ -280,12 +280,20 @@ export const PLAN_ENTITLEMENTS: Record<PlanTier, PlanEntitlements> = {
     socialAccountsPerWorkspace: 6,
     storageMb: 500,
     analyticsRetentionDays: 30,
-    // Not zero. Free is sold on AI best-time scheduling and on the brand scan that
-    // onboarding opens with, and both are priced actions — a zero balance would
-    // refuse the plan's own headline feature on the first press. Sized to exactly
-    // what the caps below allow (60 picks at 1 credit, 3 brand calls at 2), so the
-    // grant cannot be spent on anything that is not advertised.
-    monthlyCredits: 70,
+    // Not zero, and not round either. Free is sold on exactly two things it can
+    // spend a model call on — AI best-time scheduling, and reading a brand out of a
+    // website or an uploaded document — and both are priced actions, so a zero
+    // balance would refuse the plan's own headline features on the first press.
+    //
+    // The figure is the caps below multiplied out, not a number chosen and then
+    // justified: 60 best-time picks at 1 credit, plus 3 brand calls at the 2 credits
+    // the dearest of them costs (`brand.analyze` from a URL, `brand.document` from a
+    // PDF or deck, `brand.preview` at 1 — one shared counter). 60 + 6 = 66. Spending
+    // the grant on anything that is not advertised is therefore impossible rather
+    // than merely discouraged, and raising a cap without raising this number is a
+    // test failure in `planConsistency.test.ts` rather than an overspend in
+    // production.
+    monthlyCredits: 66,
     seats: 1,
     chatMaxToolLoops: 0,
     imageQuality: "standard",
@@ -468,7 +476,7 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
     name: "Free",
     tagline: "Publish everywhere, by hand.",
     blurb:
-      "Where every account starts, with nothing to set up and nothing to cancel. Connect your accounts, write your own posts, and let the scheduler pick the moment each one goes out. No card, no expiry, no trial clock.",
+      "Where every account starts, with nothing to set up and nothing to cancel. Connect your accounts, write your own posts, let the scheduler pick the moment each one goes out, and teach it your brand from your website or a PDF. No card, no expiry, no trial clock.",
     priceMonthly: 0,
     priceYearly: 0,
     badge: "Your plan by default",
@@ -477,8 +485,9 @@ export const PLAN_CATALOG: Record<PlanTier, PlanConfig> = {
       "1 workspace",
       "Connect up to 6 social accounts",
       "Write and publish to every connected account",
+      "66 credits a month, renewed on the 1st",
       "AI best-time scheduling — 60 posts a month",
-      "AI brand analysis from your website — 3 scans a month",
+      "Brand DNA from your website or a PDF — 3 reads a month",
       "Upload your own images and video",
       "500 MB media storage",
       "30 days of analytics history",

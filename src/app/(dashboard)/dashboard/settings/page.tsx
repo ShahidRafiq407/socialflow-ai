@@ -13,6 +13,7 @@ import prisma from "@/lib/db";
 import { activeWorkspaceQuery } from "@/lib/workspace/active";
 import { getChatSettings } from "@/lib/agents/controller/settings";
 import { getAccountSummary } from "@/lib/billing/entitlements";
+import { getPlanConfig } from "@/lib/billing/plans";
 import { SettingsShell } from "@/components/dashboard/settings/SettingsShell";
 import type { SettingsData } from "@/components/dashboard/settings/types";
 
@@ -73,6 +74,12 @@ export default async function SettingsPage() {
     prisma.chatSession.count({ where: { workspace: { userId } } }),
   ]);
 
+  // Resolved here, not in the card: `getPlanContext` has already applied the
+  // admin's plan overrides to this process, and the card runs in the browser
+  // where nothing has.
+  const planConfig = getPlanConfig(account.context.plan);
+  const planEntitlements = account.context.entitlements;
+
   const data: SettingsData = {
     workspace: {
       id: workspace.id,
@@ -97,6 +104,12 @@ export default async function SettingsPage() {
       creditsAvailable: account.wallet.available,
       monthlyGrant: account.wallet.monthlyGrant,
       percentUsed: account.wallet.percentUsed,
+      planName: planConfig.name,
+      priceMonthly: planConfig.priceMonthly,
+      ...(planConfig.oneTimePrice !== undefined ? { oneTimePrice: planConfig.oneTimePrice } : {}),
+      socialAccountsPerWorkspace: planEntitlements.socialAccountsPerWorkspace,
+      hasAiGeneration: planEntitlements.features.includes("aistudio.generate"),
+      hasAiVideo: planEntitlements.features.includes("media.video"),
     },
     counts: {
       posts,

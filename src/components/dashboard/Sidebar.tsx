@@ -37,9 +37,29 @@ export const sidebarLinks = [
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
-export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+/**
+ * The links a user may actually follow, honouring the admin's feature flags.
+ *
+ * Every navigation surface goes through this — the sidebar, the mobile menu in
+ * the header and the ⌘K palette — so switching the affiliate programme off in
+ * the back office cannot leave one of them still advertising a page that answers
+ * "this feature is disabled".
+ */
+export function visibleSidebarLinks(affiliateEnabled = true) {
+  return sidebarLinks.filter(
+    (link) => link.href !== "/dashboard/affiliate" || affiliateEnabled
+  );
+}
+
+export function Sidebar({
+  isAdmin = false,
+  affiliateEnabled = true,
+}: {
+  isAdmin?: boolean;
+  affiliateEnabled?: boolean;
+}) {
   const pathname = usePathname();
-  const links = sidebarLinks;
+  const links = React.useMemo(() => visibleSidebarLinks(affiliateEnabled), [affiliateEnabled]);
   // Pending navigation is derived from (href, clickedFrom) so it clears
   // automatically when the route changes — no effect needed.
   const [pendingNav, setPendingNav] = useState<{ href: string; from: string } | null>(

@@ -17,6 +17,7 @@
 
 import prisma from "@/lib/db";
 import { netAfterFees } from "@/lib/billing/lemonsqueezy";
+import { effectivePlanFor } from "@/lib/billing/entitlements";
 import { PLAN_TIERS, type PlanTier } from "@/lib/billing/plans";
 import { ensureAdminSchema } from "./schema";
 
@@ -206,10 +207,10 @@ export async function getAdminOverview(range: StatsRange = "30d"): Promise<Admin
         select: { createdAt: true },
       })
     ),
-    safe([] as Array<{ plan: string; status: string; cycle: string; cancelAtPeriodEnd: boolean; endsAt: Date | null; periodEnd: Date; testMode: boolean }>, () =>
+    safe([] as Array<{ plan: string; status: string; cycle: string; cancelAtPeriodEnd: boolean; endsAt: Date | null; trialEndsAt: Date | null; periodEnd: Date; testMode: boolean }>, () =>
       prisma.subscription.findMany({
         where: { testMode: false },
-        select: { plan: true, status: true, cycle: true, cancelAtPeriodEnd: true, endsAt: true, periodEnd: true, testMode: true },
+        select: { plan: true, status: true, cycle: true, cancelAtPeriodEnd: true, endsAt: true, trialEndsAt: true, periodEnd: true, testMode: true },
       })
     ),
     safe([] as Array<{ amountCents: number | null; createdAt: Date; eventName: string }>, () =>
@@ -315,18 +316,17 @@ export async function getAdminOverview(range: StatsRange = "30d"): Promise<Admin
   let mrrUsd = 0;
   const { PLAN_CATALOG } = await import("@/lib/billing/plans");
   for (const sub of subs) {
-    const live =
-      sub.status === "ACTIVE" ||
-      sub.status === "TRIALING" ||
-      sub.status === "PAST_DUE" ||
-      (sub.status === "CANCELLED" && (sub.endsAt ?? sub.periodEnd).getTime() > now.getTime());
-    if (!live) continue;
-    const tier = (sub.status === "TRIALING" ? "TRIAL" : sub.plan) as PlanTier;
+    // The same decision the product enforces, so "42 Pro" here means 42 accounts
+    // that can actually use Pro — not 42 rows that once said Pro. A trial whose
+    // trialEndsAt has passed, or an ACTIVE row whose period lapsed a week ago
+    // without a renewal webhook, counts as Free.
+    const tier = effectivePlanFor(sub, now);
+    if (tier === "FREE") continue;
     if (tier in byTier) byTier[tier] += 1;
     if (sub.status === "TRIALING") trialing += 1;
     if (sub.status === "PAST_DUE") pastDue += 1;
     if (sub.cancelAtPeriodEnd || sub.status === "CANCELLED") cancelling += 1;
-    if (sub.status !== "TRIALING" && tier !== "FREE" && tier !== "TRIAL") {
+    if (tier !== "TRIAL") {
       const plan = PLAN_CATALOG[tier];
       if (plan) mrrUsd += sub.cycle === "YEARLY" ? plan.priceYearly / 12 : plan.priceMonthly;
     }

@@ -31,8 +31,11 @@ describe("plan overrides", () => {
     expect(PLAN_ENTITLEMENTS.GO.monthlyCredits).toBe(base.monthlyCredits + 500);
     expect(PLAN_ENTITLEMENTS.GO.workspaces).toBe(-1);
     expect(PLAN_CATALOG.GO.priceMonthly).toBe(99);
-    // Yearly follows monthly when only monthly was changed.
-    expect(PLAN_CATALOG.GO.priceYearly).toBe(990);
+    // Yearly does NOT follow monthly. Lemon Squeezy charges whatever its own yearly
+    // variant says, so a derived figure would put a number on the pricing page that
+    // nobody typed and nothing charges — see the note in `setPlanOverrides`. An admin
+    // who wants the yearly price changed sets it.
+    expect(PLAN_CATALOG.GO.priceYearly).toBe(baseConfig.priceYearly);
     // Untouched fields keep their defaults.
     expect(PLAN_ENTITLEMENTS.GO.seats).toBe(base.seats);
     expect(getActivePlanOverrides().GO?.monthlyCredits).toBe(base.monthlyCredits + 500);

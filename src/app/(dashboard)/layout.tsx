@@ -5,9 +5,20 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { getWorkspaceContext } from "@/lib/workspace/active";
 import { isAdminUser } from "@/lib/admin/auth";
 import { getAccountBlock } from "@/lib/admin/block";
-import { ensureRuntimeConfig, getFlags } from "@/lib/admin/runtimeConfig";
+import {
+  ensureRuntimeConfig,
+  getFlags,
+  runtimeConfigLoaded,
+  DEFAULT_FLAGS,
+  type FeatureFlags,
+} from "@/lib/admin/runtimeConfig";
 import { touchLastSeen } from "@/lib/admin/presence";
 import prisma from "@/lib/db";
+
+/** Resolves to `value` after `ms`, so one slow read cannot hold up the shell. */
+function fallbackAfter<T>(ms: number, value: T): Promise<T> {
+  return new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+}
 
 export default async function DashboardLayout({
   children,
@@ -21,29 +32,30 @@ export default async function DashboardLayout({
   let isAdmin = false;
   let block: { blockedAt: string; reason: string } | null = null;
   let maintenance: string | null = null;
+  let flags: FeatureFlags = DEFAULT_FLAGS;
 
   if (userId) {
     try {
       // The workspace list and the active id come from the same read, so the
       // header can never highlight a workspace the pages are not loading.
-      const [user, context, admin, accountBlock] = await Promise.all([
-        Promise.race([
-          currentUser(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
-        ]),
+      const [user, context, admin, accountBlock, configReady] = await Promise.all([
+        Promise.race([currentUser(), fallbackAfter(2500, null)]),
         Promise.race([
           getWorkspaceContext(userId),
-          new Promise<{ workspaces: { id: string; name: string }[]; activeWorkspaceId: null }>(
-            (resolve) => setTimeout(() => resolve({ workspaces: [], activeWorkspaceId: null }), 2500)
-          ),
+          fallbackAfter(2500, {
+            workspaces: [] as { id: string; name: string }[],
+            activeWorkspaceId: null,
+          }),
         ]),
-        Promise.race([isAdminUser(userId), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2500))]).catch(
+        Promise.race([isAdminUser(userId), fallbackAfter(2500, false)]).catch(() => false),
+        // Suspension is independent of the settings cache — it only needs the
+        // admin schema and one row — so it is raced on its own. Chaining it
+        // behind `ensureRuntimeConfig()` meant a slow settings read decided
+        // whether a suspended account was caught at all.
+        Promise.race([getAccountBlock(userId), fallbackAfter(2500, null)]).catch(() => null),
+        Promise.race([ensureRuntimeConfig().then(() => true), fallbackAfter(2500, false)]).catch(
           () => false
         ),
-        Promise.race([
-          ensureRuntimeConfig().then(() => getAccountBlock(userId)),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
-        ]).catch(() => null),
       ]);
 
       const primaryEmail = user?.emailAddresses?.[0]?.emailAddress || "";
@@ -80,10 +92,16 @@ export default async function DashboardLayout({
       activeWorkspaceId = context?.activeWorkspaceId ?? null;
       isAdmin = admin;
       block = accountBlock;
-      const flags = getFlags();
-      maintenance = flags.maintenanceEnabled
-        ? flags.maintenanceMessage || "Scheduled maintenance is in progress. Some features may be briefly unavailable."
-        : null;
+      // Only read the flags when the settings really loaded. On a cold instance
+      // whose read timed out, `getFlags()` answers with the code defaults, which
+      // would quietly drop the maintenance banner the admin switched on.
+      if (configReady && runtimeConfigLoaded()) {
+        flags = getFlags();
+        maintenance = flags.maintenanceEnabled
+          ? flags.maintenanceMessage ||
+            "Scheduled maintenance is in progress. Some features may be briefly unavailable."
+          : null;
+      }
       touchLastSeen(userId);
     } catch (err) {
       console.warn("[DashboardLayout] Fast fallback for user/workspaces:", err);
@@ -98,6 +116,7 @@ export default async function DashboardLayout({
       isAdmin={isAdmin}
       accountBlock={block}
       maintenanceMessage={maintenance}
+      affiliateEnabled={flags.affiliateEnabled}
     >
       {/* Watches for admin changes so an open tab never serves a stale catalogue. */}
       {userId && <ConfigSync />}
